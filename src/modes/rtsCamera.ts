@@ -1,0 +1,110 @@
+// Classic RTS camera: keyboard/edge pan, right-drag & space-drag grab pan,
+// wheel zoom (28–140), Q/E 90° rotation, smooth exponential damping. The
+// look-target follows terrain height.
+import { MathUtils, PerspectiveCamera, Vector3 } from 'three';
+import type { Input } from '../engine/input';
+import { sampleHeight, type Heightfield } from '../sim/heightfield';
+
+export const ZOOM_MIN = 28;
+export const ZOOM_MAX = 140;
+const PITCH_NEAR = MathUtils.degToRad(46);
+const PITCH_FAR = MathUtils.degToRad(62);
+const EDGE_MARGIN = 14;
+
+function damp(current: number, goal: number, lambda: number, dt: number): number {
+  return goal + (current - goal) * Math.exp(-lambda * dt);
+}
+
+export class RtsCameraRig {
+  private readonly goal = new Vector3(0, 0, 0);
+  private readonly target = new Vector3(0, 0, 0);
+  private yaw = Math.PI * 0.25;
+  private yawGoal = this.yaw;
+  private dist = 90;
+  private distGoal = 90;
+
+  private readonly fwd = new Vector3();
+  private readonly right = new Vector3();
+  private readonly camOffset = new Vector3();
+
+  constructor(
+    private readonly camera: PerspectiveCamera,
+    private readonly input: Input,
+    private readonly hf: Heightfield,
+  ) {
+    input.onKeyDown('KeyQ', () => {
+      this.yawGoal += Math.PI / 2;
+    });
+    input.onKeyDown('KeyE', () => {
+      this.yawGoal -= Math.PI / 2;
+    });
+  }
+
+  get distance(): number {
+    return this.dist;
+  }
+
+  get yawDegrees(): number {
+    return MathUtils.radToDeg(this.yaw);
+  }
+
+  update(dt: number): void {
+    const input = this.input;
+
+    const wheel = input.consumeWheel();
+    if (wheel !== 0) {
+      this.distGoal = MathUtils.clamp(this.distGoal * Math.exp(wheel * 0.0012), ZOOM_MIN, ZOOM_MAX);
+    }
+
+    this.fwd.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    this.right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+
+    // grab pan: right mouse drag, or any mouse movement while Space is held
+    const grabbing = input.isButton(2) || input.isDown('Space');
+    const delta = input.consumeMouseDelta();
+    if (grabbing && (delta.dx !== 0 || delta.dy !== 0)) {
+      const worldPerPixel = (2 * this.dist * Math.tan(MathUtils.degToRad(this.camera.fov) / 2)) / window.innerHeight;
+      this.goal.addScaledVector(this.right, -delta.dx * worldPerPixel);
+      this.goal.addScaledVector(this.fwd, delta.dy * worldPerPixel);
+    }
+
+    // keyboard + screen-edge pan
+    let mx = 0;
+    let my = 0;
+    if (input.isDown('KeyW') || input.isDown('ArrowUp')) my += 1;
+    if (input.isDown('KeyS') || input.isDown('ArrowDown')) my -= 1;
+    if (input.isDown('KeyA') || input.isDown('ArrowLeft')) mx -= 1;
+    if (input.isDown('KeyD') || input.isDown('ArrowRight')) mx += 1;
+    if (!grabbing && input.pointerInWindow && document.hasFocus()) {
+      if (input.mouseX <= EDGE_MARGIN) mx -= 1;
+      if (input.mouseX >= window.innerWidth - EDGE_MARGIN) mx += 1;
+      if (input.mouseY <= EDGE_MARGIN) my += 1;
+      if (input.mouseY >= window.innerHeight - EDGE_MARGIN) my -= 1;
+    }
+    if (mx !== 0 || my !== 0) {
+      const speed = (this.dist * 0.9 + 12) / Math.hypot(mx, my);
+      this.goal.addScaledVector(this.right, mx * speed * dt);
+      this.goal.addScaledVector(this.fwd, my * speed * dt);
+    }
+
+    const bound = this.hf.size / 2 - 10;
+    this.goal.x = MathUtils.clamp(this.goal.x, -bound, bound);
+    this.goal.z = MathUtils.clamp(this.goal.z, -bound, bound);
+    this.goal.y = Math.max(sampleHeight(this.hf, this.goal.x, this.goal.z), this.hf.waterLevel);
+
+    this.target.x = damp(this.target.x, this.goal.x, 9, dt);
+    this.target.z = damp(this.target.z, this.goal.z, 9, dt);
+    this.target.y = damp(this.target.y, this.goal.y, 5, dt);
+    this.yaw = damp(this.yaw, this.yawGoal, 7, dt);
+    this.dist = damp(this.dist, this.distGoal, 7, dt);
+
+    const zoomT = (this.dist - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN);
+    const pitch = MathUtils.lerp(PITCH_NEAR, PITCH_FAR, zoomT);
+    this.camOffset.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)).multiplyScalar(Math.cos(pitch) * this.dist);
+    this.camOffset.y = Math.sin(pitch) * this.dist;
+
+    this.camera.position.copy(this.target).add(this.camOffset);
+    this.camera.lookAt(this.target);
+    this.camera.updateMatrixWorld();
+  }
+}
