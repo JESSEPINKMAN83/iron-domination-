@@ -35,7 +35,7 @@ export class Hud {
       'IRON DOMINION — Phase 2',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  right-drag or hold Space + move',
-      'Tilt      Cmd + left-drag up/down',
+      'Look      Cmd + left-drag free aim',
       'Zoom      mouse wheel (28–140)',
       'Rotate    Q / E (90°)',
       'Overlay   F3 walkability debug',

@@ -1,5 +1,5 @@
 // Classic RTS camera: keyboard/edge pan, right-drag & space-drag grab pan,
-// wheel zoom (28–140), Q/E 90° rotation, saved Command-left-drag pitch,
+// wheel zoom (28–140), Q/E 90° rotation, saved Command-left-drag free look,
 // smooth exponential damping. The look-target follows terrain height.
 import { MathUtils, PerspectiveCamera, Vector3 } from 'three';
 import type { Input } from '../engine/input';
@@ -12,6 +12,7 @@ const PITCH_FAR = MathUtils.degToRad(62);
 const PITCH_OFFSET_MIN = MathUtils.degToRad(-24);
 const PITCH_OFFSET_MAX = MathUtils.degToRad(18);
 const PITCH_STORAGE_KEY = 'iron-dominion.rtsCamera.pitchOffset';
+const YAW_STORAGE_KEY = 'iron-dominion.rtsCamera.yaw';
 const EDGE_MARGIN = 14;
 
 function damp(current: number, goal: number, lambda: number, dt: number): number {
@@ -21,7 +22,7 @@ function damp(current: number, goal: number, lambda: number, dt: number): number
 export class RtsCameraRig {
   private readonly goal = new Vector3(0, 0, 0);
   private readonly target = new Vector3(0, 0, 0);
-  private yaw = Math.PI * 0.25;
+  private yaw = readSavedYaw();
   private yawGoal = this.yaw;
   private dist = 90;
   private distGoal = 90;
@@ -68,14 +69,15 @@ export class RtsCameraRig {
     this.fwd.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     this.right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
-    // Command-left drag tilts the RTS camera up/down and persists the preference.
-    const pitchAdjusting = input.isMetaDown() && input.isButton(0);
+    // Command-left drag freely aims the RTS camera and persists the preference.
+    const lookAdjusting = input.isMetaDown() && input.isButton(0);
     // grab pan: right mouse drag, or any mouse movement while Space is held
-    const grabbing = !pitchAdjusting && (input.isButton(2) || input.isDown('Space'));
+    const grabbing = !lookAdjusting && (input.isButton(2) || input.isDown('Space'));
     const delta = input.consumeMouseDelta();
-    if (pitchAdjusting && delta.dy !== 0) {
+    if (lookAdjusting && (delta.dx !== 0 || delta.dy !== 0)) {
+      this.yawGoal = normalizeAngle(this.yawGoal - delta.dx * 0.006);
       this.pitchOffsetGoal = MathUtils.clamp(this.pitchOffsetGoal + delta.dy * 0.003, PITCH_OFFSET_MIN, PITCH_OFFSET_MAX);
-      savePitchOffset(this.pitchOffsetGoal);
+      saveLook(this.yawGoal, this.pitchOffsetGoal);
     }
     if (grabbing && (delta.dx !== 0 || delta.dy !== 0)) {
       const worldPerPixel = (2 * this.dist * Math.tan(MathUtils.degToRad(this.camera.fov) / 2)) / window.innerHeight;
@@ -110,7 +112,7 @@ export class RtsCameraRig {
     this.target.x = damp(this.target.x, this.goal.x, 9, dt);
     this.target.z = damp(this.target.z, this.goal.z, 9, dt);
     this.target.y = damp(this.target.y, this.goal.y, 5, dt);
-    this.yaw = damp(this.yaw, this.yawGoal, 7, dt);
+    this.yaw = dampAngle(this.yaw, this.yawGoal, 7, dt);
     this.dist = damp(this.dist, this.distGoal, 7, dt);
     this.pitchOffset = damp(this.pitchOffset, this.pitchOffsetGoal, 9, dt);
 
@@ -135,6 +137,22 @@ function readSavedPitchOffset(): number {
   return Number.isFinite(n) ? MathUtils.clamp(n, PITCH_OFFSET_MIN, PITCH_OFFSET_MAX) : 0;
 }
 
-function savePitchOffset(value: number): void {
-  window.localStorage.setItem(PITCH_STORAGE_KEY, String(value));
+function readSavedYaw(): number {
+  const raw = window.localStorage.getItem(YAW_STORAGE_KEY);
+  const n = raw === null ? Math.PI * 0.25 : Number(raw);
+  return Number.isFinite(n) ? normalizeAngle(n) : Math.PI * 0.25;
+}
+
+function saveLook(yaw: number, pitchOffset: number): void {
+  window.localStorage.setItem(YAW_STORAGE_KEY, String(normalizeAngle(yaw)));
+  window.localStorage.setItem(PITCH_STORAGE_KEY, String(pitchOffset));
+}
+
+function dampAngle(current: number, goal: number, lambda: number, dt: number): number {
+  const delta = Math.atan2(Math.sin(goal - current), Math.cos(goal - current));
+  return normalizeAngle(current + delta * (1 - Math.exp(-lambda * dt)));
+}
+
+function normalizeAngle(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
 }

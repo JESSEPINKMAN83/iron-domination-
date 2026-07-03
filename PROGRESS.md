@@ -60,8 +60,8 @@
 - Added browser RTS controls: click select, shift-add, drag-box selection, double-click
   select visible type, right-click move, S stop, and control groups 1–9 with Cmd/Ctrl+number.
 - Added simple low-poly tank rendering with selection rings and HUD counts for units/selected.
-- Added user-requested saved RTS camera tilt: Cmd + left-drag up/down adjusts pitch and
-  persists the preference in `localStorage`.
+- Added user-requested saved RTS camera free look: Cmd + left-drag adjusts yaw side-to-side
+  and pitch up/down, persisting both preferences in `localStorage`.
 - Fixed camera startup drift by disabling edge pan until the pointer has actually entered/moved.
 - Browser verification passed on Vite dev server: visible 120-unit company, drag-selected
   113 units in view, right-click move order flowed the group out of formation, HUD stayed at
@@ -76,7 +76,7 @@
 - Attack-move records the order flag but combat/targeting are Phase 4, so it behaves like move.
 - Rally points on production buildings are not visible yet because buildings/production start
   in Phase 3.
-- Automated browser tooling did not deliver a real Cmd modifier for the camera tilt gesture;
+- Automated browser tooling did not deliver a real Cmd modifier for the camera free-look gesture;
   the implementation handles both keyboard Meta state and mouse-event `metaKey`, and the HUD
   exposes pitch for manual verification.
 
