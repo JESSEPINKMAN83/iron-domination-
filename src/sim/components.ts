@@ -67,6 +67,30 @@ export interface Collider {
   radius: number;
 }
 
+export interface Building {
+  kind: string;
+  label: string;
+  footprint: { w: number; h: number };
+  powerProduced: number;
+  powerUsed: number;
+  complete: boolean;
+  buildProgress: number;
+}
+
+export interface Producer {
+  queue: ProductionJob[];
+  active?: ProductionJob;
+  rally?: { x: number; z: number };
+}
+
+export interface ProductionJob {
+  kind: string;
+  label: string;
+  remaining: number;
+  total: number;
+  cost: number;
+}
+
 export interface Entity {
   id: number;
   name?: string;
@@ -84,6 +108,8 @@ export interface Entity {
   builder?: Builder;
   possessable?: Possessable;
   collider?: Collider;
+  building?: Building;
+  producer?: Producer;
 }
 
 export function copyTransform(t: Transform): Transform {

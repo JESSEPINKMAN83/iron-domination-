@@ -5,6 +5,13 @@ import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
 import type { UnitView } from '../render/unitView';
 
+export interface PlacementControls {
+  isPlacing(): boolean;
+  preview(x: number, z: number): void;
+  confirm(x: number, z: number): void;
+  cancel(): void;
+}
+
 interface PointerState {
   x: number;
   y: number;
@@ -26,6 +33,7 @@ export class RtsController {
     private readonly hf: Heightfield,
     private readonly sim: GameSim,
     private readonly units: UnitView,
+    private readonly placement?: PlacementControls,
   ) {
     this.selectionBox = document.createElement('div');
     this.selectionBox.style.cssText =
@@ -44,11 +52,20 @@ export class RtsController {
 
   private onPointerDown(e: PointerEvent): void {
     if (e.metaKey && e.button === 0) return;
+    if (this.placement?.isPlacing()) {
+      this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
+      return;
+    }
     this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
     if (e.button === 0) this.dom.setPointerCapture?.(e.pointerId);
   }
 
   private onPointerMove(e: PointerEvent): void {
+    if (this.placement?.isPlacing()) {
+      const p = this.terrainPoint(e.clientX, e.clientY);
+      if (p) this.placement.preview(p.x, p.z);
+      return;
+    }
     if (!this.pointerDown || this.pointerDown.button !== 0 || e.metaKey) return;
     const dx = e.clientX - this.pointerDown.x;
     const dy = e.clientY - this.pointerDown.y;
@@ -73,6 +90,12 @@ export class RtsController {
     const dx = e.clientX - down.x;
     const dy = e.clientY - down.y;
     const dragged = Math.hypot(dx, dy) > 6;
+    if (this.placement?.isPlacing()) {
+      const p = this.terrainPoint(e.clientX, e.clientY);
+      if (down.button === 0 && p) this.placement.confirm(p.x, p.z);
+      if (down.button === 2) this.placement.cancel();
+      return;
+    }
     if (down.button === 0 && !e.metaKey) {
       if (dragged) {
         const minX = Math.min(down.x, e.clientX);
@@ -113,6 +136,11 @@ export class RtsController {
   }
 
   private onKeyDown(e: KeyboardEvent): void {
+    if (e.code === 'Escape' && this.placement?.isPlacing()) {
+      this.placement.cancel();
+      e.preventDefault();
+      return;
+    }
     if (e.code === 'KeyS' && selectedEntities(this.sim).length > 0) {
       stopEntities(selectedEntities(this.sim));
       e.preventDefault();

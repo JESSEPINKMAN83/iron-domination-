@@ -46,25 +46,29 @@ export function spawnDebugTanks(sim: GameSim, hf: Heightfield, count = 120, seed
     if (!cell) continue;
     const p = sim.nav.cellCenter(cell.x, cell.y);
     if (Math.hypot(p.x - x, p.z - z) > 4.5) continue;
-    const entity = sim.world.add({
-      id: nextEntityId++,
-      name: `M-17 ${spawned.length + 1}`,
-      transform: { x: p.x, z: p.z, rot: Math.PI * 0.25 },
-      previousTransform: { x: p.x, z: p.z, rot: Math.PI * 0.25 },
-      velocity: { x: 0, z: 0 },
-      health: { current: 100, max: 100 },
-      team: { id: 1 },
-      selectable: { selected: false, type: 'tank', radius: 2.4 },
-      mover: { speed: 18, radius: 2.2 },
-      weapon: { kind: 'cannon', range: 78, cooldown: 0 },
-      turret: { yaw: Math.PI * 0.25, turnRate: 1.4 },
-      vision: { radius: 120 },
-      possessable: { socketHeight: 2.4 },
-      collider: { radius: 2.2 },
-    });
+    const entity = spawnTankAt(sim, p.x, p.z, `M-17 ${spawned.length + 1}`);
     spawned.push(entity);
   }
   return spawned;
+}
+
+export function spawnTankAt(sim: GameSim, x: number, z: number, name: string): Entity {
+  return sim.world.add({
+    id: nextEntityId++,
+    name,
+    transform: { x, z, rot: Math.PI * 0.25 },
+    previousTransform: { x, z, rot: Math.PI * 0.25 },
+    velocity: { x: 0, z: 0 },
+    health: { current: 100, max: 100 },
+    team: { id: 1 },
+    selectable: { selected: false, type: 'tank', radius: 2.4 },
+    mover: { speed: 18, radius: 2.2 },
+    weapon: { kind: 'cannon', range: 78, cooldown: 0 },
+    turret: { yaw: Math.PI * 0.25, turnRate: 1.4 },
+    vision: { radius: 120 },
+    possessable: { socketHeight: 2.4 },
+    collider: { radius: 2.2 },
+  });
 }
 
 export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number, targetZ: number, attackMove = false): void {

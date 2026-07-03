@@ -20,38 +20,53 @@ export class UnitView {
   readonly group = new Group();
   private readonly objects = new Map<Entity, Object3D>();
   private readonly selectedRings = new Map<Entity, Mesh>();
-  private readonly entities: Entity[];
+  private readonly entities: Entity[] = [];
+  private readonly hullMaterial: Material;
+  private readonly turretMaterial: Material;
+  private readonly accentMaterial: Material;
+  private readonly ringMaterial: Material;
 
   constructor(entities: Entity[], private readonly hf: Heightfield, ctx: RenderContext) {
-    this.entities = entities;
-    const hullMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x65787f, roughness: 0.78, metalness: 0.08 }));
-    const turretMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x3f535a, roughness: 0.82, metalness: 0.12 }));
-    const accentMaterial = ctx.setupLitMaterial(
+    this.hullMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x65787f, roughness: 0.78, metalness: 0.08 }));
+    this.turretMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x3f535a, roughness: 0.82, metalness: 0.12 }));
+    this.accentMaterial = ctx.setupLitMaterial(
       new MeshStandardMaterial({ color: 0xf0c85a, emissive: 0x2b1d00, roughness: 0.7, metalness: 0.1 }),
     );
-    const ringMaterial = new MeshBasicMaterial({ color: 0x7df27d, transparent: true, opacity: 0.72, depthWrite: false });
+    this.ringMaterial = new MeshBasicMaterial({ color: 0x7df27d, transparent: true, opacity: 0.72, depthWrite: false });
 
-    for (const entity of entities) {
-      const tank = createTankObject(hullMaterial, turretMaterial, accentMaterial);
-      tank.castShadow = true;
-      tank.traverse((obj) => {
-        obj.castShadow = true;
-        obj.receiveShadow = true;
-      });
-      this.objects.set(entity, tank);
-      this.group.add(tank);
+    for (const entity of entities) this.addEntity(entity);
+  }
 
-      const ring = new Mesh(new RingGeometry(2.8, 3.15, 32), ringMaterial);
-      ring.rotation.x = -Math.PI / 2;
-      ring.visible = false;
-      ring.renderOrder = 30;
-      this.selectedRings.set(entity, ring);
-      this.group.add(ring);
-    }
+  addEntity(entity: Entity): void {
+    if (this.objects.has(entity)) return;
+    this.entities.push(entity);
+    const unit =
+      entity.selectable?.type === 'infantry'
+        ? createInfantryObject(this.hullMaterial, this.accentMaterial)
+        : createTankObject(this.hullMaterial, this.turretMaterial, this.accentMaterial);
+    unit.castShadow = true;
+    unit.traverse((obj) => {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    });
+    this.objects.set(entity, unit);
+    this.group.add(unit);
+
+    const radius = entity.selectable?.type === 'infantry' ? 1.7 : 2.8;
+    const ring = new Mesh(new RingGeometry(radius, radius + 0.35, 32), this.ringMaterial);
+    ring.rotation.x = -Math.PI / 2;
+    ring.visible = false;
+    ring.renderOrder = 30;
+    this.selectedRings.set(entity, ring);
+    this.group.add(ring);
   }
 
   attach(scene: Scene): void {
     scene.add(this.group);
+  }
+
+  count(): number {
+    return this.entities.length;
   }
 
   update(alpha: number): void {
@@ -136,6 +151,20 @@ function createTankObject(hullMaterial: Material, turretMaterial: Material, acce
   const hatch = new Mesh(new CylinderGeometry(0.45, 0.55, 0.2, 8), turretMaterial);
   hatch.position.set(0, 1.7, -0.35);
   group.add(hatch);
+  return group;
+}
+
+function createInfantryObject(bodyMaterial: Material, accentMaterial: Material): Group {
+  const group = new Group();
+  const body = new Mesh(new BoxGeometry(0.85, 1.4, 0.55), bodyMaterial);
+  body.position.y = 0.9;
+  group.add(body);
+  const head = new Mesh(new BoxGeometry(0.55, 0.45, 0.55), bodyMaterial);
+  head.position.y = 1.7;
+  group.add(head);
+  const rifle = new Mesh(new BoxGeometry(0.16, 0.16, 1.4), accentMaterial);
+  rifle.position.set(0.25, 1.25, 0.55);
+  group.add(rifle);
   return group;
 }
 

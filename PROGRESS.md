@@ -80,5 +80,40 @@
   the implementation handles both keyboard Meta state and mouse-event `metaKey`, and the HUD
   exposes pitch for manual verification.
 
+## Phase 3 — Economy, Construction & Production ✅ (2026-07-04, verified)
+
+### Done
+- Added Phase 3 content definitions for buildable structures and trainable units:
+  Power Plant, Refinery, Barracks, Factory, Rifle Team, and M-17 tank production.
+- Added renderer-independent economy systems in `/src/sim`: credits, ledger entries,
+  prerequisite checks, placement validation, construction progress, power production/use,
+  refinery income ticks, producer queues, brownout production slowdown, and unit spawning.
+- Added a starting Command Yard with 20 power and a renderable building footprint.
+- Added building placement mode from the browser RTS controller: sidebar structure button
+  enters placement, terrain hover previews footprint validity, left-click confirms, Escape
+  cancels, and invalid overlaps/terrain are rejected without spending credits.
+- Added placeholder building rendering with construction-growth scale and green/red placement
+  ghost feedback.
+- Added a right-side Phase 3 sidebar with structure/infantry/vehicle tabs, credits, power,
+  ledger status, prerequisite lockouts, and producer progress lines.
+- Added dynamic unit rendering for produced units, including infantry placeholders, and HUD
+  unit counts now include every rendered unit rather than only the initial tanks.
+- Stabilized sidebar DOM updates so buttons are not destroyed and recreated every frame.
+- Added an economy integration test covering build order, construction completion, power,
+  refinery income, two-Factory tank production, ledger totals, and spawned entities.
+- Browser verification passed on Vite dev server: Phase 3 help/sidebar rendered, starting
+  state showed 4600 credits and +20 power, invalid overlap placement stayed blocked, valid
+  Power Plant placement charged 300 credits, completed after build time, raised power to
+  +60, and unlocked Refinery/Barracks while Factory stayed locked behind Refinery.
+- `npm test` passes (8 Vitest tests). `npm run build` passes.
+
+### Known issues / notes
+- Building art is primitive blockout geometry and intentionally not final.
+- Placement feedback is functional but still basic; there is no rotated footprint, build grid
+  decal, or explicit textual reason near the cursor yet.
+- Production queues work, but rally-point visuals and building-specific spawn doors are still
+  future polish.
+- Refineries generate simplified periodic income without harvesters or ore depletion.
+
 ### Next
-- Phase 3 — Economy, construction, production, building placement, power, and sidebar.
+- Phase 4 — Combat, targeting, weapons, damage, death, and attack-move behavior.
