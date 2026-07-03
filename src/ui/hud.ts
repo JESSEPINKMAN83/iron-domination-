@@ -9,6 +9,9 @@ export interface HudStats {
   instances: number;
   zoom: number;
   yawDeg: number;
+  pitchDeg: number;
+  units: number;
+  selected: number;
 }
 
 const PANEL_CSS =
@@ -29,9 +32,10 @@ export class Hud {
     this.help = document.createElement('div');
     this.help.style.cssText = PANEL_CSS + 'bottom:12px;left:12px;';
     this.help.textContent = [
-      'IRON DOMINION — Phase 1',
+      'IRON DOMINION — Phase 2',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  right-drag or hold Space + move',
+      'Tilt      Cmd + left-drag up/down',
       'Zoom      mouse wheel (28–140)',
       'Rotate    Q / E (90°)',
       'Overlay   F3 walkability debug',
@@ -52,7 +56,8 @@ export class Hud {
       `FPS ${s.fps.toFixed(1)}  (${s.frameMs.toFixed(1)} ms)`,
       `draw calls ${s.drawCalls} · tris ${tris}`,
       `sim ${s.simHz} Hz · instances ${s.instances}`,
-      `zoom ${s.zoom.toFixed(1)} · yaw ${Math.round(s.yawDeg)}°`,
+      `units ${s.units} · selected ${s.selected}`,
+      `zoom ${s.zoom.toFixed(1)} · yaw ${Math.round(s.yawDeg)}° · pitch ${Math.round(s.pitchDeg)}°`,
     ].join('\n');
   }
 }

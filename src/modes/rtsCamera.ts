@@ -1,6 +1,6 @@
 // Classic RTS camera: keyboard/edge pan, right-drag & space-drag grab pan,
-// wheel zoom (28–140), Q/E 90° rotation, smooth exponential damping. The
-// look-target follows terrain height.
+// wheel zoom (28–140), Q/E 90° rotation, saved Command-left-drag pitch,
+// smooth exponential damping. The look-target follows terrain height.
 import { MathUtils, PerspectiveCamera, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
@@ -9,6 +9,9 @@ export const ZOOM_MIN = 28;
 export const ZOOM_MAX = 140;
 const PITCH_NEAR = MathUtils.degToRad(46);
 const PITCH_FAR = MathUtils.degToRad(62);
+const PITCH_OFFSET_MIN = MathUtils.degToRad(-24);
+const PITCH_OFFSET_MAX = MathUtils.degToRad(18);
+const PITCH_STORAGE_KEY = 'iron-dominion.rtsCamera.pitchOffset';
 const EDGE_MARGIN = 14;
 
 function damp(current: number, goal: number, lambda: number, dt: number): number {
@@ -22,6 +25,8 @@ export class RtsCameraRig {
   private yawGoal = this.yaw;
   private dist = 90;
   private distGoal = 90;
+  private pitchOffset = readSavedPitchOffset();
+  private pitchOffsetGoal = this.pitchOffset;
 
   private readonly fwd = new Vector3();
   private readonly right = new Vector3();
@@ -48,6 +53,10 @@ export class RtsCameraRig {
     return MathUtils.radToDeg(this.yaw);
   }
 
+  get pitchDegrees(): number {
+    return MathUtils.radToDeg(this.currentPitch());
+  }
+
   update(dt: number): void {
     const input = this.input;
 
@@ -59,9 +68,15 @@ export class RtsCameraRig {
     this.fwd.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     this.right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
+    // Command-left drag tilts the RTS camera up/down and persists the preference.
+    const pitchAdjusting = input.isMetaDown() && input.isButton(0);
     // grab pan: right mouse drag, or any mouse movement while Space is held
-    const grabbing = input.isButton(2) || input.isDown('Space');
+    const grabbing = !pitchAdjusting && (input.isButton(2) || input.isDown('Space'));
     const delta = input.consumeMouseDelta();
+    if (pitchAdjusting && delta.dy !== 0) {
+      this.pitchOffsetGoal = MathUtils.clamp(this.pitchOffsetGoal + delta.dy * 0.003, PITCH_OFFSET_MIN, PITCH_OFFSET_MAX);
+      savePitchOffset(this.pitchOffsetGoal);
+    }
     if (grabbing && (delta.dx !== 0 || delta.dy !== 0)) {
       const worldPerPixel = (2 * this.dist * Math.tan(MathUtils.degToRad(this.camera.fov) / 2)) / window.innerHeight;
       this.goal.addScaledVector(this.right, -delta.dx * worldPerPixel);
@@ -97,9 +112,9 @@ export class RtsCameraRig {
     this.target.y = damp(this.target.y, this.goal.y, 5, dt);
     this.yaw = damp(this.yaw, this.yawGoal, 7, dt);
     this.dist = damp(this.dist, this.distGoal, 7, dt);
+    this.pitchOffset = damp(this.pitchOffset, this.pitchOffsetGoal, 9, dt);
 
-    const zoomT = (this.dist - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN);
-    const pitch = MathUtils.lerp(PITCH_NEAR, PITCH_FAR, zoomT);
+    const pitch = this.currentPitch();
     this.camOffset.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)).multiplyScalar(Math.cos(pitch) * this.dist);
     this.camOffset.y = Math.sin(pitch) * this.dist;
 
@@ -107,4 +122,19 @@ export class RtsCameraRig {
     this.camera.lookAt(this.target);
     this.camera.updateMatrixWorld();
   }
+
+  private currentPitch(): number {
+    const zoomT = (this.dist - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN);
+    return MathUtils.clamp(MathUtils.lerp(PITCH_NEAR, PITCH_FAR, zoomT) + this.pitchOffset, MathUtils.degToRad(25), MathUtils.degToRad(78));
+  }
+}
+
+function readSavedPitchOffset(): number {
+  const raw = window.localStorage.getItem(PITCH_STORAGE_KEY);
+  const n = raw === null ? 0 : Number(raw);
+  return Number.isFinite(n) ? MathUtils.clamp(n, PITCH_OFFSET_MIN, PITCH_OFFSET_MAX) : 0;
+}
+
+function savePitchOffset(value: number): void {
+  window.localStorage.setItem(PITCH_STORAGE_KEY, String(value));
 }

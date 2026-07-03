@@ -45,3 +45,40 @@
 
 ### Next
 - Phase 2 — ECS simulation core & movement (miniplex, flow fields, selection).
+
+## Phase 2 — ECS Simulation Core & Movement ✅ (2026-07-04, verified)
+
+### Done
+- Added `miniplex` ECS and Phase 2 components: `Transform`, `Velocity`, `Health`,
+  `Team`, `Selectable`, `Mover`, `Weapon`, `Turret`, `Vision`, `Cargo`, `Builder`,
+  `Possessable`, and `Collider`.
+- Added renderer-independent navigation in `/src/sim`: walkability-derived
+  `NavigationGrid`, deterministic `FlowField`, group move orders, formation offsets,
+  stop orders, local separation, terrain-edge sliding, and sim hashing.
+- Added 120 placeholder tanks spawned into the fixed 30 Hz sim; render interpolation
+  uses previous/current transforms.
+- Added browser RTS controls: click select, shift-add, drag-box selection, double-click
+  select visible type, right-click move, S stop, and control groups 1–9 with Cmd/Ctrl+number.
+- Added simple low-poly tank rendering with selection rings and HUD counts for units/selected.
+- Added user-requested saved RTS camera tilt: Cmd + left-drag up/down adjusts pitch and
+  persists the preference in `localStorage`.
+- Fixed camera startup drift by disabling edge pan until the pointer has actually entered/moved.
+- Browser verification passed on Vite dev server: visible 120-unit company, drag-selected
+  113 units in view, right-click move order flowed the group out of formation, HUD stayed at
+  fixed `sim 30 Hz`, and frame rate remained above 60 fps during verification.
+- `npm test` passes (7 Vitest tests). `npm run build` passes.
+
+### Known issues / notes
+- Tank art is still procedural placeholder and intentionally not final.
+- Unit rendering is currently individual meshes, so draw calls are high when all 120 selected;
+  performance was still above 60 fps in verification, but a later phase should batch/instance
+  units once the visual language settles.
+- Attack-move records the order flag but combat/targeting are Phase 4, so it behaves like move.
+- Rally points on production buildings are not visible yet because buildings/production start
+  in Phase 3.
+- Automated browser tooling did not deliver a real Cmd modifier for the camera tilt gesture;
+  the implementation handles both keyboard Meta state and mouse-event `metaKey`, and the HUD
+  exposes pitch for manual verification.
+
+### Next
+- Phase 3 — Economy, construction, production, building placement, power, and sidebar.

@@ -2,10 +2,11 @@
 // presses can also be subscribed via onKeyDown.
 export class Input {
   readonly keys = new Set<string>();
-  mouseX = 0;
-  mouseY = 0;
+  mouseX = window.innerWidth / 2;
+  mouseY = window.innerHeight / 2;
   buttons = 0;
-  pointerInWindow = true;
+  pointerInWindow = false;
+  private metaPointer = false;
 
   private wheelAcc = 0;
   private dxAcc = 0;
@@ -26,17 +27,23 @@ export class Input {
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.buttons = 0;
+      this.metaPointer = false;
     });
     window.addEventListener('mousemove', (e) => {
       this.mouseX = e.clientX;
       this.mouseY = e.clientY;
+      this.pointerInWindow = true;
+      this.metaPointer = e.metaKey;
       this.dxAcc += e.movementX;
       this.dyAcc += e.movementY;
     });
     target.addEventListener('mousedown', (e) => {
+      if (e.metaKey && e.button === 0) e.preventDefault();
+      this.metaPointer = e.metaKey;
       this.buttons |= 1 << e.button;
     });
     window.addEventListener('mouseup', (e) => {
+      this.metaPointer = e.metaKey;
       this.buttons &= ~(1 << e.button);
     });
     target.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -67,6 +74,10 @@ export class Input {
 
   isButton(button: number): boolean {
     return (this.buttons & (1 << button)) !== 0;
+  }
+
+  isMetaDown(): boolean {
+    return this.metaPointer || this.keys.has('MetaLeft') || this.keys.has('MetaRight');
   }
 
   consumeWheel(): number {

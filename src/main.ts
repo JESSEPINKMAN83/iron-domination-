@@ -3,13 +3,16 @@ import { MAP01 } from './content/map01';
 import { Input } from './engine/input';
 import { GameLoop, SIM_HZ } from './engine/loop';
 import { RtsCameraRig } from './modes/rtsCamera';
+import { RtsController } from './modes/rtsController';
 import { AssetPipeline } from './render/assets';
 import { InstancedMeshRegistry } from './render/instancing';
 import { RenderContext } from './render/renderer';
 import { buildScatter } from './render/scatter';
 import { TerrainView } from './render/terrainMesh';
+import { UnitView } from './render/unitView';
 import { WaterView } from './render/water';
 import { generateHeightfield } from './sim/heightfield';
+import { createGameSim, spawnDebugTanks, stepSim } from './sim/world';
 import { Hud } from './ui/hud';
 
 const nextFrame = (): Promise<number> => new Promise((resolve) => requestAnimationFrame(resolve));
@@ -55,7 +58,13 @@ async function boot(): Promise<void> {
   );
   ctx.scene.add(buildScatter(hf, registry, scatterMaterial, MAP01.seed ^ 0x5eed));
 
+  const sim = createGameSim(hf);
+  const tanks = spawnDebugTanks(sim, hf, 120);
+  const unitView = new UnitView(tanks, hf, ctx);
+  unitView.attach(ctx.scene);
+
   const rig = new RtsCameraRig(ctx.camera, input, hf);
+  const controller = new RtsController(ctx.renderer.domElement, ctx.camera, hf, sim, unitView);
   const hud = new Hud(document.body);
   input.onKeyDown('F3', () => water.setDebugOverlay(terrain.toggleWalkOverlay()));
   input.onKeyDown('F1', () => hud.toggleHelp());
@@ -67,10 +76,12 @@ async function boot(): Promise<void> {
 
   const loop = new GameLoop({
     simTick: () => {
-      simTicks++; // sim systems land in Phase 2 — the fixed 30 Hz cadence is live now
+      stepSim(sim, hf, 1 / SIM_HZ);
+      simTicks++;
     },
-    render: (_alpha, dt, time) => {
+    render: (alpha, dt, time) => {
       rig.update(dt);
+      unitView.update(alpha);
       water.update(time);
       ctx.render(dt);
 
@@ -90,6 +101,9 @@ async function boot(): Promise<void> {
         instances: registry.totalInstances,
         zoom: rig.distance,
         yawDeg: rig.yawDegrees,
+        pitchDeg: rig.pitchDegrees,
+        units: tanks.length,
+        selected: controller.selectedCount(),
       });
     },
   });
