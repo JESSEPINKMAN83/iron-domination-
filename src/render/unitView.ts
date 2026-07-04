@@ -25,6 +25,23 @@ interface AnimState {
   swing: number; // 0..1 blend between idle and walking pose
 }
 
+// Overlay geometries are identical across all units of a type — share them as module
+// constants (never disposed) so spawning a unit allocates no new overlay geometry and
+// eviction only has to dispose the genuinely per-entity unit-mesh geometry.
+const HEALTH_BACK_GEOM = new PlaneGeometry(4.1, 0.48);
+const HEALTH_FILL_GEOM = new PlaneGeometry(3.6, 0.22);
+const AIR_SHADOW_GEOM = new CircleGeometry(3.8, 32);
+const ROTOR_WASH_GEOM = new RingGeometry(1.8, 5.2, 48);
+const ringGeometryCache = new Map<number, RingGeometry>();
+function sharedRingGeometry(radius: number): RingGeometry {
+  let geom = ringGeometryCache.get(radius);
+  if (!geom) {
+    geom = new RingGeometry(radius, radius + 0.35, 32);
+    ringGeometryCache.set(radius, geom);
+  }
+  return geom;
+}
+
 export class UnitView {
   readonly group = new Group();
   private readonly objects = new Map<Entity, Object3D>();
@@ -93,7 +110,7 @@ export class UnitView {
       unit = rig.root;
     } else if (entity.selectable?.type === 'vulture') {
       unit = createVultureObject(this.hullMaterial, this.turretMaterial, accent);
-      const shadow = new Mesh(new CircleGeometry(3.8, 32), this.airShadowMaterial);
+      const shadow = new Mesh(AIR_SHADOW_GEOM, this.airShadowMaterial);
       shadow.rotation.x = -Math.PI / 2;
       shadow.renderOrder = 18;
       this.airShadows.set(entity, shadow);
@@ -105,7 +122,7 @@ export class UnitView {
         depthWrite: false,
         side: DoubleSide,
       });
-      const wash = new Mesh(new RingGeometry(1.8, 5.2, 48), washMaterial);
+      const wash = new Mesh(ROTOR_WASH_GEOM, washMaterial);
       wash.rotation.x = -Math.PI / 2;
       wash.renderOrder = 19;
       wash.visible = false;
@@ -127,7 +144,7 @@ export class UnitView {
     this.group.add(unit);
 
     const radius = entity.selectable?.type === 'infantry' ? 1.7 : entity.selectable?.type === 'vulture' ? 3.9 : 2.8;
-    const ring = new Mesh(new RingGeometry(radius, radius + 0.35, 32), this.ringMaterial);
+    const ring = new Mesh(sharedRingGeometry(radius), this.ringMaterial);
     ring.rotation.x = -Math.PI / 2;
     ring.visible = false;
     ring.renderOrder = 30;
@@ -149,6 +166,48 @@ export class UnitView {
     return this.entities.length;
   }
 
+  /**
+   * Fully removes a dead entity's render resources — scene objects, per-entity
+   * geometries and per-entity materials — and drops it from every map. Without this
+   * a long match grows unbounded in GPU memory and per-frame cost. Shared overlay
+   * geometries and shared materials are module/instance-owned and NOT disposed here.
+   */
+  private removeEntity(entity: Entity): void {
+    const obj = this.objects.get(entity);
+    if (obj) {
+      this.group.remove(obj);
+      obj.traverse((child) => {
+        if (child instanceof Mesh) child.geometry.dispose(); // per-entity unit-mesh geometry
+      });
+      this.objects.delete(entity);
+    }
+    const ring = this.selectedRings.get(entity);
+    if (ring) {
+      this.group.remove(ring); // ring geometry is shared — do not dispose
+      this.selectedRings.delete(entity);
+    }
+    const healthBar = this.healthBars.get(entity);
+    if (healthBar) {
+      this.group.remove(healthBar.root);
+      healthBar.fillMaterial.dispose(); // per-entity material
+      this.healthBars.delete(entity);
+    }
+    const shadow = this.airShadows.get(entity);
+    if (shadow) {
+      this.group.remove(shadow); // shadow geometry + material shared
+      this.airShadows.delete(entity);
+    }
+    const wash = this.rotorWashes.get(entity);
+    if (wash) {
+      this.group.remove(wash.mesh);
+      wash.material.dispose(); // per-entity material
+      this.rotorWashes.delete(entity);
+    }
+    this.soldierRigs.delete(entity);
+    this.anims.delete(entity);
+    this.wrecked.delete(entity);
+  }
+
   setHiddenEntity(entity?: Entity): void {
     this.hiddenEntity = entity;
   }
@@ -158,11 +217,20 @@ export class UnitView {
   }
 
   update(alpha: number, dt: number, camera: Camera): void {
+    // Evict entities the sim has finished with (wreck window expired). The possessed
+    // unit is only hidden, never evicted here — it's reclaimed when possession ends.
+    for (let i = this.entities.length - 1; i >= 0; i--) {
+      const e = this.entities[i];
+      if (e !== this.hiddenEntity && e.destroyed !== undefined && e.destroyed.remaining <= 0) {
+        this.removeEntity(e);
+        this.entities.splice(i, 1);
+      }
+    }
     for (const entity of this.entities) {
       const obj = this.objects.get(entity);
       const ring = this.selectedRings.get(entity);
       if (!obj || !ring) continue;
-      const gone = entity === this.hiddenEntity || (entity.destroyed?.remaining !== undefined && entity.destroyed.remaining <= 0);
+      const gone = entity === this.hiddenEntity;
       const fogged = entity.team?.id !== 1 && !this.isVisible(entity.transform.x, entity.transform.z);
       if (gone || fogged) {
         obj.visible = false;
@@ -393,12 +461,12 @@ function createHealthBar(backMaterial: Material): { root: Group; fill: Mesh; fil
   const root = new Group();
   root.visible = false;
 
-  const back = new Mesh(new PlaneGeometry(4.1, 0.48), backMaterial);
+  const back = new Mesh(HEALTH_BACK_GEOM, backMaterial);
   back.renderOrder = 42;
   root.add(back);
 
   const fillMaterial = new MeshBasicMaterial({ color: 0x79f06f, transparent: true, opacity: 0.92, depthWrite: false, side: DoubleSide });
-  const fill = new Mesh(new PlaneGeometry(3.6, 0.22), fillMaterial);
+  const fill = new Mesh(HEALTH_FILL_GEOM, fillMaterial);
   fill.position.z = 0.02;
   fill.renderOrder = 43;
   root.add(fill);

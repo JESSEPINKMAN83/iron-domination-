@@ -10,6 +10,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
   PlaneGeometry,
   RingGeometry,
   SRGBColorSpace,
@@ -95,13 +96,24 @@ export class BuildingView {
   update(economy: EconomyState, camera: Camera): void {
     for (const [entity, object] of this.objects) {
       if (this.sim.world.has(entity)) continue;
+      this.clearEffects(object);
       this.group.remove(object.root);
+      this.disposeTree(object.root);
       const glow = this.selectedGlows.get(entity);
-      if (glow) this.group.remove(glow.root);
+      if (glow) {
+        this.group.remove(glow.root);
+        this.disposeTree(glow.root);
+      }
       const producerGlow = this.producerGlows.get(entity);
-      if (producerGlow) this.group.remove(producerGlow.root);
+      if (producerGlow) {
+        this.group.remove(producerGlow.root);
+        this.disposeTree(producerGlow.root);
+      }
       const healthBar = this.healthBars.get(entity);
-      if (healthBar) this.group.remove(healthBar.root);
+      if (healthBar) {
+        this.group.remove(healthBar.root);
+        this.disposeTree(healthBar.root);
+      }
       this.objects.delete(entity);
       this.selectedGlows.delete(entity);
       this.producerGlows.delete(entity);
@@ -310,6 +322,40 @@ export class BuildingView {
       else effect.mesh.material.dispose();
     }
     object.effects.length = 0;
+  }
+
+  // Block geometry/materials and the palette materials are shared across all
+  // buildings and must survive removal; everything else (accent box, label mesh +
+  // canvas texture, glow/dock/health geometries and their materials) is per-building.
+  private isSharedMaterial(m: Material): boolean {
+    return (
+      m === this.playerAccent ||
+      m === this.enemyAccent ||
+      m === this.healthBackMaterial ||
+      m === this.ghostMaterial ||
+      m === this.scorchMaterial ||
+      m === this.crackMaterial ||
+      m === this.rubbleMaterial ||
+      m === this.interiorMaterial ||
+      m === this.emberMaterial ||
+      m === this.smokeMaterial ||
+      m === this.fireMaterial ||
+      Object.values(this.materials).includes(m)
+    );
+  }
+
+  private disposeTree(root: Object3D): void {
+    root.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      if (child.geometry !== sharedBlockGeometry && child.geometry !== sharedPlaneGeometry) child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) {
+        if (this.isSharedMaterial(material)) continue;
+        const map = (material as MeshBasicMaterial).map;
+        if (map) map.dispose();
+        material.dispose();
+      }
+    });
   }
 
   private updateDamageEffects(entity: Entity, object: BuildingObject, camera: Camera): void {
