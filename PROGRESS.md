@@ -194,8 +194,10 @@
   and makes long-distance hits require manual range calculation.
 - AI-controlled tanks now use both weapon slots during combat, firing their quick cannon when
   available and mixing in the heavier bomb on its longer cooldown.
-- Added arcing bomb tracers and larger blast bursts so the heavy shot reads differently from
-  the normal cannon.
+- Replaced bomb tracers with a visible thrown shell: right-click now launches a large bomb mesh
+  with nose, fins, glow, and trail that follows the arc until landing.
+- Added a layered bomb detonation with fireball, smoke, and shock ring, and strengthened bomb
+  splash falloff/radius so nearby units take meaningful damage around the landing point.
 - Tank turret visuals now follow sim turret yaw, so player aim and combat target tracking are
   visible in RTS.
 - Added a Phase 5 movement test proving a player-controlled tank advances through the normal sim
@@ -210,6 +212,9 @@
 - Follow-up browser smoke passed after the weapon split: reloaded the Vite page, entered
   `CHASE`, left-click fired without leaving chase mode, right-click produced the larger orange
   bomb blast downrange, and no fresh console errors were reported.
+- Follow-up browser smoke passed after bomb-visual polish: reloaded the Vite page, entered
+  `CHASE`, right-click fired a clearly visible large shell in flight, and no fresh console
+  errors were reported.
 - `npm test` passes (now 13 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes

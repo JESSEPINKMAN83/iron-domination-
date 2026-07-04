@@ -157,7 +157,9 @@ function applyAreaDamage(sim: GameSim, attacker: Entity, x: number, z: number, r
     const dz = target.transform.z - z;
     const d = Math.hypot(dx, dz);
     if (d > radius) continue;
-    total += applyDamage(target, damageForArmor(kind, target.armor.kind) * (1 - d / radius) * 0.72);
+    const falloff = 1 - d / radius;
+    const splashMultiplier = kind === 'bomb' ? 1 : 0.55;
+    total += applyDamage(target, damageForArmor(kind, target.armor.kind) * falloff * splashMultiplier);
   }
   return total;
 }

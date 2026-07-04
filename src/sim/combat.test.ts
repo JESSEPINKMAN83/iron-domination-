@@ -8,8 +8,8 @@ describe('phase 4 combat simulation', () => {
   it('applies weapon damage matrix values', () => {
     expect(damageForArmor('rifle', 'heavy')).toBeCloseTo(2.2);
     expect(damageForArmor('cannon', 'heavy')).toBeCloseTo(5.76);
-    expect(damageForArmor('bomb', 'heavy')).toBeCloseTo(64);
-    expect(damageForArmor('bomb', 'building')).toBeCloseTo(57.6);
+    expect(damageForArmor('bomb', 'heavy')).toBeCloseTo(72);
+    expect(damageForArmor('bomb', 'building')).toBeCloseTo(64.8);
   });
 
   it('resolves a deterministic tank engagement and records combat events', () => {
@@ -61,6 +61,7 @@ describe('phase 4 combat simulation', () => {
     expect(firedAgain).toBe(false);
     expect(primary.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeLessThan(100);
+    expect(nearby.health?.current).toBeLessThan(60);
     expect(attacker.weapons?.secondary?.cooldown).toBeGreaterThan(attacker.weapons?.primary.cooldown ?? 0);
     expect(sim.events.at(-1)?.kind).toBe('bomb');
   });
