@@ -135,13 +135,17 @@
 - Added 40 opposing placeholder tanks with red team accents so the map now has a hostile force.
 - Added transient tracer and impact rendering driven by sim combat events.
 - Added Phase 4 tests for damage-matrix values and deterministic tank engagements.
+- Reworked the command sidebar to match the classic RTS reference structure: radar/minimap
+  first, build-type tabs underneath, then a compact 3-column command grid.
+- Added a command icon asset contract at `public/assets/ui/command-icons/`; uploaded PNGs named
+  after each item automatically replace the text placeholders in the grid.
 - Browser verification passed on Vite dev server: Phase 4 HUD rendered, 160 total units loaded,
-  illustrated command cards appeared, and clicking the Command Yard showed the selected-building
-  contextual build menu.
+  the radar/tabs/grid sidebar appeared in the expected order, and clicking the Command Yard
+  showed the selected-building contextual build menu within the same grid layout.
 - `npm test` passes (10 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
-- Phase 4 is not complete yet: fog of war, minimap integration, veterancy, guard mode, full
+- Phase 4 is not complete yet: fog of war, full minimap camera/frustum controls, veterancy, guard mode, full
   40v40 battle balancing, building smoke/fire damage states, and polished wreck art remain.
 - Combat visuals are lightweight placeholder tracers/impact flashes.
 - Enemy units are spawned as a static opposing force; commander AI remains Phase 6.

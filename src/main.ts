@@ -98,7 +98,7 @@ async function boot(): Promise<void> {
     },
   }, buildingView);
   const hud = new Hud(document.body);
-  const sidebar = new Sidebar(sim, economy, {
+  const sidebar = new Sidebar(sim, hf, economy, {
     buildStructure: (kind) => {
       economy.selectedStructure = kind;
       economy.placement = updatePlacement(sim, hf, kind, 0, 0);
