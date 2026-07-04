@@ -819,6 +819,23 @@ function formationOffset(col: number, row: number, width: number, count: number,
   };
 }
 
+// Stable numeric codes for enum values — hashing by string length collided
+// equal-length states (e.g. 'seeking' vs 'to-node'), masking desyncs.
+const HARVESTER_STATE_CODE: Record<string, number> = {
+  seeking: 1,
+  'to-node': 2,
+  gathering: 3,
+  'to-refinery': 4,
+  depositing: 5,
+};
+const PROJECTILE_KIND_CODE: Record<string, number> = {
+  bomb: 1,
+  grenade: 2,
+  atRocket: 3,
+  agMissile: 4,
+  aaMissile: 5,
+};
+
 export function hashSim(sim: GameSim): number {
   let h = 0x811c9dc5 >>> 0;
   const mix = (v: number) => {
@@ -831,6 +848,25 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round((entity.transform.y ?? 0) * 100));
     mix(Math.round(entity.transform.z * 100));
     mix(Math.round(entity.transform.rot * 10000));
+    if (entity.velocity) {
+      mix(Math.round(entity.velocity.x * 100));
+      mix(Math.round(entity.velocity.z * 100));
+    }
+    if (entity.turret) mix(Math.round(entity.turret.yaw * 10000));
+    if (entity.mover) {
+      mix(entity.mover.target ? Math.round(entity.mover.target.x * 10) : 0);
+      mix(entity.mover.target ? Math.round(entity.mover.target.z * 10) : 0);
+      mix(entity.mover.engage ? Math.round(entity.mover.engage.x * 10) : 0);
+      mix(entity.mover.engage ? Math.round(entity.mover.engage.z * 10) : 0);
+    }
+    if (entity.weapon) {
+      mix(Math.round(entity.weapon.cooldown * 1000));
+      mix(entity.weapon.targetId ?? 0);
+    }
+    if (entity.weapons?.secondary) {
+      mix(Math.round(entity.weapons.secondary.cooldown * 1000));
+      mix(entity.weapons.secondary.targetId ?? 0);
+    }
     if (entity.flight) {
       mix(Math.round(entity.flight.pitchAttitude * 1000));
       mix(Math.round(entity.flight.rollAttitude * 1000));
@@ -849,7 +885,7 @@ export function hashSim(sim: GameSim): number {
       mix(Math.round(entity.cargo.amount * 100));
     }
     if (entity.harvester) {
-      mix(entity.harvester.state.length);
+      mix(HARVESTER_STATE_CODE[entity.harvester.state] ?? 0);
       mix(entity.harvester.nodeId ?? 0);
       mix(entity.harvester.refineryId ?? 0);
       mix(Math.round(entity.harvester.timer * 1000));
@@ -858,7 +894,7 @@ export function hashSim(sim: GameSim): number {
     }
   }
   for (const projectile of sim.projectiles) {
-    mix(projectile.kind.length);
+    mix(PROJECTILE_KIND_CODE[projectile.kind] ?? 0);
     mix(Math.round((projectile.x ?? projectile.toX) * 100));
     mix(Math.round((projectile.y ?? 0) * 100));
     mix(Math.round((projectile.z ?? projectile.toZ) * 100));
