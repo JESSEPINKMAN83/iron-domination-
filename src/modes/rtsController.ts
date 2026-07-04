@@ -91,9 +91,10 @@ export class RtsController {
   private onPointerDown(e: PointerEvent): void {
     if (!this.enabled) return;
     if (e.metaKey && e.button === 0) return;
-    if (e.button === 2 && this.input.isDown('Space')) {
+    if ((e.button === 0 || e.button === 2) && this.input.isDown('Space')) {
       this.pointerDown = undefined;
       this.rightOrderStart = undefined;
+      this.selectionBox.style.display = 'none';
       this.orderFeedback?.clearFacingPreview?.();
       e.preventDefault();
       this.dom.setPointerCapture?.(e.pointerId);
