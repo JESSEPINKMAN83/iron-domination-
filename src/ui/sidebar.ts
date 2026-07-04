@@ -1,6 +1,6 @@
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import type { Entity } from '../sim/components';
-import { buildings, canBuildStructure, canQueueUnit, type EconomyState } from '../sim/economy';
+import { MAX_PRODUCER_JOBS, buildings, canBuildStructure, canQueueUnit, type EconomyState } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { selectedEntities, type GameSim } from '../sim/world';
@@ -47,6 +47,7 @@ export class Sidebar {
   private lastRadarTick = -1;
   private radarFocus?: { x: number; z: number; ttl: number };
   private readonly fogCanvas: HTMLCanvasElement;
+  private notice?: { text: string; untilTick: number };
 
   constructor(
     private readonly sim: GameSim,
@@ -106,7 +107,8 @@ export class Sidebar {
     }
 
     const powerDelta = this.economy.powerProduced - this.economy.powerUsed;
-    const latest = this.economy.ledger.slice(-1)[0]?.label ?? 'ready';
+    if (this.notice && this.sim.tick >= this.notice.untilTick) this.notice = undefined;
+    const latest = this.notice?.text ?? this.economy.ledger.slice(-1)[0]?.label ?? 'ready';
     const statusText = [
       `$${Math.floor(this.economy.credits)}`,
       `PWR ${powerDelta >= 0 ? '+' : ''}${powerDelta}${powerDelta < 0 ? ' LOW POWER' : ''}`,
@@ -165,16 +167,20 @@ export class Sidebar {
     }
 
     if (this.activeTab === 'defense') {
-      const note = document.createElement('div');
-      note.style.cssText =
-        'grid-column:1/-1;min-height:92px;display:grid;place-items:center;padding:10px;border:1px solid #333b39;background:#111615;color:#9ba7a2;text-align:center;';
-      note.textContent = 'Defense systems offline until the next tech phase.';
-      this.body.appendChild(note);
+      this.body.appendChild(this.emptyState('DEFENSE OFFLINE', 'Anti-air, turrets, and walls are not online yet.'));
       return;
     }
 
     const selectedProducer = selected && this.contextTab(selected) === this.activeTab ? selected : undefined;
-    for (const def of Object.values(UNITS).filter((unit) => unit.tab === this.activeTab)) {
+    const units = Object.values(UNITS).filter((unit) => unit.tab === this.activeTab);
+    const hasProducer = this.unitProducers(this.activeTab).length > 0;
+    if (!hasProducer) {
+      const required = this.activeTab === 'vehicles' ? 'FACTORY REQUIRED' : 'BARRACKS REQUIRED';
+      const detail = this.activeTab === 'vehicles' ? 'Build and place a Factory before vehicle production opens.' : 'Build and place a Barracks before infantry production opens.';
+      this.body.appendChild(this.emptyState(required, detail));
+      return;
+    }
+    for (const def of units) {
       this.body.appendChild(
         this.card(def.kind, def.label, def.cost, 'UNIT', this.unitCardState(def.kind, selectedProducer), () => this.actions.queueUnit(def.kind, selectedProducer), () =>
           this.actions.cancelUnit(def.kind, selectedProducer),
@@ -198,12 +204,23 @@ export class Sidebar {
     button.setAttribute('aria-label', state.enabled ? `${label} $${cost}` : `${label} ${state.reason}`);
     button.setAttribute('aria-disabled', state.enabled ? 'false' : 'true');
     button.style.cssText = cardCss(state);
-    button.onclick = () => {
-      if (state.enabled) action();
+    button.onpointerdown = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.button === 0) {
+        if (state.enabled) {
+          action();
+          this.lastBodyKey = '';
+        } else {
+          this.flash(state.reason || 'Unavailable');
+        }
+      } else if (event.button === 2) {
+        cancel();
+        this.lastBodyKey = '';
+      }
     };
     button.oncontextmenu = (event) => {
       event.preventDefault();
-      cancel();
     };
 
     const icon = document.createElement('div');
@@ -263,7 +280,7 @@ export class Sidebar {
     const def = UNITS[kind];
     const check = canQueueUnit(this.sim, this.economy, kind);
     const relevant = this.unitProducers(def.producer, producer);
-    const queueFull = relevant.length > 0 && relevant.every((entity) => queueDepth(entity) >= 5);
+    const queueFull = relevant.length > 0 && relevant.every((entity) => queueDepth(entity) >= MAX_PRODUCER_JOBS);
     const active = relevant.find((entity) => entity.producer?.active?.kind === kind)?.producer?.active;
     const count = relevant.reduce((sum, entity) => {
       const queue = entity.producer?.queue.filter((job) => job.kind === kind).length ?? 0;
@@ -344,10 +361,30 @@ export class Sidebar {
       const primary = this.economy.primaryProducerIds[tab] === producer.id ? ' ★' : '';
       const rally = producer.producer?.rally ? ' ⚑' : '';
       const row = document.createElement('div');
-      row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${producer.producer?.queue.length ?? 0}`;
+      row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${queueDepth(producer)}/${MAX_PRODUCER_JOBS}`;
       el.appendChild(row);
     }
     return el;
+  }
+
+  private emptyState(title: string, detail: string): HTMLDivElement {
+    const el = document.createElement('div');
+    el.style.cssText =
+      'grid-column:1/-1;min-height:126px;display:grid;grid-template-rows:auto auto;align-content:center;gap:7px;padding:14px;' +
+      'border:1px solid #333b39;background:linear-gradient(180deg,#141a19,#0b0f0f);color:#9ba7a2;text-align:center;box-shadow:inset 0 0 18px rgba(0,0,0,.45);';
+    const heading = document.createElement('div');
+    heading.style.cssText = 'font-size:13px;color:#d2b15f;letter-spacing:.08em;';
+    heading.textContent = title;
+    const copy = document.createElement('div');
+    copy.style.cssText = 'font-size:11px;color:#aebbc4;line-height:1.35;';
+    copy.textContent = detail;
+    el.append(heading, copy);
+    return el;
+  }
+
+  private flash(text: string): void {
+    this.notice = { text, untilTick: this.sim.tick + 30 };
+    this.lastStatusText = '';
   }
 
   private selectedBuilding(): Entity | undefined {
@@ -389,8 +426,7 @@ export class Sidebar {
       .filter((entity) => entity.producer && entity.building?.complete)
       .map((entity) => {
         const active = entity.producer?.active;
-        const pct = active ? Math.round((1 - active.remaining / active.total) * 100) : 0;
-        return `${entity.id}:${active?.kind ?? 'idle'}:${pct}:${entity.producer?.queue.map((job) => job.kind).join(',')}:${entity.producer?.rally?.x ?? ''}:${entity.producer?.rally?.z ?? ''}`;
+        return `${entity.id}:${active?.kind ?? 'idle'}:${entity.producer?.queue.map((job) => job.kind).join(',')}:${entity.producer?.rally?.x ?? ''}:${entity.producer?.rally?.z ?? ''}`;
       })
       .join('|');
     const line = this.economy.structureLine;

@@ -9,6 +9,7 @@ import {
   cancelUnitQueue,
   createEconomy,
   createInitialBase,
+  MAX_PRODUCER_JOBS,
   placeStructure,
   queueUnit,
   setProducerRally,
@@ -74,6 +75,28 @@ describe('phase 3 economy and production', () => {
     expect(economy.ledger.some((entry) => entry.type === 'income' && entry.amount > 0)).toBe(true);
     const ledgerTotal = economy.ledger.reduce((sum, entry) => sum + entry.amount, 0);
     expect(economy.credits).toBe(5200 + ledgerTotal);
+  });
+
+  it('lets repeated unit clicks stack a full ten-job producer queue', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 8000);
+    const base = createInitialBase(sim, hf, economy);
+
+    const buildReady = (kind: Parameters<typeof canBuildStructure>[2], dx: number, z: number) => {
+      expect(startStructureBuild(sim, economy, kind)).toBe(true);
+      for (let i = 0; i < 30 * 10; i++) stepEconomy(sim, hf, economy, 1 / 30);
+      const placement = updatePlacement(sim, hf, kind, base.transform.x + dx, base.transform.z + z);
+      const entity = placeStructure(sim, hf, economy, placement);
+      expect(entity).toBeDefined();
+      return entity!;
+    };
+
+    buildReady('power-plant', -28, 0);
+    const barracks = buildReady('barracks', 0, 28);
+    for (let i = 0; i < MAX_PRODUCER_JOBS; i++) expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(true);
+    expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(false);
+    expect(barracks.producer?.queue.length).toBe(MAX_PRODUCER_JOBS);
   });
 
   it('refunds structure and unit cancels, and sends produced units to a rally', () => {
