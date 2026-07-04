@@ -1,6 +1,7 @@
 // Phase 6 acceptance: a passive player must fall to the Normal AI in single-digit minutes.
 import { describe, expect, it, vi } from 'vitest';
 import { MAP01 } from '../content/map01';
+import { startPosition } from '../content/startPositions';
 import { stepCombat } from '../sim/combat';
 import { buildings, createEconomy, createInitialBase, stepEconomy } from '../sim/economy';
 import { generateHeightfield } from '../sim/heightfield';
@@ -19,7 +20,8 @@ describe('phase 6 acceptance', () => {
     const playerEconomy = createEconomy(1);
     createInitialBase(sim, hf, playerEconomy);
     const enemyEconomy = createEconomy(2, 4600);
-    createInitialBase(sim, hf, enemyEconomy, hf.size * 0.18, hf.size * 0.08);
+    const enemyStart = startPosition(hf.size, 2);
+    createInitialBase(sim, hf, enemyEconomy, enemyStart.x, enemyStart.z);
     const aiVision = new VisibilityGrid(hf, 2);
     const playerStart = buildings(sim, 1)[0].transform;
     const commander = new EnemyCommander(sim, hf, enemyEconomy, aiVision, 'balanced', 'normal', [

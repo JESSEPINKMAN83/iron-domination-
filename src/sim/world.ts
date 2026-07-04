@@ -5,8 +5,18 @@ import { copyTransform } from './components';
 import { FlowField, NavigationGrid, type BlockedFootprint } from './flowfield';
 import { sampleHeight, type Heightfield } from './heightfield';
 import { mulberry32 } from './noise';
+import { FLIGHT_MODELS } from '../content/flightModels';
+import { startMusterPosition } from '../content/startPositions';
 
 const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+const damp = (lambda: number, dt: number): number => 1 - Math.exp(-lambda * dt);
+const ARRIVAL_EPSILON = 0.35;
+const approach = (current: number, target: number, maxDelta: number): number => {
+  const delta = target - current;
+  if (Math.abs(delta) <= maxDelta) return target;
+  return current + Math.sign(delta) * maxDelta;
+};
 
 export interface CombatEvent {
   kind: string;
@@ -26,18 +36,29 @@ export interface CombatEvent {
   killed: boolean;
   /** flight time in seconds for ballistic launches ('bomb') */
   duration?: number;
-  trajectory?: 'arc' | 'drop';
+  trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
 }
 
 /** In-flight ballistic ordnance. Damage happens on impact, at the aimed location. */
 export interface Projectile {
-  kind: 'bomb';
+  kind: 'bomb' | 'grenade' | 'atRocket' | 'agMissile' | 'aaMissile';
   fromX: number;
+  fromY?: number;
   fromZ: number;
+  x?: number;
+  y?: number;
+  z?: number;
   toX: number;
+  toY?: number;
   toZ: number;
   elapsed: number;
   duration: number;
+  speed?: number;
+  maxDistance?: number;
+  weaponKind?: string;
+  directTargetId?: number;
+  trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
+  homing?: { targetId: number; speed: number; fizzleRange: number };
   teamId: number;
   attackerId: number;
 }
@@ -96,7 +117,8 @@ export function spawnDebugTanks(sim: GameSim, hf: Heightfield, count = 120, seed
   const rng = mulberry32(seed);
   const spawned: Entity[] = [];
   // muster close to the player base so starting tanks actually defend it
-  const start = sim.nav.nearestWalkableCell(-hf.size * 0.065, -hf.size * 0.055) ?? sim.nav.nearestWalkableCell(0, 0);
+  const anchor = startMusterPosition(hf.size, 1);
+  const start = sim.nav.nearestWalkableCell(anchor.x, anchor.z, 96) ?? sim.nav.nearestWalkableCell(0, 0);
   if (!start) throw new Error('no walkable spawn cell');
   const center = sim.nav.cellCenter(start.x, start.y);
   let cursor = 0;
@@ -120,7 +142,8 @@ export function spawnDebugTanks(sim: GameSim, hf: Heightfield, count = 120, seed
 
 export function spawnEnemyTanks(sim: GameSim, hf: Heightfield, count = 40): Entity[] {
   const spawned: Entity[] = [];
-  const start = sim.nav.nearestWalkableCell(hf.size * 0.18, hf.size * 0.08) ?? sim.nav.nearestWalkableCell(hf.size * 0.12, hf.size * 0.12);
+  const anchor = startMusterPosition(hf.size, 2);
+  const start = sim.nav.nearestWalkableCell(anchor.x, anchor.z, 96) ?? sim.nav.nearestWalkableCell(0, 0);
   if (!start) return spawned;
   const center = sim.nav.cellCenter(start.x, start.y);
   let cursor = 0;
@@ -144,6 +167,7 @@ interface TankVariant {
   secondary?: string;
   primaryRange: number;
   secondaryRange?: number;
+  secondarySalvoCount?: number;
   health: number;
   speed: number;
   radius: number;
@@ -156,6 +180,7 @@ const STANDARD_TANK: TankVariant = {
   secondary: 'bomb',
   primaryRange: 78,
   secondaryRange: 152,
+  secondarySalvoCount: 2,
   health: 100,
   speed: 18,
   radius: 2.2,
@@ -170,7 +195,10 @@ export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, te
 export function spawnScoutTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
   return spawnTankVariantAt(sim, x, z, name, team, {
     primary: 'autocannon',
+    secondary: 'bomb',
     primaryRange: 62,
+    secondaryRange: 132,
+    secondarySalvoCount: 1,
     health: 72,
     speed: 24,
     radius: 1.9,
@@ -185,6 +213,7 @@ export function spawnSiegeTankAt(sim: GameSim, x: number, z: number, name: strin
     secondary: 'bomb',
     primaryRange: 104,
     secondaryRange: 176,
+    secondarySalvoCount: 4,
     health: 138,
     speed: 13,
     radius: 2.7,
@@ -208,7 +237,9 @@ function spawnTankVariantAt(sim: GameSim, x: number, z: number, name: string, te
     weapon: primaryWeapon,
     weapons: {
       primary: primaryWeapon,
-      secondary: variant.secondary ? { kind: variant.secondary, range: variant.secondaryRange ?? variant.primaryRange, cooldown: 0 } : undefined,
+      secondary: variant.secondary
+        ? { kind: variant.secondary, range: variant.secondaryRange ?? variant.primaryRange, cooldown: 0, salvoCount: variant.secondarySalvoCount }
+        : undefined,
     },
     turret: { yaw: Math.PI * 0.25, turnRate: variant.turretRate },
     vision: { radius: variant.vision },
@@ -230,6 +261,7 @@ export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: numb
     climbRate: 14,
     primaryRange: 92,
     secondaryRange: 152,
+    secondarySalvoCount: 2,
     radius: 3.0,
     vision: 150,
   });
@@ -237,16 +269,17 @@ export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: numb
 
 export function spawnWaspAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team = 1): Entity {
   return spawnAircraftAt(sim, hf, x, z, name, team, {
-    primary: 'autocannon',
-    secondary: 'rocketPod',
-    health: 95,
-    speed: 58,
+    primary: 'waspAutocannon',
+    secondary: 'bomb',
+    health: 90,
+    speed: 60,
     cruiseAltitude: 24,
     minAGL: 6,
     maxAltitude: 82,
     climbRate: 18,
-    primaryRange: 68,
-    secondaryRange: 96,
+    primaryRange: 72,
+    secondaryRange: 132,
+    secondarySalvoCount: 1,
     radius: 2.5,
     vision: 172,
   });
@@ -254,7 +287,7 @@ export function spawnWaspAt(sim: GameSim, hf: Heightfield, x: number, z: number,
 
 export function spawnHammerheadAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team = 1): Entity {
   return spawnAircraftAt(sim, hf, x, z, name, team, {
-    primary: 'rocketPod',
+    primary: 'agMissile',
     secondary: 'bomb',
     health: 230,
     speed: 34,
@@ -262,8 +295,9 @@ export function spawnHammerheadAt(sim: GameSim, hf: Heightfield, x: number, z: n
     minAGL: 8,
     maxAltitude: 96,
     climbRate: 10,
-    primaryRange: 118,
+    primaryRange: 150,
     secondaryRange: 188,
+    secondarySalvoCount: 4,
     radius: 3.8,
     vision: 138,
   });
@@ -274,6 +308,7 @@ interface AircraftVariant {
   secondary?: string;
   primaryRange: number;
   secondaryRange?: number;
+  secondarySalvoCount?: number;
   health: number;
   speed: number;
   radius: number;
@@ -302,28 +337,43 @@ function spawnAircraftAt(sim: GameSim, hf: Heightfield, x: number, z: number, na
       minAGL: variant.minAGL,
       maxAltitude: variant.maxAltitude,
       climbRate: variant.climbRate,
+      pitchAttitude: 0,
+      rollAttitude: 0,
+      previousPitchAttitude: 0,
+      previousRollAttitude: 0,
+      model: 'gunship',
       bank: 0,
       verticalVelocity: 0,
     },
     weapon: { kind: variant.primary, range: variant.primaryRange, cooldown: 0 },
     weapons: {
       primary: { kind: variant.primary, range: variant.primaryRange, cooldown: 0 },
-      secondary: variant.secondary ? { kind: variant.secondary, range: variant.secondaryRange ?? variant.primaryRange, cooldown: 0 } : undefined,
+      secondary: variant.secondary
+        ? { kind: variant.secondary, range: variant.secondaryRange ?? variant.primaryRange, cooldown: 0, salvoCount: variant.secondarySalvoCount }
+        : undefined,
     },
     turret: { yaw: Math.PI * 0.25, turnRate: 4.0 },
     vision: { radius: variant.vision },
     possessable: { socketHeight: 1.6 },
     collider: { radius: variant.radius },
-    armor: { kind: 'light' },
+    armor: { kind: 'air' },
   });
 }
 
-export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number, targetZ: number, attackMove = false, faceYaw?: number): boolean {
+export function issueMoveOrder(
+  sim: GameSim,
+  entities: Entity[],
+  targetX: number,
+  targetZ: number,
+  attackMove = false,
+  faceYaw?: number,
+  formationSpread?: number,
+): boolean {
   let issued = false;
   const flyers = entities.filter((entity) => entity.flight);
   if (flyers.length > 0) {
-    const spacing = 8;
-    const width = formationWidth(flyers.length, faceYaw);
+    const spacing = formationSpacing(8, flyers.length, formationSpread);
+    const width = formationWidth(flyers.length, faceYaw, formationSpread);
     flyers.forEach((entity, i) => {
       if (!entity.mover) return;
       const col = i % width;
@@ -344,18 +394,19 @@ export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number
 
   const groundUnits = entities.filter((entity) => !entity.flight);
   if (groundUnits.length === 0) return issued;
-  const target = sim.nav.nearestWalkableCell(targetX, targetZ, 96);
+  const targetPoint = walkableOrderPoint(sim, targetX, targetZ);
+  if (!targetPoint) return issued;
+  const target = sim.nav.nearestWalkableCell(targetPoint.x, targetPoint.z, 4);
   if (!target) return issued;
-  const p = sim.nav.cellCenter(target.x, target.y);
-  const flow = new FlowField(sim.nav, p.x, p.z);
-  const spacing = 5.2;
-  const width = formationWidth(groundUnits.length, faceYaw);
+  const flow = new FlowField(sim.nav, targetPoint.x, targetPoint.z);
+  const spacing = formationSpacing(5.2, groundUnits.length, formationSpread);
+  const width = formationWidth(groundUnits.length, faceYaw, formationSpread);
   groundUnits.forEach((entity, i) => {
     if (!entity.mover) return;
     const col = i % width;
     const row = Math.floor(i / width);
     const offset = formationOffset(col, row, width, groundUnits.length, spacing, faceYaw);
-    entity.mover.target = { x: p.x, z: p.z };
+    entity.mover.target = { x: targetPoint.x, z: targetPoint.z };
     entity.mover.formationOffset = { x: offset.x, z: offset.z };
     entity.mover.flow = flow;
     entity.mover.attackMove = attackMove;
@@ -377,6 +428,15 @@ export function stopEntities(entities: Entity[]): void {
     entity.velocity.x = 0;
     entity.velocity.z = 0;
   }
+}
+
+function walkableOrderPoint(sim: GameSim, x: number, z: number): { x: number; z: number } | undefined {
+  const clampedX = clamp(x, -sim.nav.size / 2, sim.nav.size / 2);
+  const clampedZ = clamp(z, -sim.nav.size / 2, sim.nav.size / 2);
+  const clicked = sim.nav.worldToCell(clampedX, clampedZ);
+  if (sim.nav.isWalkableCell(clicked.x, clicked.y)) return { x: clampedX, z: clampedZ };
+  const fallback = sim.nav.nearestWalkableCell(clampedX, clampedZ, 96);
+  return fallback ? sim.nav.cellCenter(fallback.x, fallback.y) : undefined;
 }
 
 export function selectedEntities(sim: GameSim): Entity[] {
@@ -405,52 +465,13 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     transform.y ??= sampleHeight(hf, transform.x, transform.z);
     let desiredX = 0;
     let desiredZ = 0;
-    let playerFlightBank: number | undefined;
 
     if (entity.flight) {
-      if (entity.playerControlled) {
-        mover.target = undefined;
-        mover.formationOffset = undefined;
-        mover.flow = undefined;
-        mover.attackMove = false;
-        const throttle = clamp(entity.playerControlled.throttle, -1, 1);
-        const turn = clamp(entity.playerControlled.turn, -1, 1);
-        const aimYaw = entity.playerControlled.aimYaw;
-        const previousRot = transform.rot;
-        transform.rot = slewAngle(transform.rot, normalizeAngle(aimYaw), 3.4, dt);
-        const yawStep = normalizeAngle(transform.rot - previousRot);
-        playerFlightBank = clamp(yawStep * 18 + turn * 0.18, -0.45, 0.45);
-        const cruise = mover.speed * (throttle >= 0 ? throttle : throttle * 0.28);
-        desiredX = Math.sin(transform.rot) * cruise;
-        desiredZ = Math.cos(transform.rot) * cruise;
-        if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, aimYaw, entity.turret.turnRate, dt);
-      } else if (mover.target) {
-        const dx = mover.target.x - transform.x;
-        const dz = mover.target.z - transform.z;
-        const dist = Math.hypot(dx, dz);
-        if (dist < mover.radius * 1.8) {
-          mover.target = undefined;
-          velocity.x *= 0.7;
-          velocity.z *= 0.7;
-        } else {
-          const slow = clamp(dist / 36, 0.25, 1);
-          desiredX = (dx / dist) * mover.speed * slow;
-          desiredZ = (dz / dist) * mover.speed * slow;
-        }
-      } else if (mover.engage) {
-        const dx = mover.engage.x - transform.x;
-        const dz = mover.engage.z - transform.z;
-        const d = Math.hypot(dx, dz);
-        if (d > 2) {
-          desiredX = (dx / d) * mover.speed;
-          desiredZ = (dz / d) * mover.speed;
-        }
-        mover.engage = undefined;
-      } else if (mover.faceYaw !== undefined) {
-        transform.rot = slewAngle(transform.rot, mover.faceYaw, 2.8, dt);
-        if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, mover.faceYaw, entity.turret.turnRate, dt);
-      }
-    } else if (entity.playerControlled) {
+      stepFlightEntity(sim, hf, movers, entity, i, dt);
+      continue;
+    }
+
+    if (entity.playerControlled) {
       mover.target = undefined;
       mover.formationOffset = undefined;
       mover.flow = undefined;
@@ -470,11 +491,12 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       const finalDx = finalX - transform.x;
       const finalDz = finalZ - transform.z;
       const finalDist = Math.hypot(finalDx, finalDz);
-      const commandDist = Math.hypot(mover.target.x - transform.x, mover.target.z - transform.z);
-      if (finalDist < mover.radius * 1.15 || (commandDist < 42 && finalDist < 58)) {
+      if (finalDist < Math.max(ARRIVAL_EPSILON, mover.radius * 0.72)) {
         mover.target = undefined;
         mover.formationOffset = undefined;
         mover.flow = undefined;
+        velocity.x = 0;
+        velocity.z = 0;
       } else if (finalDist < 18) {
         desiredX = finalDx / finalDist;
         desiredZ = finalDz / finalDist;
@@ -514,7 +536,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     }
 
     const desiredLen = Math.hypot(desiredX, desiredZ);
-    if (desiredLen > 0 && !entity.playerControlled && !entity.flight) {
+    if (desiredLen > 0 && !entity.playerControlled) {
       desiredX = (desiredX / desiredLen) * mover.speed;
       desiredZ = (desiredZ / desiredLen) * mover.speed;
     }
@@ -523,71 +545,261 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
     const nextX = transform.x + velocity.x * dt;
     const nextZ = transform.z + velocity.z * dt;
-    if (entity.flight) {
+    const cell = sim.nav.worldToCell(nextX, nextZ);
+    if (sim.nav.isWalkableCell(cell.x, cell.y)) {
       transform.x = nextX;
       transform.z = nextZ;
-      const speed = Math.hypot(velocity.x, velocity.z);
-      if (speed > 0.05) {
-        if (entity.playerControlled) {
-          const targetBank = playerFlightBank ?? 0;
-          entity.flight.bank += (targetBank - entity.flight.bank) * Math.min(1, dt * 6);
-        } else {
-          const nextRot = Math.atan2(velocity.x, velocity.z);
-          const yawDelta = normalizeAngle(nextRot - transform.rot);
-          transform.rot = nextRot;
-          entity.flight.bank = clamp(yawDelta * speed * 0.08, -0.45, 0.45);
-        }
-      } else {
-        entity.flight.bank *= Math.max(0, 1 - dt * 4);
-      }
-      const ground = sampleHeight(hf, transform.x, transform.z);
-      const ahead = sampleHeight(hf, transform.x + velocity.x * 1.5, transform.z + velocity.z * 1.5);
-      const playerClimb = entity.playerControlled?.climb ?? 0;
-      const baselineY = entity.playerControlled
-        ? (transform.y ?? ground + entity.flight.cruiseAltitude) + playerClimb * entity.flight.climbRate * 0.85
-        : ground + entity.flight.cruiseAltitude;
-      const desiredY = Math.min(entity.flight.maxAltitude, Math.max(baselineY, ahead + entity.flight.minAGL, ground + entity.flight.minAGL));
-      const desiredVy = clamp((desiredY - (transform.y ?? desiredY)) * 2.2, -entity.flight.climbRate, entity.flight.climbRate);
-      entity.flight.verticalVelocity += (desiredVy - entity.flight.verticalVelocity) * Math.min(1, dt * 5);
-      transform.y = (transform.y ?? desiredY) + entity.flight.verticalVelocity * dt;
-      if (transform.y < ground + 1) {
-        if (entity.health) entity.health.current = 0;
-        entity.destroyed = { remaining: 20 };
-        sim.events.push({ kind: 'crash', fromX: transform.x, fromZ: transform.z, toX: transform.x, toZ: transform.z, damage: 999, killed: true });
-      }
     } else {
-      const cell = sim.nav.worldToCell(nextX, nextZ);
-      if (sim.nav.isWalkableCell(cell.x, cell.y)) {
+      const xCell = sim.nav.worldToCell(nextX, transform.z);
+      const zCell = sim.nav.worldToCell(transform.x, nextZ);
+      if (sim.nav.isWalkableCell(xCell.x, xCell.y)) {
         transform.x = nextX;
+        velocity.z = 0;
+      } else if (sim.nav.isWalkableCell(zCell.x, zCell.y)) {
         transform.z = nextZ;
+        velocity.x = 0;
       } else {
-        const xCell = sim.nav.worldToCell(nextX, transform.z);
-        const zCell = sim.nav.worldToCell(transform.x, nextZ);
-        if (sim.nav.isWalkableCell(xCell.x, xCell.y)) {
-          transform.x = nextX;
-          velocity.z = 0;
-        } else if (sim.nav.isWalkableCell(zCell.x, zCell.y)) {
-          transform.z = nextZ;
-          velocity.x = 0;
-        } else {
-          velocity.x = 0;
-          velocity.z = 0;
-        }
+        velocity.x = 0;
+        velocity.z = 0;
       }
-
-      const speed = Math.hypot(velocity.x, velocity.z);
-      if (!entity.playerControlled && speed > 0.05) transform.rot = Math.atan2(velocity.x, velocity.z);
-      transform.y = sampleHeight(hf, transform.x, transform.z);
     }
+
+    const speed = Math.hypot(velocity.x, velocity.z);
+    if (!entity.playerControlled && speed > 0.05) transform.rot = Math.atan2(velocity.x, velocity.z);
+    transform.y = sampleHeight(hf, transform.x, transform.z);
   }
 
   sim.tick++;
 }
 
-function formationWidth(count: number, faceYaw?: number): number {
+type MovingEntity = With<Entity, 'transform' | 'previousTransform' | 'velocity' | 'mover'>;
+
+interface FlightCommand {
+  throttle: number;
+  turn: number;
+  strafe: number;
+  climb: number;
+  aimYaw?: number;
+}
+
+function stepFlightEntity(sim: GameSim, hf: Heightfield, movers: MovingEntity[], entity: MovingEntity, index: number, dt: number): void {
+  const { transform, velocity, mover } = entity;
+  const flight = entity.flight;
+  if (!flight) return;
+
+  flight.previousPitchAttitude = flight.pitchAttitude;
+  flight.previousRollAttitude = flight.rollAttitude;
+
+  const model = FLIGHT_MODELS[flight.model];
+  const speed = Math.hypot(velocity.x, velocity.z);
+  const command = entity.playerControlled ? possessedFlightCommand(entity) : aiFlightCommand(entity);
+  const yawSpeedT = clamp(speed / model.maxSpeed, 0, 1);
+  const yawRate = lerp(model.yawRateHover, model.yawRateAtSpeed, yawSpeedT);
+  let yawApplied = command.turn * yawRate * dt;
+  let aimDeltaForVane = 0;
+
+  if (command.aimYaw !== undefined) {
+    const aimDelta = normalizeAngle(command.aimYaw - transform.rot);
+    aimDeltaForVane = aimDelta;
+    if (entity.playerControlled) {
+      const absAim = Math.abs(aimDelta);
+      const hardTurnBoost = absAim > Math.PI * 0.62 ? 2.05 : absAim > Math.PI * 0.34 ? 1.55 : 1.1;
+      yawApplied += Math.sign(aimDelta) * Math.min(absAim, model.mouseFollowRate * hardTurnBoost * dt);
+    } else {
+      const outsideGimbal = Math.max(0, Math.abs(aimDelta) - model.gimbalHalfAngle);
+      if (outsideGimbal > 0) yawApplied += Math.sign(aimDelta) * Math.min(outsideGimbal, model.mouseFollowRate * dt);
+    }
+    if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, command.aimYaw, entity.turret.turnRate, dt);
+  }
+
+  if (speed > model.maxSpeed * 0.4) {
+    const velocityYaw = Math.atan2(velocity.x, velocity.z);
+    const vaneDelta = normalizeAngle(velocityYaw - transform.rot);
+    const playerTurnSuppression = entity.playerControlled ? clamp(Math.abs(aimDeltaForVane) / Math.PI + Math.abs(command.turn) * 0.65, 0, 0.95) : 0;
+    const vaneStep = model.weathervane * (1 - playerTurnSuppression) * yawRate * dt;
+    yawApplied += clamp(vaneDelta, -vaneStep, vaneStep);
+  }
+
+  transform.rot = normalizeAngle(transform.rot + yawApplied);
+
+  const noInput = Math.abs(command.throttle) < 0.001 && Math.abs(command.strafe) < 0.001 && Math.abs(command.turn) < 0.001 && Math.abs(command.climb) < 0.001;
+  const brakingFromSpeed = command.throttle <= 0 && speed > 8;
+  let pitchCmd = command.throttle >= 0 ? -command.throttle * model.maxTiltPitch : -command.throttle * model.maxTiltPitch * 0.38;
+  if (brakingFromSpeed) pitchCmd = Math.max(pitchCmd, model.maxTiltPitch * 0.3);
+  const turnLean = -(yawApplied / Math.max(0.0001, dt)) * speed * 0.01;
+  const rollCmd = clamp(command.strafe * model.maxTiltRoll + turnLean, -model.maxTiltRoll, model.maxTiltRoll);
+  const attitudeT = damp(model.attitudeLag, dt);
+  flight.pitchAttitude += (pitchCmd - flight.pitchAttitude) * attitudeT;
+  flight.rollAttitude += (rollCmd - flight.rollAttitude) * attitudeT;
+  flight.bank = flight.rollAttitude;
+
+  const forwardX = Math.sin(transform.rot);
+  const forwardZ = Math.cos(transform.rot);
+  const rightX = Math.cos(transform.rot);
+  const rightZ = -Math.sin(transform.rot);
+  const powerScale = Math.abs(command.climb) > 0.5 ? 0.75 : 1;
+  const pitchDenom = Math.max(0.001, Math.sin(model.maxTiltPitch));
+  const rollDenom = Math.max(0.001, Math.sin(model.maxTiltRoll));
+  const accelFwd = (-Math.sin(flight.pitchAttitude) / pitchDenom) * model.tiltAccel * powerScale;
+  const accelSide = (Math.sin(flight.rollAttitude) / rollDenom) * model.strafeAccel * powerScale;
+  let accelX = accelFwd * forwardX + accelSide * rightX;
+  let accelZ = accelFwd * forwardZ + accelSide * rightZ;
+  const currentSpeed = Math.hypot(velocity.x, velocity.z);
+  accelX -= velocity.x * model.dragK * currentSpeed;
+  accelZ -= velocity.z * model.dragK * currentSpeed;
+
+  velocity.x += accelX * dt;
+  velocity.z += accelZ * dt;
+
+  if (noInput) {
+    const hoverT = damp(model.hoverDamp, dt);
+    velocity.x += (0 - velocity.x) * hoverT;
+    velocity.z += (0 - velocity.z) * hoverT;
+  }
+
+  limitBodyFlightVelocity(velocity, transform.rot, model.maxSpeed, model.maxReverse, model.maxStrafe);
+
+  for (let j = 0; j < movers.length; j++) {
+    if (j === index) continue;
+    const other = movers[j];
+    if (!other.flight) continue;
+    const dx = transform.x - other.transform.x;
+    const dz = transform.z - other.transform.z;
+    const minD = mover.radius + other.mover.radius + 2.2;
+    const d2 = dx * dx + dz * dz;
+    if (d2 <= 0.0001 || d2 > minD * minD) continue;
+    const d = Math.sqrt(d2);
+    const push = ((minD - d) / minD) * 8.5 * dt;
+    velocity.x += (dx / d) * push;
+    velocity.z += (dz / d) * push;
+  }
+
+  transform.x = clamp(transform.x + velocity.x * dt, -sim.nav.size / 2, sim.nav.size / 2);
+  transform.z = clamp(transform.z + velocity.z * dt, -sim.nav.size / 2, sim.nav.size / 2);
+
+  const ground = sampleHeight(hf, transform.x, transform.z);
+  const lookahead = Math.min(2.4, Math.max(0.8, Math.hypot(velocity.x, velocity.z) * 0.08));
+  const ahead = sampleHeight(hf, transform.x + velocity.x * lookahead, transform.z + velocity.z * lookahead);
+  const currentY = transform.y ?? ground + flight.cruiseAltitude;
+  let targetVy = command.climb * model.climbRate;
+  if (!entity.playerControlled) {
+    const desiredY = Math.min(flight.maxAltitude, Math.max(ground + flight.cruiseAltitude, ahead + flight.minAGL));
+    targetVy = clamp((desiredY - currentY) * 1.6, -model.climbRate, model.climbRate);
+  } else if (currentY < ahead + flight.minAGL + 0.5) {
+    targetVy = Math.max(targetVy, model.climbRate * 0.7);
+  }
+  flight.verticalVelocity = approach(flight.verticalVelocity, targetVy, model.climbAccel * dt);
+  const agl = currentY - ground;
+  let appliedVy = flight.verticalVelocity;
+  if (agl < 8 && appliedVy < 0) appliedVy *= model.groundEffect;
+  transform.y = currentY + appliedVy * dt;
+
+  const minFlightY = ground + flight.minAGL;
+  if (transform.y < minFlightY) {
+    const hardImpact = flight.verticalVelocity < -9 || Math.hypot(velocity.x, velocity.z) > 18;
+    if (hardImpact && transform.y < ground + 1.2) {
+      if (entity.health) entity.health.current = 0;
+      entity.destroyed = { remaining: 20 };
+      sim.events.push({ kind: 'crash', fromX: transform.x, fromZ: transform.z, toX: transform.x, toZ: transform.z, damage: 999, killed: true });
+      return;
+    }
+    transform.y = minFlightY + 0.5;
+    flight.verticalVelocity = Math.max(1.5, -flight.verticalVelocity * 0.18);
+    velocity.x *= 0.55;
+    velocity.z *= 0.55;
+    if (entity.health) entity.health.current = Math.max(1, entity.health.current - 10);
+    sim.events.push({ kind: 'hard-bounce', fromX: transform.x, fromZ: transform.z, toX: transform.x, toZ: transform.z, damage: 10, killed: false });
+  }
+  transform.y = Math.min(transform.y, flight.maxAltitude);
+}
+
+function possessedFlightCommand(entity: MovingEntity): FlightCommand {
+  const controlled = entity.playerControlled;
+  const mover = entity.mover;
+  mover.target = undefined;
+  mover.formationOffset = undefined;
+  mover.flow = undefined;
+  mover.attackMove = false;
+  mover.defenseAlert = undefined;
+  return {
+    throttle: clamp(controlled?.throttle ?? 0, -1, 1),
+    turn: clamp(controlled?.turn ?? 0, -1, 1),
+    strafe: clamp(controlled?.strafe ?? 0, -1, 1),
+    climb: clamp(controlled?.climb ?? 0, -1, 1),
+    aimYaw: controlled?.aimYaw ?? entity.transform.rot,
+  };
+}
+
+function aiFlightCommand(entity: MovingEntity): FlightCommand {
+  const { transform, velocity, mover } = entity;
+  const command: FlightCommand = { throttle: 0, turn: 0, strafe: 0, climb: 0 };
+  const target = mover.target ?? mover.engage;
+  if (target) {
+    const dx = target.x - transform.x;
+    const dz = target.z - transform.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < mover.radius * 2.2) {
+      if (mover.target) mover.target = undefined;
+      velocity.x *= 0.9;
+      velocity.z *= 0.9;
+      command.throttle = -0.35;
+    } else if (dist > 0.001) {
+      const dirX = dx / dist;
+      const dirZ = dz / dist;
+      const forwardX = Math.sin(transform.rot);
+      const forwardZ = Math.cos(transform.rot);
+      const rightX = Math.cos(transform.rot);
+      const rightZ = -Math.sin(transform.rot);
+      const desiredYaw = Math.atan2(dx, dz);
+      const yawDelta = normalizeAngle(desiredYaw - transform.rot);
+      const slow = clamp(dist / 44, 0.25, 1);
+      const forwardDot = dirX * forwardX + dirZ * forwardZ;
+      const sideDot = dirX * rightX + dirZ * rightZ;
+      command.throttle = clamp(Math.max(0.18, forwardDot) * slow, -0.35, 1);
+      command.strafe = clamp(sideDot * 1.15 * slow, -1, 1);
+      command.turn = clamp(yawDelta * 1.2, -1, 1);
+      command.aimYaw = desiredYaw;
+    }
+    mover.engage = undefined;
+  } else if (mover.faceYaw !== undefined) {
+    const yawDelta = normalizeAngle(mover.faceYaw - transform.rot);
+    command.turn = clamp(yawDelta * 1.2, -1, 1);
+    command.aimYaw = mover.faceYaw;
+  }
+  return command;
+}
+
+function limitBodyFlightVelocity(velocity: { x: number; z: number }, yaw: number, maxSpeed: number, maxReverse: number, maxStrafe: number): void {
+  const forwardX = Math.sin(yaw);
+  const forwardZ = Math.cos(yaw);
+  const rightX = Math.cos(yaw);
+  const rightZ = -Math.sin(yaw);
+  let fwd = velocity.x * forwardX + velocity.z * forwardZ;
+  let side = velocity.x * rightX + velocity.z * rightZ;
+  if (fwd > maxSpeed) fwd = maxSpeed;
+  if (maxReverse >= 0 && fwd < -maxReverse) fwd = -maxReverse;
+  side = clamp(side, -maxStrafe, maxStrafe);
+  velocity.x = forwardX * fwd + rightX * side;
+  velocity.z = forwardZ * fwd + rightZ * side;
+  const speed = Math.hypot(velocity.x, velocity.z);
+  const cap = maxSpeed * 1.12;
+  if (speed > cap) {
+    const scale = cap / speed;
+    velocity.x *= scale;
+    velocity.z *= scale;
+  }
+}
+
+function formationWidth(count: number, faceYaw?: number, formationSpread?: number): number {
   if (count <= 1) return 1;
   if (faceYaw === undefined) return Math.max(1, Math.ceil(Math.sqrt(count)));
+  if (formationSpread !== undefined) return count;
   return Math.min(count, Math.max(2, Math.ceil(Math.sqrt(count) * 1.8)));
+}
+
+function formationSpacing(baseSpacing: number, count: number, formationSpread?: number): number {
+  if (formationSpread === undefined || count <= 1) return baseSpacing;
+  return clamp(formationSpread / Math.max(1, count - 1), baseSpacing * 0.75, baseSpacing * 3.5);
 }
 
 function formationOffset(col: number, row: number, width: number, count: number, spacing: number, faceYaw?: number): { x: number; z: number } {
@@ -617,9 +829,37 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round((entity.transform.y ?? 0) * 100));
     mix(Math.round(entity.transform.z * 100));
     mix(Math.round(entity.transform.rot * 10000));
+    if (entity.flight) {
+      mix(Math.round(entity.flight.pitchAttitude * 1000));
+      mix(Math.round(entity.flight.rollAttitude * 1000));
+      mix(Math.round(entity.flight.verticalVelocity * 1000));
+    }
+    if (entity.structureDamage) {
+      mix(entity.structureDamage.cols);
+      mix(entity.structureDamage.rows);
+      mix(entity.structureDamage.tiers);
+      mix(entity.structureDamage.version);
+      for (const cell of entity.structureDamage.cells) mix(cell);
+    }
     if (entity.health) mix(Math.round(entity.health.current * 100));
+    if (entity.cargo) {
+      mix(entity.cargo.capacity);
+      mix(Math.round(entity.cargo.amount * 100));
+    }
+    if (entity.harvester) {
+      mix(entity.harvester.state.length);
+      mix(entity.harvester.nodeId ?? 0);
+      mix(entity.harvester.refineryId ?? 0);
+      mix(Math.round(entity.harvester.timer * 1000));
+      mix(Math.round((entity.harvester.threatTimer ?? 0) * 1000));
+      mix(Math.round((entity.harvester.lastHealth ?? 0) * 100));
+    }
   }
   for (const projectile of sim.projectiles) {
+    mix(projectile.kind.length);
+    mix(Math.round((projectile.x ?? projectile.toX) * 100));
+    mix(Math.round((projectile.y ?? 0) * 100));
+    mix(Math.round((projectile.z ?? projectile.toZ) * 100));
     mix(Math.round(projectile.toX * 100));
     mix(Math.round(projectile.toZ * 100));
     mix(Math.round(projectile.elapsed * 1000));

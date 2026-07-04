@@ -1,9 +1,14 @@
 // Builds the chunked terrain mesh with a splat-mapped standard material
 // (CSM-shadow compatible) plus a walkability debug overlay (F3).
 import {
+  AdditiveBlending,
+  BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  CircleGeometry,
+  CylinderGeometry,
   DataTexture,
+  DoubleSide,
   Group,
   LinearFilter,
   Mesh,
@@ -13,10 +18,24 @@ import {
   RGBAFormat,
 } from 'three';
 import type { CSM } from 'three/addons/csm/CSM.js';
-import type { Heightfield } from '../sim/heightfield';
+import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { createDirtTexture, createGrassTexture, createOreTexture, createRockTexture } from './textures';
+import type { ResourceNode } from '../sim/world';
 
 const CHUNKS = 4;
+
+interface OreGlow {
+  outer: Mesh;
+  core: Mesh;
+  rim: Mesh;
+  rig: Group;
+  pumpJack: Group;
+  outerMaterial: MeshBasicMaterial;
+  coreMaterial: MeshBasicMaterial;
+  rimMaterial: MeshBasicMaterial;
+  statusMaterial: MeshBasicMaterial;
+  rigMaterials: MeshStandardMaterial[];
+}
 
 function buildChunkGeometry(hf: Heightfield, startX: number, startY: number, chunkCells: number): BufferGeometry {
   const { heights, samples, cells, cellSize } = hf;
@@ -84,6 +103,8 @@ export class TerrainView {
   /** shared with overlays that drape data over the terrain (walkability, fog) */
   readonly chunkGeometries: BufferGeometry[] = [];
   private readonly overlayGroup = new Group();
+  private readonly oreGlowGroup = new Group();
+  private readonly oreGlows: OreGlow[] = [];
 
   constructor(hf: Heightfield, csm: CSM, maxAnisotropy: number) {
     const material = createSplatMaterial(hf, csm, maxAnisotropy);
@@ -108,6 +129,9 @@ export class TerrainView {
     }
     this.overlayGroup.visible = false;
     this.overlayGroup.renderOrder = 100;
+    this.oreGlowGroup.renderOrder = 22;
+    this.buildOreGlow(hf);
+    this.group.add(this.oreGlowGroup);
     this.group.add(this.overlayGroup);
   }
 
@@ -115,6 +139,190 @@ export class TerrainView {
     this.overlayGroup.visible = !this.overlayGroup.visible;
     return this.overlayGroup.visible;
   }
+
+  updateResources(nodes: ResourceNode[]): void {
+    const now = performance.now() * 0.001;
+    for (let i = 0; i < this.oreGlows.length; i++) {
+      const node = nodes[i];
+      const glow = this.oreGlows[i];
+      const pct = node ? Math.max(0, Math.min(1, node.remaining / node.capacity)) : 0;
+      const visible = pct > 0.01;
+      glow.outer.visible = visible;
+      glow.core.visible = pct > 0.08;
+      glow.rim.visible = visible;
+      const scale = 0.72 + pct * 0.28;
+      glow.outer.scale.setScalar(scale);
+      glow.core.scale.setScalar(0.58 + pct * 0.42);
+      glow.rim.scale.setScalar(0.82 + pct * 0.18);
+      glow.outerMaterial.opacity = 0.06 + pct * 0.28;
+      glow.coreMaterial.opacity = pct * 0.48;
+      glow.rimMaterial.opacity = 0.04 + pct * 0.18;
+      glow.rig.visible = pct > 0.005;
+      glow.rig.scale.setScalar(0.92 + pct * 0.08);
+      glow.pumpJack.rotation.x = Math.sin(now * 2.4 + i * 0.7) * (0.05 + pct * 0.14);
+      glow.statusMaterial.opacity = pct > 0.08 ? 0.35 + Math.sin(now * 5 + i) * 0.18 : 0.08;
+      glow.statusMaterial.color.setHex(pct < 0.16 ? 0xff5a3d : pct < 0.42 ? 0xffc25a : 0x7df27d);
+      for (const material of glow.rigMaterials) {
+        material.opacity = 0.35 + pct * 0.65;
+        material.color.lerpColors(material.userData.depletedColor, material.userData.fullColor, pct);
+      }
+    }
+  }
+
+  private buildOreGlow(hf: Heightfield): void {
+    for (const field of hf.oreFields) {
+      const outerMaterial = oreGlowMaterial(0xf0d56a, 0.28);
+      const coreMaterial = oreGlowMaterial(0xfff0a0, 0.42);
+      const rimMaterial = oreGlowMaterial(0x7df27d, 0.18);
+      const y = sampleHeight(hf, field.x, field.z) + 0.42;
+      const outer = new Mesh(new CircleGeometry(field.radius * 1.1, 48), outerMaterial);
+      outer.rotation.x = -Math.PI / 2;
+      outer.position.set(field.x, y, field.z);
+      outer.renderOrder = 22;
+      this.oreGlowGroup.add(outer);
+
+      const core = new Mesh(new CircleGeometry(field.radius * 0.52, 40), coreMaterial);
+      core.rotation.x = -Math.PI / 2;
+      core.position.set(field.x, y + 0.04, field.z);
+      core.renderOrder = 23;
+      this.oreGlowGroup.add(core);
+
+      const rim = new Mesh(new CircleGeometry(field.radius * 1.28, 56), rimMaterial);
+      rim.rotation.x = -Math.PI / 2;
+      rim.position.set(field.x, y + 0.08, field.z);
+      rim.renderOrder = 24;
+      this.oreGlowGroup.add(rim);
+
+      const rig = createOilFieldRig(field.radius);
+      rig.position.set(field.x, y + 0.12, field.z);
+      rig.rotation.y = hashAngle(field.x, field.z);
+      this.oreGlowGroup.add(rig);
+      this.oreGlows.push({
+        outer,
+        core,
+        rim,
+        rig,
+        pumpJack: rig.getObjectByName('pumpJack') as Group,
+        outerMaterial,
+        coreMaterial,
+        rimMaterial,
+        statusMaterial: rig.getObjectByName('statusLight') instanceof Mesh ? (rig.getObjectByName('statusLight') as Mesh).material as MeshBasicMaterial : oreGlowMaterial(0x7df27d, 0.3),
+        rigMaterials: rig.userData.materials as MeshStandardMaterial[],
+      });
+    }
+  }
+}
+
+function oreGlowMaterial(color: number, opacity: number): MeshBasicMaterial {
+  return new MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    side: DoubleSide,
+    blending: AdditiveBlending,
+    toneMapped: false,
+  });
+}
+
+function createOilFieldRig(radius: number): Group {
+  const root = new Group();
+  const steel = rigMaterial(0x354044, 0x111413);
+  const dark = rigMaterial(0x202423, 0x090a09);
+  const brass = rigMaterial(0xc79a46, 0x493720);
+  const pipe = rigMaterial(0x4d5350, 0x171918);
+  const materials = [steel, dark, brass, pipe];
+  root.userData.materials = materials;
+
+  const base = new Mesh(new CylinderGeometry(2.4, 2.6, 0.32, 18), dark);
+  base.position.set(radius * 0.18, 0.18, -radius * 0.08);
+  base.castShadow = true;
+  base.receiveShadow = true;
+  root.add(base);
+
+  const tower = new Group();
+  tower.position.set(radius * 0.2, 0.3, -radius * 0.08);
+  root.add(tower);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = new Mesh(new BoxGeometry(0.18, 4.2, 0.18), steel);
+      leg.position.set(sx * 0.9, 2.0, sz * 0.65);
+      leg.rotation.z = sx * 0.13;
+      leg.rotation.x = -sz * 0.08;
+      leg.castShadow = true;
+      tower.add(leg);
+    }
+  }
+  const crown = new Mesh(new BoxGeometry(2.0, 0.26, 1.45), steel);
+  crown.position.y = 4.05;
+  crown.castShadow = true;
+  tower.add(crown);
+  const crossA = new Mesh(new BoxGeometry(2.3, 0.13, 0.13), brass);
+  crossA.position.y = 2.55;
+  crossA.rotation.z = 0.58;
+  tower.add(crossA);
+  const crossB = new Mesh(new BoxGeometry(2.3, 0.13, 0.13), brass);
+  crossB.position.y = 2.55;
+  crossB.rotation.z = -0.58;
+  tower.add(crossB);
+
+  const pump = new Group();
+  pump.name = 'pumpJack';
+  pump.position.set(-radius * 0.28, 1.05, radius * 0.1);
+  root.add(pump);
+  const beam = new Mesh(new BoxGeometry(3.8, 0.28, 0.22), brass);
+  beam.castShadow = true;
+  pump.add(beam);
+  const head = new Mesh(new BoxGeometry(0.55, 1.2, 0.34), brass);
+  head.position.set(1.9, -0.45, 0);
+  head.castShadow = true;
+  pump.add(head);
+  const counter = new Mesh(new CylinderGeometry(0.52, 0.52, 0.3, 14), dark);
+  counter.rotation.z = Math.PI / 2;
+  counter.position.set(-1.95, -0.18, 0);
+  counter.castShadow = true;
+  pump.add(counter);
+
+  const pipeA = new Mesh(new CylinderGeometry(0.16, 0.16, radius * 0.72, 12), pipe);
+  pipeA.rotation.z = Math.PI / 2;
+  pipeA.position.set(0.2, 0.42, radius * 0.38);
+  pipeA.castShadow = true;
+  root.add(pipeA);
+  const tankA = new Mesh(new CylinderGeometry(0.68, 0.68, 1.7, 16), pipe);
+  tankA.rotation.z = Math.PI / 2;
+  tankA.position.set(-radius * 0.38, 0.78, -radius * 0.32);
+  tankA.castShadow = true;
+  root.add(tankA);
+  const tankB = new Mesh(new CylinderGeometry(0.52, 0.52, 1.35, 16), pipe);
+  tankB.rotation.z = Math.PI / 2;
+  tankB.position.set(-radius * 0.5, 0.62, -radius * 0.48);
+  tankB.castShadow = true;
+  root.add(tankB);
+
+  const status = new Mesh(
+    new CircleGeometry(0.95, 24),
+    new MeshBasicMaterial({ color: 0x7df27d, transparent: true, opacity: 0.38, depthWrite: false, side: DoubleSide, blending: AdditiveBlending, toneMapped: false }),
+  );
+  status.name = 'statusLight';
+  status.rotation.x = -Math.PI / 2;
+  status.position.set(radius * 0.2, 0.06, -radius * 0.08);
+  status.renderOrder = 25;
+  root.add(status);
+
+  root.scale.setScalar(0.82);
+  return root;
+}
+
+function rigMaterial(fullColor: number, depletedColor: number): MeshStandardMaterial {
+  const material = new MeshStandardMaterial({ color: fullColor, roughness: 0.82, metalness: 0.16, transparent: true, opacity: 1 });
+  material.userData.fullColor = material.color.clone();
+  material.userData.depletedColor = material.color.clone().setHex(depletedColor);
+  return material;
+}
+
+function hashAngle(x: number, z: number): number {
+  const n = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+  return (n - Math.floor(n)) * Math.PI * 2;
 }
 
 function createSplatMaterial(hf: Heightfield, csm: CSM, maxAnisotropy: number): MeshStandardMaterial {

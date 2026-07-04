@@ -28,6 +28,7 @@ const stemGeometry = new CylinderGeometry(0.08, 0.08, 2.2, 8);
 const coneGeometry = new ConeGeometry(0.62, 1.25, 4);
 const arrowShaftGeometry = new BoxGeometry(1, 0.18, 1);
 const arrowHeadGeometry = new ConeGeometry(1.15, 2.25, 3);
+const MAX_FACING_ARROW_LENGTH = 72;
 
 export class OrderMarkerView {
   readonly group = new Group();
@@ -86,10 +87,10 @@ export class OrderMarkerView {
     while (this.markers.length > 16) this.removeMarker(0);
   }
 
-  pushFacing(x: number, z: number, yaw: number, kind: OrderMarkerKind): void {
-    const length = kind === 'rally' ? 11 : 15;
-    const endX = x + Math.sin(yaw) * length;
-    const endZ = z + Math.cos(yaw) * length;
+  pushFacing(x: number, z: number, yaw: number, kind: OrderMarkerKind, length?: number): void {
+    const arrowLength = Math.min(MAX_FACING_ARROW_LENGTH, Math.max(8, length ?? (kind === 'rally' ? 11 : 15)));
+    const endX = x + Math.sin(yaw) * arrowLength;
+    const endZ = z + Math.cos(yaw) * arrowLength;
     this.pushArrow(x, z, endX, endZ, kind, 1.8);
   }
 
@@ -103,7 +104,7 @@ export class OrderMarkerView {
     }
     if (!this.preview) this.preview = this.createPreview(kind);
     const y = sampleHeight(this.hf, fromX, fromZ) + 0.22;
-    const length = Math.min(42, Math.max(8, distance));
+    const length = Math.min(MAX_FACING_ARROW_LENGTH, Math.max(8, distance));
     const yaw = Math.atan2(dx, dz);
     this.preview.root.visible = true;
     this.preview.root.position.set(fromX, y, fromZ);
@@ -165,7 +166,7 @@ export class OrderMarkerView {
     root.add(ring);
 
     const shaft = new Mesh(arrowShaftGeometry, core);
-    shaft.scale.set(0.62, 1, Math.min(42, Math.max(8, distance)));
+    shaft.scale.set(0.62, 1, Math.min(MAX_FACING_ARROW_LENGTH, Math.max(8, distance)));
     shaft.position.set(0, 0.2, shaft.scale.z / 2);
     shaft.renderOrder = 81;
     root.add(shaft);

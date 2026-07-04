@@ -1,7 +1,9 @@
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
+import { startPosition } from '../content/startPositions';
 import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
+import { createStructureDamage } from './structureDamage';
 import type { GameSim } from './world';
 import { issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt } from './world';
 
@@ -29,7 +31,8 @@ export interface EconomyState {
   readyStructure?: StructureKind;
   primaryProducerIds: Partial<Record<UnitProducerType, number>>;
   placement?: PlacementState;
-  lastIncomeTick: number;
+  pendingSpawned: Entity[];
+  harvesterReplacementTimers: Record<number, number>;
 }
 
 export interface PlacementState {
@@ -53,13 +56,15 @@ export function createEconomy(team = 1, initialCredits = 4600): EconomyState {
     powerUsed: 0,
     ledger: [],
     primaryProducerIds: {},
-    lastIncomeTick: 0,
+    pendingSpawned: [],
+    harvesterReplacementTimers: {},
   };
 }
 
 export function createInitialBase(sim: GameSim, hf: Heightfield, economy: EconomyState, atX?: number, atZ?: number): Entity {
-  const x = atX ?? -hf.size * 0.08;
-  const z = atZ ?? -hf.size * 0.08;
+  const fallback = startPosition(hf.size, economy.team === 2 ? 2 : 1);
+  const x = atX ?? fallback.x;
+  const z = atZ ?? fallback.z;
   const cell = sim.nav.nearestWalkableCell(x, z) ?? sim.nav.nearestWalkableCell(0, 0);
   if (!cell) throw new Error('no walkable base cell');
   const p = sim.nav.cellCenter(cell.x, cell.y);
@@ -85,6 +90,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
     collider: { radius: 9 },
     armor: { kind: 'building' },
   });
+  conyard.structureDamage = createStructureDamage(conyard);
   recomputePower(sim, economy);
   return conyard;
 }
@@ -145,6 +151,8 @@ export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomySt
   let first: Entity | undefined;
   for (const point of points) {
     const entity = createPlacedStructure(sim, hf, economy, def, point.x, point.z);
+    const harvester = entity.building?.kind === 'refinery' ? spawnHarvesterAtRefinery(sim, entity) : undefined;
+    if (harvester) economy.pendingSpawned.push(harvester);
     first ??= entity;
   }
   economy.readyStructure = undefined;
@@ -184,6 +192,7 @@ function createPlacedStructure(
     collider: { radius: def.blocksMovement ? footprintRadius(hf, def.footprint) : Math.max(def.footprint.w, def.footprint.h) },
     armor: { kind: 'building' },
   });
+  entity.structureDamage = createStructureDamage(entity);
   if (def.blocksMovement) sim.nav.setDynamicBlocker(entity.id, entity.transform.x, entity.transform.z, entity.collider?.radius ?? 4);
   return entity;
 }
@@ -287,8 +296,32 @@ export function setProducerRally(sim: GameSim, economy: EconomyState, producer: 
   return producer.producer.rally;
 }
 
+export function issueHarvestOrder(sim: GameSim, harvesters: Entity[], x: number, z: number): boolean {
+  const node = resourceNodeAt(sim, x, z);
+  if (!node) return false;
+  let issued = false;
+  for (const entity of harvesters) {
+    if (!entity.harvester || !entity.cargo || !entity.mover || entity.destroyed) continue;
+    sendHarvesterToNode(sim, entity, node);
+    issued = true;
+  }
+  return issued;
+}
+
+export function issueHarvesterReturnOrder(sim: GameSim, harvesters: Entity[], x: number, z: number): boolean {
+  let issued = false;
+  for (const entity of harvesters) {
+    if (!entity.harvester || !entity.cargo || !entity.mover || entity.destroyed) continue;
+    const refinery = refineryAt(sim, entity.team?.id ?? 1, x, z);
+    if (!refinery) continue;
+    sendHarvesterToRefinery(sim, entity, refinery);
+    issued = true;
+  }
+  return issued;
+}
+
 export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState, dt: number): Entity[] {
-  const spawned: Entity[] = [];
+  const spawned: Entity[] = economy.pendingSpawned.splice(0);
   const powered = economy.powerProduced >= economy.powerUsed;
   const productionScale = powered ? 1 : 0.45;
 
@@ -328,16 +361,8 @@ export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState
     }
   }
 
-  const incomePeriod = 30 * 2;
-  if (sim.tick - economy.lastIncomeTick >= incomePeriod) {
-    const refineries = buildings(sim, economy.team).filter((entity) => entity.building?.kind === 'refinery' && entity.building.complete).length;
-    if (refineries > 0) {
-      const amount = Math.round(refineries * 140 * economy.incomeMultiplier);
-      economy.credits += amount;
-      economy.ledger.push({ tick: sim.tick, type: 'income', label: 'Ore delivered', amount });
-    }
-    economy.lastIncomeTick = sim.tick;
-  }
+  stepHarvesters(sim, economy, dt);
+  maintainRefineryHarvesters(sim, economy, dt);
   recomputePower(sim, economy);
   return spawned;
 }
@@ -381,9 +406,9 @@ function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
 
 function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind: UnitKind): Entity | undefined {
   const team = producer.team?.id ?? 1;
-  const p = sim.nav.nearestWalkableCell(producer.transform.x + 14, producer.transform.z + 9, 24);
-  if (!p) return undefined;
-  const pos = sim.nav.cellCenter(p.x, p.y);
+  const exit = productionExitPlan(sim, hf, producer, kind);
+  if (!exit) return undefined;
+  const pos = exit.spawn;
   let entity: Entity | undefined;
   const suffix = sim.world.entities.length + 1;
   if (kind === 'scout-tank') entity = spawnScoutTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash Jackal' : 'Jackal'} ${suffix}`, team);
@@ -395,17 +420,245 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
   else entity = spawnInfantryAt(sim, pos.x, pos.z, team, kind);
   if (!entity) return undefined;
   void sampleHeight(hf, pos.x, pos.z);
-  orderToRally(sim, producer, entity);
+  orderToRally(sim, producer, entity, exit.defaultTarget);
   return entity;
 }
 
-function spawnInfantryAt(sim: GameSim, x: number, z: number, team: number, kind: UnitKind): Entity {
+const HARVESTER_CAPACITY = 300;
+const HARVESTER_GATHER_RATE = 95;
+const HARVESTER_DEPOSIT_SECONDS = 0.55;
+const HARVESTER_REPLACEMENT_SECONDS = 18;
+const HARVESTER_THREAT_SECONDS = 8;
+const HARVESTER_DELIVERY_LABEL = 'Ore delivered';
+
+function spawnHarvesterAtRefinery(sim: GameSim, refinery: Entity): Entity | undefined {
+  const team = refinery.team?.id ?? 1;
+  const cell =
+    sim.nav.nearestWalkableCell(refinery.transform.x + 16, refinery.transform.z + 10, 34) ??
+    sim.nav.nearestWalkableCell(refinery.transform.x - 16, refinery.transform.z + 10, 34) ??
+    sim.nav.nearestWalkableCell(refinery.transform.x, refinery.transform.z + 18, 34);
+  if (!cell) return undefined;
+  const pos = sim.nav.cellCenter(cell.x, cell.y);
+  return sim.world.add({
+    id: sim.nextEntityId++,
+    name: team === 2 ? 'Ash Harvester' : 'Ore Harvester',
+    transform: { x: pos.x, z: pos.z, rot: Math.PI * 0.25 },
+    previousTransform: { x: pos.x, z: pos.z, rot: Math.PI * 0.25 },
+    velocity: { x: 0, z: 0 },
+    health: { current: 160, max: 160 },
+    team: { id: team },
+    selectable: { selected: false, type: 'harvester', radius: 2.6 },
+    mover: { speed: 20, radius: 2.35 },
+    vision: { radius: 90 },
+    cargo: { capacity: HARVESTER_CAPACITY, amount: 0 },
+    harvester: { state: 'seeking', refineryId: refinery.id, timer: 0, lastHealth: 160 },
+    collider: { radius: 2.35 },
+    armor: { kind: 'heavy' },
+  });
+}
+
+function stepHarvesters(sim: GameSim, economy: EconomyState, dt: number): void {
+  for (const entity of sim.world.entities) {
+    if (!entity.harvester || !entity.cargo || !entity.mover || entity.destroyed || entity.team?.id !== economy.team) continue;
+    const harvester = entity.harvester;
+    const refinery = findAssignedRefinery(sim, economy.team, harvester.refineryId);
+    if (!refinery) {
+      harvester.refineryId = undefined;
+      harvester.state = 'seeking';
+      entity.mover.target = undefined;
+      continue;
+    }
+    harvester.refineryId = refinery.id;
+    updateHarvesterThreat(entity, dt);
+
+    if (harvester.threatTimer && harvester.threatTimer > 0 && harvester.state !== 'to-refinery' && harvester.state !== 'depositing') {
+      sendHarvesterToRefinery(sim, entity, refinery);
+    }
+
+    if (
+      (entity.cargo.amount >= entity.cargo.capacity || (harvester.state === 'seeking' && entity.cargo.amount > 0)) &&
+      harvester.state !== 'to-refinery' &&
+      harvester.state !== 'depositing'
+    ) {
+      sendHarvesterToRefinery(sim, entity, refinery);
+    }
+
+    if (harvester.state === 'seeking') {
+      const node = nearestResourceNode(sim, entity.transform.x, entity.transform.z);
+      if (!node) continue;
+      sendHarvesterToNode(sim, entity, node);
+    } else if (harvester.state === 'to-node') {
+      const node = sim.resourceNodes.find((candidate) => candidate.id === harvester.nodeId && candidate.remaining > 0.5);
+      if (!node) {
+        harvester.state = 'seeking';
+        entity.mover.target = undefined;
+        continue;
+      }
+      const dist = Math.hypot(entity.transform.x - node.x, entity.transform.z - node.z);
+      if (dist <= node.radius + entity.mover.radius + 1.5) {
+        harvester.state = 'gathering';
+        harvester.timer = 0;
+        entity.mover.target = undefined;
+        if (entity.velocity) {
+          entity.velocity.x *= 0.2;
+          entity.velocity.z *= 0.2;
+        }
+      }
+    } else if (harvester.state === 'gathering') {
+      const node = sim.resourceNodes.find((candidate) => candidate.id === harvester.nodeId && candidate.remaining > 0);
+      if (!node) {
+        sendHarvesterToRefinery(sim, entity, refinery);
+        continue;
+      }
+      const amount = Math.min(node.remaining, entity.cargo.capacity - entity.cargo.amount, HARVESTER_GATHER_RATE * dt);
+      node.remaining -= amount;
+      entity.cargo.amount += amount;
+      if (entity.cargo.amount >= entity.cargo.capacity - 0.01 || node.remaining <= 0.01) sendHarvesterToRefinery(sim, entity, refinery);
+    } else if (harvester.state === 'to-refinery') {
+      const dist = Math.hypot(entity.transform.x - refinery.transform.x, entity.transform.z - refinery.transform.z);
+      if (dist <= (refinery.collider?.radius ?? 8) + entity.mover.radius + 2) {
+        harvester.state = 'depositing';
+        harvester.timer = HARVESTER_DEPOSIT_SECONDS;
+        entity.mover.target = undefined;
+        if (entity.velocity) {
+          entity.velocity.x *= 0.2;
+          entity.velocity.z *= 0.2;
+        }
+      }
+    } else if (harvester.state === 'depositing') {
+      harvester.timer -= dt;
+      if (harvester.timer > 0) continue;
+      const delivered = Math.floor(entity.cargo.amount * economy.incomeMultiplier);
+      if (delivered > 0) {
+        economy.credits += delivered;
+        economy.ledger.push({ tick: sim.tick, type: 'income', label: HARVESTER_DELIVERY_LABEL, amount: delivered });
+      }
+      entity.cargo.amount = 0;
+      harvester.state = 'seeking';
+      harvester.timer = 0;
+      harvester.nodeId = undefined;
+    }
+  }
+}
+
+function updateHarvesterThreat(entity: Entity, dt: number): void {
+  const harvester = entity.harvester!;
+  const health = entity.health?.current;
+  if (health === undefined) return;
+  if (harvester.lastHealth === undefined) harvester.lastHealth = health;
+  if (health < harvester.lastHealth - 0.01) harvester.threatTimer = HARVESTER_THREAT_SECONDS;
+  harvester.lastHealth = health;
+  if (harvester.threatTimer !== undefined) {
+    harvester.threatTimer = Math.max(0, harvester.threatTimer - dt);
+    if (harvester.threatTimer <= 0) harvester.threatTimer = undefined;
+  }
+}
+
+function maintainRefineryHarvesters(sim: GameSim, economy: EconomyState, dt: number): void {
+  const refineries = buildings(sim, economy.team).filter((entity) => entity.building?.kind === 'refinery' && entity.building.complete && !entity.destroyed);
+  const aliveRefineryIds = new Set(refineries.map((entity) => entity.id));
+  for (const key of Object.keys(economy.harvesterReplacementTimers)) {
+    if (!aliveRefineryIds.has(Number(key))) delete economy.harvesterReplacementTimers[Number(key)];
+  }
+  for (const refinery of refineries) {
+    if (hasAssignedHarvester(sim, economy.team, refinery.id)) {
+      delete economy.harvesterReplacementTimers[refinery.id];
+      continue;
+    }
+    const next = (economy.harvesterReplacementTimers[refinery.id] ?? 0) + dt;
+    if (next < HARVESTER_REPLACEMENT_SECONDS) {
+      economy.harvesterReplacementTimers[refinery.id] = next;
+      continue;
+    }
+    const harvester = spawnHarvesterAtRefinery(sim, refinery);
+    if (harvester) economy.pendingSpawned.push(harvester);
+    economy.harvesterReplacementTimers[refinery.id] = 0;
+  }
+}
+
+function hasAssignedHarvester(sim: GameSim, team: number, refineryId: number): boolean {
+  for (const entity of sim.world.entities) {
+    if (entity.team?.id !== team || !entity.harvester || entity.destroyed) continue;
+    if (entity.harvester.refineryId === refineryId) return true;
+  }
+  return false;
+}
+
+function findAssignedRefinery(sim: GameSim, team: number, preferredId?: number): Entity | undefined {
+  const refineries = buildings(sim, team).filter((entity) => entity.building?.kind === 'refinery' && entity.building.complete && !entity.destroyed);
+  if (preferredId) {
+    const preferred = refineries.find((entity) => entity.id === preferredId);
+    if (preferred) return preferred;
+  }
+  return refineries[0];
+}
+
+function refineryAt(sim: GameSim, team: number, x: number, z: number): Entity | undefined {
+  let best: Entity | undefined;
+  let bestMargin = Number.POSITIVE_INFINITY;
+  for (const entity of buildings(sim, team)) {
+    if (entity.building?.kind !== 'refinery' || !entity.building.complete || entity.destroyed) continue;
+    const radius = (entity.collider?.radius ?? Math.max(entity.building.footprint.w, entity.building.footprint.h)) + 10;
+    const distance = Math.hypot(entity.transform.x - x, entity.transform.z - z);
+    const margin = distance - radius;
+    if (margin <= 0 && margin < bestMargin) {
+      best = entity;
+      bestMargin = margin;
+    }
+  }
+  return best;
+}
+
+function nearestResourceNode(sim: GameSim, x: number, z: number) {
+  let best: (typeof sim.resourceNodes)[number] | undefined;
+  let bestD2 = Number.POSITIVE_INFINITY;
+  for (const node of sim.resourceNodes) {
+    if (node.remaining <= 0.5) continue;
+    const d2 = (node.x - x) ** 2 + (node.z - z) ** 2;
+    if (d2 < bestD2) {
+      best = node;
+      bestD2 = d2;
+    }
+  }
+  return best;
+}
+
+function resourceNodeAt(sim: GameSim, x: number, z: number) {
+  let best: (typeof sim.resourceNodes)[number] | undefined;
+  let bestMargin = Number.POSITIVE_INFINITY;
+  for (const node of sim.resourceNodes) {
+    if (node.remaining <= 0.5) continue;
+    const distance = Math.hypot(node.x - x, node.z - z);
+    const margin = distance - (node.radius + 10);
+    if (margin <= 0 && margin < bestMargin) {
+      best = node;
+      bestMargin = margin;
+    }
+  }
+  return best;
+}
+
+function sendHarvesterToNode(sim: GameSim, entity: Entity, node: (typeof sim.resourceNodes)[number]): void {
+  entity.harvester!.state = 'to-node';
+  entity.harvester!.nodeId = node.id;
+  issueMoveOrder(sim, [entity], node.x, node.z, false);
+}
+
+function sendHarvesterToRefinery(sim: GameSim, entity: Entity, refinery: Entity): void {
+  entity.harvester!.state = 'to-refinery';
+  entity.harvester!.refineryId = refinery.id;
+  issueMoveOrder(sim, [entity], refinery.transform.x, refinery.transform.z, false);
+}
+
+export function spawnInfantryAt(sim: GameSim, x: number, z: number, team: number, kind: UnitKind): Entity {
   const config =
     kind === 'grenadier'
       ? { label: 'Grenadier', enemyLabel: 'Ash Grenadier', weapon: 'grenade', range: 48, health: 52, speed: 11, vision: 82 }
       : kind === 'rocket-infantry'
         ? { label: 'Rocket Team', enemyLabel: 'Ash Rockets', weapon: 'rocketLauncher', range: 72, health: 50, speed: 10, vision: 94 }
         : { label: 'Rifle Team', enemyLabel: 'Ash Rifles', weapon: 'rifle', range: 42, health: 45, speed: 12, vision: 78 };
+  const primaryWeapon = { kind: config.weapon, range: config.range, cooldown: 0 };
+  const secondaryWeapon = kind === 'rocket-infantry' ? { kind: 'aaMissile', range: 145, cooldown: 0 } : undefined;
   const entity = sim.world.add({
     id: sim.nextEntityId++,
     name: team === 2 ? config.enemyLabel : config.label,
@@ -416,7 +669,8 @@ function spawnInfantryAt(sim: GameSim, x: number, z: number, team: number, kind:
     team: { id: team },
     selectable: { selected: false, type: 'infantry', radius: 1.4 },
     mover: { speed: config.speed, radius: 1.1 },
-    weapon: { kind: config.weapon, range: config.range, cooldown: 0 },
+    weapon: primaryWeapon,
+    weapons: { primary: primaryWeapon, secondary: secondaryWeapon },
     // soldiers aim with their upper body — same slew path as a (fast) turret
     turret: { yaw: Math.PI * 0.25, turnRate: 5.5 },
     vision: { radius: config.vision },
@@ -427,10 +681,70 @@ function spawnInfantryAt(sim: GameSim, x: number, z: number, team: number, kind:
   return entity;
 }
 
-function orderToRally(sim: GameSim, producer: Entity, entity: Entity): void {
+function productionExitPlan(
+  sim: GameSim,
+  hf: Heightfield,
+  producer: Entity,
+  kind: UnitKind,
+): { spawn: { x: number; z: number }; defaultTarget: { x: number; z: number } } | undefined {
   const rally = producer.producer?.rally;
-  if (!rally) return;
-  issueMoveOrder(sim, [entity], rally.x, rally.z, false);
+  const footprint = producer.building?.footprint;
+  const unitRadius = productionUnitRadius(kind);
+  const buildingRadius = footprint ? Math.max(footprint.w, footprint.h) * hf.cellSize : (producer.collider?.radius ?? 8);
+  const targetDx = rally ? rally.x - producer.transform.x : -producer.transform.x;
+  const targetDz = rally ? rally.z - producer.transform.z : -producer.transform.z;
+  const targetLen = Math.hypot(targetDx, targetDz) || 1;
+  const dir = { x: targetDx / targetLen, z: targetDz / targetLen };
+  const right = { x: dir.z, z: -dir.x };
+  const spawnDistance = buildingRadius + unitRadius + 9;
+  const clearDistance = spawnDistance + 22;
+  const lateralOffsets = [0, unitRadius * 2.8, -unitRadius * 2.8, unitRadius * 5.2, -unitRadius * 5.2];
+
+  for (const lateral of lateralOffsets) {
+    const sx = producer.transform.x + dir.x * spawnDistance + right.x * lateral;
+    const sz = producer.transform.z + dir.z * spawnDistance + right.z * lateral;
+    const cell = sim.nav.nearestWalkableCell(sx, sz, 18);
+    if (!cell) continue;
+    const spawn = sim.nav.cellCenter(cell.x, cell.y);
+    const target = clampProductionPoint(
+      sim,
+      spawn.x + dir.x * 24,
+      spawn.z + dir.z * 24,
+      producer.transform.x + dir.x * clearDistance + right.x * lateral,
+      producer.transform.z + dir.z * clearDistance + right.z * lateral,
+    );
+    return { spawn, defaultTarget: target };
+  }
+  return undefined;
+}
+
+function clampProductionPoint(
+  sim: GameSim,
+  preferredX: number,
+  preferredZ: number,
+  fallbackX: number,
+  fallbackZ: number,
+): { x: number; z: number } {
+  const preferred = sim.nav.worldToCell(preferredX, preferredZ);
+  if (sim.nav.isWalkableCell(preferred.x, preferred.y)) return { x: preferredX, z: preferredZ };
+  const fallback = sim.nav.nearestWalkableCell(fallbackX, fallbackZ, 28);
+  return fallback ? sim.nav.cellCenter(fallback.x, fallback.y) : { x: preferredX, z: preferredZ };
+}
+
+function productionUnitRadius(kind: UnitKind): number {
+  if (kind === 'infantry' || kind === 'grenadier' || kind === 'rocket-infantry') return 1.2;
+  if (kind === 'wasp') return 2.5;
+  if (kind === 'vulture') return 3;
+  if (kind === 'hammerhead') return 3.8;
+  if (kind === 'siege-tank') return 2.7;
+  if (kind === 'scout-tank') return 1.9;
+  return 2.2;
+}
+
+function orderToRally(sim: GameSim, producer: Entity, entity: Entity, defaultTarget: { x: number; z: number }): void {
+  const rally = producer.producer?.rally;
+  const target = rally ?? defaultTarget;
+  issueMoveOrder(sim, [entity], target.x, target.z, false);
 }
 
 function snapToGrid(hf: Heightfield, x: number, z: number): { x: number; z: number } {

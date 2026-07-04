@@ -1,5 +1,18 @@
-export type ArmorClass = 'infantry' | 'light' | 'heavy' | 'building';
-export type WeaponKind = 'rifle' | 'grenade' | 'rocketLauncher' | 'autocannon' | 'cannon' | 'heavyCannon' | 'bomb' | 'rocketPod' | 'agMissile' | 'aaMissile';
+export type ArmorClass = 'infantry' | 'light' | 'heavy' | 'building' | 'air';
+export type WeaponKind =
+  | 'rifle'
+  | 'grenade'
+  | 'rocketLauncher'
+  | 'autocannon'
+  | 'waspAutocannon'
+  | 'cannon'
+  | 'heavyCannon'
+  | 'bomb'
+  | 'rocketPod'
+  | 'agMissile'
+  | 'aaMissile';
+
+export type ProjectileKind = 'grenade' | 'atRocket' | 'agMissile' | 'aaMissile';
 
 export interface WeaponDef {
   kind: WeaponKind;
@@ -7,9 +20,19 @@ export interface WeaponDef {
   damage: number;
   cooldown: number;
   range: number;
+  minRange?: number;
+  airRange?: number;
+  canTargetAir?: boolean;
   splashRadius: number;
   targetTypes: ArmorClass[];
   vs: Record<ArmorClass, number>;
+  projectile?: {
+    kind: ProjectileKind;
+    speed: number;
+    trajectory: 'arc' | 'flat' | 'drop' | 'homing';
+    impactRadius?: number;
+    fizzleRange?: number;
+  };
 }
 
 export const WEAPONS: Record<WeaponKind, WeaponDef> = {
@@ -21,7 +44,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     range: 42,
     splashRadius: 0,
     targetTypes: ['infantry', 'light', 'heavy'],
-    vs: { infantry: 1, light: 0.45, heavy: 0.2, building: 0.12 },
+    vs: { infantry: 1, light: 0.45, heavy: 0.2, building: 0.12, air: 0 },
   },
   grenade: {
     kind: 'grenade',
@@ -29,9 +52,11 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     damage: 18,
     cooldown: 1.25,
     range: 48,
+    minRange: 10,
     splashRadius: 3.6,
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
-    vs: { infantry: 1.25, light: 0.62, heavy: 0.32, building: 0.22 },
+    vs: { infantry: 1.25, light: 0.62, heavy: 0.32, building: 0.46, air: 0 },
+    projectile: { kind: 'grenade', speed: 26, trajectory: 'arc' },
   },
   rocketLauncher: {
     kind: 'rocketLauncher',
@@ -41,7 +66,8 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     range: 72,
     splashRadius: 2.4,
     targetTypes: ['light', 'heavy', 'building'],
-    vs: { infantry: 0.45, light: 0.95, heavy: 0.78, building: 0.52 },
+    vs: { infantry: 0.45, light: 0.95, heavy: 0.78, building: 0.52, air: 0 },
+    projectile: { kind: 'atRocket', speed: 70, trajectory: 'flat', impactRadius: 1.4 },
   },
   autocannon: {
     kind: 'autocannon',
@@ -49,9 +75,23 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     damage: 8,
     cooldown: 0.16,
     range: 62,
+    airRange: 46,
+    canTargetAir: true,
     splashRadius: 0,
-    targetTypes: ['infantry', 'light', 'heavy'],
-    vs: { infantry: 1.05, light: 0.72, heavy: 0.26, building: 0.08 },
+    targetTypes: ['infantry', 'light', 'heavy', 'air'],
+    vs: { infantry: 1.05, light: 0.72, heavy: 0.26, building: 0.08, air: 0.28 },
+  },
+  waspAutocannon: {
+    kind: 'waspAutocannon',
+    label: 'Autocannon',
+    damage: 8,
+    cooldown: 0.16,
+    range: 72,
+    airRange: 88,
+    canTargetAir: true,
+    splashRadius: 0,
+    targetTypes: ['infantry', 'light', 'heavy', 'air'],
+    vs: { infantry: 1.0, light: 0.68, heavy: 0.22, building: 0.06, air: 0.9 },
   },
   cannon: {
     kind: 'cannon',
@@ -61,7 +101,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     range: 78,
     splashRadius: 1.5,
     targetTypes: ['light', 'heavy', 'building'],
-    vs: { infantry: 0.9, light: 0.75, heavy: 0.48, building: 0.28 },
+    vs: { infantry: 0.9, light: 0.75, heavy: 0.48, building: 0.28, air: 0 },
   },
   heavyCannon: {
     kind: 'heavyCannon',
@@ -69,9 +109,10 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     damage: 24,
     cooldown: 1.65,
     range: 104,
+    minRange: 26,
     splashRadius: 2.2,
     targetTypes: ['light', 'heavy', 'building'],
-    vs: { infantry: 0.75, light: 0.82, heavy: 0.88, building: 0.48 },
+    vs: { infantry: 0.75, light: 0.82, heavy: 0.88, building: 0.48, air: 0 },
   },
   bomb: {
     kind: 'bomb',
@@ -81,7 +122,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     range: 152,
     splashRadius: 5.6,
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
-    vs: { infantry: 0.95, light: 0.72, heavy: 0.58, building: 0.3 },
+    vs: { infantry: 0.95, light: 0.72, heavy: 0.58, building: 0.3, air: 0 },
   },
   rocketPod: {
     kind: 'rocketPod',
@@ -91,7 +132,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     range: 112,
     splashRadius: 3,
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
-    vs: { infantry: 1.15, light: 0.9, heavy: 0.58, building: 0.34 },
+    vs: { infantry: 1.15, light: 0.9, heavy: 0.58, building: 0.34, air: 0 },
   },
   agMissile: {
     kind: 'agMissile',
@@ -99,9 +140,10 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     damage: 44,
     cooldown: 2.8,
     range: 150,
-    splashRadius: 6,
+    splashRadius: 5.2,
     targetTypes: ['light', 'heavy', 'building'],
-    vs: { infantry: 0.75, light: 1.0, heavy: 0.9, building: 0.72 },
+    vs: { infantry: 0.55, light: 0.88, heavy: 0.78, building: 0.62, air: 0 },
+    projectile: { kind: 'agMissile', speed: 92, trajectory: 'drop', impactRadius: 2.8 },
   },
   aaMissile: {
     kind: 'aaMissile',
@@ -109,8 +151,11 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     damage: 42,
     cooldown: 2.8,
     range: 145,
-    splashRadius: 5,
-    targetTypes: ['light'],
-    vs: { infantry: 0.2, light: 1.1, heavy: 0.25, building: 0.08 },
+    airRange: 145,
+    canTargetAir: true,
+    splashRadius: 4.2,
+    targetTypes: ['air'],
+    vs: { infantry: 0, light: 0, heavy: 0, building: 0, air: 1.0 },
+    projectile: { kind: 'aaMissile', speed: 110, trajectory: 'homing', impactRadius: 2.5, fizzleRange: 160 },
   },
 };

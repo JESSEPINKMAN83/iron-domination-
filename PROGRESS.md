@@ -481,11 +481,52 @@ drafted in `drafts/phase6/` (unwired, see its README).
   Mauler Siege tanks, plus Wasp Scout and Hammerhead aircraft. Each has distinct weapon,
   health, speed/vision, production cost/time, and first-pass visual scale; the enemy commander
   now mixes these roles into its army through the same production queues.
-- `npm test` passes (38 Vitest tests). `npm run build` passes.
+- Follow-up V-mode flight-feel rework: aircraft now use data-driven flight models
+  (`gunship`/`jet`/`drone`) and the Vulture uses an attitude-driven gunship integrator:
+  pitch/roll drive acceleration, velocity drifts with quadratic drag, Q/E strafes, A/D
+  yaw preserves the D-turns-right convention, Space/Ctrl commands vertical velocity, and
+  low-speed terrain clips bounce instead of always crashing.
+- Added aircraft gun-gimbal behavior and a drift-aware chase camera: mouse aim can move
+  inside a yaw cone before the hull chases it, the camera follows velocity blended with
+  heading, FOV scales to speed, and camera roll follows aircraft roll lightly.
+- Aircraft visuals now pitch/roll from sim attitude state with rotor speed responding to
+  speed/collective, and flight attitude/vertical velocity are included in deterministic
+  `hashSim` coverage.
+- Added a 600-tick possessed-gunship flight tape regression proving strafe, climb, turn,
+  attitude, and sim hashing stay deterministic.
+- Follow-up browser smoke passed after the flight-feel rework: app reloaded at
+  `127.0.0.1:5173`, title rendered as Iron Dominion, and no console errors were reported.
+- Follow-up building-damage visual rework: buildings now own deterministic localized
+  `structureDamage` grids in the sim, with direct hits, splash, and bomb impacts damaging
+  the struck facade/roof cells instead of only reducing whole-building HP.
+- Building rendering now uses a procedural block grid matched to the damage cells, so
+  individual sections can scorch, crack, shrink, breach, reveal dark interiors, catch fire,
+  smoke, sag, lean, and collapse into rubble while selection glows and health bars still work.
+- Follow-up first-hit visibility tuning: the first real hit on a building now guarantees
+  an immediate visible localized scar on the struck cell, lowers first-stage crack/deform
+  thresholds, and spawns a small smoke cue instead of waiting for repeated hits.
+- Follow-up V-mode camera controls: possessed tank and aircraft chase cameras now support
+  mouse-wheel zoom, and Command + left-drag orbits the camera around the controlled unit
+  without changing weapon aim, helping when the unit body blocks the target.
+- Follow-up single-click selection reliability: unit clicks now use a generous screen-space
+  hit test before terrain/building fallback, unit pick radii are larger, fogged/hidden units
+  are ignored, and visible units no longer lose clicks as easily to nearby building footprints.
+- Follow-up squad possession: selecting multiple possessable units and pressing `V` now
+  controls one deterministic squad leader while the rest follow in formation, `Tab` cycles
+  the controlled leader, and wingmen fire at the same target point when the leader fires.
+- Structure damage cells are included in `hashSim`, and regression tests now prove facade
+  locality, first-hit visibility, top-tier arcing damage, splash spread, support bleed, and
+  deterministic hashing.
+- Follow-up browser smoke passed after the building damage rework: app reloaded at
+  `127.0.0.1:5173`, canvases/sidebar rendered, and no console errors were reported.
+- Latest browser smoke after squad possession: app reloaded at `127.0.0.1:5173`, HUD/canvases
+  rendered, F1 help exposed the squad shortcut, and no console errors were reported.
+- `npm test` passes (43 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
-- Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,
-  AI air usage, and polished flight HUD are still pending.
+- Vulture V-mode now has the core gunship flight feel, but ammo/rearm, visible
+  rocket/missile projectile trails, AI air usage, the F6 flight debug overlay, and the
+  velocity-vector reticle dot are still pending.
 - Right-click AG missile is a first-pass instant manual shot through weapon data; the planned
   hold-to-preview ground-impact marker and travel-time missile come next.
 - Wall chaining is click-to-anchor based. Drag-to-place wall painting and richer wall-line UI
@@ -497,12 +538,14 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Building upgrade actions are intentionally not stubbed as fake buttons yet; the selected
   building card now has the visual/capability area where real upgrade actions can be added once
   upgrade data and effects exist.
+- Building damage visuals are still procedural blockout art, not final GLB/designed rubble
+  assets; the important localized damage data model is now in place for the later art pass.
 
 ### Next
 - Continue into Phase 6.6: real oil economy, harvester collection/deposit loop, depletion,
   and AI economy raids.
 
-## Phase 6.6 — Real Resource Economy 🚧 (2026-07-04, started)
+## Phase 6.6 Foundation — Resource Nodes 🚧 (2026-07-04)
 
 ### Done
 - Added gameplay-visible `ResourceNode` sim data seeded deterministically from the map's
@@ -514,13 +557,193 @@ drafted in `drafts/phase6/` (unwired, see its README).
   from terrain ore fields, and included in the sim hash.
 - Browser smoke passed on Vite dev server: app reloaded at `127.0.0.1:5173`, the canvas/HUD
   and command sidebar rendered, and no new app runtime errors were introduced.
-- `npm test` passes (36 Vitest tests). `npm run build` passes.
+- Latest verification after the building-damage follow-up: `npm test` passes (42 Vitest tests).
+  `npm run build` passes.
+- Follow-up V-mode direct-fire aiming fix: left-click cannon/rocket shots now preserve the
+  3D reticle aim height instead of snapping tracer endpoints down to terrain when aiming
+  toward the horizon or above ground. Helicopter primary fire also keeps its aimed flight
+  vector height while still clamping below-ground shots above terrain.
+- Latest verification after V-mode aiming fix: `npm test` passes (43 Vitest tests).
+  `npm run build` passes. Browser smoke reloaded `127.0.0.1:5173` as Iron Dominion with no
+  console errors.
+- Follow-up command-sidebar producer highlight: switching Buildings/Defense/Infantry/Vehicles/
+  Aircraft tabs now highlights the relevant source building on the map with a teal producer
+  glow. Unit tabs prefer the selected producer, then the primary producer, then the least-loaded
+  available producer.
+- Latest verification after producer highlight: `npm test` passes (43 Vitest tests).
+  `npm run build` passes. Browser smoke reloaded the app and clicked through all five command
+  tabs with no console errors.
+- Follow-up move-order accuracy fix: right-click terrain orders now preserve exact walkable
+  click positions instead of snapping every order to the center of a nav cell, and ground units
+  no longer clear close-range move orders while still far from the requested point.
+- Latest verification after move-order accuracy fix: `npm test` passes (45 Vitest tests).
+  `npm run build` passes. Browser smoke reloaded `127.0.0.1:5173` as Iron Dominion with no
+  console errors.
+- Follow-up building readability pass: structures are now taller by type, with walls kept low
+  and towers/major production buildings raised, and each top color strip now renders the
+  building name in dark text for quick map readability.
+- Latest verification after building readability pass: `npm test` passes (45 Vitest tests).
+  `npm run build` passes. Browser smoke reloaded cleanly and a visual screenshot confirmed
+  taller buildings plus readable roof-strip labels.
+- Pre-Netlify new-game front door: fresh visits now open a skirmish setup screen with
+  difficulty, enemy commander personality, map seed, randomize, condensed controls, and
+  Enter/START launch. Settings persist in `localStorage`, URL params still override and
+  auto-boot, terrain/scatter derive from the chosen seed without mutating `MAP01`, and
+  reload-based restart paths use a tiny session autostart flag.
+- Added in-game `MENU` with Restart Match / Back To Setup / Cancel, plus victory/defeat
+  PLAY AGAIN and SETUP buttons. All restart/setup actions persist settings and reload
+  instead of trying in-place teardown.
+- Latest verification after new-game front door: `npm test` passes (45 Vitest tests).
+  `npm run build` passes. Browser acceptance covered setup screen -> START -> match,
+  in-game MENU dialog, and `?ai=hard&debug=armies` URL-param auto-boot with no console
+  errors.
+- Follow-up public-build HUD cleanup: the top-left stats card and bottom-left controls card
+  are now collapsed by default, F1 toggles both together, and a small `i` button beside MENU
+  shows/hides them without stealing focus or map clicks.
+- Latest verification after HUD cleanup: `npm test` passes (45 Vitest tests). `npm run build`
+  passes. Browser acceptance confirmed both panels start hidden, the `i` button toggles both
+  visible/hidden, and no console errors were reported.
+- Follow-up `UNIT_ROSTER_SPEC.md` implementation: added explicit `air` armor class, removed
+  hidden anti-air multiplier behavior from combat targeting/damage, expanded weapon definitions
+  with `vs.air`, `canTargetAir`, `airRange`, minimum ranges, and projectile metadata. Wasp now
+  uses a high-AA autocannon, Rocket Teams carry secondary AA missiles, Vulture/Hammerhead use
+  air-to-ground missiles, and aircraft spawn as true air armor.
+- Added live projectile simulation for grenades, anti-tank rockets, AG missiles, and homing AA
+  missiles, including launch/impact events and deterministic projectile position hashing.
+  Combat visuals now render those projectile launches/impacts instead of treating them as
+  invisible hitscan.
+- Build cards now show unit role captions plus compact stat/counter pips, and F1 help includes
+  a small counter cheat sheet. Enemy commander production ratios now mix more scouts, rocket
+  teams, Wasps, and heavy air to exercise the counter roster.
+- Latest verification after unit-roster pass: `npm test` passes (45 Vitest tests). `npm run build`
+  passes. Browser smoke reloaded `http://127.0.0.1:5173/?ai=hard&debug=armies`, confirmed the
+  vehicle roster cards render role text, canvas is present, and no console errors were reported.
+- Follow-up roster differentiation pass: all vehicles and aircraft now carry bomb secondaries
+  with tiered salvo counts. Jackal/Wasp fire one bomb, M-17/Vulture fire twin bombs, and
+  Mauler/Hammerhead fire four-bomb salvos, while infantry remains unchanged. Bomb salvos use
+  deterministic impact spacing and slight stagger so higher tiers feel visibly stronger.
+- Latest verification after salvo pass: `npm test` passes (45 Vitest tests). `npm run build`
+  passes. Browser smoke reloaded `?ai=hard&debug=armies`, confirmed the Aircraft tab shows
+  single/twin/four-bomb roles, and no console errors were reported.
+- Follow-up tactical formation pass: right-click hold/drag facing orders now use the drag
+  distance as formation spread. Selected units prefer a single firing line perpendicular to
+  the facing arrow, with short drags making tight lines and longer drags making wider lines.
+  The facing arrow preview/final marker supports longer visual arrows to match the new spread
+  control, and F1 help documents the gesture.
+- Latest verification after formation-spread pass: `npm test` passes (46 Vitest tests).
+  `npm run build` passes. Browser smoke reloaded `?ai=hard&debug=armies`, confirmed the canvas
+  boots, and no console errors were reported.
+- Follow-up start-position pass: default player and enemy starts now use shared map-relative
+  anchors in opposite quadrants (`team 1` southwest, `team 2` northeast) at 22% of map size,
+  with starting armies mustered slightly inward from those bases. This increases default army
+  separation substantially while preserving buildable opening space and AI attack timing.
+- Latest verification after start-position pass: `npm test` passes (46 Vitest tests).
+  `npm run build` passes. Browser smoke reloaded `?ai=hard&debug=armies`, confirmed the canvas
+  boots, and no console errors were reported.
+- Follow-up live-match default start: ordinary launches now start with only the Command Yard,
+  normal credits/power, two starting tanks per side, and a small rifle/rocket infantry escort
+  per side. The previous all-tech/base-seeded sandbox is now explicit via `?start=test`, and
+  the large stress-army setup is explicit via `?start=armies`; stale `debug=armies` URLs no
+  longer force the giant-army/default sandbox start.
+- Latest verification after default-start pass: `npm test` passes (46 Vitest tests).
+  `npm run build` passes. Browser smoke reloaded the current
+  `?ai=hard&debug=armies` URL, confirmed the normal build-up state (`$4600`, `PWR +20`,
+  only Command Yard tech unlocked), and no console errors were reported.
+
+## Phase 6.6 — Real Resource Economy 🚧 (2026-07-04, in progress)
+
+### Done
+- Replaced temporary flat refinery income with a real collector loop. Refineries spawn an
+  Ore Harvester/Ash Harvester; harvesters seek finite resource nodes, gather cargo, return to
+  a live friendly refinery, deposit credits through the ledger, then repeat.
+- Resource nodes are deterministic sim objects with finite `remaining` values and are included
+  in `hashSim`; harvester cargo/state is also hashed for determinism.
+- Added dedicated harvester rendering so collectors no longer look like tanks: industrial
+  body, cargo bed, cab, front scoop, side tanks, wide tracks, and team-colored cargo/stripe.
+- Added cargo/scoop visual feedback: cargo load scales with carried ore, and the scoop animates
+  while gathering.
+- Added economy sidebar feedback: current refineries, collectors, cargo, remaining ore, and
+  selected-harvester state/cargo bar.
+- Added bright ore-field glow markers on terrain and radar; terrain glow now fades/scales down
+  as a node depletes.
+- Added player controls for collectors: right-click ore with selected harvesters to resume
+  gathering; right-click a friendly refinery to return/deposit.
+- Refineries now automatically replace a lost assigned harvester after a short delay, using the
+  same deterministic rule for player and AI economies.
+- Produced units now spawn outside their producer footprint and automatically move clear when no
+  rally is set, so new units do not appear hidden under the building.
+- Enemy commander excludes harvesters from combat squads so it does not accidentally attack with
+  its economy units.
+- Enemy commander now treats visible enemy collectors and refineries as economy-raid targets,
+  preferring them over ordinary buildings unless the player-possessed unit is visible.
+- Enemy refinery placement now searches live resource nodes first, avoiding already-served ore
+  fields and expanding from existing structures toward unclaimed ore instead of only circling
+  the main base.
+- Added commander regression coverage for visible economy raids and resource-biased refinery
+  placement.
+- Damaged harvesters now enter a temporary threatened state, recall to their assigned refinery,
+  and pause there briefly before resuming collection. Threat state is included in `hashSim`.
+- Friendly combat units near a hit harvester now receive the same temporary defense alert used
+  for shelled buildings, so collector raids trigger a local response instead of being ignored.
+- Added regression coverage for harvester recall under fire and defender response to collector
+  attacks.
+- Latest verification after this Phase 6.6 slice: `npm test` passes (55 Vitest tests).
+  `npm run build` passes. Browser smoke reloaded the local app, launched a match from setup,
+  confirmed the game canvases/sidebar rendered, and reported no console errors.
 
 ### Known issues / notes
-- Resource nodes are now modeled in the sim, but the collector/harvester unit and refinery
-  deposit loop are still pending. Refineries therefore still use the temporary flat-income
-  behavior until the next Phase 6.6 slice replaces it.
+- AI uses the same collector/refinery rules and now raids/expands around the economy. Collector
+  retreat/local-defense response exists, but dedicated escort assignment is still not a full
+  tactical behavior.
+- Route-blocking and refinery-blocked feedback need deeper testing and UI states.
 
 ### Next
-- Add the harvester/collector state machine: seek oil, gather, return to refinery, deposit,
-  retry when blocked, and stop income when collectors or routes are destroyed.
+- Continue Phase 6.6 with clearer blocked-route/refinery feedback, then move toward Phase 7's
+  presentation/content pass once the economy UX is legible enough for playtesting.
+
+## Phase 7 — Presentation & Content Pass 🚧 (2026-07-04, started)
+
+### Done
+- Started the Phase 7 art/readability pass with economy-focused presentation, since the real
+  resource loop is now central gameplay.
+- Oil/resource nodes now render as small active oil-field sites instead of only terrain glow:
+  pump-jack/derrick hardware, pipes, storage tanks, and a colored status light sit on each
+  field. The rigs animate while resources remain and fade/desaturate as nodes deplete.
+- Harvester retreat/readability improved: collectors recently damaged by raids now show a
+  pulsing red beacon while their deterministic threat timer is active.
+- Refineries now have a visible dock/pump cue. When an assigned collector is returning or
+  depositing, the dock ring lights up, the hose appears, and the pump animates.
+- Latest verification after this Phase 7 slice: `npm test` passes (55 Vitest tests).
+  `npm run build` passes. Browser smoke loaded `http://127.0.0.1:5173/?start=test`, confirmed
+  the active economy sidebar/game canvases rendered, and reported no console errors.
+- Follow-up combat/air presentation pass: projectile launches now use differentiated bodies
+  for bombs, grenades, rockets, AG missiles, and AA missiles, with color-coded tracer cores
+  and fading smoke puffs along the flight path.
+- Crash events now render a heavier blast with a shock ring and expanding smoke instead of
+  falling through the generic tracer/impact path.
+- Low-flying aircraft now kick up a subtle rotor-wash dust ring at ground level, scaling with
+  altitude and speed so Vulture movement reads more connected to the terrain.
+- Latest verification after combat/air presentation: `npm test` passes (55 Vitest tests).
+  `npm run build` passes. Browser smoke loaded `http://127.0.0.1:5173/?start=test`, confirmed
+  active game canvases/sidebar rendered, and reported no console errors.
+- Follow-up V-mode flight control fix: player-controlled gunships now suppress velocity
+  weathervane during hard aim reversals, boost mouse-follow for large 180-degree turns, and
+  shift the chase camera back toward the look direction when turning against current velocity.
+  This makes it much easier to fly past a target, turn around, and re-engage without exiting
+  V-mode.
+- Added a regression test proving a fast player-controlled Vulture can rotate through a
+  180-degree aim reversal while airborne.
+- Latest verification after flight U-turn fix: `npm test` passes (56 Vitest tests).
+  `npm run build` passes. Browser smoke loaded `http://127.0.0.1:5173/?start=test`, confirmed
+  active game canvases/sidebar rendered, and reported no console errors.
+
+### Known issues / notes
+- This is still procedural art, not final GLB content. It establishes the gameplay-readable
+  visual language and can be replaced with asset files later without changing sim data.
+- The first Phase 7 passes focused on economy/resource presentation and combat/air feedback.
+  Richer soldier/vehicle GLB-style art, audio, rotor loop sound, and hand-authored explosion
+  assets remain pending.
+
+### Next
+- Continue Phase 7 with broader unit/building art polish: stronger vehicle silhouettes,
+  infantry readability, aircraft detail, and eventually audio/asset replacement.

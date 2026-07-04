@@ -24,34 +24,38 @@ export class Hud {
   private readonly stats: HTMLDivElement;
   private readonly help: HTMLDivElement;
   private readonly reticle: HTMLDivElement;
+  private infoVisible = false;
   private lastUpdate = 0;
 
   constructor(container: HTMLElement) {
     this.stats = document.createElement('div');
-    this.stats.style.cssText = PANEL_CSS + 'top:12px;left:12px;';
+    this.stats.style.cssText = PANEL_CSS + 'top:12px;left:12px;display:none;';
     container.appendChild(this.stats);
 
     this.help = document.createElement('div');
-    this.help.style.cssText = PANEL_CSS + 'bottom:12px;left:12px;';
+    this.help.style.cssText = PANEL_CSS + 'bottom:12px;left:12px;display:none;';
     this.help.textContent = [
       'IRON DOMINION — Phase 6',
-      'Test start all tech unlocked · ?start=normal for build-up',
+      'Default: Command Yard + small escort · ?start=test all tech · ?start=armies stress battle',
       'AI opts   ?ai=easy|normal|hard  ?ai-style=turtle|rusher|balanced',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  hold Space + move/drag',
-      'Look      Cmd/Ctrl + left-drag free aim',
-      'Zoom      mouse wheel (28–140)',
+      'Look      Cmd/Ctrl + left-drag; empty right-drag',
+      'Zoom      mouse wheel (28–280)',
       'Rotate    Q / E (90°)',
       'Build     sidebar queues structure, READY then left-click terrain',
       'Cancel    right-click sidebar icon; Escape returns READY placement',
       'Factory   select producer, set PRIMARY, right-click map for rally',
       'Attack    A, then right-click destination',
-      'Face      right-click hold + drag to move, then face arrow',
+      'Face      right-click hold + drag: facing line, length sets spread',
       'Possess   select unit, press V',
       'Chase     W/S drive, A/D turn, mouse aim',
+      'V camera  wheel zoom, Cmd + left-drag orbit',
+      'Squad V   select group, V controls one, Tab swaps leader',
       'Vulture   W/S thrust, A/D yaw, Space/Ctrl altitude',
-      'Fire      left-click cannon, right-click bomb',
-      'Aircraft  left-click rockets, right-click bomb',
+      'Fire      left-click primary, right-click secondary',
+      'Counters  Rifles infantry · Grenades buildings · Rockets armor/air',
+      'Air       Wasp intercepts · Vulture/Hammerhead hit ground',
       'Exit      V again or Escape',
       'Overlay   F3 walkability · F4 fog debug',
       'Help      F1 show/hide',
@@ -70,8 +74,18 @@ export class Hud {
     container.appendChild(this.reticle);
   }
 
-  toggleHelp(): void {
-    this.help.style.display = this.help.style.display === 'none' ? 'block' : 'none';
+  toggleInfo(): void {
+    this.setInfoVisible(!this.infoVisible);
+  }
+
+  setInfoVisible(visible: boolean): void {
+    this.infoVisible = visible;
+    this.stats.style.display = visible ? 'block' : 'none';
+    this.help.style.display = visible ? 'block' : 'none';
+  }
+
+  getInfoVisible(): boolean {
+    return this.infoVisible;
   }
 
   setFirstPerson(active: boolean): void {

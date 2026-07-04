@@ -1,6 +1,7 @@
 import { Raycaster, Vector2, Vector3, type PerspectiveCamera } from 'three';
 import type { GameSim } from '../sim/world';
 import { issueMoveOrder, selectedEntities, setSelected, stopEntities } from '../sim/world';
+import { issueHarvesterReturnOrder, issueHarvestOrder } from '../sim/economy';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
 import type { OrderMarkerKind } from '../render/orderMarkerView';
@@ -20,7 +21,7 @@ export interface BuildingPicker {
 
 export interface OrderFeedback {
   showOrder(x: number, z: number, kind: OrderMarkerKind): void;
-  showFacingOrder?(x: number, z: number, yaw: number, kind: OrderMarkerKind): void;
+  showFacingOrder?(x: number, z: number, yaw: number, kind: OrderMarkerKind, length?: number): void;
   showFacingPreview?(fromX: number, fromZ: number, toX: number, toZ: number, kind: OrderMarkerKind): void;
   clearFacingPreview?(): void;
   tryRally?(x: number, z: number): boolean;
@@ -35,6 +36,7 @@ interface PointerState {
 
 const LEFT_DRAG_THRESHOLD = 6;
 const RIGHT_ORDER_DRAG_THRESHOLD = 18;
+const CAMERA_LOOK_DRAG_THRESHOLD = 4;
 
 export class RtsController {
   private readonly raycaster = new Raycaster();
@@ -43,6 +45,8 @@ export class RtsController {
   private readonly controlGroups = new Map<number, Entity[]>();
   private pointerDown?: PointerState;
   private rightOrderStart?: { x: number; z: number };
+  private rightCameraLookCandidate = false;
+  private rightCameraLookActive = false;
   private lastClick = { time: 0, entity: undefined as Entity | undefined };
   private attackMoveQueued = false;
   private enabled = true;
@@ -77,11 +81,17 @@ export class RtsController {
     return this.enabled && this.pointerDown?.button === 2 && this.rightOrderStart !== undefined;
   }
 
+  isEmptyRightLookActive(): boolean {
+    return this.enabled && this.pointerDown?.button === 2 && this.rightCameraLookActive;
+  }
+
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) {
       this.pointerDown = undefined;
       this.rightOrderStart = undefined;
+      this.rightCameraLookCandidate = false;
+      this.rightCameraLookActive = false;
       this.selectionBox.style.display = 'none';
       this.orderFeedback?.clearFacingPreview?.();
       this.attackMoveQueued = false;
@@ -94,6 +104,8 @@ export class RtsController {
     if ((e.button === 0 || e.button === 2) && this.input.isDown('Space')) {
       this.pointerDown = undefined;
       this.rightOrderStart = undefined;
+      this.rightCameraLookCandidate = false;
+      this.rightCameraLookActive = false;
       this.selectionBox.style.display = 'none';
       this.orderFeedback?.clearFacingPreview?.();
       e.preventDefault();
@@ -106,8 +118,12 @@ export class RtsController {
     }
     this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
     this.rightOrderStart = undefined;
-    if (e.button === 2 && selectedEntities(this.sim).some((entity) => entity.mover)) {
-      this.rightOrderStart = this.terrainPoint(e.clientX, e.clientY);
+    this.rightCameraLookCandidate = false;
+    this.rightCameraLookActive = false;
+    if (e.button === 2) {
+      const hasSelectedMovers = selectedEntities(this.sim).some((entity) => entity.mover);
+      if (hasSelectedMovers) this.rightOrderStart = this.terrainPoint(e.clientX, e.clientY);
+      else this.rightCameraLookCandidate = true;
     }
     if (e.button === 0 || e.button === 2) {
       e.preventDefault();
@@ -123,6 +139,12 @@ export class RtsController {
       return;
     }
     if (!this.pointerDown) return;
+    if (this.pointerDown.button === 2 && this.rightCameraLookCandidate) {
+      const dx = e.clientX - this.pointerDown.x;
+      const dy = e.clientY - this.pointerDown.y;
+      if (Math.hypot(dx, dy) >= CAMERA_LOOK_DRAG_THRESHOLD) this.rightCameraLookActive = true;
+      return;
+    }
     if (this.pointerDown.button === 2 && this.rightOrderStart) {
       const dx = e.clientX - this.pointerDown.x;
       const dy = e.clientY - this.pointerDown.y;
@@ -161,6 +183,13 @@ export class RtsController {
     const dy = e.clientY - down.y;
     const pointerDistance = Math.hypot(dx, dy);
     const dragged = pointerDistance > (down.button === 2 ? RIGHT_ORDER_DRAG_THRESHOLD : LEFT_DRAG_THRESHOLD);
+    if (down.button === 2 && this.rightCameraLookActive) {
+      this.rightCameraLookCandidate = false;
+      this.rightCameraLookActive = false;
+      return;
+    }
+    this.rightCameraLookCandidate = false;
+    this.rightCameraLookActive = false;
     if (this.placement?.isPlacing()) {
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (down.button === 0 && p) this.placement.confirm(p.x, p.z);
@@ -189,24 +218,32 @@ export class RtsController {
           this.attackMoveQueued = false;
           return;
         }
-        const selected = selectedEntities(this.sim).filter((entity) => entity.mover);
-        const target = this.sim.nav.nearestWalkableCell(destinationPoint.x, destinationPoint.z, 96);
         const attackMove = this.isAttackMoveQueued();
-        if (!target) {
-          this.attackMoveQueued = false;
-          return;
-        }
-        const destination = this.sim.nav.cellCenter(target.x, target.y);
+        const selected = selectedEntities(this.sim).filter((entity) => entity.mover);
+        const destination = destinationPoint;
         let faceYaw: number | undefined;
+        let formationSpread: number | undefined;
         if (dragged && destination && facingPoint) {
           const faceDx = facingPoint.x - destination.x;
           const faceDz = facingPoint.z - destination.z;
-          if (Math.hypot(faceDx, faceDz) > 2) faceYaw = Math.atan2(faceDx, faceDz);
+          const faceDistance = Math.hypot(faceDx, faceDz);
+          if (faceDistance > 2) {
+            faceYaw = Math.atan2(faceDx, faceDz);
+            formationSpread = Math.min(96, Math.max(6, faceDistance));
+          }
         }
         if (selected.length > 0) {
-          if (issueMoveOrder(this.sim, selected, destination.x, destination.z, attackMove, faceYaw)) {
+          const harvesters = !dragged ? selected.filter((entity) => entity.harvester) : [];
+          const harvestIssued = harvesters.length > 0 && issueHarvestOrder(this.sim, harvesters, destination.x, destination.z);
+          const returnIssued = !harvestIssued && harvesters.length > 0 && issueHarvesterReturnOrder(this.sim, harvesters, destination.x, destination.z);
+          const specialIssued = harvestIssued || returnIssued;
+          const movers = specialIssued ? selected.filter((entity) => !entity.harvester) : selected;
+          if (specialIssued) this.orderFeedback?.showOrder(destination.x, destination.z, 'move');
+          if (movers.length > 0 && issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, faceYaw, formationSpread)) {
             this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack' : 'move');
-            if (faceYaw !== undefined) this.orderFeedback?.showFacingOrder?.(destination.x, destination.z, faceYaw, attackMove ? 'attack' : 'move');
+            if (faceYaw !== undefined) {
+              this.orderFeedback?.showFacingOrder?.(destination.x, destination.z, faceYaw, attackMove ? 'attack' : 'move', formationSpread);
+            }
           }
         }
         this.attackMoveQueued = false;
@@ -216,8 +253,8 @@ export class RtsController {
 
   private selectClick(e: PointerEvent): void {
     const p = this.terrainPoint(e.clientX, e.clientY);
-    if (!p) return;
-    const hit = this.buildings?.pickAt(p.x, p.z) ?? this.units.pickAt(p.x, p.z);
+    const screenHit = this.units.pickAtScreen(this.camera, e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+    const hit = screenHit ?? (p ? this.buildings?.pickAt(p.x, p.z) ?? this.units.pickAt(p.x, p.z) : undefined);
     if (!hit) {
       if (!e.shiftKey) setSelected(this.sim, []);
       return;

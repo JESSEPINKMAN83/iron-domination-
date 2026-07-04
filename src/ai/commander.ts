@@ -110,6 +110,10 @@ export class EnemyCommander {
 
   /** Deterministic ring search around the base for a valid footprint. */
   private findPlacement(kind: StructureKind) {
+    if (kind === 'refinery') {
+      const resourceSpot = this.findResourceRefineryPlacement();
+      if (resourceSpot) return resourceSpot;
+    }
     const base = this.base();
     if (!base) return undefined;
     for (const radius of [26, 34, 44, 54, 66, 78]) {
@@ -124,6 +128,37 @@ export class EnemyCommander {
           this.economy.team,
         );
         if (placement.valid) return placement;
+      }
+    }
+    return undefined;
+  }
+
+  private findResourceRefineryPlacement() {
+    const base = this.base();
+    if (!base) return undefined;
+    const refineries = this.aliveBuildings().filter((entity) => entity.building?.kind === 'refinery');
+    const nodes = this.sim.resourceNodes
+      .filter((node) => node.remaining > node.capacity * 0.08)
+      .filter((node) => refineries.every((refinery) => Math.hypot(refinery.transform.x - node.x, refinery.transform.z - node.z) > node.radius + 52))
+      .sort((a, b) => Math.hypot(a.x - base.transform.x, a.z - base.transform.z) - Math.hypot(b.x - base.transform.x, b.z - base.transform.z));
+    const anchors = this.aliveBuildings().sort((a, b) => a.id - b.id);
+    for (const node of nodes) {
+      for (const angleStep of [0, 2, 4, 6, 1, 3, 5, 7]) {
+        const angle = (angleStep / 8) * Math.PI * 2;
+        const placement = updatePlacement(this.sim, this.hf, 'refinery', node.x + Math.cos(angle) * (node.radius + 18), node.z + Math.sin(angle) * (node.radius + 18), this.economy.team);
+        if (placement.valid) return placement;
+      }
+      for (const anchor of anchors) {
+        const dx = node.x - anchor.transform.x;
+        const dz = node.z - anchor.transform.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 0.001) continue;
+        const ux = dx / d;
+        const uz = dz / d;
+        for (const distance of [46, 64, 82]) {
+          const placement = updatePlacement(this.sim, this.hf, 'refinery', anchor.transform.x + ux * distance, anchor.transform.z + uz * distance, this.economy.team);
+          if (placement.valid) return placement;
+        }
       }
     }
     return undefined;
@@ -145,21 +180,21 @@ export class EnemyCommander {
   }
 
   private nextVehicleKind(count: number): UnitKind {
-    return (['scout-tank', 'tank', 'tank', 'siege-tank'] as UnitKind[])[count % 4];
+    return (['scout-tank', 'tank', 'tank', 'siege-tank', 'scout-tank', 'tank'] as UnitKind[])[count % 6];
   }
 
   private nextInfantryKind(count: number): UnitKind {
-    return (['infantry', 'grenadier', 'rocket-infantry'] as UnitKind[])[count % 3];
+    return (['infantry', 'grenadier', 'rocket-infantry', 'infantry', 'rocket-infantry'] as UnitKind[])[count % 5];
   }
 
   private nextAircraftKind(count: number): UnitKind {
-    return (['wasp', 'vulture', 'hammerhead'] as UnitKind[])[count % 3];
+    return (['wasp', 'vulture', 'wasp', 'hammerhead'] as UnitKind[])[count % 4];
   }
 
   private myUnits(): Entity[] {
     const out: Entity[] = [];
     for (const entity of this.sim.world.entities) {
-      if (entity.team?.id !== this.economy.team || entity.destroyed || entity.building || !entity.mover) continue;
+      if (entity.team?.id !== this.economy.team || entity.destroyed || entity.building || entity.harvester || !entity.mover) continue;
       out.push(entity);
     }
     return out.sort((a, b) => a.id - b.id);
@@ -226,18 +261,32 @@ export class EnemyCommander {
   /** Honest targeting: only positions the AI's own vision grid currently sees. */
   private pickTarget(squad: Squad): { x: number; z: number } {
     let possessed: Entity | undefined;
+    let economyTarget: Entity | undefined;
     let building: Entity | undefined;
     let unit: Entity | undefined;
+    let economyScore = Number.POSITIVE_INFINITY;
     let buildingD = Number.POSITIVE_INFINITY;
     let unitD = Number.POSITIVE_INFINITY;
     const base = this.base();
     const bx = base?.transform.x ?? 0;
     const bz = base?.transform.z ?? 0;
+    const lead = squad.units[0];
+    const sx = lead?.transform.x ?? bx;
+    const sz = lead?.transform.z ?? bz;
     for (const entity of this.sim.world.entities) {
       if (entity.team?.id === this.economy.team || !entity.team || entity.destroyed) continue;
       if (!this.vision.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
       const d = Math.hypot(entity.transform.x - bx, entity.transform.z - bz);
+      const squadD = Math.hypot(entity.transform.x - sx, entity.transform.z - sz);
       if (entity.playerControlled) possessed = entity;
+      const isEconomyTarget = entity.harvester || entity.building?.kind === 'refinery';
+      if (isEconomyTarget) {
+        const score = squadD + (entity.harvester ? 0 : 36);
+        if (score < economyScore) {
+          economyTarget = entity;
+          economyScore = score;
+        }
+      }
       if (entity.building && d < buildingD) {
         building = entity;
         buildingD = d;
@@ -247,9 +296,11 @@ export class EnemyCommander {
       }
     }
     // the player's possessed unit is a high-value target — chase it for pressure
-    const chosen = possessed ?? building ?? unit;
+    const chosen = possessed ?? economyTarget ?? building ?? unit;
     if (chosen) {
       if (possessed) this.log('spotted the possessed unit — converging on it');
+      else if (chosen.harvester) this.log('spotted enemy collector — raiding economy');
+      else if (chosen.building?.kind === 'refinery') this.log('spotted enemy refinery — raiding economy');
       return { x: chosen.transform.x, z: chosen.transform.z };
     }
     // nothing seen: scout known start areas first, then ore fields (map geography, not unit intel)
@@ -257,8 +308,8 @@ export class EnemyCommander {
     if (waypoints.length === 0) waypoints.push({ x: 0, z: 0 });
     let waypoint = waypoints[this.scoutIndex % waypoints.length];
     // hold course until the squad actually arrives, then move to the next waypoint
-    const lead = squad.units[0];
-    if (lead && Math.hypot(lead.transform.x - waypoint.x, lead.transform.z - waypoint.z) < 50) {
+    const scoutLead = squad.units[0];
+    if (scoutLead && Math.hypot(scoutLead.transform.x - waypoint.x, scoutLead.transform.z - waypoint.z) < 50) {
       this.scoutIndex++;
       waypoint = waypoints[this.scoutIndex % waypoints.length];
     }

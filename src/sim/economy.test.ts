@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { STRUCTURES, UNITS, type UnitKind } from '../content/phase3';
+import { manualFireAt } from './combat';
 import { generateHeightfield } from './heightfield';
 import {
   buildings,
@@ -10,6 +11,8 @@ import {
   cancelUnitQueue,
   createEconomy,
   createInitialBase,
+  issueHarvesterReturnOrder,
+  issueHarvestOrder,
   MAX_PRODUCER_JOBS,
   placeStructure,
   queueUnit,
@@ -18,9 +21,166 @@ import {
   stepEconomy,
   updatePlacement,
 } from './economy';
-import { createGameSim, stepSim } from './world';
+import { createGameSim, spawnTankAt, stepSim } from './world';
 
 describe('phase 3 economy and production', () => {
+  it('does not create passive credits without a working collector loop', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 1200);
+    createInitialBase(sim, hf, economy);
+
+    for (let i = 0; i < 30 * 20; i++) {
+      stepEconomy(sim, hf, economy, 1 / 30);
+      stepSim(sim, hf, 1 / 30);
+    }
+
+    expect(economy.credits).toBe(1200);
+    expect(economy.ledger.some((entry) => entry.type === 'income')).toBe(false);
+  });
+
+  it('spawns a refinery harvester that depletes ore and deposits credits', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 3000);
+    const base = createInitialBase(sim, hf, economy);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    const power = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, economy.team));
+    expect(power).toBeDefined();
+
+    expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
+    for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z, economy.team));
+    expect(refinery).toBeDefined();
+    sim.resourceNodes = [
+      {
+        id: 999,
+        kind: 'oil',
+        x: refinery!.transform.x + 34,
+        z: refinery!.transform.z + 10,
+        radius: 10,
+        capacity: 600,
+        remaining: 600,
+      },
+    ];
+
+    const spawned = stepEconomy(sim, hf, economy, 1 / 30);
+    const harvester = spawned.find((entity) => entity.harvester);
+    expect(harvester).toBeDefined();
+    expect(harvester?.cargo?.capacity).toBeGreaterThan(0);
+
+    const beforeCredits = economy.credits;
+    const beforeOre = sim.resourceNodes.reduce((sum, node) => sum + node.remaining, 0);
+    for (let i = 0; i < 30 * 35; i++) {
+      stepEconomy(sim, hf, economy, 1 / 30);
+      stepSim(sim, hf, 1 / 30);
+    }
+
+    const afterOre = sim.resourceNodes.reduce((sum, node) => sum + node.remaining, 0);
+    expect(afterOre).toBeLessThan(beforeOre);
+    expect(economy.credits).toBeGreaterThan(beforeCredits);
+    expect(economy.ledger.some((entry) => entry.type === 'income' && entry.label === 'Ore delivered' && entry.amount > 0)).toBe(true);
+  });
+
+  it('lets selected harvesters be manually ordered back to an ore field or refinery', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 3000);
+    const base = createInitialBase(sim, hf, economy);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, economy.team))).toBeDefined();
+
+    expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
+    for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z, economy.team));
+    expect(refinery).toBeDefined();
+    sim.resourceNodes = [{ id: 77, kind: 'oil', x: refinery!.transform.x + 42, z: refinery!.transform.z + 8, radius: 12, capacity: 500, remaining: 500 }];
+
+    const harvester = stepEconomy(sim, hf, economy, 1 / 30).find((entity) => entity.harvester);
+    expect(harvester).toBeDefined();
+    harvester!.harvester!.state = 'seeking';
+    harvester!.harvester!.nodeId = undefined;
+    harvester!.mover!.target = undefined;
+
+    expect(issueHarvestOrder(sim, [harvester!], sim.resourceNodes[0].x + 2, sim.resourceNodes[0].z)).toBe(true);
+    expect(harvester!.harvester?.state).toBe('to-node');
+    expect(harvester!.harvester?.nodeId).toBe(77);
+    expect(harvester!.mover?.target).toEqual({ x: sim.resourceNodes[0].x, z: sim.resourceNodes[0].z });
+    harvester!.cargo!.amount = 150;
+    expect(issueHarvestOrder(sim, [harvester!], refinery!.transform.x, refinery!.transform.z)).toBe(false);
+    expect(issueHarvesterReturnOrder(sim, [harvester!], refinery!.transform.x, refinery!.transform.z)).toBe(true);
+    expect(harvester!.harvester?.state).toBe('to-refinery');
+    expect(harvester!.harvester?.refineryId).toBe(refinery!.id);
+  });
+
+  it('recalls a damaged harvester to its assigned refinery', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 3000);
+    const base = createInitialBase(sim, hf, economy);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, economy.team))).toBeDefined();
+
+    expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
+    for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z, economy.team));
+    expect(refinery).toBeDefined();
+    sim.resourceNodes = [{ id: 88, kind: 'oil', x: refinery!.transform.x + 56, z: refinery!.transform.z, radius: 12, capacity: 500, remaining: 500 }];
+
+    const harvester = stepEconomy(sim, hf, economy, 1 / 30).find((entity) => entity.harvester);
+    expect(harvester).toBeDefined();
+    expect(issueHarvestOrder(sim, [harvester!], sim.resourceNodes[0].x, sim.resourceNodes[0].z)).toBe(true);
+
+    const attacker = spawnTankAt(sim, harvester!.transform.x + 44, harvester!.transform.z, 'Collector Raider', 2);
+    const yaw = Math.atan2(harvester!.transform.x - attacker.transform.x, harvester!.transform.z - attacker.transform.z);
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: yaw };
+    attacker.turret!.yaw = yaw;
+    expect(manualFireAt(sim, attacker, harvester!.transform.x, harvester!.transform.z)).toBe(true);
+
+    stepEconomy(sim, hf, economy, 1 / 30);
+
+    expect(harvester!.health!.current).toBeLessThan(harvester!.health!.max);
+    expect(harvester!.harvester?.threatTimer).toBeGreaterThan(0);
+    expect(harvester!.harvester?.state).toBe('to-refinery');
+    expect(harvester!.mover?.target).toEqual({ x: refinery!.transform.x, z: refinery!.transform.z });
+  });
+
+  it('replaces a lost refinery harvester after a delay', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 3000);
+    const base = createInitialBase(sim, hf, economy);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, economy.team))).toBeDefined();
+
+    expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
+    for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z, economy.team));
+    expect(refinery).toBeDefined();
+
+    const first = stepEconomy(sim, hf, economy, 1 / 30).find((entity) => entity.harvester);
+    expect(first).toBeDefined();
+    first!.destroyed = { remaining: 20 };
+
+    let replacement;
+    for (let i = 0; i < 30 * 20; i++) {
+      const spawned = stepEconomy(sim, hf, economy, 1 / 30);
+      replacement = spawned.find((entity) => entity.harvester && entity !== first);
+      if (replacement) break;
+    }
+
+    expect(replacement).toBeDefined();
+    expect(replacement!.harvester?.refineryId).toBe(refinery!.id);
+  });
+
   it('runs build order and parallel factory production with a matching ledger', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -73,7 +233,6 @@ describe('phase 3 economy and production', () => {
 
     const afterUnits = sim.world.entities.length;
     expect(afterUnits - beforeUnits).toBe(2);
-    expect(economy.ledger.some((entry) => entry.type === 'income' && entry.amount > 0)).toBe(true);
     const ledgerTotal = economy.ledger.reduce((sum, entry) => sum + entry.amount, 0);
     expect(economy.credits).toBe(5200 + ledgerTotal);
   });
@@ -136,12 +295,12 @@ describe('phase 3 economy and production', () => {
     expect(units.some((entity) => entity.name === 'Rifle Team' && entity.weapon?.kind === 'rifle')).toBe(true);
     expect(units.some((entity) => entity.name === 'Grenadier' && entity.weapon?.kind === 'grenade')).toBe(true);
     expect(units.some((entity) => entity.name === 'Rocket Team' && entity.weapon?.kind === 'rocketLauncher')).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('Jackal') && entity.weapon?.kind === 'autocannon')).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('M-17') && entity.weapon?.kind === 'cannon')).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('Mauler') && entity.weapon?.kind === 'heavyCannon')).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('Wasp') && entity.flight && entity.weapon?.kind === 'autocannon')).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('Vulture') && entity.flight && entity.weapon?.kind === 'rocketPod')).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('Hammerhead') && entity.flight && entity.health?.max === 230)).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Jackal') && entity.weapon?.kind === 'autocannon' && entity.weapons?.secondary?.salvoCount === 1)).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('M-17') && entity.weapon?.kind === 'cannon' && entity.weapons?.secondary?.salvoCount === 2)).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Mauler') && entity.weapon?.kind === 'heavyCannon' && entity.weapons?.secondary?.salvoCount === 4)).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Wasp') && entity.flight && entity.weapon?.kind === 'waspAutocannon' && entity.weapons?.secondary?.salvoCount === 1)).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Vulture') && entity.flight && entity.weapon?.kind === 'rocketPod' && entity.weapons?.secondary?.salvoCount === 2)).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Hammerhead') && entity.flight && entity.health?.max === 230 && entity.weapons?.secondary?.salvoCount === 4)).toBe(true);
   });
 
   it('previews and places missing wall segments between two wall anchors', () => {
@@ -262,5 +421,37 @@ describe('phase 3 economy and production', () => {
     }
     const tank = Array.from(sim.world.entities).find((entity) => entity.selectable?.type === 'tank' && entity.team?.id === 1);
     expect(tank?.mover?.target).toEqual(rally);
+  });
+
+  it('moves newly produced units clear of the producer when no rally is set', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+
+    const buildReady = (kind: Parameters<typeof canBuildStructure>[2], dx: number, z: number) => {
+      expect(startStructureBuild(sim, economy, kind)).toBe(true);
+      for (let i = 0; i < 30 * 10; i++) stepEconomy(sim, hf, economy, 1 / 30);
+      const placement = updatePlacement(sim, hf, kind, base.transform.x + dx, base.transform.z + z);
+      const entity = placeStructure(sim, hf, economy, placement);
+      expect(entity).toBeDefined();
+      return entity!;
+    };
+
+    buildReady('power-plant', -28, 0);
+    buildReady('refinery', 28, 0);
+    const factory = buildReady('factory', -70, 18);
+
+    expect(queueUnit(sim, economy, 'tank', factory)).toBe(true);
+    for (let i = 0; i < 30 * 10; i++) {
+      stepEconomy(sim, hf, economy, 1 / 30);
+      stepSim(sim, hf, 1 / 30);
+    }
+
+    const tank = Array.from(sim.world.entities).find((entity) => entity.selectable?.type === 'tank' && entity.team?.id === 1 && entity.name?.includes('M-17'));
+    expect(tank).toBeDefined();
+    const distFromFactory = Math.hypot(tank!.transform.x - factory.transform.x, tank!.transform.z - factory.transform.z);
+    expect(distFromFactory).toBeGreaterThan(Math.max(factory.building!.footprint.w, factory.building!.footprint.h) * hf.cellSize);
+    expect(tank!.mover?.target).toBeDefined();
   });
 });

@@ -45,6 +45,7 @@ interface BombProjectile {
   elapsed: number;
   duration: number;
   event: CombatEvent;
+  smokeTimer: number;
 }
 
 interface HitIndicator {
@@ -56,6 +57,15 @@ interface HitIndicator {
   rise: number;
 }
 
+interface SmokePuff {
+  mesh: Mesh;
+  material: MeshBasicMaterial;
+  velocity: Vector3;
+  ttl: number;
+  total: number;
+  spin: number;
+}
+
 export class CombatView {
   readonly group = new Group();
   private readonly cannonMaterial = new LineBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.92 });
@@ -64,6 +74,7 @@ export class CombatView {
   private readonly bursts: Burst[] = [];
   private readonly bombProjectiles: BombProjectile[] = [];
   private readonly hitIndicators: HitIndicator[] = [];
+  private readonly smokePuffs: SmokePuff[] = [];
   private readonly up = new Vector3(0, 1, 0);
 
   constructor(
@@ -81,12 +92,20 @@ export class CombatView {
       const muzzleHeight = event.kind === 'bomb' ? 3.1 : event.kind === 'rifle' ? 1.35 : 2.2;
       const fromY = event.fromY ?? sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
       const toY = event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
-      if (event.kind === 'bomb') {
+      if (event.kind === 'crash') {
+        this.spawnCrashBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.6, event.toZ);
+        continue;
+      }
+      if (isProjectileLaunch(event.kind)) {
         this.spawnBombProjectile(event, fromY, toY);
         continue;
       }
-      if (event.kind === 'bomb-impact') {
-        this.spawnBombBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.4, event.toZ, event.killed);
+      if (isProjectileImpact(event.kind)) {
+        if (event.kind === 'bomb-impact' || event.kind === 'grenade-impact' || event.kind === 'agMissile-impact') {
+          this.spawnBombBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.4, event.toZ, event.killed);
+        } else {
+          this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed);
+        }
         if (event.damage > 0 || event.killed) this.spawnHitIndicator(event);
         continue;
       }
@@ -106,6 +125,7 @@ export class CombatView {
 
   update(dt: number): void {
     this.updateBombProjectiles(dt);
+    this.updateSmokePuffs(dt);
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tracer = this.tracers[i];
       tracer.ttl -= dt;
@@ -166,18 +186,21 @@ export class CombatView {
     const to = new Vector3(event.toX, toY, event.toZ);
     const distance = Math.hypot(event.toX - event.fromX, event.toZ - event.fromZ);
     const drop = event.trajectory === 'drop';
+    const flat = event.trajectory === 'flat' || event.trajectory === 'homing';
     const controlY = drop
       ? Math.max(toY + 2, (fromY + toY) * 0.46 - Math.min(16, distance * 0.04))
-      : Math.max(fromY, toY) + Math.min(84, distance * 0.28);
+      : flat
+        ? (fromY + toY) * 0.5
+        : Math.max(fromY, toY) + Math.min(84, distance * 0.28);
     const control = new Vector3((event.fromX + event.toX) / 2, controlY, (event.fromZ + event.toZ) / 2);
-    const group = this.makeBombMesh();
+    const group = this.makeProjectileMesh(event.kind);
     group.position.copy(from);
     group.renderOrder = 60;
     this.group.add(group);
 
     const trailGeometry = new BufferGeometry();
     trailGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(8 * 3), 3));
-    const trail = new Line(trailGeometry, new LineBasicMaterial({ color: 0xff8f36, transparent: true, opacity: 0.5 }));
+    const trail = new Line(trailGeometry, new LineBasicMaterial({ color: trailColor(event.kind), transparent: true, opacity: 0.5 }));
     trail.renderOrder = 58;
     this.group.add(trail);
 
@@ -192,6 +215,7 @@ export class CombatView {
       // matches the sim's flight time exactly — the blast lands when the damage does
       duration: event.duration ?? Math.min(3.4, Math.max(0.85, distance / 95)),
       event,
+      smokeTimer: 0,
     });
   }
 
@@ -207,6 +231,7 @@ export class CombatView {
       projectile.trailPositions.push(position.clone());
       if (projectile.trailPositions.length > 8) projectile.trailPositions.shift();
       this.updateTrail(projectile);
+      this.emitProjectileSmoke(projectile, tangent, dt);
       if (t >= 1) {
         this.group.remove(projectile.group);
         projectile.group.traverse((object) => {
@@ -236,30 +261,90 @@ export class CombatView {
     material.opacity = Math.min(0.55, projectile.elapsed / 0.18);
   }
 
-  private makeBombMesh(): Group {
+  private emitProjectileSmoke(projectile: BombProjectile, tangent: Vector3, dt: number): void {
+    projectile.smokeTimer -= dt;
+    const cadence = projectile.event.kind === 'bomb' ? 0.075 : projectile.event.kind === 'grenade' ? 0.12 : 0.045;
+    if (projectile.smokeTimer > 0) return;
+    projectile.smokeTimer = cadence;
+    const pos = projectile.group.position.clone();
+    const back = tangent.clone().multiplyScalar(projectile.event.kind === 'aaMissile' || projectile.event.kind === 'agMissile' ? -1.35 : -0.65);
+    pos.add(back);
+    pos.x += Math.sin(projectile.elapsed * 19 + projectile.event.fromX) * 0.12;
+    pos.z += Math.cos(projectile.elapsed * 17 + projectile.event.fromZ) * 0.12;
+    const smokeMaterial = new MeshBasicMaterial({
+      color: projectile.event.kind === 'bomb' ? 0x3a3026 : 0xb7b0a1,
+      transparent: true,
+      opacity: projectile.event.kind === 'grenade' ? 0.22 : 0.34,
+      depthWrite: false,
+    });
+    smokeMaterial.userData.baseOpacity = smokeMaterial.opacity;
+    const puff = new Mesh(new SphereGeometry(projectile.event.kind === 'bomb' ? 0.42 : 0.28, 8, 5), smokeMaterial);
+    puff.position.copy(pos);
+    puff.renderOrder = 57;
+    this.group.add(puff);
+    this.smokePuffs.push({
+      mesh: puff,
+      material: smokeMaterial,
+      velocity: new Vector3(-tangent.x * 0.9, 0.5 + Math.abs(tangent.y) * 0.2, -tangent.z * 0.9),
+      ttl: projectile.event.kind === 'bomb' ? 0.9 : 0.68,
+      total: projectile.event.kind === 'bomb' ? 0.9 : 0.68,
+      spin: Math.sin(projectile.elapsed * 11 + projectile.event.toX) * 0.6,
+    });
+    while (this.smokePuffs.length > 90) this.disposeSmokePuff(this.smokePuffs.shift());
+  }
+
+  private updateSmokePuffs(dt: number): void {
+    for (let i = this.smokePuffs.length - 1; i >= 0; i--) {
+      const puff = this.smokePuffs[i];
+      puff.ttl -= dt;
+      const life = Math.max(0, puff.ttl / puff.total);
+      const age = 1 - life;
+      puff.mesh.position.addScaledVector(puff.velocity, dt);
+      puff.mesh.rotation.y += puff.spin * dt;
+      puff.mesh.scale.setScalar(1 + age * 2.6);
+      puff.material.opacity = (puff.material.userData.baseOpacity as number) * life * life;
+      if (puff.ttl <= 0) {
+        this.disposeSmokePuff(puff);
+        this.smokePuffs.splice(i, 1);
+      }
+    }
+  }
+
+  private disposeSmokePuff(puff?: SmokePuff): void {
+    if (!puff) return;
+    this.group.remove(puff.mesh);
+    puff.mesh.geometry.dispose();
+    puff.material.dispose();
+  }
+
+  private makeProjectileMesh(kind: string): Group {
     const group = new Group();
-    const shellMaterial = new MeshBasicMaterial({ color: 0x181814 });
-    const noseMaterial = new MeshBasicMaterial({ color: 0xd07a2a });
-    const bandMaterial = new MeshBasicMaterial({ color: 0xffb33f });
-    const glowMaterial = new MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.28, depthWrite: false });
-    const body = new Mesh(new CylinderGeometry(0.34, 0.42, 2.25, 12), shellMaterial);
-    const nose = new Mesh(new ConeGeometry(0.34, 0.72, 12), noseMaterial);
-    const band = new Mesh(new CylinderGeometry(0.43, 0.43, 0.1, 12), bandMaterial);
-    const glow = new Mesh(new SphereGeometry(0.78, 12, 8), glowMaterial);
+    const missile = kind === 'agMissile' || kind === 'aaMissile' || kind === 'atRocket';
+    const grenade = kind === 'grenade';
+    const shellMaterial = new MeshBasicMaterial({ color: missile ? 0x20262a : grenade ? 0x1c2218 : 0x181814 });
+    const noseMaterial = new MeshBasicMaterial({ color: kind === 'aaMissile' ? 0x70d8ff : kind === 'agMissile' ? 0xf2d66c : 0xd07a2a });
+    const bandMaterial = new MeshBasicMaterial({ color: trailColor(kind) });
+    const glowMaterial = new MeshBasicMaterial({ color: trailColor(kind), transparent: true, opacity: missile ? 0.36 : 0.28, depthWrite: false });
+    const body = new Mesh(new CylinderGeometry(missile ? 0.2 : grenade ? 0.3 : 0.34, missile ? 0.24 : grenade ? 0.3 : 0.42, missile ? 1.65 : grenade ? 0.9 : 2.25, 12), shellMaterial);
+    const nose = new Mesh(new ConeGeometry(missile ? 0.22 : grenade ? 0.3 : 0.34, missile ? 0.44 : grenade ? 0.26 : 0.72, 12), noseMaterial);
+    const band = new Mesh(new CylinderGeometry(missile ? 0.25 : 0.43, missile ? 0.25 : 0.43, 0.1, 12), bandMaterial);
+    const glow = new Mesh(new SphereGeometry(missile ? 0.5 : grenade ? 0.45 : 0.78, 12, 8), glowMaterial);
     body.position.y = 0;
-    nose.position.y = 1.48;
-    band.position.y = -0.75;
+    nose.position.y = missile ? 1.04 : grenade ? 0.58 : 1.48;
+    band.position.y = missile ? -0.58 : grenade ? -0.32 : -0.75;
     glow.position.y = 0.22;
     group.add(glow, body, nose, band);
-    for (let i = 0; i < 4; i++) {
+    const finCount = missile ? 3 : grenade ? 0 : 4;
+    for (let i = 0; i < finCount; i++) {
       const fin = new Mesh(new BoxGeometry(0.08, 0.54, 0.5), shellMaterial.clone());
-      fin.position.y = -1.05;
-      fin.position.x = i < 2 ? (i === 0 ? 0.38 : -0.38) : 0;
-      fin.position.z = i >= 2 ? (i === 2 ? 0.38 : -0.38) : 0;
-      fin.rotation.y = i >= 2 ? Math.PI / 2 : 0;
+      fin.position.y = missile ? -0.86 : -1.05;
+      const angle = (i / Math.max(1, finCount)) * Math.PI * 2;
+      fin.position.x = Math.cos(angle) * (missile ? 0.24 : 0.38);
+      fin.position.z = Math.sin(angle) * (missile ? 0.24 : 0.38);
+      fin.rotation.y = angle;
       group.add(fin);
     }
-    group.scale.setScalar(1.75);
+    group.scale.setScalar(missile ? 1.6 : grenade ? 1.1 : 1.75);
     return group;
   }
 
@@ -311,6 +396,36 @@ export class CombatView {
     const ttl = killed ? 0.82 : 0.68;
     this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial] });
     this.group.add(group);
+  }
+
+  private spawnCrashBlast(x: number, y: number, z: number): void {
+    this.spawnBombBlast(x, y, z, true);
+    const material = new MeshBasicMaterial({ color: 0xff6a2d, transparent: true, opacity: 0.32, depthWrite: false, side: 2 });
+    const ring = new Mesh(new RingGeometry(2.6, 10.5, 48), material);
+    ring.rotation.x = -Math.PI / 2;
+    const group = new Group();
+    group.add(ring);
+    group.position.set(x, y + 0.12, z);
+    group.renderOrder = 56;
+    this.bursts.push({ group, ttl: 1.05, total: 1.05, kind: 'bomb', materials: [material] });
+    this.group.add(group);
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const smokeMaterial = new MeshBasicMaterial({ color: 0x1f1d1a, transparent: true, opacity: 0.42, depthWrite: false });
+      smokeMaterial.userData.baseOpacity = 0.42;
+      const puff = new Mesh(new SphereGeometry(0.55 + (i % 3) * 0.12, 8, 5), smokeMaterial);
+      puff.position.set(x + Math.cos(angle) * 1.5, y + 0.8 + (i % 4) * 0.2, z + Math.sin(angle) * 1.5);
+      puff.renderOrder = 57;
+      this.group.add(puff);
+      this.smokePuffs.push({
+        mesh: puff,
+        material: smokeMaterial,
+        velocity: new Vector3(Math.cos(angle) * 2.1, 1.25 + (i % 3) * 0.35, Math.sin(angle) * 2.1),
+        ttl: 1.55,
+        total: 1.55,
+        spin: i % 2 ? 0.5 : -0.5,
+      });
+    }
   }
 
   private spawnHitIndicator(event: CombatEvent): void {
@@ -400,4 +515,20 @@ function bezierTangent(from: Vector3, control: Vector3, to: Vector3, t: number):
     2 * (1 - t) * (control.y - from.y) + 2 * t * (to.y - control.y),
     2 * (1 - t) * (control.z - from.z) + 2 * t * (to.z - control.z),
   );
+}
+
+function isProjectileLaunch(kind: string): boolean {
+  return kind === 'bomb' || kind === 'grenade' || kind === 'atRocket' || kind === 'agMissile' || kind === 'aaMissile';
+}
+
+function isProjectileImpact(kind: string): boolean {
+  return kind === 'bomb-impact' || kind === 'grenade-impact' || kind === 'atRocket-impact' || kind === 'agMissile-impact' || kind === 'aaMissile-impact';
+}
+
+function trailColor(kind: string): number {
+  if (kind === 'aaMissile') return 0x70d8ff;
+  if (kind === 'agMissile') return 0xffd76a;
+  if (kind === 'atRocket') return 0xff9e52;
+  if (kind === 'grenade') return 0xf2b35e;
+  return 0xff8f36;
 }

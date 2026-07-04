@@ -3,10 +3,16 @@ import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { manualFireAt } from '../sim/combat';
-import type { GameSim } from '../sim/world';
+import { issueMoveOrder, setSelected, type GameSim } from '../sim/world';
+import { FLIGHT_MODELS } from '../content/flightModels';
 
 type PossessionMode = 'rts' | 'entering' | 'fps' | 'exiting';
-const FLIGHT_KEY_YAW_PER_TICK = 0.035;
+const CHASE_ZOOM_MIN = -1;
+const CHASE_ZOOM_MAX = 3.15;
+const ORBIT_PITCH_MIN = MathUtils.degToRad(-18);
+const ORBIT_PITCH_MAX = MathUtils.degToRad(48);
+const SQUAD_FOLLOW_REFRESH_TICKS = 12;
+const SQUAD_FOLLOW_MIN_DISTANCE = 14;
 
 interface CameraPose {
   position: Vector3;
@@ -17,6 +23,9 @@ interface CameraPose {
 export class FirstPersonController {
   private mode: PossessionMode = 'rts';
   private possessed?: Entity;
+  private squad: Entity[] = [];
+  private squadIndex = 0;
+  private nextSquadFollowTick = 0;
   private lookYaw = 0;
   private lookPitch = 0;
   private transitionT = 0;
@@ -28,8 +37,12 @@ export class FirstPersonController {
   private readonly tmpAimTarget = new Vector3();
   private readonly tmpCameraTarget = new Vector3();
   private readonly tmpEntityCenter = new Vector3();
+  private readonly tmpVelocityDir = new Vector3();
   private readonly smoothFlightCenter = new Vector3();
   private hasSmoothFlightCenter = false;
+  private chaseZoom = 0;
+  private orbitYaw = 0;
+  private orbitPitch = 0;
   private savedCursor = '';
 
   constructor(
@@ -46,6 +59,7 @@ export class FirstPersonController {
         if (this.mode !== 'fps' || (event.button !== 0 && event.button !== 2)) return;
         event.preventDefault();
         event.stopPropagation();
+        if (event.button === 0 && (event.metaKey || this.input.isMetaDown())) return;
         this.fire(event.button === 2 ? 'secondary' : 'primary');
       },
       { capture: true },
@@ -61,7 +75,8 @@ export class FirstPersonController {
   }
 
   get possessedName(): string | undefined {
-    return this.possessed?.name;
+    if (!this.possessed) return undefined;
+    return this.squad.length > 1 ? `${this.possessed.name ?? 'unit'} ${this.squadIndex + 1}/${this.squad.length}` : this.possessed.name;
   }
 
   get possessedEntity(): Entity | undefined {
@@ -70,16 +85,20 @@ export class FirstPersonController {
 
   enter(candidates: Entity[]): boolean {
     if (this.active) return false;
-    const entity = candidates.find((candidate) => candidate.possessable && candidate.mover && !candidate.destroyed);
+    const squad = candidates.filter((candidate) => candidate.possessable && candidate.mover && !candidate.destroyed);
+    const entity = squad.length > 0 ? squad[this.sim.tick % squad.length] : undefined;
     if (!entity) return false;
-    this.possessed = entity;
-    this.lookYaw = entity.transform.rot;
-    this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
+    this.squad = squad;
+    this.squadIndex = squad.indexOf(entity);
+    this.nextSquadFollowTick = this.sim.tick;
+    setSelected(this.sim, this.squad);
+    this.takeControl(entity);
     this.transitionT = 0;
     this.fromPose = this.captureCameraPose();
     this.hasSmoothFlightCenter = false;
+    this.orbitYaw = 0;
+    this.orbitPitch = 0;
     this.toPose = this.poseFor(entity, this.lookYaw, this.lookPitch, 62, 1, 1 / 60);
-    entity.playerControlled = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0 };
     this.mode = 'entering';
     this.savedCursor = this.dom.style.cursor;
     this.dom.style.cursor = 'none';
@@ -93,32 +112,60 @@ export class FirstPersonController {
     this.beginExit();
   }
 
+  cyclePossessed(direction = 1): boolean {
+    if (!this.active || this.squad.length <= 1) return false;
+    const alive = this.liveSquad();
+    if (alive.length <= 1) return false;
+    const current = this.possessed;
+    const currentIndex = current ? alive.indexOf(current) : -1;
+    const nextIndex = (currentIndex + direction + alive.length) % alive.length;
+    const next = alive[nextIndex];
+    this.squad = alive;
+    this.takeControl(next);
+    this.squadIndex = nextIndex;
+    this.hasSmoothFlightCenter = false;
+    this.nextSquadFollowTick = this.sim.tick;
+    this.toPose = this.poseFor(next, this.lookYaw, this.lookPitch, this.zoomedFov(62), 1, 1 / 60);
+    setSelected(this.sim, this.squad);
+    return true;
+  }
+
   simTick(): void {
     if (!this.possessed?.playerControlled) return;
     if (this.possessed.destroyed) {
-      this.beginExit();
+      if (!this.cyclePossessed(1)) this.beginExit();
       return;
     }
     const forward = (this.input.isDown('KeyW') ? 1 : 0) - (this.input.isDown('KeyS') ? 1 : 0);
     // heading uses (sin rot, cos rot): positive turn rotates toward -screen-right,
     // so D (turn right) must apply negative turn — matches mouse-look direction
     const turn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
-    if (this.possessed.flight && turn !== 0) this.lookYaw = normalizeAngle(this.lookYaw + turn * FLIGHT_KEY_YAW_PER_TICK);
+    const strafe = this.possessed.flight ? (this.input.isDown('KeyE') ? 1 : 0) - (this.input.isDown('KeyQ') ? 1 : 0) : 0;
     const climb = (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('ControlLeft') || this.input.isDown('ControlRight') ? 1 : 0);
     this.possessed.playerControlled.throttle = forward;
     this.possessed.playerControlled.turn = turn;
     this.possessed.playerControlled.aimYaw = this.lookYaw;
     this.possessed.playerControlled.climb = climb;
+    this.possessed.playerControlled.strafe = strafe;
+    this.updateSquadFollowers();
   }
 
   update(dt: number, alpha = 1): void {
     if (!this.active || !this.possessed) return;
+    const wheel = this.input.consumeWheel();
+    if (wheel !== 0) this.chaseZoom = MathUtils.clamp(this.chaseZoom + wheel * 0.0014, CHASE_ZOOM_MIN, CHASE_ZOOM_MAX);
     const delta = this.input.consumeMouseDelta();
+    const orbitAdjusting = this.mode === 'fps' && this.input.isMetaDown() && this.input.isButton(0);
     if (this.mode === 'fps' && (delta.dx !== 0 || delta.dy !== 0)) {
-      this.lookYaw = normalizeAngle(this.lookYaw - delta.dx * 0.0024);
-      const minPitch = this.possessed.flight ? MathUtils.degToRad(-42) : MathUtils.degToRad(-18);
-      const maxPitch = this.possessed.flight ? MathUtils.degToRad(38) : MathUtils.degToRad(52);
-      this.lookPitch = MathUtils.clamp(this.lookPitch - delta.dy * 0.0018, minPitch, maxPitch);
+      if (orbitAdjusting) {
+        this.orbitYaw = normalizeAngle(this.orbitYaw - delta.dx * 0.004);
+        this.orbitPitch = MathUtils.clamp(this.orbitPitch - delta.dy * 0.003, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
+      } else {
+        this.lookYaw = normalizeAngle(this.lookYaw - delta.dx * 0.0024);
+        const minPitch = this.possessed.flight ? MathUtils.degToRad(-42) : MathUtils.degToRad(-18);
+        const maxPitch = this.possessed.flight ? MathUtils.degToRad(38) : MathUtils.degToRad(52);
+        this.lookPitch = MathUtils.clamp(this.lookPitch - delta.dy * 0.0018, minPitch, maxPitch);
+      }
     }
 
     if (this.mode === 'entering') {
@@ -137,7 +184,9 @@ export class FirstPersonController {
     }
 
     const speed = this.possessed.velocity ? Math.hypot(this.possessed.velocity.x, this.possessed.velocity.z) : 0;
-    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.possessed.flight ? MathUtils.lerp(62, 68, Math.min(1, speed / 46)) : 62, alpha, dt));
+    const maxSpeed = this.possessed.flight ? FLIGHT_MODELS[this.possessed.flight.model].maxSpeed : 46;
+    const baseFov = this.possessed.flight ? MathUtils.lerp(62, 70, Math.min(1, speed / maxSpeed)) : 62;
+    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.zoomedFov(baseFov), alpha, dt));
   }
 
   private beginExit(): void {
@@ -160,6 +209,8 @@ export class FirstPersonController {
       }
     }
     this.possessed = undefined;
+    this.squad = [];
+    this.squadIndex = 0;
     this.hasSmoothFlightCenter = false;
     this.mode = 'rts';
     this.camera.fov = 50;
@@ -175,9 +226,13 @@ export class FirstPersonController {
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     this.tmpHorizontal.set(Math.sin(yaw), 0, Math.cos(yaw));
     const tankCenter = new Vector3(center.x, groundY + 2.4, center.z);
-    const chaseDistance = 20;
-    const chaseHeight = 8.6;
-    const position = tankCenter.clone().addScaledVector(this.tmpHorizontal, -chaseDistance);
+    const cameraYaw = yaw + this.orbitYaw;
+    const cameraPitch = MathUtils.clamp(MathUtils.degToRad(24) + this.orbitPitch, MathUtils.degToRad(6), MathUtils.degToRad(64));
+    this.tmpHorizontal.set(Math.sin(cameraYaw), 0, Math.cos(cameraYaw));
+    const chaseDistance = 20 * this.zoomScale();
+    const horizontalDistance = chaseDistance * Math.cos(cameraPitch);
+    const chaseHeight = Math.max(2.8, chaseDistance * Math.sin(cameraPitch) + 1.2);
+    const position = tankCenter.clone().addScaledVector(this.tmpHorizontal, -horizontalDistance);
     position.y += chaseHeight;
     this.tmpAimTarget.copy(tankCenter).addScaledVector(this.tmpForward, 100);
     this.tmpAimTarget.y = Math.max(sampleHeight(this.hf, this.tmpAimTarget.x, this.tmpAimTarget.z) + 1.5, this.tmpAimTarget.y);
@@ -188,28 +243,46 @@ export class FirstPersonController {
     const aircraftCenter = this.interpolatedCenter(entity, alpha);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     this.tmpHorizontal.set(Math.sin(yaw), 0, Math.cos(yaw));
+    const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
+    const model = FLIGHT_MODELS[entity.flight!.model];
+    if (entity.velocity && speed > 1) this.tmpVelocityDir.set(entity.velocity.x / speed, 0, entity.velocity.z / speed);
+    else this.tmpVelocityDir.copy(this.tmpHorizontal);
+    const velocityYaw = Math.atan2(this.tmpVelocityDir.x, this.tmpVelocityDir.z);
+    const lookBackT = MathUtils.smoothstep(Math.abs(normalizeAngle(yaw - velocityYaw)), 0.8, 2.35);
+    const driftBlend = Math.min(0.65, (speed / 8) * 0.65) * (1 - lookBackT * 0.88);
+    this.tmpVelocityDir.lerp(this.tmpHorizontal, 1 - driftBlend).normalize();
     const targetCenter = new Vector3(aircraftCenter.x, aircraftCenter.y + 1.3, aircraftCenter.z);
     if (!this.hasSmoothFlightCenter) {
       this.smoothFlightCenter.copy(targetCenter);
       this.hasSmoothFlightCenter = true;
     } else {
-      this.smoothFlightCenter.lerp(targetCenter, 1 - Math.exp(-dt * 16));
+      this.smoothFlightCenter.lerp(targetCenter, 1 - Math.exp(-dt * 4.5));
     }
     const center = this.smoothFlightCenter;
-    const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
-    const chaseDistance = MathUtils.lerp(15, 22, Math.min(1, speed / 46));
-    const chaseHeight = MathUtils.lerp(5.4, 7.4, Math.min(1, speed / 46));
-    const position = center.clone().addScaledVector(this.tmpHorizontal, -chaseDistance);
-    position.y += chaseHeight;
+    const speedT = Math.min(1, speed / model.maxSpeed);
+    const followYaw = Math.atan2(this.tmpVelocityDir.x, this.tmpVelocityDir.z) + this.orbitYaw;
+    this.tmpVelocityDir.set(Math.sin(followYaw), 0, Math.cos(followYaw));
+    const chaseDistance = MathUtils.lerp(14, 19, speedT) * this.zoomScale();
+    const flightOrbitPitch = MathUtils.clamp(this.orbitPitch, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
+    const horizontalDistance = chaseDistance * Math.cos(flightOrbitPitch * 0.72);
+    const chaseHeight = MathUtils.lerp(5.2, 7.1, speedT) + Math.sin(flightOrbitPitch) * chaseDistance * 0.72;
+    const position = center.clone().addScaledVector(this.tmpVelocityDir, -horizontalDistance);
+    position.y += Math.max(2.6, chaseHeight);
     this.tmpAimTarget.copy(center).addScaledVector(this.tmpForward, 170);
     this.tmpCameraTarget.copy(center).addScaledVector(this.tmpForward, 80);
-    return this.lookPose(position, this.tmpCameraTarget, fov);
+    const cameraRoll = MathUtils.clamp((entity.flight?.rollAttitude ?? 0) * 0.3, MathUtils.degToRad(-8), MathUtils.degToRad(8));
+    return this.lookPose(position, this.tmpCameraTarget, fov, -cameraRoll);
   }
 
   private fire(slot: 'primary' | 'secondary'): void {
     if (!this.possessed) return;
     const target = this.possessed.flight ? this.flightTarget(this.possessed, slot) : slot === 'secondary' ? this.bombTarget(this.possessed) : this.tmpAimTarget;
-    manualFireAt(this.sim, this.possessed, target.x, target.z, slot);
+    manualFireAt(this.sim, this.possessed, target.x, target.z, slot, target.y);
+    for (const wingman of this.squadFollowers()) {
+      if (wingman.turret) wingman.turret.yaw = Math.atan2(target.x - wingman.transform.x, target.z - wingman.transform.z);
+      manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y);
+      if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y);
+    }
   }
 
   private flightTarget(entity: Entity, slot: 'primary' | 'secondary'): Vector3 {
@@ -220,7 +293,7 @@ export class FirstPersonController {
     const origin = new Vector3(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28, entity.transform.z);
     const range = 112;
     const target = origin.addScaledVector(this.tmpForward, range);
-    target.y = sampleHeight(this.hf, target.x, target.z);
+    target.y = Math.max(sampleHeight(this.hf, target.x, target.z) + 1.5, target.y);
     return target;
   }
 
@@ -291,9 +364,50 @@ export class FirstPersonController {
     return this.lookPose(position, target, 50);
   }
 
-  private lookPose(position: Vector3, target: Vector3, fov: number): CameraPose {
+  private zoomScale(): number {
+    return Math.exp(this.chaseZoom * 0.55);
+  }
+
+  private zoomedFov(baseFov: number): number {
+    return MathUtils.clamp(baseFov + this.chaseZoom * 3.2, 48, 76);
+  }
+
+  private takeControl(entity: Entity): void {
+    if (this.possessed && this.possessed !== entity) delete this.possessed.playerControlled;
+    this.possessed = entity;
+    this.lookYaw = entity.transform.rot;
+    this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
+    entity.playerControlled = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0, strafe: 0 };
+  }
+
+  private liveSquad(): Entity[] {
+    this.squad = this.squad.filter((entity) => this.sim.world.has(entity) && entity.possessable && entity.mover && !entity.destroyed);
+    return this.squad;
+  }
+
+  private squadFollowers(): Entity[] {
+    return this.liveSquad().filter((entity) => entity !== this.possessed && entity.mover && !entity.playerControlled);
+  }
+
+  private updateSquadFollowers(): void {
+    if (!this.possessed || this.squad.length <= 1 || this.sim.tick < this.nextSquadFollowTick) return;
+    this.nextSquadFollowTick = this.sim.tick + SQUAD_FOLLOW_REFRESH_TICKS;
+    const followers = this.squadFollowers();
+    if (followers.length === 0) return;
+    const leaderSpeed = this.possessed.velocity ? Math.hypot(this.possessed.velocity.x, this.possessed.velocity.z) : 0;
+    const shouldRefresh = followers.some((entity) => {
+      const dx = entity.transform.x - this.possessed!.transform.x;
+      const dz = entity.transform.z - this.possessed!.transform.z;
+      return Math.hypot(dx, dz) > SQUAD_FOLLOW_MIN_DISTANCE || leaderSpeed > 1.5 || entity.mover?.target === undefined;
+    });
+    if (!shouldRefresh) return;
+    issueMoveOrder(this.sim, followers, this.possessed.transform.x, this.possessed.transform.z, false, this.possessed.transform.rot);
+  }
+
+  private lookPose(position: Vector3, target: Vector3, fov: number, roll = 0): CameraPose {
     this.poseCamera.position.copy(position);
     this.poseCamera.lookAt(target);
+    if (roll !== 0) this.poseCamera.rotateZ(roll);
     return { position: position.clone(), quaternion: this.poseCamera.quaternion.clone(), fov };
   }
 

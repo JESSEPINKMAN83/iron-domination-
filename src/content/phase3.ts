@@ -24,6 +24,7 @@ export interface StructureDef {
 export interface UnitDef {
   kind: UnitKind;
   label: string;
+  role: string;
   tab: 'infantry' | 'vehicles' | 'aircraft';
   cost: number;
   buildTime: number;
@@ -141,6 +142,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   infantry: {
     kind: 'infantry',
     label: 'Rifle Team',
+    role: 'Cheap anti-infantry screen',
     tab: 'infantry',
     cost: 100,
     buildTime: 4,
@@ -150,8 +152,9 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   grenadier: {
     kind: 'grenadier',
     label: 'Grenadier',
+    role: 'Arcing splash, strong versus buildings',
     tab: 'infantry',
-    cost: 150,
+    cost: 160,
     buildTime: 5,
     requires: 'barracks',
     producer: 'infantry',
@@ -159,24 +162,27 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   'rocket-infantry': {
     kind: 'rocket-infantry',
     label: 'Rocket Team',
+    role: 'Anti-armor rockets plus AA lock',
     tab: 'infantry',
-    cost: 220,
-    buildTime: 7,
+    cost: 240,
+    buildTime: 6,
     requires: 'barracks',
     producer: 'infantry',
   },
   'scout-tank': {
     kind: 'scout-tank',
     label: 'Jackal Scout',
+    role: 'Fast scout with single bomb',
     tab: 'vehicles',
     cost: 360,
-    buildTime: 6,
+    buildTime: 7,
     requires: 'factory',
     producer: 'vehicles',
   },
   tank: {
     kind: 'tank',
     label: 'M-17 Tank',
+    role: 'Balanced armor with twin bombs',
     tab: 'vehicles',
     cost: 550,
     buildTime: 9,
@@ -186,24 +192,27 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   'siege-tank': {
     kind: 'siege-tank',
     label: 'Mauler Siege',
+    role: 'Heavy cannon with four-bomb salvo',
     tab: 'vehicles',
     cost: 820,
-    buildTime: 13,
+    buildTime: 12,
     requires: 'factory',
     producer: 'vehicles',
   },
   wasp: {
     kind: 'wasp',
     label: 'Wasp Scout',
+    role: 'Fast interceptor with single bomb',
     tab: 'aircraft',
     cost: 650,
-    buildTime: 8,
+    buildTime: 9,
     requires: 'helipad',
     producer: 'aircraft',
   },
   vulture: {
     kind: 'vulture',
     label: 'Vulture',
+    role: 'Rocket gunship with twin bombs',
     tab: 'aircraft',
     cost: 950,
     buildTime: 12,
@@ -213,9 +222,10 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   hammerhead: {
     kind: 'hammerhead',
     label: 'Hammerhead',
+    role: 'Heavy aircraft with four-bomb salvo',
     tab: 'aircraft',
     cost: 1250,
-    buildTime: 16,
+    buildTime: 15,
     requires: 'helipad',
     producer: 'aircraft',
   },

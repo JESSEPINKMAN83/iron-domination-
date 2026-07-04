@@ -3,6 +3,7 @@ import { MAP01 } from '../content/map01';
 import { damageForArmor, manualFireAt, stepCombat } from './combat';
 import { createEconomy, createInitialBase, placeStructure, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
+import { applyStructureDamage, cellIndex } from './structureDamage';
 import { createGameSim, hashSim, spawnTankAt, spawnVultureAt, stepSim } from './world';
 
 const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
@@ -58,6 +59,24 @@ describe('phase 4 combat simulation', () => {
     expect(attacker.weapons?.primary.cooldown).toBeGreaterThan(0);
   });
 
+  it('preserves manual direct-fire aim height when shooting above the ground', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnTankAt(sim, -20, -20, 'A');
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI };
+    attacker.turret!.yaw = Math.PI;
+    const targetX = -20;
+    const targetZ = -100;
+    const aimY = sampleHeight(hf, targetX, targetZ) + 20;
+
+    expect(manualFireAt(sim, attacker, targetX, targetZ, 'primary', aimY)).toBe(true);
+
+    const event = sim.events.at(-1);
+    expect(event?.kind).toBe('cannon');
+    expect(event?.toY).toBe(aimY);
+    expect(event?.toY).toBeGreaterThan(sampleHeight(hf, event!.toX, event!.toZ) + 8);
+  });
+
   it('fires ballistic bombs that damage on impact, with splash falloff', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -71,7 +90,7 @@ describe('phase 4 combat simulation', () => {
 
     expect(fired).toBe(true);
     expect(firedAgain).toBe(false);
-    expect(sim.projectiles).toHaveLength(1);
+    expect(sim.projectiles).toHaveLength(2);
     expect(sim.events.at(-1)?.kind).toBe('bomb');
     // no damage until the bomb lands
     expect(primary.health?.current).toBe(100);
@@ -86,7 +105,7 @@ describe('phase 4 combat simulation', () => {
     expect(impact?.targetMaxHealth).toBe(100);
     expect(primary.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeLessThan(100);
-    expect(nearby.health?.current).toBeGreaterThan(90);
+    expect(nearby.health?.current).toBeGreaterThan(80);
   });
 
   it('lets player-controlled bombs fire beyond normal range with deterministic scatter', () => {
@@ -98,10 +117,10 @@ describe('phase 4 combat simulation', () => {
     const fired = manualFireAt(sim, attacker, 360, -20, 'secondary');
 
     expect(fired).toBe(true);
-    expect(sim.events).toHaveLength(1);
+    expect(sim.events).toHaveLength(2);
     expect(Math.hypot(sim.events[0].toX - attacker.transform.x, sim.events[0].toZ - attacker.transform.z)).toBeGreaterThan(152);
     expect(sim.events[0].toX).not.toBeCloseTo(360);
-    expect(sim.events[0].kind).toBe('bomb');
+    expect(sim.events.every((event) => event.kind === 'bomb')).toBe(true);
   });
 
   it('keeps a manually fired bomb safely away from the firing tank', () => {
@@ -157,7 +176,7 @@ describe('phase 4 combat simulation', () => {
     expect(vulture.weapons?.primary.cooldown).toBeGreaterThan(0);
   });
 
-  it('lets a player-controlled Vulture launch the shared ballistic bomb', () => {
+  it('lets a player-controlled Vulture launch a twin bomb salvo', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const vulture = spawnVultureAt(sim, hf, -14, -20, 'Vulture 1');
@@ -168,7 +187,8 @@ describe('phase 4 combat simulation', () => {
 
     expect(fired).toBe(true);
     expect(vulture.weapons?.secondary?.kind).toBe('bomb');
-    expect(sim.projectiles).toHaveLength(1);
+    expect(vulture.weapons?.secondary?.salvoCount).toBe(2);
+    expect(sim.projectiles).toHaveLength(2);
     expect(sim.events.at(-1)?.kind).toBe('bomb');
     expect(sim.events.at(-1)?.trajectory).toBe('drop');
     expect(sim.events.at(-1)?.fromY).toBeGreaterThan(sampleHeight(hf, vulture.transform.x, vulture.transform.z) + 20);
@@ -176,10 +196,11 @@ describe('phase 4 combat simulation', () => {
 
     settle(sim, 1.5);
     expect(enemy.health?.current).toBeLessThan(100);
+    expect(sim.events.filter((event) => event.kind === 'bomb-impact')).toHaveLength(2);
     expect(vulture.weapons?.secondary?.cooldown).toBeGreaterThan(0);
   });
 
-  it('makes ordinary ground fire poor against airborne Vultures', () => {
+  it('prevents ordinary tank cannon fire from targeting airborne Vultures', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const vulture = spawnVultureAt(sim, hf, -20, -20, 'Vulture 1');
@@ -190,8 +211,8 @@ describe('phase 4 combat simulation', () => {
 
     settle(sim, 6);
 
-    expect(vulture.health?.current).toBeGreaterThan(135);
-    expect(sim.events.some((event) => event.kind === 'cannon' && event.targetId === vulture.id)).toBe(true);
+    expect(vulture.health?.current).toBe(160);
+    expect(sim.events.some((event) => event.kind === 'cannon' && event.targetId === vulture.id)).toBe(false);
   });
 
   it('lets ground bomb splash only graze aircraft', () => {
@@ -307,4 +328,142 @@ describe('phase 4 combat simulation', () => {
     }
     expect(defender.transform.x).toBeGreaterThan(before);
   });
+
+  it('alerts nearby defenders when a friendly harvester is hit', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z))).toBeDefined();
+    expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
+    for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z))).toBeDefined();
+    const harvester = stepEconomy(sim, hf, economy, 1 / 30).find((entity) => entity.harvester);
+    expect(harvester).toBeDefined();
+
+    const defender = spawnTankAt(sim, harvester!.transform.x - 24, harvester!.transform.z, 'Collector Guard');
+    const attacker = spawnTankAt(sim, harvester!.transform.x + 44, harvester!.transform.z, 'Collector Raider', 2);
+    const yaw = Math.atan2(harvester!.transform.x - attacker.transform.x, harvester!.transform.z - attacker.transform.z);
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: yaw };
+    attacker.turret!.yaw = yaw;
+
+    expect(manualFireAt(sim, attacker, harvester!.transform.x, harvester!.transform.z)).toBe(true);
+
+    expect(harvester!.health?.current).toBeLessThan(harvester!.health!.max);
+    expect(defender.mover?.defenseAlert?.targetId).toBe(attacker.id);
+    expect(defender.weapon?.targetId).toBe(attacker.id);
+  });
+
+  it('tracks localized deterministic structure damage by facade and tier', () => {
+    const run = () => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const economy = createEconomy(1, 5200);
+      const base = createInitialBase(sim, hf, economy, 0, 0);
+      applyStructureDamage(base, {
+        hitX: base.transform.x,
+        hitZ: base.transform.z,
+        hitY: base.transform.y,
+        fromX: base.transform.x - 90,
+        fromZ: base.transform.z,
+        amount: 40,
+        splashRadius: 0,
+        trajectory: 'flat',
+      });
+      return { hash: hashSim(sim), damage: base.structureDamage! };
+    };
+
+    const a = run();
+    const b = run();
+    expect(a.hash).toBe(b.hash);
+    const west = facadeSum(a.damage, 'west');
+    const east = facadeSum(a.damage, 'east');
+    expect(west).toBeGreaterThan(east * 3);
+  });
+
+  it('makes the first ordinary building hit visibly mark the struck cells', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy, 0, 0);
+
+    applyStructureDamage(base, {
+      hitX: base.transform.x,
+      hitZ: base.transform.z,
+      hitY: base.transform.y,
+      fromX: base.transform.x - 90,
+      fromZ: base.transform.z,
+      amount: damageForArmor('cannon', 'building'),
+      splashRadius: 0,
+      trajectory: 'flat',
+    });
+
+    expect(Math.max(...base.structureDamage!.cells)).toBeGreaterThanOrEqual(24);
+  });
+
+  it('biases arcing structure damage upward and splashes to neighbors with support bleed', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy, 0, 0);
+    const damage = base.structureDamage!;
+    const cx = Math.floor(damage.cols / 2);
+    const rz = Math.floor(damage.rows / 2);
+
+    applyStructureDamage(base, {
+      hitX: base.transform.x,
+      hitZ: base.transform.z,
+      hitY: (base.transform.y ?? 0) + 3,
+      fromX: base.transform.x,
+      fromZ: base.transform.z - 120,
+      amount: 65,
+      splashRadius: 10,
+      trajectory: 'arc',
+    });
+
+    const lower = damage.cells[cellIndex(damage, cx, rz, 0)];
+    const upper = damage.cells[cellIndex(damage, cx, rz, 1)];
+    expect(upper).toBeGreaterThan(lower);
+    expect(neighborSum(damage, cx, rz, 1)).toBeGreaterThan(0);
+
+    const facadeCol = 0;
+    damage.cells[cellIndex(damage, facadeCol, rz, 0)] = 199;
+    const facadeUpperBefore = damage.cells[cellIndex(damage, facadeCol, rz, 1)];
+    applyStructureDamage(base, {
+      hitX: base.transform.x,
+      hitZ: base.transform.z,
+      fromX: base.transform.x - 90,
+      fromZ: base.transform.z,
+      amount: 12,
+      splashRadius: 0,
+      trajectory: 'flat',
+    });
+    expect(damage.cells[cellIndex(damage, facadeCol, rz, 1)]).toBeGreaterThan(facadeUpperBefore);
+  });
 });
+
+function facadeSum(damage: NonNullable<ReturnType<typeof createInitialBase>['structureDamage']>, side: 'west' | 'east'): number {
+  const col = side === 'west' ? 0 : damage.cols - 1;
+  let sum = 0;
+  for (let tier = 0; tier < damage.tiers; tier++) {
+    for (let row = 0; row < damage.rows; row++) sum += damage.cells[cellIndex(damage, col, row, tier)];
+  }
+  return sum;
+}
+
+function neighborSum(damage: NonNullable<ReturnType<typeof createInitialBase>['structureDamage']>, col: number, row: number, tier: number): number {
+  let sum = 0;
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dz === 0) continue;
+      const c = col + dx;
+      const r = row + dz;
+      if (c < 0 || c >= damage.cols || r < 0 || r >= damage.rows) continue;
+      sum += damage.cells[cellIndex(damage, c, r, tier)];
+    }
+  }
+  return sum;
+}

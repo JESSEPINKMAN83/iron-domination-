@@ -107,6 +107,43 @@ describe('phase 2 movement simulation', () => {
     expect(tanks.every((tank) => tank.mover?.target && tank.mover.flow)).toBe(true);
   });
 
+  it('keeps exact walkable click positions instead of snapping every order to cell centers', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const [tank] = spawnDebugTanks(sim, hf, 1);
+    const cell = sim.nav.nearestWalkableCell(tank.transform.x + 34, tank.transform.z + 18, 96);
+    expect(cell).toBeDefined();
+    const center = sim.nav.cellCenter(cell!.x, cell!.y);
+    const target = { x: center.x + hf.cellSize * 0.29, z: center.z - hf.cellSize * 0.21 };
+    expect(sim.nav.isWalkableCell(sim.nav.worldToCell(target.x, target.z).x, sim.nav.worldToCell(target.x, target.z).y)).toBe(true);
+
+    expect(issueMoveOrder(sim, [tank], target.x, target.z)).toBe(true);
+
+    expect(tank.mover?.target?.x).toBeCloseTo(target.x);
+    expect(tank.mover?.target?.z).toBeCloseTo(target.z);
+    expect(Math.hypot(target.x - center.x, target.z - center.z)).toBeGreaterThan(0.5);
+  });
+
+  it('does not clear close move orders until the unit reaches the requested point', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const [tank] = spawnDebugTanks(sim, hf, 1);
+    const cell = sim.nav.nearestWalkableCell(tank.transform.x + 28, tank.transform.z, 96);
+    expect(cell).toBeDefined();
+    const target = sim.nav.cellCenter(cell!.x, cell!.y);
+    const startDistance = Math.hypot(target.x - tank.transform.x, target.z - tank.transform.z);
+    expect(startDistance).toBeGreaterThan(12);
+    expect(startDistance).toBeLessThan(42);
+
+    expect(issueMoveOrder(sim, [tank], target.x, target.z)).toBe(true);
+    stepSim(sim, hf, 1 / 30);
+
+    expect(tank.mover?.target).toBeDefined();
+    for (let i = 0; i < 30 * 7; i++) stepSim(sim, hf, 1 / 30);
+    expect(tank.mover?.target).toBeUndefined();
+    expect(Math.hypot(target.x - tank.transform.x, target.z - tank.transform.z)).toBeLessThan(3.2);
+  });
+
   it('honors right-drag style move orders with a final facing direction and line formation', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -127,6 +164,29 @@ describe('phase 2 movement simulation', () => {
     for (let i = 0; i < 30 * 12; i++) stepSim(sim, hf, 1 / 30);
 
     expect(tanks.some((tank) => Math.abs(angleDelta(tank.transform.rot, faceYaw)) < 0.2)).toBe(true);
+    expect(tanks.every((tank) => tank.mover?.faceYaw === faceYaw)).toBe(true);
+  });
+
+  it('uses right-drag distance to spread selected units into a wider facing line', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tanks = spawnDebugTanks(sim, hf, 6);
+    const target = sim.nav.nearestWalkableCell(tanks[0].transform.x + 36, tanks[0].transform.z + 12, 96);
+    expect(target).toBeDefined();
+    const p = sim.nav.cellCenter(target!.x, target!.y);
+    const faceYaw = Math.PI / 2;
+
+    expect(issueMoveOrder(sim, tanks, p.x, p.z, false, faceYaw, 18)).toBe(true);
+    const tightOffsets = tanks.map((tank) => tank.mover?.formationOffset);
+    const tightSpan = Math.max(...tightOffsets.map((offset) => offset!.z)) - Math.min(...tightOffsets.map((offset) => offset!.z));
+
+    expect(issueMoveOrder(sim, tanks, p.x, p.z, false, faceYaw, 72)).toBe(true);
+    const wideOffsets = tanks.map((tank) => tank.mover?.formationOffset);
+    const wideSpanZ = Math.max(...wideOffsets.map((offset) => offset!.z)) - Math.min(...wideOffsets.map((offset) => offset!.z));
+    const wideSpanX = Math.max(...wideOffsets.map((offset) => offset!.x)) - Math.min(...wideOffsets.map((offset) => offset!.x));
+
+    expect(wideSpanZ).toBeGreaterThan(tightSpan * 1.7);
+    expect(wideSpanX).toBeLessThan(0.001);
     expect(tanks.every((tank) => tank.mover?.faceYaw === faceYaw)).toBe(true);
   });
 
@@ -173,6 +233,59 @@ describe('phase 2 movement simulation', () => {
     const forwardDot = backwardX * Math.sin(start.rot) + backwardZ * Math.cos(start.rot);
     expect(forwardDot).toBeLessThan(-8);
     expect(Math.abs(angleDelta(vulture.transform.rot, start.rot))).toBeLessThan(0.12);
+  });
+
+  it('lets a player-controlled gunship make a fast 180-degree turn at speed', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -hf.size * 0.08, -hf.size * 0.08, 'Vulture 1');
+    const startYaw = vulture.transform.rot;
+    vulture.playerControlled = { throttle: 1, turn: 0, aimYaw: startYaw, climb: 0, strafe: 0 };
+
+    for (let i = 0; i < 30 * 4; i++) stepSim(sim, hf, 1 / 30);
+
+    expect(vulture.velocity ? Math.hypot(vulture.velocity.x, vulture.velocity.z) : 0).toBeGreaterThan(12);
+    const reverseYaw = startYaw + Math.PI;
+    vulture.playerControlled.aimYaw = reverseYaw;
+
+    for (let i = 0; i < 30 * 1.35; i++) stepSim(sim, hf, 1 / 30);
+
+    expect(Math.abs(angleDelta(vulture.transform.rot, reverseYaw))).toBeLessThan(0.52);
+    expect(vulture.destroyed).toBeUndefined();
+  });
+
+  it('integrates possessed gunship flight deterministically with strafe and attitude', () => {
+    const run = () => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const vulture = spawnVultureAt(sim, hf, -hf.size * 0.04, -hf.size * 0.06, 'Vulture 1');
+      const start = { x: vulture.transform.x, z: vulture.transform.z };
+      vulture.playerControlled = { throttle: 0, turn: 0, strafe: 0, aimYaw: vulture.transform.rot, climb: 0 };
+      for (let i = 0; i < 600; i++) {
+        const controlled = vulture.playerControlled!;
+        controlled.throttle = i < 190 ? 1 : i < 300 ? 0.15 : i < 390 ? -1 : 0;
+        controlled.turn = i >= 120 && i < 255 ? -0.65 : i >= 410 && i < 500 ? 0.45 : 0;
+        controlled.strafe = i >= 260 && i < 410 ? 1 : i >= 500 ? -0.7 : 0;
+        controlled.climb = i >= 70 && i < 145 ? 1 : i >= 330 && i < 390 ? -1 : 0;
+        controlled.aimYaw = Math.PI * 0.25 + Math.sin(i * 0.018) * 0.55;
+        stepSim(sim, hf, 1 / 30);
+      }
+      return {
+        hash: hashSim(sim),
+        distance: Math.hypot(vulture.transform.x - start.x, vulture.transform.z - start.z),
+        pitch: vulture.flight!.pitchAttitude,
+        roll: vulture.flight!.rollAttitude,
+        destroyed: Boolean(vulture.destroyed),
+      };
+    };
+
+    const a = run();
+    const b = run();
+    expect(a.hash).toBe(b.hash);
+    expect(a.destroyed).toBe(false);
+    expect(a.distance).toBeGreaterThan(90);
+    expect(Math.abs(a.pitch)).toBeGreaterThan(0.01);
+    expect(Math.abs(a.roll)).toBeGreaterThan(0.01);
   });
 });
 

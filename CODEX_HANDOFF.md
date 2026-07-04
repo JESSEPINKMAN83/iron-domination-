@@ -1,88 +1,205 @@
-# Handoff prompt — continue IRON DOMINION from here
+# Codex Handoff - Iron Dominion
 
-> Give your agent this file as its prompt (or paste the whole thing). It continues
-> work in this same folder: `/Users/danir/Development/iron-dominion`.
+Use this file as the first prompt in the next Codex session:
 
----
+> Read `/Users/danir/Development/iron-dominion/CODEX_HANDOFF.md` and continue exactly from there.
 
-You are taking over a phased game build mid-way through **Phase 1**. Read
-`IRON_DOMINION_BUILD_PLAN.md` (the full spec) and `PROGRESS.md` (what's done) before
-touching anything.
+Project folder:
 
-## Current state
+`/Users/danir/Development/iron-dominion`
 
-All Phase 1 source code is **written but never compiled, tested, or run**, because
-`npm install` was blocked by the network (see blocker below). The dependency versions
-in `package.json` (`three@^0.170`, `postprocessing@^6.36`, `n8ao@^1.9`, `vite@^6`,
-`vitest@^2`, `@types/three@^0.170`) were chosen from memory and never verified against
-real packages — expect small API/type mismatches, most likely in:
+Current browser URL:
 
-- `src/render/renderer.ts` — CSM import (`three/addons/csm/CSM.js`), CSM constructor
-  params, `postprocessing` effect constructors, `N8AOPostPass` typings (add a local
-  `.d.ts` shim if `n8ao` ships none).
-- `src/render/terrainMesh.ts` — `onBeforeCompile` shader-chunk string replacements
-  must match the installed three version's chunk names (`map_pars_fragment`,
-  `map_fragment`, `vUv` via `USE_UV` define).
-- `node_modules` may contain a partial tree from a killed install — if `npm install`
-  misbehaves, delete `node_modules` and retry.
+`http://127.0.0.1:5173/?ai=hard&debug=armies`
 
-There is **no git repo yet** — initialize one and commit when Phase 1 passes.
+## Current Game State
 
-## Network blocker (must resolve first)
+This is a local Vite + Three.js RTS prototype called Iron Dominion. It is now well past Phase 1. The game has:
 
-`registry.npmjs.org` and `registry.yarnpkg.com` are TCP-blocked on this machine by the
-**GlobalProtect VPN** (Palo Alto, active on utun4). General internet works. The user
-must disconnect GlobalProtect from the macOS menu bar; verify with
-`curl -sS -o /dev/null -w "%{http_code}" https://registry.npmjs.org/` (000 = still
-blocked). **Do NOT use the Wix internal mirror (`npm.dev.wixpress.com`) — this is a
-personal project and the user explicitly declined it.** Do not add any `.npmrc`
-registry override. If the registry is still blocked, stop and ask the user to
-disconnect the VPN rather than working around it.
+- Terrain, camera controls, minimap/radar, fog/visibility, selectable buildings and units.
+- Build panel with buildings, defenses, infantry, vehicles, and aircraft tabs.
+- Command Yard, Power Plant, Refinery, Barracks, Factory, Helipad, walls, guard tower, AA tower.
+- Multiple soldier, vehicle, and aircraft tiers.
+- RTS selection, lasso selection, move orders, attack-move, right-drag facing/spread formation.
+- First/third-person V mode for units, including helicopter controls.
+- Tank and aircraft primary/secondary weapons, bomb salvos, explosions, damage indicators.
+- Building selection glow, producer highlighting, wall chaining, building damage visuals.
+- Enemy AI commander with build order, squads, scouting, attacks, retreats, and base response behavior.
+- Real economy phase started: refineries spawn ore harvesters, harvesters collect finite ore/oil nodes and return credits.
 
-## Your task — finish Phase 1 ONLY
+## Very Recent Work
 
-1. `npm install` (postinstall copies Draco/Basis decoders to `public/libs/`).
-2. `npm test` — the sim determinism tests in `src/sim/heightfield.test.ts` must pass.
-3. `npm run build` — fix TypeScript/API errors until clean. Keep fixes minimal;
-   don't redesign.
-4. `npm run dev` — open the game, verify every Phase 1 acceptance criterion below.
-5. Fix whatever fails verification (visual glitches, controls, perf).
-6. Update `PROGRESS.md` (done / known issues / next), `git init`, commit Phase 1.
-7. **Do not start Phase 2.** No ECS, no units, no refactors beyond what Phase 1 needs.
+The latest user request was: "the ore collectors looks like the tanks - make them look different".
 
-## Phase 1 acceptance criteria (from the plan)
+Implemented:
 
-- ~60 fps while orbiting/panning a lit, textured ~1 km² map with **5,000** instanced
-  trees/rocks (HUD top-left shows fps, draw calls, instance count).
-- Fixed 30 Hz sim tick with render interpolation (HUD shows `sim 30 Hz`).
-- Terrain: 512×512 heightmap, splat-mapped grass/dirt/rock/ore textures, terraced
-  cliffs; **F3** overlays walkability (red = blocked cliffs/water).
-- Water plane with animated shader (waves, shore foam, sun specular) in the basins.
-- Lighting: hemisphere + directional sun with 3-cascade shadow maps; postprocessing:
-  SSAO, SMAA, subtle bloom, color-grading LUT, vignette.
-- Camera: WASD/arrows/screen-edge pan; right-drag AND Space-drag grab pan; wheel zoom
-  clamped 28–140 (HUD shows zoom); Q/E rotate in 90° steps; all smoothly damped.
-- Asset pipeline present: GLTFLoader + Draco + KTX2 wired (`src/render/assets.ts`),
-  instanced-mesh registry (`src/render/instancing.ts`).
+- `src/render/unitView.ts`
+  - Added a dedicated harvester visual branch for `selectable.type === 'harvester'`.
+  - Added `createHarvesterObject(...)`.
+  - Harvesters now have a different industrial silhouette:
+    - wider chassis
+    - cargo bed
+    - cab
+    - front scoop
+    - side tanks
+    - wider tracks
+    - team-colored ore load/stripe
+  - Increased harvester pick radius slightly.
 
-## Hard rules (from the plan — keep them)
+Verified after that change:
 
-- `/src/sim` must stay renderer-independent: **zero three.js imports** there.
-- Terrain/walkability generation stays seed-deterministic (tests enforce it).
-- One phase per session; never refactor across phase boundaries without asking.
-- All art/names stay original placeholders (no Westwood/EA assets or names).
+- `npm test -- src/sim/economy.test.ts` passed.
+- `npm run build` passed.
 
-## File map
+## Economy Implementation Details
 
+The user asked if there was a way to earn more credits. The current answer is:
+
+1. Build Power Plant.
+2. Build Refinery.
+3. Refinery automatically spawns an Ore Harvester / Ash Harvester.
+4. Harvester drives to finite resource nodes, gathers cargo, returns to refinery, and deposits credits.
+
+Important code:
+
+- `src/sim/components.ts`
+  - Added `Harvester` component:
+    - `state: 'seeking' | 'to-node' | 'gathering' | 'to-refinery' | 'depositing'`
+    - `nodeId`
+    - `refineryId`
+    - `timer`
+  - `Entity` now has optional `harvester`.
+
+- `src/sim/economy.ts`
+  - `EconomyState.pendingSpawned` is used so newly spawned refinery harvesters are returned by `stepEconomy(...)` and registered by `UnitView`.
+  - `placeStructure(...)` spawns a harvester when a refinery is placed.
+  - Removed old passive timed refinery income.
+  - `stepHarvesters(...)` handles:
+    - find assigned refinery
+    - find nearest resource node
+    - move to node
+    - gather finite ore
+    - return to refinery
+    - deposit credits through ledger entry `Ore delivered`
+
+- `src/sim/world.ts`
+  - Sim hash includes cargo and harvester state for determinism.
+
+- `src/ai/commander.ts`
+  - AI excludes harvesters from attack squads so it does not send collectors into combat.
+
+- `src/sim/economy.test.ts`
+  - Added tests that verify:
+    - no passive credits without collector loop
+    - refinery harvester depletes ore and deposits credits
+
+Full verification after economy implementation:
+
+- `npm test` passed: 48 tests.
+- `npm run build` passed.
+- Browser smoke passed:
+  - canvas present
+  - HUD/panel visible
+  - no browser console errors
+
+## Current Git / Worktree Context
+
+There are many modified files from the ongoing game build. Do not revert anything unless the user explicitly asks.
+
+At the time this handoff was written, `git status --short` showed many modified files, including:
+
+- `PROGRESS.md`
+- `src/ai/acceptance.spec.ts`
+- `src/ai/commander.test.ts`
+- `src/ai/commander.ts`
+- `src/content/phase3.ts`
+- `src/content/phase4.ts`
+- `src/main.ts`
+- `src/modes/firstPersonController.ts`
+- `src/modes/rtsController.ts`
+- `src/render/buildingView.ts`
+- `src/render/combatView.ts`
+- `src/render/orderMarkerView.ts`
+- `src/render/unitView.ts`
+- `src/sim/combat.test.ts`
+- `src/sim/combat.ts`
+- `src/sim/components.ts`
+- `src/sim/economy.test.ts`
+- `src/sim/economy.ts`
+- `src/sim/movement.test.ts`
+- `src/sim/world.ts`
+- `src/ui/hud.ts`
+- `src/ui/sidebar.ts`
+
+Untracked files:
+
+- `src/content/flightModels.ts`
+- `src/content/startPositions.ts`
+- `src/sim/structureDamage.ts`
+
+These are expected from prior work in this long session. Work with them, do not reset them.
+
+## Likely Next Improvements
+
+The user may continue from the collector/economy feedback. Good next steps:
+
+1. Make ore/economy clearer in the UI:
+   - show harvester status in the sidebar or HUD
+   - show "Collecting", "Returning $300", "No refinery", "No ore"
+   - show visible cargo fullness on the harvester
+   - make ore fields easier to identify on terrain/minimap
+
+2. Improve harvester behavior:
+   - refinery can replace a destroyed harvester, possibly as a queue item or automatic rebuild
+   - harvester should avoid obvious combat if attacked
+   - player can select harvester and see cargo/refinery target
+
+3. Balance economy:
+   - current harvester constants in `src/sim/economy.ts`:
+     - `HARVESTER_CAPACITY = 300`
+     - `HARVESTER_GATHER_RATE = 95`
+     - `HARVESTER_DEPOSIT_SECONDS = 0.55`
+   - Tune only after testing actual game feel.
+
+4. Visual polish for harvester:
+   - animate scoop/drill while gathering
+   - show cargo bed becoming fuller
+   - add dust trail while driving
+
+## Commands To Run After Any Change
+
+Use these from `/Users/danir/Development/iron-dominion`:
+
+```bash
+npm test
+npm run build
 ```
-IRON_DOMINION_BUILD_PLAN.md  full phased spec (Phase 1 = §Phase 1)
-PROGRESS.md                  phase log — update it
-scripts/copy-decoders.mjs    postinstall: copies Draco/Basis into public/libs
-src/engine/   loop.ts (30 Hz fixed-step), input.ts, events.ts
-src/sim/      noise.ts, heightfield.ts (+ .test.ts)  ← no three.js here
-src/content/  map01.ts (seed 1337, 512 cells, 2 m/cell)
-src/render/   renderer.ts (CSM + postprocessing), terrainMesh.ts (splat + F3 overlay),
-              water.ts, scatter.ts (5,000 props), instancing.ts, assets.ts, textures.ts
-src/modes/    rtsCamera.ts
-src/ui/       hud.ts
+
+For a quicker economy/render-related check:
+
+```bash
+npm test -- src/sim/economy.test.ts
+npm run build
 ```
+
+If the browser is already open on localhost, reload it after changes and check for console errors.
+
+## Important User Preferences
+
+- The user wants the game to feel like a playable Red Alert-inspired RTS, but all assets/names must remain original.
+- They care a lot about immediate feedback:
+  - selection should be obvious
+  - orders should show markers
+  - damage should be visible on first hit
+  - panels should be clear and responsive
+- They prefer moving forward phase by phase, but often asks for polish/fixes between phases.
+- They will test visually in the in-app browser and report feel/UX issues.
+
+## Do Not Forget
+
+- Work in `/Users/danir/Development/iron-dominion`.
+- Do not use `/Users/danir/Documents/New project` even if it appears as the shell cwd.
+- Do not revert user or prior-session changes.
+- Prefer `rg` for searching.
+- Use `apply_patch` for manual edits.
+- After frontend/game changes, run tests/build and preferably a browser smoke check.

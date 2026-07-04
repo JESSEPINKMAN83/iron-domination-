@@ -2,6 +2,7 @@ import { WEAPONS, type ArmorClass, type WeaponKind } from '../content/phase4';
 import { angleDelta, slewAngle } from './angles';
 import type { Entity, Weapon } from './components';
 import { hash2i, smoothstep } from './noise';
+import { applyStructureDamage } from './structureDamage';
 import { stopEntities, type GameSim } from './world';
 
 /** Cannons may only fire once the turret has traversed onto the bearing. */
@@ -10,42 +11,6 @@ const BOMB_SPEED = 95; // meters per second of flight, drives travel time
 const BOMB_MANUAL_MAX_RANGE = 440;
 const DEFENSE_ALERT_RADIUS = 145;
 const DEFENSE_ALERT_TTL = 9;
-const AIR_DIRECT_MULTIPLIER: Record<WeaponKind, number> = {
-  rifle: 0.08,
-  grenade: 0.02,
-  rocketLauncher: 0.7,
-  autocannon: 0.28,
-  cannon: 0.12,
-  heavyCannon: 0.05,
-  bomb: 0,
-  rocketPod: 0.35,
-  agMissile: 1,
-  aaMissile: 1.15,
-};
-const AIR_SPLASH_MULTIPLIER: Record<WeaponKind, number> = {
-  rifle: 0,
-  grenade: 0.04,
-  rocketLauncher: 0.35,
-  autocannon: 0,
-  cannon: 0.03,
-  heavyCannon: 0.02,
-  bomb: 0.035,
-  rocketPod: 0.12,
-  agMissile: 0.75,
-  aaMissile: 0.85,
-};
-const AIR_RANGE_MULTIPLIER: Record<WeaponKind, number> = {
-  rifle: 0.55,
-  grenade: 0.3,
-  rocketLauncher: 0.9,
-  autocannon: 0.75,
-  cannon: 0.65,
-  heavyCannon: 0.55,
-  bomb: 0,
-  rocketPod: 0.75,
-  agMissile: 1,
-  aaMissile: 1,
-};
 
 interface HitSummary {
   targetId: number;
@@ -77,7 +42,8 @@ export function stepCombat(sim: GameSim, dt: number): void {
       const def = WEAPONS[weapon.kind as WeaponKind];
       if (!def) continue;
       // a unit can only auto-engage what it can see — no shelling into the fog
-      const range = Math.min(def.range, attacker.vision?.radius ?? def.range);
+      const weaponRange = weapon.range || def.range;
+      const range = Math.min(weaponRange, attacker.vision?.radius ?? weaponRange);
       const target = validTarget(sim, attacker, weapon, range) ?? acquireTarget(sim, attacker, weapon, range);
       weapon.targetId = target?.id;
       if (!target?.health || !target.armor) continue;
@@ -90,6 +56,8 @@ export function stepCombat(sim: GameSim, dt: number): void {
       if (weapon.cooldown > 0) continue;
       if (def.kind === 'bomb') {
         launchBomb(sim, attacker, weapon, target.transform.x, target.transform.z, def.range);
+      } else if (def.projectile) {
+        launchWeaponProjectileAtEntity(sim, attacker, weapon, target);
       } else {
         fireHitscanAtEntity(sim, attacker, weapon, target);
       }
@@ -132,7 +100,14 @@ function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number): void {
     foe && distance(attacker, foe) > weaponRange * 0.85 ? { x: foe.transform.x, z: foe.transform.z } : undefined;
 }
 
-export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, targetZ: number, slot: 'primary' | 'secondary' = 'primary'): boolean {
+export function manualFireAt(
+  sim: GameSim,
+  attacker: Entity,
+  targetX: number,
+  targetZ: number,
+  slot: 'primary' | 'secondary' = 'primary',
+  targetY?: number,
+): boolean {
   if (!attacker.team || attacker.destroyed) return false;
   const weapon = weaponForSlot(attacker, slot);
   if (!weapon) return false;
@@ -156,16 +131,29 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
 
   // direct fire goes down the turret barrel — it must have traversed onto the shot line
   if (attacker.turret && Math.abs(angleDelta(attacker.turret.yaw, Math.atan2(ux, uz))) > AIM_TOLERANCE) return false;
-  const range = Math.min(def.range, len);
+  const range = Math.min(weapon.range || def.range, len);
+  if (def.minRange !== undefined && len < def.minRange) return false;
   const target = acquireLineTarget(sim, attacker, weapon, ux, uz, range);
   const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
   const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
+  if (def.projectile) {
+    launchWeaponProjectile(sim, attacker, weapon, target, hitX, targetYForEvent(target, targetY), hitZ);
+    return true;
+  }
   let damage = 0;
   let killed = false;
   let hit: HitSummary | undefined;
   if (target?.health && target.armor) {
-    const direct = applyDamage(sim, target, directDamageForTarget(def.kind, target));
-    if (direct > 0) alertBuildingDefenders(sim, target, attacker);
+    const direct = applyDamage(sim, target, directDamageForTarget(def.kind, target), {
+      hitX,
+      hitZ,
+      hitY: structureHitY(target, attacker),
+      fromX: attacker.transform.x,
+      fromZ: attacker.transform.z,
+      splashRadius: 0,
+      trajectory: attacker.flight ? 'flat' : 'flat',
+    });
+    if (direct > 0) alertEconomyDefenders(sim, target, attacker);
     damage = direct;
     hit = direct > 0 ? summarizeHit(target, direct) : undefined;
     const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, target, attacker);
@@ -183,9 +171,10 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
   sim.events.push({
     kind: def.kind,
     fromX: attacker.transform.x,
+    fromY: directMuzzleY(attacker),
     fromZ: attacker.transform.z,
     toX: hitX,
-    toY: targetYForEvent(target),
+    toY: targetYForEvent(target, targetY),
     toZ: hitZ,
     sourceTeamId: attacker.team.id,
     damage,
@@ -203,33 +192,106 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
   if (!attacker.team) return;
   const def = WEAPONS.bomb;
   const range = Math.hypot(targetX - attacker.transform.x, targetZ - attacker.transform.z);
-  const impact = scatterBombImpact(sim, attacker, targetX, targetZ, range, maxRange);
-  const flight = Math.hypot(impact.x - attacker.transform.x, impact.z - attacker.transform.z);
-  const duration = Math.min(3.4, Math.max(0.85, flight / BOMB_SPEED));
+  const salvoCount = Math.max(1, Math.min(4, Math.round(weapon.salvoCount ?? 1)));
+  const baseImpact = scatterBombImpact(sim, attacker, targetX, targetZ, range, maxRange);
+  const aimYaw = Math.atan2(targetX - attacker.transform.x, targetZ - attacker.transform.z);
+  for (let i = 0; i < salvoCount; i++) {
+    const impact = offsetSalvoImpact(baseImpact.x, baseImpact.z, aimYaw, salvoCount, i);
+    const flight = Math.hypot(impact.x - attacker.transform.x, impact.z - attacker.transform.z);
+    const duration = Math.min(3.6, Math.max(0.85, flight / BOMB_SPEED) + i * 0.08);
+    sim.projectiles.push({
+      kind: 'bomb',
+      fromX: attacker.transform.x,
+      fromZ: attacker.transform.z,
+      toX: impact.x,
+      toZ: impact.z,
+      elapsed: 0,
+      duration,
+      trajectory: attacker.flight ? 'drop' : 'arc',
+      teamId: attacker.team.id,
+      attackerId: attacker.id,
+    });
+    sim.events.push({
+      kind: 'bomb',
+      fromX: attacker.transform.x,
+      fromY: bombMuzzleY(attacker),
+      fromZ: attacker.transform.z,
+      toX: impact.x,
+      toZ: impact.z,
+      sourceTeamId: attacker.team.id,
+      damage: 0,
+      killed: false,
+      duration,
+      trajectory: attacker.flight ? 'drop' : 'arc',
+    });
+  }
+  weapon.cooldown = def.cooldown;
+}
+
+function launchWeaponProjectileAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, target: Entity): void {
+  launchWeaponProjectile(sim, attacker, weapon, target, target.transform.x, targetYForEvent(target), target.transform.z);
+}
+
+function launchWeaponProjectile(
+  sim: GameSim,
+  attacker: Entity,
+  weapon: Weapon,
+  target: Entity | undefined,
+  targetX: number,
+  targetY: number | undefined,
+  targetZ: number,
+): void {
+  if (!attacker.team) return;
+  const def = WEAPONS[weapon.kind as WeaponKind];
+  if (!def?.projectile) return;
+  const fromY = directMuzzleY(attacker);
+  const dx = targetX - attacker.transform.x;
+  const dz = targetZ - attacker.transform.z;
+  const distanceToAim = Math.max(0.001, Math.hypot(dx, dz));
+  const speed = def.projectile.speed;
+  const duration = Math.min(3.2, Math.max(0.08, distanceToAim / speed));
+  const homing =
+    def.projectile.trajectory === 'homing' && target?.id
+      ? { targetId: target.id, speed, fizzleRange: def.projectile.fizzleRange ?? def.range * 1.15 }
+      : undefined;
   sim.projectiles.push({
-    kind: 'bomb',
+    kind: def.projectile.kind,
+    weaponKind: def.kind,
     fromX: attacker.transform.x,
+    fromY,
     fromZ: attacker.transform.z,
-    toX: impact.x,
-    toZ: impact.z,
+    x: attacker.transform.x,
+    y: fromY,
+    z: attacker.transform.z,
+    toX: targetX,
+    toY: targetY,
+    toZ: targetZ,
     elapsed: 0,
     duration,
+    speed,
+    maxDistance: def.projectile.fizzleRange ?? def.range,
+    directTargetId: target?.id,
+    trajectory: def.projectile.trajectory,
+    homing,
     teamId: attacker.team.id,
     attackerId: attacker.id,
   });
   weapon.cooldown = def.cooldown;
   sim.events.push({
-    kind: 'bomb',
+    kind: def.projectile.kind,
     fromX: attacker.transform.x,
-    fromY: bombMuzzleY(attacker),
+    fromY,
     fromZ: attacker.transform.z,
-    toX: impact.x,
-    toZ: impact.z,
+    toX: targetX,
+    toY: targetY,
+    toZ: targetZ,
+    targetId: target?.id,
+    targetLabel: target?.name ?? target?.building?.label ?? target?.selectable?.type,
     sourceTeamId: attacker.team.id,
     damage: 0,
     killed: false,
     duration,
-    trajectory: attacker.flight ? 'drop' : 'arc',
+    trajectory: def.projectile.trajectory,
   });
 }
 
@@ -238,35 +300,129 @@ function bombMuzzleY(attacker: Entity): number | undefined {
   return attacker.flight ? attacker.transform.y - 0.45 : attacker.transform.y + 3.1;
 }
 
+function directMuzzleY(attacker: Entity): number | undefined {
+  if (attacker.transform.y === undefined) return undefined;
+  if (attacker.flight) return attacker.transform.y - 0.15;
+  return attacker.transform.y + (attacker.selectable?.type === 'infantry' ? 1.35 : 2.2);
+}
+
 function stepProjectiles(sim: GameSim, dt: number): void {
   for (let i = sim.projectiles.length - 1; i >= 0; i--) {
     const projectile = sim.projectiles[i];
     projectile.elapsed += dt;
+    if (projectile.homing) {
+      const target = entityById(sim, projectile.homing.targetId);
+      if (!target || !target.health || target.health.current <= 0 || target.destroyed) {
+        sim.projectiles.splice(i, 1);
+        continue;
+      }
+      const px = projectile.x ?? projectile.fromX;
+      const py = projectile.y ?? projectile.fromY ?? 0;
+      const pz = projectile.z ?? projectile.fromZ;
+      const ty = target.transform.y ?? 1.6;
+      const vx = target.transform.x - px;
+      const vy = ty - py;
+      const vz = target.transform.z - pz;
+      const d = Math.max(0.001, Math.hypot(vx, vy, vz));
+      const step = Math.min(d, projectile.homing.speed * dt);
+      projectile.x = px + (vx / d) * step;
+      projectile.y = py + (vy / d) * step;
+      projectile.z = pz + (vz / d) * step;
+      const traveled = Math.hypot((projectile.x ?? px) - projectile.fromX, (projectile.z ?? pz) - projectile.fromZ);
+      if (traveled > projectile.homing.fizzleRange) {
+        sim.projectiles.splice(i, 1);
+        continue;
+      }
+      const weaponKind = (projectile.weaponKind ?? projectile.kind) as WeaponKind;
+      const impactRadius = WEAPONS[weaponKind]?.projectile?.impactRadius ?? 2.5;
+      if (d > impactRadius) continue;
+      impactProjectile(sim, projectile, target.transform.x, ty, target.transform.z, target);
+      sim.projectiles.splice(i, 1);
+      continue;
+    }
+
+    const t = Math.min(1, projectile.elapsed / projectile.duration);
+    projectile.x = projectile.fromX + (projectile.toX - projectile.fromX) * t;
+    projectile.z = projectile.fromZ + (projectile.toZ - projectile.fromZ) * t;
+    if (projectile.trajectory === 'arc') {
+      const fromY = projectile.fromY ?? 1.8;
+      const toY = projectile.toY ?? 1.2;
+      const lift = Math.min(28, Math.hypot(projectile.toX - projectile.fromX, projectile.toZ - projectile.fromZ) * 0.32);
+      projectile.y = fromY + (toY - fromY) * t + Math.sin(t * Math.PI) * lift;
+    } else if (projectile.trajectory === 'drop') {
+      const fromY = projectile.fromY ?? 20;
+      const toY = projectile.toY ?? 0.8;
+      projectile.y = fromY + (toY - fromY) * (t * t);
+    } else {
+      projectile.y = (projectile.fromY ?? 2) + ((projectile.toY ?? 1.4) - (projectile.fromY ?? 2)) * t;
+    }
     if (projectile.elapsed < projectile.duration) continue;
-    const def = WEAPONS[projectile.kind];
-    const attacker = entityById(sim, projectile.attackerId);
-    const area = applyAreaDamage(sim, projectile.teamId, projectile.toX, projectile.toZ, def.splashRadius, projectile.kind, undefined, attacker);
-    sim.events.push({
-      kind: 'bomb-impact',
-      fromX: projectile.toX,
-      fromZ: projectile.toZ,
-      toX: projectile.toX,
-      toZ: projectile.toZ,
-      sourceTeamId: projectile.teamId,
-      damage: area.damage,
-      killed: area.killed,
-      ...area.hit,
-    });
+    const directTarget = projectile.directTargetId ? entityById(sim, projectile.directTargetId) : undefined;
+    impactProjectile(sim, projectile, projectile.toX, projectile.toY, projectile.toZ, directTarget);
     sim.projectiles.splice(i, 1);
   }
+}
+
+function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][number], x: number, y: number | undefined, z: number, directTarget?: Entity): void {
+  const weaponKind = (projectile.weaponKind ?? projectile.kind) as WeaponKind;
+  const def = WEAPONS[weaponKind];
+  if (!def) return;
+  const attacker = entityById(sim, projectile.attackerId);
+  const impactTrajectory = projectile.trajectory === 'arc' || projectile.trajectory === 'drop' ? projectile.trajectory : 'flat';
+  let directDamage = 0;
+  let hit: HitSummary | undefined;
+  const impactRadius = def.projectile?.impactRadius ?? directTarget?.collider?.radius ?? 1.8;
+  if (directTarget?.health && directTarget.armor && targetableByTeam(projectile.teamId, directTarget)) {
+    const dx = directTarget.transform.x - x;
+    const dz = directTarget.transform.z - z;
+    const radius = (directTarget.collider?.radius ?? directTarget.selectable?.radius ?? 1.4) + impactRadius;
+    if (Math.hypot(dx, dz) <= radius) {
+      directDamage = applyDamage(sim, directTarget, directDamageForTarget(weaponKind, directTarget), {
+        hitX: x,
+        hitZ: z,
+        hitY: structureHitY(directTarget, attacker, impactTrajectory),
+        fromX: projectile.fromX,
+        fromZ: projectile.fromZ,
+        splashRadius: 0,
+        trajectory: impactTrajectory,
+      });
+      if (directDamage > 0) {
+        alertEconomyDefenders(sim, directTarget, attacker);
+        hit = summarizeHit(directTarget, directDamage);
+      }
+    }
+  }
+  const area = applyAreaDamage(sim, projectile.teamId, x, z, def.splashRadius, weaponKind, directTarget, attacker, impactTrajectory);
+  if (!hit) hit = area.hit;
+  sim.events.push({
+    kind: `${projectile.kind}-impact`,
+    fromX: x,
+    fromY: y,
+    fromZ: z,
+    toX: x,
+    toY: y,
+    toZ: z,
+    sourceTeamId: projectile.teamId,
+    damage: directDamage + area.damage,
+    killed: directTarget?.health?.current === 0 || area.killed,
+    ...hit,
+  });
 }
 
 function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, target: Entity): void {
   if (!target.health || !target.armor || !attacker.team) return;
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def) return;
-  const directDamage = applyDamage(sim, target, directDamageForTarget(def.kind, target));
-  if (directDamage > 0) alertBuildingDefenders(sim, target, attacker);
+  const directDamage = applyDamage(sim, target, directDamageForTarget(def.kind, target), {
+    hitX: target.transform.x,
+    hitZ: target.transform.z,
+    hitY: structureHitY(target, attacker),
+    fromX: attacker.transform.x,
+    fromZ: attacker.transform.z,
+    splashRadius: 0,
+    trajectory: attacker.flight ? 'flat' : 'flat',
+  });
+  if (directDamage > 0) alertEconomyDefenders(sim, target, attacker);
   const hit = directDamage > 0 ? summarizeHit(target, directDamage) : undefined;
   const area = applyAreaDamage(sim, attacker.team.id, target.transform.x, target.transform.z, def.splashRadius, def.kind, target, attacker);
   weapon.cooldown = def.cooldown;
@@ -288,7 +444,8 @@ function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: numb
   if (!weapon.targetId) return undefined;
   const target = Array.from(sim.world.entities).find((entity) => entity.id === weapon.targetId);
   if (!target || !isWeaponTargetable(attacker, weapon, target)) return undefined;
-  return distance(attacker, target) <= effectiveRangeForTarget(weapon.kind as WeaponKind, target, range) ? target : undefined;
+  const d = distance(attacker, target);
+  return d <= effectiveRangeForTarget(weapon.kind as WeaponKind, target, range) && d >= minimumRangeForWeapon(weapon.kind as WeaponKind) ? target : undefined;
 }
 
 function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
@@ -298,6 +455,7 @@ function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: nu
     if (!isWeaponTargetable(attacker, weapon, candidate)) continue;
     const d = distance(attacker, candidate);
     if (d > effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range)) continue;
+    if (d < minimumRangeForWeapon(weapon.kind as WeaponKind)) continue;
     // the player's possessed unit reads as high-value — AI applies pressure to it
     const score = candidate.playerControlled ? d * 0.55 : d;
     if (score < bestScore) {
@@ -318,6 +476,7 @@ function acquireLineTarget(sim: GameSim, attacker: Entity, weapon: Weapon, ux: n
     const along = dx * ux + dz * uz;
     const targetRange = effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range);
     if (along < 0 || along > targetRange || along > bestAlong) continue;
+    if (along < minimumRangeForWeapon(weapon.kind as WeaponKind)) continue;
     const perp = Math.abs(dx * uz - dz * ux);
     const radius = candidate.collider?.radius ?? candidate.selectable?.radius ?? 2.4;
     if (perp > radius + 2.2) continue;
@@ -332,8 +491,8 @@ function isWeaponTargetable(attacker: Entity, weapon: Weapon, target: Entity): b
   const kind = weapon.kind as WeaponKind;
   const def = WEAPONS[kind];
   if (!def || !def.targetTypes.includes(target.armor.kind)) return false;
-  if (target.flight) return AIR_DIRECT_MULTIPLIER[kind] > 0 && AIR_RANGE_MULTIPLIER[kind] > 0;
-  return kind !== 'aaMissile';
+  if (target.armor.kind === 'air') return !!def.canTargetAir && def.vs.air > 0;
+  return true;
 }
 
 function isTargetable(attacker: Entity, target: Entity): boolean {
@@ -346,8 +505,8 @@ function entityById(sim: GameSim, id: number): Entity | undefined {
   return Array.from(sim.world.entities).find((entity) => entity.id === id);
 }
 
-function alertBuildingDefenders(sim: GameSim, damaged: Entity, attacker?: Entity): void {
-  if (!attacker?.team || !damaged.building || !damaged.team || damaged.destroyed) return;
+function alertEconomyDefenders(sim: GameSim, damaged: Entity, attacker?: Entity): void {
+  if (!attacker?.team || (!damaged.building && !damaged.harvester) || !damaged.team || damaged.destroyed) return;
   if (attacker.team.id === damaged.team.id) return;
   for (const defender of sim.world.entities) {
     if (defender.team?.id !== damaged.team.id || defender.destroyed || defender.playerControlled) continue;
@@ -369,32 +528,61 @@ function targetableByTeam(teamId: number, target: Entity): boolean {
   return true;
 }
 
-function applyDamage(sim: GameSim, target: Entity, amount: number): number {
+interface DamageImpact {
+  hitX: number;
+  hitZ: number;
+  hitY?: number;
+  fromX: number;
+  fromZ: number;
+  splashRadius: number;
+  trajectory?: 'arc' | 'drop' | 'flat';
+}
+
+function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: DamageImpact): number {
   if (!target.health || amount <= 0) return 0;
   const before = target.health.current;
   target.health.current = Math.max(0, target.health.current - amount);
+  const dealt = before - target.health.current;
+  if (dealt > 0 && target.building && impact) {
+    applyStructureDamage(target, {
+      hitX: impact.hitX,
+      hitZ: impact.hitZ,
+      hitY: impact.hitY,
+      fromX: impact.fromX,
+      fromZ: impact.fromZ,
+      amount: dealt,
+      splashRadius: impact.splashRadius,
+      trajectory: impact.trajectory,
+    });
+  }
   if (target.health.current <= 0 && !target.destroyed) {
     target.destroyed = { remaining: 20 };
     target.selectable && (target.selectable.selected = false);
     stopEntities([target]);
     if (target.building) sim.nav.removeDynamicBlocker(target.id);
   }
-  return before - target.health.current;
+  return dealt;
 }
 
 function directDamageForTarget(kind: WeaponKind, target: Entity): number {
   if (!target.armor) return 0;
-  const base = damageForArmor(kind, target.armor.kind);
-  return target.flight ? base * AIR_DIRECT_MULTIPLIER[kind] : base;
+  return damageForArmor(kind, target.armor.kind);
 }
 
 function effectiveRangeForTarget(kind: WeaponKind, target: Entity, range: number): number {
-  return target.flight ? range * AIR_RANGE_MULTIPLIER[kind] : range;
+  const def = WEAPONS[kind];
+  return target.armor?.kind === 'air' ? (def.airRange ?? range) : range;
+}
+
+function minimumRangeForWeapon(kind: WeaponKind): number {
+  return WEAPONS[kind]?.minRange ?? 0;
 }
 
 function splashDamageForTarget(kind: WeaponKind, target: Entity, falloff: number): number {
   if (!target.armor) return 0;
-  const multiplier = target.flight ? AIR_SPLASH_MULTIPLIER[kind] : kind === 'bomb' ? 1 : 0.55;
+  const def = WEAPONS[kind];
+  if (target.armor.kind === 'air' && !def.canTargetAir) return 0;
+  const multiplier = kind === 'bomb' || kind === 'agMissile' || kind === 'aaMissile' ? 1 : 0.55;
   return damageForArmor(kind, target.armor.kind) * falloff * multiplier;
 }
 
@@ -407,6 +595,7 @@ function applyAreaDamage(
   kind: WeaponKind,
   primary?: Entity,
   attacker?: Entity,
+  trajectory?: 'arc' | 'drop' | 'flat',
 ): { damage: number; killed: boolean; hit?: HitSummary } {
   if (radius <= 0) return { damage: 0, killed: false };
   let damage = 0;
@@ -419,8 +608,16 @@ function applyAreaDamage(
     const d = Math.hypot(dx, dz);
     if (d > radius) continue;
     const falloff = 1 - d / radius;
-    const dealt = applyDamage(sim, target, splashDamageForTarget(kind, target, falloff));
-    if (dealt > 0) alertBuildingDefenders(sim, target, attacker);
+    const dealt = applyDamage(sim, target, splashDamageForTarget(kind, target, falloff), {
+      hitX: x,
+      hitZ: z,
+      hitY: trajectory ? structureHitY(target, attacker, trajectory) : structureHitY(target, attacker),
+      fromX: attacker?.transform.x ?? x,
+      fromZ: attacker?.transform.z ?? z,
+      splashRadius: radius,
+      trajectory: trajectory ?? (attacker?.flight ? 'flat' : 'flat'),
+    });
+    if (dealt > 0) alertEconomyDefenders(sim, target, attacker);
     damage += dealt;
     if (dealt > 0 && (!hit || dealt > hit.damage)) hit = summarizeHit(target, dealt);
     killed ||= target.health?.current === 0;
@@ -440,9 +637,15 @@ function summarizeHit(target: Entity, damage: number): HitSummary | undefined {
   };
 }
 
-function targetYForEvent(target: Entity | undefined): number | undefined {
-  if (!target?.flight) return undefined;
-  return target.transform.y;
+function targetYForEvent(target: Entity | undefined, aimY?: number): number | undefined {
+  if (target?.flight) return target.transform.y;
+  return aimY;
+}
+
+function structureHitY(target: Entity, attacker?: Entity, trajectory?: 'arc' | 'drop' | 'flat'): number | undefined {
+  if (!target.building) return target.transform.y;
+  if (trajectory === 'arc' || trajectory === 'drop') return (target.transform.y ?? 0) + 3.0;
+  return attacker?.flight ? (target.transform.y ?? 0) + 2.6 : (target.transform.y ?? 0) + 1.2;
 }
 
 function tickDestroyed(sim: GameSim, dt: number): void {
@@ -478,5 +681,20 @@ function scatterBombImpact(sim: GameSim, attacker: Entity, intendedX: number, in
   return {
     x: intendedX + Math.cos(angle) * radius,
     z: intendedZ + Math.sin(angle) * radius,
+  };
+}
+
+function offsetSalvoImpact(x: number, z: number, aimYaw: number, count: number, index: number): { x: number; z: number } {
+  if (count <= 1) return { x, z };
+  const rightX = Math.cos(aimYaw);
+  const rightZ = -Math.sin(aimYaw);
+  const forwardX = Math.sin(aimYaw);
+  const forwardZ = Math.cos(aimYaw);
+  const center = (count - 1) / 2;
+  const side = (index - center) * 3.4;
+  const forward = (index % 2 === 0 ? -1 : 1) * Math.min(2.2, count * 0.45);
+  return {
+    x: x + rightX * side + forwardX * forward,
+    z: z + rightZ * side + forwardZ * forward,
   };
 }

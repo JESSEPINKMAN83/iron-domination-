@@ -42,6 +42,7 @@ export class UnitView {
   private readonly soldierRigs = new Map<Entity, SoldierRig>();
   private readonly anims = new Map<Entity, AnimState>();
   private readonly airShadows = new Map<Entity, Mesh>();
+  private readonly rotorWashes = new Map<Entity, { mesh: Mesh; material: MeshBasicMaterial }>();
   private readonly airShadowMaterial = new MeshBasicMaterial({ color: 0x020403, transparent: true, opacity: 0.26, depthWrite: false });
   private readonly wrecked = new Set<Entity>();
   private hiddenEntity?: Entity;
@@ -97,6 +98,21 @@ export class UnitView {
       shadow.renderOrder = 18;
       this.airShadows.set(entity, shadow);
       this.group.add(shadow);
+      const washMaterial = new MeshBasicMaterial({
+        color: 0xb8ad8b,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        side: DoubleSide,
+      });
+      const wash = new Mesh(new RingGeometry(1.8, 5.2, 48), washMaterial);
+      wash.rotation.x = -Math.PI / 2;
+      wash.renderOrder = 19;
+      wash.visible = false;
+      this.rotorWashes.set(entity, { mesh: wash, material: washMaterial });
+      this.group.add(wash);
+    } else if (entity.selectable?.type === 'harvester') {
+      unit = createHarvesterObject(this.hullMaterial, this.turretMaterial, accent);
     } else {
       unit = createTankObject(this.hullMaterial, this.turretMaterial, accent);
     }
@@ -153,6 +169,8 @@ export class UnitView {
         ring.visible = false;
         const shadow = this.airShadows.get(entity);
         if (shadow) shadow.visible = false;
+        const wash = this.rotorWashes.get(entity);
+        if (wash) wash.mesh.visible = false;
         const healthBar = this.healthBars.get(entity);
         if (healthBar) healthBar.root.visible = false;
         continue;
@@ -176,6 +194,20 @@ export class UnitView {
         shadow.visible = !entity.destroyed;
         shadow.position.set(x, groundY + 0.09, z);
         shadow.scale.setScalar(Math.max(0.55, 1 + agl / 62));
+      }
+      const wash = this.rotorWashes.get(entity);
+      if (wash) {
+        const agl = Math.max(0, y - groundY);
+        const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
+        const lowAir = Math.max(0, 1 - agl / 30);
+        wash.mesh.visible = !entity.destroyed && lowAir > 0.02;
+        if (wash.mesh.visible) {
+          const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.012 + entity.id);
+          wash.mesh.position.set(x, groundY + 0.12, z);
+          wash.mesh.rotation.z += dt * (1.3 + speed * 0.025);
+          wash.mesh.scale.setScalar(0.8 + lowAir * (0.85 + pulse * 0.22) + Math.min(0.45, speed / 80));
+          wash.material.opacity = lowAir * (0.08 + pulse * 0.08);
+        }
       }
       this.updateHealthBar(entity, x, y, z, camera);
     }
@@ -209,13 +241,46 @@ export class UnitView {
     }
 
     if (entity.flight) {
-      obj.rotation.z = -(entity.flight.bank ?? 0);
+      const pitch = lerp(entity.flight.previousPitchAttitude, entity.flight.pitchAttitude, 0.65);
+      const roll = lerp(entity.flight.previousRollAttitude, entity.flight.rollAttitude, 0.65);
+      obj.rotation.x = pitch;
+      obj.rotation.z = -roll;
       const mainRotor = obj.getObjectByName('mainRotor');
       const tailRotor = obj.getObjectByName('tailRotor');
       const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
-      if (mainRotor) mainRotor.rotation.y += dt * (18 + speed * 1.7);
+      if (mainRotor) {
+        mainRotor.rotation.x = -pitch * 0.42;
+        mainRotor.rotation.z = roll * 0.42;
+        mainRotor.rotation.y += dt * (18 + speed * 1.7 + Math.abs(entity.flight.verticalVelocity) * 0.45);
+      }
       if (tailRotor) tailRotor.rotation.x += dt * (24 + speed * 2.2);
       if (!entity.destroyed) obj.position.y += Math.sin(performance.now() * 0.004 + entity.id) * 0.035;
+      return;
+    }
+
+    if (entity.selectable?.type === 'harvester') {
+      const cargoLoad = obj.getObjectByName('cargoLoad');
+      if (cargoLoad) {
+        const pct = entity.cargo ? Math.max(0.03, Math.min(1, entity.cargo.amount / entity.cargo.capacity)) : 0.03;
+        cargoLoad.visible = pct > 0.04;
+        cargoLoad.scale.set(0.55 + pct * 0.45, 0.38 + pct * 0.62, 0.55 + pct * 0.45);
+        cargoLoad.position.y = 1.56 + pct * 0.26;
+      }
+      const scoop = obj.getObjectByName('scoop');
+      if (scoop && entity.harvester) {
+        const gathering = entity.harvester.state === 'gathering';
+        scoop.rotation.x = gathering ? -0.12 + Math.sin(performance.now() * 0.012 + entity.id) * 0.08 : 0;
+      }
+      const warning = obj.getObjectByName('warningBeacon') as Mesh | undefined;
+      if (warning && entity.harvester) {
+        const threatened = (entity.harvester.threatTimer ?? 0) > 0;
+        warning.visible = threatened;
+        if (threatened && warning.material instanceof MeshBasicMaterial) {
+          const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.018 + entity.id);
+          warning.material.opacity = 0.34 + pulse * 0.42;
+          warning.scale.setScalar(0.85 + pulse * 0.32);
+        }
+      }
       return;
     }
 
@@ -244,14 +309,35 @@ export class UnitView {
 
   pickAt(x: number, z: number, maxRadius = 4.2): Entity | undefined {
     let best: Entity | undefined;
-    let bestD2 = maxRadius * maxRadius;
+    let bestD2 = Number.POSITIVE_INFINITY;
     for (const entity of this.entities) {
-      if (entity.destroyed) continue;
-      const radius = entity.selectable?.radius ?? 2.4;
+      if (!this.isPickable(entity)) continue;
+      const radius = Math.max(maxRadius, (entity.selectable?.radius ?? 2.4) * 1.45);
       const d2 = (entity.transform.x - x) ** 2 + (entity.transform.z - z) ** 2;
-      if (d2 < Math.max(bestD2, radius * radius) && d2 < bestD2) {
+      if (d2 <= radius * radius && d2 < bestD2) {
         best = entity;
         bestD2 = d2;
+      }
+    }
+    return best;
+  }
+
+  pickAtScreen(camera: Camera, screenX: number, screenY: number, viewportW: number, viewportH: number): Entity | undefined {
+    let best: Entity | undefined;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const entity of this.entities) {
+      if (!this.isPickable(entity)) continue;
+      const p = projectEntity(entity, this.hf, camera);
+      if (p.z < -1 || p.z > 1) continue;
+      const sx = (p.x * 0.5 + 0.5) * viewportW;
+      const sy = (-p.y * 0.5 + 0.5) * viewportH;
+      const d = Math.hypot(sx - screenX, sy - screenY);
+      const hitRadius = screenPickRadius(entity);
+      if (d > hitRadius) continue;
+      const score = d + p.z * 4;
+      if (score < bestScore) {
+        best = entity;
+        bestScore = score;
       }
     }
     return best;
@@ -280,6 +366,12 @@ export class UnitView {
       if (sx >= 0 && sx <= viewportW && sy >= 0 && sy <= viewportH && p.z >= -1 && p.z <= 1) out.push(entity);
     }
     return out;
+  }
+
+  private isPickable(entity: Entity): boolean {
+    if (entity === this.hiddenEntity || entity.destroyed) return false;
+    if (entity.team?.id !== 1 && !this.isVisible(entity.transform.x, entity.transform.z)) return false;
+    return true;
   }
 
   private updateHealthBar(entity: Entity, x: number, y: number, z: number, camera: Camera): void {
@@ -349,6 +441,74 @@ function createTankObject(hullMaterial: Material, turretMaterial: Material, acce
   return group;
 }
 
+function createHarvesterObject(hullMaterial: Material, darkMaterial: Material, accentMaterial: Material): Group {
+  const group = new Group();
+
+  const chassis = new Mesh(new BoxGeometry(4.4, 0.8, 5.7), hullMaterial);
+  chassis.position.y = 0.5;
+  group.add(chassis);
+
+  const cargoBed = new Mesh(new BoxGeometry(3.55, 1.15, 3.05), darkMaterial);
+  cargoBed.position.set(0, 1.08, -0.95);
+  group.add(cargoBed);
+
+  const cab = new Mesh(new BoxGeometry(2.55, 1.45, 1.8), hullMaterial);
+  cab.position.set(0, 1.25, 1.85);
+  group.add(cab);
+
+  const windshield = new Mesh(new BoxGeometry(1.78, 0.42, 0.08), accentMaterial);
+  windshield.position.set(0, 1.55, 2.78);
+  group.add(windshield);
+
+  const load = new Mesh(new BoxGeometry(2.85, 0.34, 2.15), accentMaterial);
+  load.name = 'cargoLoad';
+  load.position.set(0, 1.82, -1.05);
+  group.add(load);
+
+  const scoop = new Group();
+  scoop.name = 'scoop';
+  scoop.position.set(0, 0.45, 3.35);
+  const scoopBlade = new Mesh(new BoxGeometry(4.8, 0.34, 0.72), darkMaterial);
+  scoopBlade.rotation.x = -0.25;
+  scoop.add(scoopBlade);
+  const scoopArmL = new Mesh(new BoxGeometry(0.22, 0.22, 1.45), darkMaterial);
+  scoopArmL.position.set(-1.55, 0.22, -0.72);
+  scoop.add(scoopArmL);
+  const scoopArmR = new Mesh(new BoxGeometry(0.22, 0.22, 1.45), darkMaterial);
+  scoopArmR.position.set(1.55, 0.22, -0.72);
+  scoop.add(scoopArmR);
+  group.add(scoop);
+
+  const tankL = new Mesh(new CylinderGeometry(0.36, 0.36, 2.55, 12), darkMaterial);
+  tankL.rotation.z = Math.PI / 2;
+  tankL.position.set(-2.45, 0.92, -0.95);
+  group.add(tankL);
+  const tankR = new Mesh(new CylinderGeometry(0.36, 0.36, 2.55, 12), darkMaterial);
+  tankR.rotation.z = Math.PI / 2;
+  tankR.position.set(2.45, 0.92, -0.95);
+  group.add(tankR);
+
+  const leftTrack = new Mesh(new BoxGeometry(0.72, 0.46, 6.25), darkMaterial);
+  leftTrack.position.set(-2.45, 0.28, 0);
+  group.add(leftTrack);
+  const rightTrack = new Mesh(new BoxGeometry(0.72, 0.46, 6.25), darkMaterial);
+  rightTrack.position.set(2.45, 0.28, 0);
+  group.add(rightTrack);
+
+  const stripe = new Mesh(new BoxGeometry(3.0, 0.08, 0.34), accentMaterial);
+  stripe.position.set(0, 2.04, -1.02);
+  group.add(stripe);
+
+  const beaconMaterial = new MeshBasicMaterial({ color: 0xff3d24, transparent: true, opacity: 0.7, depthWrite: false, toneMapped: false });
+  const beacon = new Mesh(new BoxGeometry(0.68, 0.24, 0.68), beaconMaterial);
+  beacon.name = 'warningBeacon';
+  beacon.position.set(0, 2.32, 1.65);
+  beacon.visible = false;
+  group.add(beacon);
+
+  return group;
+}
+
 function createVultureObject(hullMaterial: Material, rotorMaterial: Material, accentMaterial: Material): Group {
   const group = new Group();
 
@@ -407,6 +567,7 @@ function createVultureObject(hullMaterial: Material, rotorMaterial: Material, ac
 
 function visualScaleForEntity(entity: Entity): { x: number; y: number; z: number } {
   const name = entity.name ?? '';
+  if (entity.selectable?.type === 'harvester') return { x: 1.08, y: 1.0, z: 1.05 };
   if (name.includes('Jackal')) return { x: 0.82, y: 0.82, z: 0.88 };
   if (name.includes('Mauler')) return { x: 1.16, y: 1.1, z: 1.22 };
   if (name.includes('Wasp')) return { x: 0.78, y: 0.72, z: 0.82 };
@@ -419,6 +580,13 @@ function projectEntity(entity: Entity, hf: Heightfield, camera: Camera): Vector3
   const y = entity.flight ? entity.transform.y ?? sampleHeight(hf, entity.transform.x, entity.transform.z) + 28 : sampleHeight(hf, entity.transform.x, entity.transform.z) + 1.2;
   p.set(entity.transform.x, y, entity.transform.z);
   return p.project(camera);
+}
+
+function screenPickRadius(entity: Entity): number {
+  if (entity.selectable?.type === 'infantry') return 22;
+  if (entity.selectable?.type === 'vulture') return 30;
+  if (entity.selectable?.type === 'harvester') return 32;
+  return 28;
 }
 
 function lerp(a: number, b: number, t: number): number {

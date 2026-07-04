@@ -1,12 +1,12 @@
 // Classic RTS camera: keyboard/edge pan, Space + mouse grab pan,
-// wheel zoom (28–140), Q/E 90° rotation, saved Command-left-drag free look,
-// smooth exponential damping. The look-target follows terrain height.
+// wheel zoom (28–280), Q/E 90° rotation, saved Command-left-drag or empty
+// right-drag free look, smooth exponential damping. The look-target follows terrain height.
 import { MathUtils, PerspectiveCamera, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 
 export const ZOOM_MIN = 28;
-export const ZOOM_MAX = 140;
+export const ZOOM_MAX = 280;
 const PITCH_NEAR = MathUtils.degToRad(46);
 const PITCH_FAR = MathUtils.degToRad(62);
 const PITCH_MIN = MathUtils.degToRad(7);
@@ -31,6 +31,7 @@ export class RtsCameraRig {
   private pitchOffset = readSavedPitchOffset();
   private pitchOffsetGoal = this.pitchOffset;
   private grabSuppressed = false;
+  private emptyRightDragLook = false;
 
   private readonly fwd = new Vector3();
   private readonly right = new Vector3();
@@ -98,6 +99,10 @@ export class RtsCameraRig {
     this.grabSuppressed = suppressed;
   }
 
+  setEmptyRightDragLook(active: boolean): void {
+    this.emptyRightDragLook = active;
+  }
+
   update(dt: number): void {
     const input = this.input;
 
@@ -109,8 +114,9 @@ export class RtsCameraRig {
     this.fwd.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     this.right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
-    // Command-left drag freely aims the RTS camera and persists the preference.
-    const lookAdjusting = input.isCommandLookModifierDown() && input.isButton(0);
+    // Command-left drag, or right-drag with no movable selection, freely aims
+    // the RTS camera and persists the preference.
+    const lookAdjusting = (input.isCommandLookModifierDown() && input.isButton(0)) || (this.emptyRightDragLook && input.isButton(2));
     // Holding Space turns mouse movement into grab-pan. Clicks are suppressed by RtsController.
     const grabbing = !this.grabSuppressed && !lookAdjusting && input.isDown('Space');
     const delta = input.consumeMouseDelta();

@@ -1,13 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MAP01 } from '../content/map01';
+import { startPosition } from '../content/startPositions';
 import { stepCombat } from '../sim/combat';
-import { createEconomy, createInitialBase, buildings, stepEconomy } from '../sim/economy';
+import { createEconomy, createInitialBase, buildings, placeStructure, stepEconomy, updatePlacement, type PlacementState } from '../sim/economy';
 import { generateHeightfield } from '../sim/heightfield';
 import { VisibilityGrid } from '../sim/visibility';
-import { createGameSim, hashSim, spawnDebugTanks, stepSim } from '../sim/world';
+import { createGameSim, hashSim, spawnDebugTanks, spawnTankAt, stepSim, type GameSim } from '../sim/world';
 import { EnemyCommander } from './commander';
 
 const DT = 1 / 30;
+
+function validPlacement(sim: GameSim, hf: ReturnType<typeof generateHeightfield>, kind: PlacementState['kind'], x: number, z: number, team: number): PlacementState {
+  const direct = updatePlacement(sim, hf, kind, x, z, team);
+  if (direct.valid) return direct;
+  for (const radius of [24, 34, 46, 58, 72]) {
+    for (let step = 0; step < 16; step++) {
+      const angle = (step / 16) * Math.PI * 2;
+      const placement = updatePlacement(sim, hf, kind, x + Math.cos(angle) * radius, z + Math.sin(angle) * radius, team);
+      if (placement.valid) return placement;
+    }
+  }
+  throw new Error(`no valid ${kind} placement near ${x},${z}`);
+}
 
 function runMatch(ticks: number) {
   vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -16,7 +30,8 @@ function runMatch(ticks: number) {
   const playerEconomy = createEconomy(1);
   createInitialBase(sim, hf, playerEconomy);
   const enemyEconomy = createEconomy(2, 4600);
-  createInitialBase(sim, hf, enemyEconomy, hf.size * 0.18, hf.size * 0.08);
+  const enemyStart = startPosition(hf.size, 2);
+  createInitialBase(sim, hf, enemyEconomy, enemyStart.x, enemyStart.z);
   const aiVision = new VisibilityGrid(hf, 2);
   const commander = new EnemyCommander(sim, hf, enemyEconomy, aiVision, 'rusher', 'normal');
   spawnDebugTanks(sim, hf, 6);
@@ -51,5 +66,54 @@ describe('phase 6 enemy commander', () => {
     const second = runMatch(30 * 60);
     expect(hashSim(first.sim)).toBe(hashSim(second.sim));
     expect(first.commander.stats).toEqual(second.commander.stats);
+  });
+
+  it('raids visible economy targets before ordinary buildings', () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const playerEconomy = createEconomy(1);
+    const playerBase = createInitialBase(sim, hf, playerEconomy);
+    const refinerySpot = validPlacement(sim, hf, 'refinery', playerBase.transform.x + 42, playerBase.transform.z, 1);
+    playerEconomy.readyStructure = 'refinery';
+    const refinery = placeStructure(sim, hf, playerEconomy, refinerySpot);
+    expect(refinery).toBeTruthy();
+    const harvester = playerEconomy.pendingSpawned.find((entity) => entity.harvester);
+    expect(harvester).toBeTruthy();
+
+    const enemyEconomy = createEconomy(2);
+    createInitialBase(sim, hf, enemyEconomy, playerBase.transform.x + 190, playerBase.transform.z + 20);
+    const aiVision = new VisibilityGrid(hf, 2);
+    const commander = new EnemyCommander(sim, hf, enemyEconomy, aiVision, 'rusher', 'normal');
+    const raider = spawnTankAt(sim, harvester!.transform.x + 40, harvester!.transform.z + 12, 'Economy Raider', 2);
+    raider.vision = { radius: 260 };
+    aiVision.update(sim);
+
+    const target = (commander as unknown as { pickTarget: (squad: { units: typeof raider[]; state: 'attacking'; nextOrderAt: number }) => { x: number; z: number } }).pickTarget({
+      units: [raider],
+      state: 'attacking',
+      nextOrderAt: 0,
+    });
+
+    expect(Math.hypot(target.x - harvester!.transform.x, target.z - harvester!.transform.z)).toBeLessThan(1);
+    vi.restoreAllMocks();
+  });
+
+  it('places new refineries toward live resource nodes', () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const enemyEconomy = createEconomy(2, 4600);
+    const enemyBase = createInitialBase(sim, hf, enemyEconomy, -20, -20);
+    sim.resourceNodes = [{ id: 99, kind: 'oil', x: enemyBase.transform.x + 72, z: enemyBase.transform.z + 4, radius: 14, capacity: 1000, remaining: 1000 }];
+    const commander = new EnemyCommander(sim, hf, enemyEconomy, new VisibilityGrid(hf, 2), 'balanced', 'normal');
+
+    const spot = (commander as unknown as { findPlacement: (kind: 'refinery') => PlacementState | undefined }).findPlacement('refinery');
+
+    expect(spot?.valid).toBe(true);
+    expect(Math.hypot((spot?.x ?? 0) - sim.resourceNodes[0].x, (spot?.z ?? 0) - sim.resourceNodes[0].z)).toBeLessThan(
+      Math.hypot(enemyBase.transform.x - sim.resourceNodes[0].x, enemyBase.transform.z - sim.resourceNodes[0].z),
+    );
+    vi.restoreAllMocks();
   });
 });

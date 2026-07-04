@@ -1,4 +1,5 @@
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
+import { WEAPONS, type WeaponKind } from '../content/phase4';
 import type { Entity } from '../sim/components';
 import { MAX_PRODUCER_JOBS, buildings, canBuildStructure, canQueueUnit, type EconomyState } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
@@ -142,6 +143,26 @@ export class Sidebar {
     this.root.style.display = visible ? 'flex' : 'none';
   }
 
+  producerHighlightIds(): number[] {
+    if (this.activeTab === 'buildings' || this.activeTab === 'defense') {
+      return buildings(this.sim, this.economy.team)
+        .filter((entity) => entity.building?.complete && entity.building.kind === 'command-yard' && !entity.destroyed)
+        .map((entity) => entity.id);
+    }
+    const selected = this.selectedBuilding();
+    if (selected && this.contextTab(selected) === this.activeTab && !selected.destroyed) return [selected.id];
+    const producers = this.unitProducers(this.activeTab).filter((entity) => !entity.destroyed);
+    const primaryId = this.economy.primaryProducerIds[this.activeTab];
+    const primary = primaryId ? producers.find((entity) => entity.id === primaryId) : undefined;
+    const source =
+      primary ??
+      producers.reduce<Entity | undefined>((best, entity) => {
+        if (!best) return entity;
+        return queueDepth(entity) < queueDepth(best) ? entity : best;
+      }, undefined);
+    return source ? [source.id] : [];
+  }
+
   private renderTabs(): void {
     this.tabs.replaceChildren();
     for (const tab of ['buildings', 'defense', 'infantry', 'vehicles', 'aircraft'] as const) {
@@ -162,6 +183,9 @@ export class Sidebar {
     this.body.replaceChildren();
     const selected = this.selectedBuilding();
     if (selected) this.body.appendChild(this.selectedBuildingStrip(selected));
+    const selectedHarvester = this.selectedHarvester();
+    if (selectedHarvester) this.body.appendChild(this.selectedHarvesterStrip(selectedHarvester));
+    this.body.appendChild(this.economySummary());
 
     if (this.activeTab === 'buildings') {
       for (const def of Object.values(STRUCTURES).filter((structure) => structure.tab === 'structures')) {
@@ -266,7 +290,7 @@ export class Sidebar {
     if (state.count > 0) icon.appendChild(badge(state.ready ? 'READY' : `×${state.count}`, !!state.ready));
 
     const content = document.createElement('div');
-    content.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:4px;align-items:end;min-width:0;';
+    content.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:3px 4px;align-items:end;min-width:0;';
     const name = document.createElement('div');
     name.style.cssText = 'font-size:10px;color:inherit;white-space:nowrap;line-height:1.1;overflow:hidden;text-overflow:ellipsis;';
     name.textContent = label;
@@ -274,6 +298,16 @@ export class Sidebar {
     meta.style.cssText = `font-size:10px;color:${state.unaffordable ? '#ff7666' : state.enabled || state.ready ? '#d2b15f' : '#d17a65'};text-align:right;max-width:50px;overflow:hidden;text-overflow:ellipsis;`;
     meta.textContent = state.enabled || state.ready ? `$${cost}` : state.reason;
     content.append(name, meta);
+    const unitDetail = unitCardDetail(kind);
+    if (unitDetail) {
+      const role = document.createElement('div');
+      role.style.cssText = 'grid-column:1/-1;font-size:8px;line-height:1;color:#aebbc4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+      role.textContent = unitDetail.role.toUpperCase();
+      const pips = document.createElement('div');
+      pips.style.cssText = 'grid-column:1/-1;display:grid;grid-template-columns:repeat(4,1fr);gap:2px;height:8px;';
+      for (const value of unitDetail.pips) pips.appendChild(statPip(value, state.enabled || !!state.ready));
+      content.append(role, pips);
+    }
     button.append(icon, content);
     return button;
   }
@@ -360,6 +394,77 @@ export class Sidebar {
     return el;
   }
 
+  private selectedHarvesterStrip(entity: Entity): HTMLDivElement {
+    const el = document.createElement('div');
+    const cargo = entity.cargo ? Math.round(entity.cargo.amount) : 0;
+    const capacity = entity.cargo?.capacity ?? 0;
+    const cargoPct = capacity > 0 ? Math.max(0, Math.min(1, cargo / capacity)) : 0;
+    const state = harvesterStateLabel(entity);
+    const health = entity.health ? `${Math.ceil(entity.health.current)}/${entity.health.max}` : 'online';
+    el.style.cssText =
+      'grid-column:1/-1;display:grid;grid-template-columns:46px 1fr;gap:8px;align-items:center;padding:8px;border:1px solid #4b5552;' +
+      'background:linear-gradient(180deg,#202929,#111615);box-shadow:inset 0 0 14px rgba(0,0,0,.45);';
+
+    const icon = document.createElement('div');
+    icon.style.cssText =
+      commandIconCss(true) +
+      'min-height:42px;display:grid;place-items:center;color:#151715;background:linear-gradient(180deg,#d2b15f,#7d6531);font-size:17px;';
+    icon.textContent = 'ORE';
+
+    const copy = document.createElement('div');
+    copy.style.cssText = 'display:grid;gap:4px;min-width:0;';
+    const title = document.createElement('div');
+    title.innerHTML =
+      `<div style="font-size:10px;color:#d2b15f">SELECTED COLLECTOR</div>` +
+      `<div style="font-size:14px;color:#f0f3e8">${entity.name ?? 'Ore Harvester'}</div>` +
+      `<div style="font-size:11px;color:#aebbc4">hull ${health} · ${state} · cargo ${cargo}/${capacity}</div>`;
+    const bar = document.createElement('div');
+    bar.style.cssText = 'height:8px;border:1px solid #303936;background:#060908;box-shadow:inset 0 0 6px rgba(0,0,0,.7);overflow:hidden;';
+    const fill = document.createElement('div');
+    fill.style.cssText = `height:100%;width:${Math.round(cargoPct * 100)}%;background:linear-gradient(90deg,#8b7339,#f0d56a);`;
+    bar.appendChild(fill);
+    copy.append(title, bar);
+
+    el.append(icon, copy);
+    return el;
+  }
+
+  private economySummary(): HTMLDivElement {
+    const refineries = buildings(this.sim, this.economy.team).filter(
+      (entity) => entity.building?.kind === 'refinery' && entity.building.complete && !entity.destroyed,
+    ).length;
+    const harvesters = Array.from(this.sim.world.entities).filter((entity) => entity.team?.id === this.economy.team && entity.harvester && !entity.destroyed);
+    const cargo = harvesters.reduce((sum, entity) => sum + (entity.cargo?.amount ?? 0), 0);
+    const capacity = harvesters.reduce((sum, entity) => sum + (entity.cargo?.capacity ?? 0), 0);
+    const remainingOre = this.sim.resourceNodes.reduce((sum, node) => sum + Math.max(0, node.remaining), 0);
+    const active = harvesters.filter((entity) => entity.harvester?.state === 'gathering' || entity.harvester?.state === 'to-node').length;
+    const returning = harvesters.filter((entity) => entity.harvester?.state === 'to-refinery' || entity.harvester?.state === 'depositing').length;
+    const status =
+      refineries === 0
+        ? 'NO REFINERY'
+        : harvesters.length === 0
+          ? 'NO COLLECTOR'
+          : remainingOre <= 0
+            ? 'ORE EMPTY'
+            : `${active} COLLECTING · ${returning} RETURNING`;
+
+    const el = document.createElement('div');
+    el.style.cssText =
+      'grid-column:1/-1;display:grid;grid-template-columns:1fr auto;gap:4px 8px;padding:7px 8px;border:1px solid #2f3735;' +
+      'background:#101514;color:#aebbc4;box-shadow:inset 0 0 10px rgba(0,0,0,.35);';
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:10px;color:#d2b15f;';
+    title.textContent = 'ECONOMY';
+    const value = document.createElement('div');
+    value.style.cssText = 'font-size:10px;color:#f0d56a;text-align:right;';
+    value.textContent = status;
+    const detail = document.createElement('div');
+    detail.style.cssText = 'grid-column:1/-1;font-size:10px;color:#aebbc4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    detail.textContent = `refineries ${refineries} · collectors ${harvesters.length} · cargo ${Math.round(cargo)}/${capacity} · ore ${Math.round(remainingOre)}`;
+    el.append(title, value, detail);
+    return el;
+  }
+
   private miniQueue(entity: Entity): string {
     if (!entity.producer) return '';
     const active = entity.producer.active;
@@ -442,6 +547,11 @@ export class Sidebar {
     return selected.length === 1 ? selected[0] : undefined;
   }
 
+  private selectedHarvester(): Entity | undefined {
+    const selected = selectedEntities(this.sim).filter((entity) => entity.harvester);
+    return selected.length === 1 ? selected[0] : undefined;
+  }
+
   private contextTab(entity: Entity): Tab | undefined {
     if (!entity.building?.complete) return undefined;
     if (entity.building.kind === 'command-yard') return 'buildings';
@@ -473,7 +583,10 @@ export class Sidebar {
 
   private bodyKey(): string {
     const selected = selectedEntities(this.sim)
-      .map((entity) => `${entity.id}:${entity.health?.current ?? 0}:${entity.building?.kind ?? entity.selectable?.type}:${entity.selectable?.selected}`)
+      .map(
+        (entity) =>
+          `${entity.id}:${entity.health?.current ?? 0}:${entity.building?.kind ?? entity.selectable?.type}:${entity.selectable?.selected}:${entity.harvester?.state ?? ''}:${Math.round(entity.cargo?.amount ?? 0)}`,
+      )
       .join('|');
     const completedBuildings = buildings(this.sim, this.economy.team)
       .filter((entity) => entity.building?.complete)
@@ -486,6 +599,11 @@ export class Sidebar {
         return `${entity.id}:${active?.kind ?? 'idle'}:${entity.producer?.queue.map((job) => job.kind).join(',')}:${entity.producer?.rally?.x ?? ''}:${entity.producer?.rally?.z ?? ''}`;
       })
       .join('|');
+    const harvesters = Array.from(this.sim.world.entities)
+      .filter((entity) => entity.team?.id === this.economy.team && entity.harvester && !entity.destroyed)
+      .map((entity) => `${entity.id}:${entity.harvester?.state}:${Math.round(entity.cargo?.amount ?? 0)}:${entity.harvester?.nodeId ?? ''}:${entity.harvester?.refineryId ?? ''}`)
+      .join('|');
+    const ore = this.sim.resourceNodes.map((node) => `${node.id}:${Math.round(node.remaining)}`).join('|');
     const line = this.economy.structureLine;
     return [
       this.activeTab,
@@ -499,6 +617,8 @@ export class Sidebar {
       selected,
       completedBuildings,
       producers,
+      harvesters,
+      ore,
     ].join('~');
   }
 
@@ -551,6 +671,7 @@ export class Sidebar {
     this.drawOrientedRadarImage(this.radarTerrain);
     this.radarCtx.fillStyle = 'rgba(0,0,0,.22)';
     this.radarCtx.fillRect(0, 0, this.radar.width, this.radar.height);
+    this.drawRadarResources();
     for (const entity of this.sim.world.entities) {
       if (!entity.transform || entity.destroyed) continue;
       if (entity.team?.id !== 1 && !this.fog.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
@@ -575,6 +696,26 @@ export class Sidebar {
     }
     this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
+  }
+
+  private drawRadarResources(): void {
+    for (const node of this.sim.resourceNodes) {
+      if (node.remaining <= 0.5) continue;
+      const p = this.worldToRadar(node.x, node.z);
+      if (p.x < -10 || p.y < -10 || p.x > this.radar.width + 10 || p.y > this.radar.height + 10) continue;
+      const pct = Math.max(0.12, Math.min(1, node.remaining / node.capacity));
+      const radius = Math.max(3, (node.radius / this.hf.size) * Math.min(this.radar.width, this.radar.height) * 1.25);
+      this.radarCtx.save();
+      this.radarCtx.globalAlpha = 0.4 + pct * 0.35;
+      this.radarCtx.fillStyle = '#d2b15f';
+      this.radarCtx.strokeStyle = '#151715';
+      this.radarCtx.lineWidth = 1;
+      this.radarCtx.beginPath();
+      this.radarCtx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      this.radarCtx.fill();
+      this.radarCtx.stroke();
+      this.radarCtx.restore();
+    }
   }
 
   private drawRadarViewport(): void {
@@ -663,7 +804,7 @@ export class Sidebar {
 
 function cardCss(state: CardState): string {
   return (
-    'height:96px;text-align:left;padding:4px;display:grid;grid-template-rows:1fr auto;gap:3px;align-items:stretch;' +
+    'height:108px;text-align:left;padding:4px;display:grid;grid-template-rows:1fr auto;gap:3px;align-items:stretch;' +
     'border-radius:2px;border:1px solid #58615f;border-top-color:#89908b;border-left-color:#89908b;' +
     `background:${state.ready ? 'linear-gradient(180deg,#6d5e2d,#2a2416)' : state.enabled ? 'linear-gradient(180deg,#334143,#1b2527)' : 'linear-gradient(180deg,#2c302f,#171a1a)'};` +
     `color:${state.enabled || state.ready ? '#eef3e9' : '#87918a'};cursor:${state.enabled ? 'pointer' : 'default'};box-shadow:inset 0 0 0 1px rgba(0,0,0,.5);`
@@ -716,6 +857,90 @@ function queueDepth(entity: Entity): number {
   return (entity.producer?.queue.length ?? 0) + (entity.producer?.active ? 1 : 0);
 }
 
+function harvesterStateLabel(entity: Entity): string {
+  switch (entity.harvester?.state) {
+    case 'to-node':
+      return 'driving to ore';
+    case 'gathering':
+      return 'collecting';
+    case 'to-refinery':
+      return 'returning';
+    case 'depositing':
+      return 'depositing';
+    default:
+      return entity.cargo && entity.cargo.amount > 0 ? 'loaded' : 'searching';
+  }
+}
+
 function commandIconPath(kind: string): string {
   return `/assets/ui/command-icons/${kind}.png`;
+}
+
+function unitCardDetail(kind: string): { role: string; pips: number[] } | undefined {
+  const unit = UNITS[kind as UnitKind];
+  if (!unit) return undefined;
+  const primary = primaryWeaponForUnit(unit.kind);
+  const weapon = WEAPONS[primary];
+  const secondary = secondaryWeaponForUnit(unit.kind);
+  const secondaryDef = secondary ? WEAPONS[secondary] : undefined;
+  const salvo = bombSalvoForUnit(unit.kind);
+  const burstDamage = secondaryDef?.kind === 'bomb' ? secondaryDef.damage * salvo : (secondaryDef?.damage ?? 0);
+  const damage = Math.min(1, Math.max(weapon.damage, burstDamage) / 104);
+  const range = Math.min(1, Math.max(weapon.range, secondaryDef?.range ?? 0) / 188);
+  const speed = speedScoreForUnit(unit.kind);
+  const air = weapon.canTargetAir ? Math.min(1, weapon.vs.air) : secondary === 'aaMissile' ? 0.88 : 0;
+  return { role: unit.role, pips: [damage, range, speed, air] };
+}
+
+function primaryWeaponForUnit(kind: UnitKind): WeaponKind {
+  if (kind === 'infantry') return 'rifle';
+  if (kind === 'grenadier') return 'grenade';
+  if (kind === 'rocket-infantry') return 'rocketLauncher';
+  if (kind === 'scout-tank') return 'autocannon';
+  if (kind === 'tank') return 'cannon';
+  if (kind === 'siege-tank') return 'heavyCannon';
+  if (kind === 'wasp') return 'waspAutocannon';
+  if (kind === 'vulture') return 'rocketPod';
+  return 'agMissile';
+}
+
+function secondaryWeaponForUnit(kind: UnitKind): WeaponKind | undefined {
+  if (kind === 'rocket-infantry') return 'aaMissile';
+  if (kind === 'scout-tank' || kind === 'tank' || kind === 'siege-tank' || kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead') {
+    return 'bomb';
+  }
+  return undefined;
+}
+
+function bombSalvoForUnit(kind: UnitKind): number {
+  if (kind === 'siege-tank' || kind === 'hammerhead') return 4;
+  if (kind === 'tank' || kind === 'vulture') return 2;
+  if (kind === 'scout-tank' || kind === 'wasp') return 1;
+  return 0;
+}
+
+function speedScoreForUnit(kind: UnitKind): number {
+  const scores: Record<UnitKind, number> = {
+    infantry: 0.22,
+    grenadier: 0.2,
+    'rocket-infantry': 0.18,
+    'scout-tank': 0.48,
+    tank: 0.36,
+    'siege-tank': 0.26,
+    wasp: 1,
+    vulture: 0.76,
+    hammerhead: 0.56,
+  };
+  return scores[kind];
+}
+
+function statPip(value: number, active: boolean): HTMLDivElement {
+  const el = document.createElement('div');
+  const pct = Math.max(6, Math.round(Math.max(0, Math.min(1, value)) * 100));
+  el.style.cssText =
+    'position:relative;overflow:hidden;border:1px solid rgba(0,0,0,.55);background:#101514;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);';
+  const fill = document.createElement('div');
+  fill.style.cssText = `height:100%;width:${pct}%;background:${active ? '#d2b15f' : '#5f6762'};`;
+  el.appendChild(fill);
+  return el;
 }

@@ -1,5 +1,6 @@
 import type { FlowField } from './flowfield';
 import type { ArmorClass } from '../content/phase4';
+import type { FlightModelId } from '../content/flightModels';
 
 export interface Transform {
   x: number;
@@ -49,6 +50,11 @@ export interface Flight {
   minAGL: number;
   maxAltitude: number;
   climbRate: number;
+  pitchAttitude: number;
+  rollAttitude: number;
+  previousPitchAttitude: number;
+  previousRollAttitude: number;
+  model: FlightModelId;
   bank: number;
   verticalVelocity: number;
 }
@@ -57,6 +63,7 @@ export interface Weapon {
   kind: string;
   range: number;
   cooldown: number;
+  salvoCount?: number;
   targetId?: number;
 }
 
@@ -79,6 +86,17 @@ export interface Cargo {
   amount: number;
 }
 
+export interface Harvester {
+  state: 'seeking' | 'to-node' | 'gathering' | 'to-refinery' | 'depositing';
+  nodeId?: number;
+  refineryId?: number;
+  timer: number;
+  /** set when the collector was recently damaged; economy logic recalls it to safety */
+  threatTimer?: number;
+  /** last observed health, used to deterministically detect new damage */
+  lastHealth?: number;
+}
+
 export interface Builder {
   buildRadius: number;
 }
@@ -92,6 +110,7 @@ export interface PlayerControlled {
   turn: number;
   aimYaw: number;
   climb?: number;
+  strafe?: number;
 }
 
 export interface Collider {
@@ -114,6 +133,14 @@ export interface Building {
   powerUsed: number;
   complete: boolean;
   buildProgress: number;
+}
+
+export interface StructureDamage {
+  cols: number;
+  rows: number;
+  tiers: number;
+  cells: Uint8Array;
+  version: number;
 }
 
 export interface Producer {
@@ -146,6 +173,7 @@ export interface Entity {
   turret?: Turret;
   vision?: Vision;
   cargo?: Cargo;
+  harvester?: Harvester;
   builder?: Builder;
   possessable?: Possessable;
   playerControlled?: PlayerControlled;
@@ -153,6 +181,7 @@ export interface Entity {
   armor?: Armor;
   destroyed?: Destroyed;
   building?: Building;
+  structureDamage?: StructureDamage;
   producer?: Producer;
 }
 
