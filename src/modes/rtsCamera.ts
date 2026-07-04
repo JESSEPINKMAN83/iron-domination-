@@ -9,8 +9,10 @@ export const ZOOM_MIN = 28;
 export const ZOOM_MAX = 140;
 const PITCH_NEAR = MathUtils.degToRad(46);
 const PITCH_FAR = MathUtils.degToRad(62);
-const PITCH_OFFSET_MIN = MathUtils.degToRad(-24);
-const PITCH_OFFSET_MAX = MathUtils.degToRad(18);
+const PITCH_MIN = MathUtils.degToRad(7);
+const PITCH_MAX = MathUtils.degToRad(82);
+const PITCH_OFFSET_MIN = MathUtils.degToRad(-58);
+const PITCH_OFFSET_MAX = MathUtils.degToRad(28);
 const PITCH_STORAGE_KEY = 'iron-dominion.rtsCamera.pitchOffset';
 const YAW_STORAGE_KEY = 'iron-dominion.rtsCamera.yaw';
 const EDGE_MARGIN = 14;
@@ -79,13 +81,15 @@ export class RtsCameraRig {
     this.right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
     // Command-left drag freely aims the RTS camera and persists the preference.
-    const lookAdjusting = input.isMetaDown() && input.isButton(0);
+    const lookAdjusting = input.isCommandLookModifierDown() && input.isButton(0);
     // grab pan: right mouse drag, or any mouse movement while Space is held
     const grabbing = !lookAdjusting && (input.isButton(2) || input.isDown('Space'));
     const delta = input.consumeMouseDelta();
     if (lookAdjusting && (delta.dx !== 0 || delta.dy !== 0)) {
       this.yawGoal = normalizeAngle(this.yawGoal - delta.dx * 0.006);
       this.pitchOffsetGoal = MathUtils.clamp(this.pitchOffsetGoal + delta.dy * 0.003, PITCH_OFFSET_MIN, PITCH_OFFSET_MAX);
+      this.yaw = this.yawGoal;
+      this.pitchOffset = this.pitchOffsetGoal;
       saveLook(this.yawGoal, this.pitchOffsetGoal);
     }
     if (grabbing && (delta.dx !== 0 || delta.dy !== 0)) {
@@ -101,7 +105,7 @@ export class RtsCameraRig {
     if (input.isDown('KeyS') || input.isDown('ArrowDown')) my -= 1;
     if (input.isDown('KeyA') || input.isDown('ArrowLeft')) mx -= 1;
     if (input.isDown('KeyD') || input.isDown('ArrowRight')) mx += 1;
-    if (!grabbing && input.pointerInWindow && document.hasFocus()) {
+    if (!grabbing && !lookAdjusting && input.pointerInWindow && document.hasFocus()) {
       if (input.mouseX <= EDGE_MARGIN) mx -= 1;
       if (input.mouseX >= window.innerWidth - EDGE_MARGIN) mx += 1;
       if (input.mouseY <= EDGE_MARGIN) my += 1;
@@ -136,7 +140,7 @@ export class RtsCameraRig {
 
   private currentPitch(): number {
     const zoomT = (this.dist - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN);
-    return MathUtils.clamp(MathUtils.lerp(PITCH_NEAR, PITCH_FAR, zoomT) + this.pitchOffset, MathUtils.degToRad(25), MathUtils.degToRad(78));
+    return MathUtils.clamp(MathUtils.lerp(PITCH_NEAR, PITCH_FAR, zoomT) + this.pitchOffset, PITCH_MIN, PITCH_MAX);
   }
 }
 

@@ -80,6 +80,10 @@ export class Input {
     return this.metaPointer || this.keys.has('MetaLeft') || this.keys.has('MetaRight');
   }
 
+  isCommandLookModifierDown(): boolean {
+    return this.isMetaDown() || this.keys.has('ControlLeft') || this.keys.has('ControlRight');
+  }
+
   consumeWheel(): number {
     const w = this.wheelAcc;
     this.wheelAcc = 0;
