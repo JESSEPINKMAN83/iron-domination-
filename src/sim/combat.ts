@@ -175,6 +175,7 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
     damage: 0,
     killed: false,
     duration,
+    trajectory: attacker.flight ? 'drop' : 'arc',
   });
 }
 

@@ -132,6 +132,22 @@ describe('phase 2 movement simulation', () => {
     expect(vulture.mover?.target).toBeUndefined();
     expect(vulture.mover?.flow).toBeUndefined();
   });
+
+  it('keeps a reversing player-controlled flyer facing its aim direction', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -hf.size * 0.08, -hf.size * 0.08, 'Vulture 1');
+    const start = { x: vulture.transform.x, z: vulture.transform.z, rot: vulture.transform.rot };
+    vulture.playerControlled = { throttle: -1, turn: 0, aimYaw: start.rot, climb: 0 };
+
+    for (let i = 0; i < 90; i++) stepSim(sim, hf, 1 / 30);
+
+    const backwardX = vulture.transform.x - start.x;
+    const backwardZ = vulture.transform.z - start.z;
+    const forwardDot = backwardX * Math.sin(start.rot) + backwardZ * Math.cos(start.rot);
+    expect(forwardDot).toBeLessThan(-8);
+    expect(Math.abs(angleDelta(vulture.transform.rot, start.rot))).toBeLessThan(0.12);
+  });
 });
 
 function angleDelta(a: number, b: number): number {

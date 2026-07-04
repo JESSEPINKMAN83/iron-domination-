@@ -170,6 +170,7 @@ describe('phase 4 combat simulation', () => {
     expect(vulture.weapons?.secondary?.kind).toBe('bomb');
     expect(sim.projectiles).toHaveLength(1);
     expect(sim.events.at(-1)?.kind).toBe('bomb');
+    expect(sim.events.at(-1)?.trajectory).toBe('drop');
     expect(sim.events.at(-1)?.fromY).toBeGreaterThan(sampleHeight(hf, vulture.transform.x, vulture.transform.z) + 20);
     expect(enemy.health?.current).toBe(100);
 

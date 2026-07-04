@@ -26,6 +26,7 @@ export interface CombatEvent {
   killed: boolean;
   /** flight time in seconds for ballistic launches ('bomb') */
   duration?: number;
+  trajectory?: 'arc' | 'drop';
 }
 
 /** In-flight ballistic ordnance. Damage happens on impact, at the aimed location. */
@@ -250,6 +251,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     transform.y ??= sampleHeight(hf, transform.x, transform.z);
     let desiredX = 0;
     let desiredZ = 0;
+    let playerFlightBank: number | undefined;
 
     if (entity.flight) {
       if (entity.playerControlled) {
@@ -260,9 +262,11 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         const throttle = clamp(entity.playerControlled.throttle, -1, 1);
         const turn = clamp(entity.playerControlled.turn, -1, 1);
         const aimYaw = entity.playerControlled.aimYaw;
-        const yawGoal = normalizeAngle(aimYaw + turn * 0.42);
-        transform.rot = slewAngle(transform.rot, yawGoal, 2.8, dt);
-        const cruise = mover.speed * (throttle >= 0 ? throttle : throttle * 0.34);
+        const previousRot = transform.rot;
+        transform.rot = slewAngle(transform.rot, normalizeAngle(aimYaw), 3.4, dt);
+        const yawStep = normalizeAngle(transform.rot - previousRot);
+        playerFlightBank = clamp(yawStep * 18 + turn * 0.18, -0.45, 0.45);
+        const cruise = mover.speed * (throttle >= 0 ? throttle : throttle * 0.28);
         desiredX = Math.sin(transform.rot) * cruise;
         desiredZ = Math.cos(transform.rot) * cruise;
         if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, aimYaw, entity.turret.turnRate, dt);
@@ -370,10 +374,15 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       transform.z = nextZ;
       const speed = Math.hypot(velocity.x, velocity.z);
       if (speed > 0.05) {
-        const nextRot = Math.atan2(velocity.x, velocity.z);
-        const yawDelta = normalizeAngle(nextRot - transform.rot);
-        transform.rot = nextRot;
-        entity.flight.bank = clamp(yawDelta * speed * 0.08, -0.45, 0.45);
+        if (entity.playerControlled) {
+          const targetBank = playerFlightBank ?? 0;
+          entity.flight.bank += (targetBank - entity.flight.bank) * Math.min(1, dt * 6);
+        } else {
+          const nextRot = Math.atan2(velocity.x, velocity.z);
+          const yawDelta = normalizeAngle(nextRot - transform.rot);
+          transform.rot = nextRot;
+          entity.flight.bank = clamp(yawDelta * speed * 0.08, -0.45, 0.45);
+        }
       } else {
         entity.flight.bank *= Math.max(0, 1 - dt * 4);
       }

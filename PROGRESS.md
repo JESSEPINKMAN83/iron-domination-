@@ -419,9 +419,14 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Smoothed aircraft V-mode chase camera by preserving altitude in transform history, using
   render-interpolated aircraft positions, damping the camera anchor, and removing render-time
   bob that made the helicopter read as flaky.
+- Stabilized Vulture V-mode steering: `A/D` now yaw the aircraft heading directly, reverse
+  thrust no longer flips the hull around through velocity-facing logic, and player-controlled
+  aircraft bank from steering input instead of velocity snaps.
 - Rebalanced shared tank/Vulture bombs downward: lower direct damage, smaller splash radius,
   longer reload, and a smaller/shorter explosion effect so these are tactical secondary
   weapons rather than heavy super-bombs.
+- Split bomb visuals by launch platform: tank bombs keep the arcing lob, while Vulture bombs
+  render as a downward air-drop path from aircraft altitude.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
@@ -431,7 +436,10 @@ drafted in `drafts/phase6/` (unwired, see its README).
   navigation executed successfully, and no console errors were reported.
 - Follow-up browser smoke passed after aircraft bomb/smoothing work: produced a Vulture from
   the aircraft tab, drag-selected it, entered `CHASE Vulture`, and right-clicked in chase mode.
-- `npm test` passes (29 Vitest tests). `npm run build` passes.
+- Follow-up browser smoke passed after Vulture steering/drop fix: produced a Vulture,
+  drag-selected it, entered `CHASE Vulture`, tapped `D`/`S`, right-clicked a bomb, and saw no
+  new console errors.
+- `npm test` passes (30 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,

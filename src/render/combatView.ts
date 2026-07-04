@@ -165,7 +165,11 @@ export class CombatView {
     const from = new Vector3(event.fromX, fromY, event.fromZ);
     const to = new Vector3(event.toX, toY, event.toZ);
     const distance = Math.hypot(event.toX - event.fromX, event.toZ - event.fromZ);
-    const control = new Vector3((event.fromX + event.toX) / 2, Math.max(fromY, toY) + Math.min(84, distance * 0.28), (event.fromZ + event.toZ) / 2);
+    const drop = event.trajectory === 'drop';
+    const controlY = drop
+      ? Math.max(toY + 2, (fromY + toY) * 0.46 - Math.min(16, distance * 0.04))
+      : Math.max(fromY, toY) + Math.min(84, distance * 0.28);
+    const control = new Vector3((event.fromX + event.toX) / 2, controlY, (event.fromZ + event.toZ) / 2);
     const group = this.makeBombMesh();
     group.position.copy(from);
     group.renderOrder = 60;

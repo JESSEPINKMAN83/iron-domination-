@@ -6,6 +6,7 @@ import { manualFireAt } from '../sim/combat';
 import type { GameSim } from '../sim/world';
 
 type PossessionMode = 'rts' | 'entering' | 'fps' | 'exiting';
+const FLIGHT_KEY_YAW_PER_TICK = 0.035;
 
 interface CameraPose {
   position: Vector3;
@@ -102,6 +103,7 @@ export class FirstPersonController {
     // heading uses (sin rot, cos rot): positive turn rotates toward -screen-right,
     // so D (turn right) must apply negative turn — matches mouse-look direction
     const turn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
+    if (this.possessed.flight && turn !== 0) this.lookYaw = normalizeAngle(this.lookYaw + turn * FLIGHT_KEY_YAW_PER_TICK);
     const climb = (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('ControlLeft') || this.input.isDown('ControlRight') ? 1 : 0);
     this.possessed.playerControlled.throttle = forward;
     this.possessed.playerControlled.turn = turn;
