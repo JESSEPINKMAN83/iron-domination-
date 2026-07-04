@@ -65,4 +65,19 @@ describe('phase 4 combat simulation', () => {
     expect(attacker.weapons?.secondary?.cooldown).toBeGreaterThan(attacker.weapons?.primary.cooldown ?? 0);
     expect(sim.events.at(-1)?.kind).toBe('bomb');
   });
+
+  it('lets player-controlled bombs fire beyond normal range with deterministic scatter', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnTankAt(sim, -20, -20, 'A');
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+
+    const fired = manualFireAt(sim, attacker, 360, -20, 'secondary');
+
+    expect(fired).toBe(true);
+    expect(sim.events).toHaveLength(1);
+    expect(Math.hypot(sim.events[0].toX - attacker.transform.x, sim.events[0].toZ - attacker.transform.z)).toBeGreaterThan(152);
+    expect(sim.events[0].toX).not.toBeCloseTo(360);
+    expect(sim.events[0].kind).toBe('bomb');
+  });
 });

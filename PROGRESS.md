@@ -192,12 +192,16 @@
   right-click launches a slower-reloading heavy siege bomb with larger splash damage.
 - Siege bombs use pitch-to-range aiming in chase mode, so aiming higher sends the shot farther
   and makes long-distance hits require manual range calculation.
+- High-angle siege bomb shots now lob out to long range instead of silently clipping to the
+  normal weapon range. Close shots stay accurate; long shots get deterministic distance-based
+  scatter so the tradeoff is range versus precision.
 - AI-controlled tanks now use both weapon slots during combat, firing their quick cannon when
   available and mixing in the heavier bomb on its longer cooldown.
 - Replaced bomb tracers with a visible thrown shell: right-click now launches a large bomb mesh
   with nose, fins, glow, and trail that follows the arc until landing.
-- Added a layered bomb detonation with fireball, smoke, and shock ring, and strengthened bomb
-  splash falloff/radius so nearby units take meaningful damage around the landing point.
+- Added a layered bomb detonation with fireball, smoke, shock ring, scorch mark, and debris, and
+  strengthened bomb splash falloff/radius so nearby units take meaningful damage around the
+  landing point.
 - Tank turret visuals now follow sim turret yaw, so player aim and combat target tracking are
   visible in RTS.
 - Added a Phase 5 movement test proving a player-controlled tank advances through the normal sim
@@ -206,6 +210,8 @@
   weapon data and records combat events.
 - Added a secondary-fire test proving the heavy bomb respects its longer cooldown and damages
   multiple enemies through splash.
+- Added a long-range secondary-fire test proving player-controlled bombs fire past the old range
+  cap and land with deterministic scatter.
 - Browser verification passed on Vite dev server: selected tanks, pressed `V`, saw the camera
   enter chase view with `mode CHASE`, the possessed tank visible, reticle visible, sidebar hidden,
   selection overlays suppressed, then left-clicked fire and verified no new runtime errors.
@@ -215,7 +221,7 @@
 - Follow-up browser smoke passed after bomb-visual polish: reloaded the Vite page, entered
   `CHASE`, right-click fired a clearly visible large shell in flight, and no fresh console
   errors were reported.
-- `npm test` passes (now 13 Vitest tests). `npm run build` passes.
+- `npm test` passes (now 14 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Phase 5 is only a playable MVP. Full Rapier suspension, reload UI,
@@ -223,6 +229,9 @@
   combat run remain.
 - Pointer lock is requested on entry, but browser automation cannot fully verify native pointer
   lock behavior.
+- Latest in-app browser high-angle bomb smoke attempts timed out in the automation layer after
+  reload/entry, so this specific follow-up is verified by unit coverage plus TypeScript/Vite
+  build rather than a completed browser screenshot.
 
 ### Next
 - Add FPS firing/reload against the existing Phase 4 weapon data, then implement death/eject and

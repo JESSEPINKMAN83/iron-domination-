@@ -1,5 +1,6 @@
 import { WEAPONS, type ArmorClass, type WeaponKind } from '../content/phase4';
 import type { Entity, Weapon } from './components';
+import { hash2i, smoothstep } from './noise';
 import { stopEntities, type GameSim } from './world';
 
 export function damageForArmor(kind: WeaponKind, armor: ArmorClass): number {
@@ -38,22 +39,27 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
   const len = Math.max(0.0001, Math.hypot(dx, dz));
   const ux = dx / len;
   const uz = dz / len;
-  const range = Math.min(def.range, len);
-  const impactX = attacker.transform.x + ux * range;
-  const impactZ = attacker.transform.z + uz * range;
-  const target = slot === 'secondary' ? undefined : acquireLineTarget(sim, attacker, ux, uz, range);
-  const hitX = target?.transform.x ?? impactX;
-  const hitZ = target?.transform.z ?? impactZ;
+  const ballisticBomb = slot === 'secondary' && def.kind === 'bomb';
+  const maxRange = ballisticBomb ? Math.max(def.range, 440) : def.range;
+  const range = Math.min(maxRange, len);
+  const intendedX = attacker.transform.x + ux * range;
+  const intendedZ = attacker.transform.z + uz * range;
+  const impact = ballisticBomb ? scatterBombImpact(sim, attacker, intendedX, intendedZ, range, maxRange) : { x: intendedX, z: intendedZ };
+  const target = ballisticBomb ? undefined : acquireLineTarget(sim, attacker, ux, uz, range);
+  const hitX = target?.transform.x ?? impact.x;
+  const hitZ = target?.transform.z ?? impact.z;
   let damage = 0;
   let killed = false;
 
   if (target?.health && target.armor) {
     damage = applyDamage(target, damageForArmor(def.kind, target.armor.kind));
-    applyAreaDamage(sim, attacker, hitX, hitZ, def.splashRadius, def.kind, target);
-    killed = target.health.current <= 0;
+    const area = applyAreaDamage(sim, attacker, hitX, hitZ, def.splashRadius, def.kind, target);
+    killed = target.health.current <= 0 || area.killed;
     weapon.targetId = target.id;
   } else {
-    damage = applyAreaDamage(sim, attacker, hitX, hitZ, def.splashRadius, def.kind);
+    const area = applyAreaDamage(sim, attacker, hitX, hitZ, def.splashRadius, def.kind);
+    damage = area.damage;
+    killed = area.killed;
     weapon.targetId = undefined;
   }
   weapon.cooldown = def.cooldown;
@@ -75,7 +81,7 @@ function fireWeaponAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, targ
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def || weapon.cooldown > 0) return false;
   const damage = applyDamage(target, damageForArmor(def.kind, target.armor.kind));
-  applyAreaDamage(sim, attacker, target.transform.x, target.transform.z, def.splashRadius, def.kind, target);
+  const area = applyAreaDamage(sim, attacker, target.transform.x, target.transform.z, def.splashRadius, def.kind, target);
   weapon.cooldown = def.cooldown;
   if (attacker.turret) attacker.turret.yaw = Math.atan2(target.transform.x - attacker.transform.x, target.transform.z - attacker.transform.z);
   sim.events.push({
@@ -85,7 +91,7 @@ function fireWeaponAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, targ
     toX: target.transform.x,
     toZ: target.transform.z,
     damage,
-    killed: target.health.current <= 0,
+    killed: target.health.current <= 0 || area.killed,
   });
   return true;
 }
@@ -148,9 +154,18 @@ function applyDamage(target: Entity, amount: number): number {
   return before - target.health.current;
 }
 
-function applyAreaDamage(sim: GameSim, attacker: Entity, x: number, z: number, radius: number, kind: WeaponKind, primary?: Entity): number {
-  if (radius <= 0) return 0;
-  let total = 0;
+function applyAreaDamage(
+  sim: GameSim,
+  attacker: Entity,
+  x: number,
+  z: number,
+  radius: number,
+  kind: WeaponKind,
+  primary?: Entity,
+): { damage: number; killed: boolean } {
+  if (radius <= 0) return { damage: 0, killed: false };
+  let damage = 0;
+  let killed = false;
   for (const target of sim.world.entities) {
     if (target === primary || !isTargetable(attacker, target) || !target.armor) continue;
     const dx = target.transform.x - x;
@@ -159,9 +174,10 @@ function applyAreaDamage(sim: GameSim, attacker: Entity, x: number, z: number, r
     if (d > radius) continue;
     const falloff = 1 - d / radius;
     const splashMultiplier = kind === 'bomb' ? 1 : 0.55;
-    total += applyDamage(target, damageForArmor(kind, target.armor.kind) * falloff * splashMultiplier);
+    damage += applyDamage(target, damageForArmor(kind, target.armor.kind) * falloff * splashMultiplier);
+    killed ||= target.health?.current === 0;
   }
-  return total;
+  return { damage, killed };
 }
 
 function tickDestroyed(sim: GameSim, dt: number): void {
@@ -184,4 +200,18 @@ function weaponSlots(entity: Entity): Weapon[] {
 function weaponForSlot(entity: Entity, slot: 'primary' | 'secondary'): Weapon | undefined {
   if (entity.weapons) return slot === 'primary' ? entity.weapons.primary : entity.weapons.secondary;
   return slot === 'primary' ? entity.weapon : undefined;
+}
+
+function scatterBombImpact(sim: GameSim, attacker: Entity, intendedX: number, intendedZ: number, range: number, maxRange: number): { x: number; z: number } {
+  const longT = smoothstep(135, maxRange, range);
+  if (longT <= 0) return { x: intendedX, z: intendedZ };
+  const seedX = Math.round(intendedX * 10);
+  const seedZ = Math.round(intendedZ * 10);
+  const seed = Math.imul(attacker.id, 73856093) ^ Math.imul(sim.tick + 1, 19349663) ^ Math.imul(seedX, 83492791) ^ seedZ;
+  const angle = hash2i(seed, attacker.id, 0xb04b) * Math.PI * 2;
+  const radius = Math.sqrt(hash2i(seed, sim.tick + 17, 0x51e9)) * (longT * longT) * 58;
+  return {
+    x: intendedX + Math.cos(angle) * radius,
+    z: intendedZ + Math.sin(angle) * radius,
+  };
 }

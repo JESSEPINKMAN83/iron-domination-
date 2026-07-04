@@ -105,7 +105,7 @@ export class FirstPersonController {
     const delta = this.input.consumeMouseDelta();
     if (this.mode === 'fps' && (delta.dx !== 0 || delta.dy !== 0)) {
       this.lookYaw = normalizeAngle(this.lookYaw - delta.dx * 0.0024);
-      this.lookPitch = MathUtils.clamp(this.lookPitch - delta.dy * 0.0018, MathUtils.degToRad(-18), MathUtils.degToRad(36));
+      this.lookPitch = MathUtils.clamp(this.lookPitch - delta.dy * 0.0018, MathUtils.degToRad(-18), MathUtils.degToRad(52));
     }
 
     if (this.mode === 'entering') {
@@ -177,8 +177,8 @@ export class FirstPersonController {
     const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
     const origin = new Vector3(entity.transform.x, groundY + 2.4, entity.transform.z);
     const horizontal = new Vector3(Math.sin(this.lookYaw), 0, Math.cos(this.lookYaw));
-    const pitchT = MathUtils.clamp((this.lookPitch - MathUtils.degToRad(-12)) / MathUtils.degToRad(48), 0, 1);
-    const range = MathUtils.lerp(34, 148, pitchT);
+    const pitchT = MathUtils.clamp((this.lookPitch - MathUtils.degToRad(-12)) / MathUtils.degToRad(64), 0, 1);
+    const range = MathUtils.lerp(34, 430, pitchT);
     const target = origin.addScaledVector(horizontal, range);
     target.y = sampleHeight(this.hf, target.x, target.z);
     return target;

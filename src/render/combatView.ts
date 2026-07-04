@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   BufferGeometry,
+  CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
   Float32BufferAttribute,
@@ -98,6 +99,8 @@ export class CombatView {
         for (const material of burst.materials) {
           if (material.userData.role === 'smoke') material.opacity = Math.min(0.42, age * 0.75) * life;
           else if (material.userData.role === 'shock') material.opacity = life * 0.48;
+          else if (material.userData.role === 'scorch') material.opacity = life * 0.34;
+          else if (material.userData.role === 'debris') material.opacity = life * 0.82;
           else material.opacity = life * 0.9;
         }
       } else {
@@ -119,7 +122,7 @@ export class CombatView {
     const from = new Vector3(event.fromX, fromY, event.fromZ);
     const to = new Vector3(event.toX, toY, event.toZ);
     const distance = Math.hypot(event.toX - event.fromX, event.toZ - event.fromZ);
-    const control = new Vector3((event.fromX + event.toX) / 2, Math.max(fromY, toY) + Math.min(42, distance * 0.34), (event.fromZ + event.toZ) / 2);
+    const control = new Vector3((event.fromX + event.toX) / 2, Math.max(fromY, toY) + Math.min(110, distance * 0.34), (event.fromZ + event.toZ) / 2);
     const group = this.makeBombMesh();
     group.position.copy(from);
     group.renderOrder = 60;
@@ -139,7 +142,7 @@ export class CombatView {
       control,
       to,
       elapsed: 0,
-      duration: Math.min(1.7, Math.max(0.85, distance / 92)),
+      duration: Math.min(3.2, Math.max(0.9, distance / 125)),
       event,
     });
   }
@@ -229,21 +232,36 @@ export class CombatView {
     const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xfff09a : 0xffb347, transparent: true, opacity: 0.9, depthWrite: false });
     const smokeMaterial = new MeshBasicMaterial({ color: 0x292520, transparent: true, opacity: 0.01, depthWrite: false });
     const shockMaterial = new MeshBasicMaterial({ color: 0xffd178, transparent: true, opacity: 0.48, depthWrite: false, side: 2 });
+    const scorchMaterial = new MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.34, depthWrite: false, side: 2 });
+    const debrisMaterial = new MeshBasicMaterial({ color: 0x15120f, transparent: true, opacity: 0.82 });
     smokeMaterial.userData.role = 'smoke';
     shockMaterial.userData.role = 'shock';
+    scorchMaterial.userData.role = 'scorch';
+    debrisMaterial.userData.role = 'debris';
     fireMaterial.userData.role = 'fire';
     const fireball = new Mesh(new SphereGeometry(killed ? 9.2 : 7.8, 18, 12), fireMaterial);
     const smoke = new Mesh(new SphereGeometry(killed ? 10.4 : 8.8, 12, 8), smokeMaterial);
     const shock = new Mesh(new RingGeometry(5.2, killed ? 16.5 : 14.2, 44), shockMaterial);
+    const scorch = new Mesh(new CircleGeometry(killed ? 12.5 : 10.5, 40), scorchMaterial);
     fireball.position.y = 2.2;
     smoke.position.y = 4.2;
     shock.rotation.x = -Math.PI / 2;
     shock.position.y = 0.16;
-    group.add(shock, fireball, smoke);
+    scorch.rotation.x = -Math.PI / 2;
+    scorch.position.y = 0.08;
+    group.add(scorch, shock, fireball, smoke);
+    for (let i = 0; i < 10; i++) {
+      const debris = new Mesh(new BoxGeometry(0.9, 0.28, 0.44), debrisMaterial);
+      const angle = (i / 10) * Math.PI * 2 + (i % 2) * 0.18;
+      const radius = 2.5 + (i % 4) * 1.25;
+      debris.position.set(Math.cos(angle) * radius, 0.9 + (i % 3) * 0.5, Math.sin(angle) * radius);
+      debris.rotation.set(0.45 + i * 0.13, angle, 0.25 + i * 0.17);
+      group.add(debris);
+    }
     group.position.set(x, y, z);
     group.renderOrder = 55;
     const ttl = killed ? 1.55 : 1.35;
-    this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial] });
+    this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial] });
     this.group.add(group);
   }
 }
