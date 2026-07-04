@@ -1,11 +1,13 @@
 import {
   BoxGeometry,
   CylinderGeometry,
+  DoubleSide,
   Group,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  PlaneGeometry,
   RingGeometry,
   type Camera,
   type Material,
@@ -26,6 +28,8 @@ export class UnitView {
   private readonly accentMaterial: Material;
   private readonly enemyAccentMaterial: Material;
   private readonly ringMaterial: Material;
+  private readonly healthBackMaterial: Material;
+  private readonly healthBars = new Map<Entity, { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial }>();
 
   constructor(entities: Entity[], private readonly hf: Heightfield, ctx: RenderContext) {
     this.hullMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x65787f, roughness: 0.78, metalness: 0.08 }));
@@ -37,6 +41,13 @@ export class UnitView {
       new MeshStandardMaterial({ color: 0xd65b46, emissive: 0x2a0600, roughness: 0.72, metalness: 0.08 }),
     );
     this.ringMaterial = new MeshBasicMaterial({ color: 0x7df27d, transparent: true, opacity: 0.72, depthWrite: false });
+    this.healthBackMaterial = new MeshBasicMaterial({
+      color: 0x050806,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+      side: DoubleSide,
+    });
 
     for (const entity of entities) this.addEntity(entity);
   }
@@ -64,6 +75,12 @@ export class UnitView {
     ring.renderOrder = 30;
     this.selectedRings.set(entity, ring);
     this.group.add(ring);
+
+    if (entity.health) {
+      const healthBar = createHealthBar(this.healthBackMaterial);
+      this.healthBars.set(entity, healthBar);
+      this.group.add(healthBar.root);
+    }
   }
 
   attach(scene: Scene): void {
@@ -74,7 +91,7 @@ export class UnitView {
     return this.entities.length;
   }
 
-  update(alpha: number): void {
+  update(alpha: number, camera: Camera): void {
     for (const entity of this.entities) {
       const obj = this.objects.get(entity);
       const ring = this.selectedRings.get(entity);
@@ -82,6 +99,8 @@ export class UnitView {
       if (entity.destroyed?.remaining !== undefined && entity.destroyed.remaining <= 0) {
         obj.visible = false;
         ring.visible = false;
+        const healthBar = this.healthBars.get(entity);
+        if (healthBar) healthBar.root.visible = false;
         continue;
       }
       const x = lerp(entity.previousTransform.x, entity.transform.x, alpha);
@@ -94,6 +113,7 @@ export class UnitView {
       obj.scale.y = entity.destroyed ? 0.45 : 1;
       ring.position.set(x, sampleHeight(this.hf, x, z) + 0.08, z);
       ring.visible = !entity.destroyed && (entity.selectable?.selected ?? false);
+      this.updateHealthBar(entity, x, y, z, camera);
     }
   }
 
@@ -136,6 +156,37 @@ export class UnitView {
     }
     return out;
   }
+
+  private updateHealthBar(entity: Entity, x: number, y: number, z: number, camera: Camera): void {
+    const healthBar = this.healthBars.get(entity);
+    if (!healthBar || !entity.health) return;
+    const pct = Math.max(0, Math.min(1, entity.health.current / entity.health.max));
+    const selected = entity.selectable?.selected ?? false;
+    healthBar.root.visible = !entity.destroyed && (selected || pct < 0.995);
+    if (!healthBar.root.visible) return;
+    healthBar.root.position.set(x, y + (entity.selectable?.type === 'infantry' ? 2.6 : 4.9), z);
+    healthBar.root.lookAt(camera.position);
+    healthBar.fill.scale.x = Math.max(0.02, pct);
+    healthBar.fill.position.x = -1.8 * (1 - pct);
+    healthBar.fillMaterial.color.setHex(pct < 0.3 ? 0xff5142 : pct < 0.62 ? 0xffc04a : 0x79f06f);
+  }
+}
+
+function createHealthBar(backMaterial: Material): { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial } {
+  const root = new Group();
+  root.visible = false;
+
+  const back = new Mesh(new PlaneGeometry(4.1, 0.48), backMaterial);
+  back.renderOrder = 42;
+  root.add(back);
+
+  const fillMaterial = new MeshBasicMaterial({ color: 0x79f06f, transparent: true, opacity: 0.92, depthWrite: false, side: DoubleSide });
+  const fill = new Mesh(new PlaneGeometry(3.6, 0.22), fillMaterial);
+  fill.position.z = 0.02;
+  fill.renderOrder = 43;
+  root.add(fill);
+
+  return { root, fill, fillMaterial };
 }
 
 function createTankObject(hullMaterial: Material, turretMaterial: Material, accentMaterial: Material): Group {

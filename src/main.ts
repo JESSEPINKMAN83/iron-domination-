@@ -8,6 +8,7 @@ import { AssetPipeline } from './render/assets';
 import { BuildingView } from './render/buildingView';
 import { CombatView } from './render/combatView';
 import { InstancedMeshRegistry } from './render/instancing';
+import { OrderMarkerView } from './render/orderMarkerView';
 import { RenderContext } from './render/renderer';
 import { buildScatter } from './render/scatter';
 import { TerrainView } from './render/terrainMesh';
@@ -75,29 +76,42 @@ async function boot(): Promise<void> {
   ctx.scene.add(buildingView.group);
   const combatView = new CombatView(hf);
   ctx.scene.add(combatView.group);
+  const orderMarkers = new OrderMarkerView(hf);
+  ctx.scene.add(orderMarkers.group);
 
   const rig = new RtsCameraRig(ctx.camera, input, hf);
-  const controller = new RtsController(ctx.renderer.domElement, ctx.camera, hf, sim, unitView, {
-    isPlacing: () => economy.placement !== undefined,
-    preview: (x, z) => {
-      if (economy.selectedStructure) economy.placement = updatePlacement(sim, hf, economy.selectedStructure, x, z);
-    },
-    confirm: (x, z) => {
-      if (!economy.selectedStructure) return;
-      const placement = updatePlacement(sim, hf, economy.selectedStructure, x, z);
-      const placed = placeStructure(sim, hf, economy, placement);
-      if (placed) {
+  const controller = new RtsController(
+    ctx.renderer.domElement,
+    ctx.camera,
+    hf,
+    sim,
+    unitView,
+    {
+      isPlacing: () => economy.placement !== undefined,
+      preview: (x, z) => {
+        if (economy.selectedStructure) economy.placement = updatePlacement(sim, hf, economy.selectedStructure, x, z);
+      },
+      confirm: (x, z) => {
+        if (!economy.selectedStructure) return;
+        const placement = updatePlacement(sim, hf, economy.selectedStructure, x, z);
+        const placed = placeStructure(sim, hf, economy, placement);
+        if (placed) {
+          economy.selectedStructure = undefined;
+          economy.placement = undefined;
+        } else {
+          economy.placement = placement;
+        }
+      },
+      cancel: () => {
         economy.selectedStructure = undefined;
         economy.placement = undefined;
-      } else {
-        economy.placement = placement;
-      }
+      },
     },
-    cancel: () => {
-      economy.selectedStructure = undefined;
-      economy.placement = undefined;
+    buildingView,
+    {
+      showOrder: (x, z, kind) => orderMarkers.push(x, z, kind),
     },
-  }, buildingView);
+  );
   const hud = new Hud(document.body);
   const sidebar = new Sidebar(sim, hf, economy, {
     buildStructure: (kind) => {
@@ -136,9 +150,10 @@ async function boot(): Promise<void> {
     },
     render: (alpha, dt, time) => {
       rig.update(dt);
-      unitView.update(alpha);
+      unitView.update(alpha, ctx.camera);
       buildingView.update(economy);
       combatView.update(dt);
+      orderMarkers.update(dt);
       water.update(time);
       ctx.render(dt);
       sidebar.update();

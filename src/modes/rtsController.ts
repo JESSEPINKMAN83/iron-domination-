@@ -16,6 +16,10 @@ export interface BuildingPicker {
   pickAt(x: number, z: number): Entity | undefined;
 }
 
+export interface OrderFeedback {
+  showOrder(x: number, z: number, kind: 'move' | 'attack'): void;
+}
+
 interface PointerState {
   x: number;
   y: number;
@@ -40,6 +44,7 @@ export class RtsController {
     private readonly units: UnitView,
     private readonly placement?: PlacementControls,
     private readonly buildings?: BuildingPicker,
+    private readonly orderFeedback?: OrderFeedback,
   ) {
     this.selectionBox = document.createElement('div');
     this.selectionBox.style.cssText =
@@ -118,8 +123,14 @@ export class RtsController {
     if (down.button === 2 && !dragged && performance.now() - down.time < 350) {
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (p) {
-        const selected = selectedEntities(this.sim);
-        issueMoveOrder(this.sim, selected, p.x, p.z, this.isAttackMoveQueued());
+        const selected = selectedEntities(this.sim).filter((entity) => entity.mover);
+        const target = this.sim.nav.nearestWalkableCell(p.x, p.z);
+        const attackMove = this.isAttackMoveQueued();
+        if (selected.length > 0 && target) {
+          const destination = this.sim.nav.cellCenter(target.x, target.y);
+          issueMoveOrder(this.sim, selected, destination.x, destination.z, attackMove);
+          this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack' : 'move');
+        }
         this.attackMoveQueued = false;
       }
     }
