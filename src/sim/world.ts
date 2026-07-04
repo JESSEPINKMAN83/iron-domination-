@@ -322,6 +322,7 @@ interface AircraftVariant {
 function spawnAircraftAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team: number, variant: AircraftVariant): Entity {
   const ground = sampleHeight(hf, x, z);
   const y = ground + variant.cruiseAltitude;
+  const aircraftPrimaryWeapon = { kind: variant.primary, range: variant.primaryRange, cooldown: 0 };
   return sim.world.add({
     id: sim.nextEntityId++,
     name,
@@ -345,9 +346,10 @@ function spawnAircraftAt(sim: GameSim, hf: Heightfield, x: number, z: number, na
       bank: 0,
       verticalVelocity: 0,
     },
-    weapon: { kind: variant.primary, range: variant.primaryRange, cooldown: 0 },
+    // primary shares one object with weapons.primary so cooldown ticks stay in sync
+    weapon: aircraftPrimaryWeapon,
     weapons: {
-      primary: { kind: variant.primary, range: variant.primaryRange, cooldown: 0 },
+      primary: aircraftPrimaryWeapon,
       secondary: variant.secondary
         ? { kind: variant.secondary, range: variant.secondaryRange ?? variant.primaryRange, cooldown: 0, salvoCount: variant.secondarySalvoCount }
         : undefined,

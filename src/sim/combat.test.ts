@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { damageForArmor, manualFireAt, stepCombat } from './combat';
-import { createEconomy, createInitialBase, placeStructure, startStructureBuild, stepEconomy, updatePlacement } from './economy';
+import { createEconomy, createInitialBase, placeStructure, spawnInfantryAt, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
 import { createGameSim, hashSim, spawnTankAt, spawnVultureAt, stepSim } from './world';
@@ -442,6 +442,31 @@ describe('phase 4 combat simulation', () => {
       trajectory: 'flat',
     });
     expect(damage.cells[cellIndex(damage, facadeCol, rz, 1)]).toBeGreaterThan(facadeUpperBefore);
+  });
+
+  it('does not auto-engage aircraft beyond the shooter vision, even within airRange', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    // rocket-infantry: vision 94, aaMissile airRange 145
+    const rockets = spawnInfantryAt(sim, 0, 0, 1, 'rocket-infantry');
+    const visionRadius = rockets.vision?.radius ?? 0;
+    expect(visionRadius).toBeLessThan(145);
+    // enemy vulture parked beyond vision but well inside aaMissile airRange
+    const distance = (visionRadius + 145) / 2;
+    spawnVultureAt(sim, hf, distance, 0, 'Vulture 1', 2);
+
+    for (let i = 0; i < 30 * 3; i++) stepCombat(sim, 1 / 30);
+    expect(sim.projectiles.some((p) => p.kind === 'aaMissile')).toBe(false);
+    expect(sim.events.some((e) => e.kind === 'aaMissile')).toBe(false);
+
+    // sanity: once the aircraft is inside vision, the rocket team DOES fire an AA missile
+    spawnVultureAt(sim, hf, visionRadius - 20, 0, 'Vulture 2', 2);
+    let fired = false;
+    for (let i = 0; i < 30 * 3 && !fired; i++) {
+      stepCombat(sim, 1 / 30);
+      fired = sim.projectiles.some((p) => p.kind === 'aaMissile') || sim.events.some((e) => e.kind === 'aaMissile');
+    }
+    expect(fired).toBe(true);
   });
 });
 

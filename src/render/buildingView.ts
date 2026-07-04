@@ -140,15 +140,22 @@ export class BuildingView {
       object.root.position.set(entity.transform.x, groundY, entity.transform.z);
       object.root.scale.y = entity.destroyed ? 1 : progress;
 
-      const fogged = entity.team?.id !== 1 && !this.isVisible(entity.transform.x, entity.transform.z);
+      const currentlyVisible = entity.team?.id === 1 || this.isVisible(entity.transform.x, entity.transform.z);
+      if (currentlyVisible) object.everSeen = true;
+      const fogged = !currentlyVisible;
+      // enemy buildings never scouted stay hidden; once seen they persist as a frozen ghost
+      object.root.visible = object.everSeen;
+      if (!object.root.visible) continue;
+
       if (!fogged) this.applyDamageDressing(entity, object);
       object.root.rotation.x = entity.destroyed ? 0 : object.leanX;
       object.root.rotation.z = entity.destroyed ? object.leanZ * 0.35 : object.leanZ;
       this.updateDamageEffects(entity, object, camera);
-      this.updateRefineryDock(entity, object);
+      // fogged enemy buildings freeze — no live health/dock intel through the shroud
+      this.updateRefineryDock(entity, object, fogged);
       this.updateSelectionGlow(entity, groundY);
       this.updateProducerGlow(entity, groundY);
-      this.updateHealthBar(entity, groundY, camera);
+      this.updateHealthBar(entity, groundY, camera, fogged);
     }
     this.updateGhost(economy.placement);
   }
@@ -231,6 +238,7 @@ export class BuildingView {
       leanX: 0,
       leanZ: 0,
       collapsed: false,
+      everSeen: false,
     };
   }
 
@@ -322,10 +330,11 @@ export class BuildingView {
     }
   }
 
-  private updateRefineryDock(entity: Entity, object: BuildingObject): void {
+  private updateRefineryDock(entity: Entity, object: BuildingObject, fogged: boolean): void {
     const dock = object.refineryDock;
     if (!dock) return;
-    dock.root.visible = !entity.destroyed;
+    // freeze dock activity while fogged so enemy harvest state doesn't leak through fog
+    dock.root.visible = !entity.destroyed && !fogged;
     if (!dock.root.visible) return;
     let returning = false;
     let depositing = false;
@@ -373,9 +382,14 @@ export class BuildingView {
     }
   }
 
-  private updateHealthBar(entity: Entity, groundY: number, camera: Camera): void {
+  private updateHealthBar(entity: Entity, groundY: number, camera: Camera, fogged: boolean): void {
     const healthBar = this.healthBars.get(entity);
     if (!healthBar || !entity.health || !entity.building) return;
+    // a fogged enemy building must not reveal that it's taking damage
+    if (fogged) {
+      healthBar.root.visible = false;
+      return;
+    }
     const pct = Math.max(0, Math.min(1, entity.health.current / entity.health.max));
     const selected = entity.selectable?.selected ?? false;
     healthBar.root.visible = !entity.destroyed && (selected || pct < 0.995);
@@ -442,6 +456,8 @@ interface BuildingObject {
   leanX: number;
   leanZ: number;
   collapsed: boolean;
+  /** enemy buildings render only after being scouted once, then stay as a frozen ghost */
+  everSeen: boolean;
 }
 
 interface RefineryDock {

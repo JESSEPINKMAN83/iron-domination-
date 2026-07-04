@@ -444,17 +444,19 @@ function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: numb
   if (!weapon.targetId) return undefined;
   const target = Array.from(sim.world.entities).find((entity) => entity.id === weapon.targetId);
   if (!target || !isWeaponTargetable(attacker, weapon, target)) return undefined;
+  const visionCap = attacker.vision?.radius ?? range;
   const d = distance(attacker, target);
-  return d <= effectiveRangeForTarget(weapon.kind as WeaponKind, target, range) && d >= minimumRangeForWeapon(weapon.kind as WeaponKind) ? target : undefined;
+  return d <= effectiveRangeForTarget(weapon.kind as WeaponKind, target, range, visionCap) && d >= minimumRangeForWeapon(weapon.kind as WeaponKind) ? target : undefined;
 }
 
 function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
   let best: Entity | undefined;
   let bestScore = Number.POSITIVE_INFINITY;
+  const visionCap = attacker.vision?.radius ?? range;
   for (const candidate of sim.world.entities) {
     if (!isWeaponTargetable(attacker, weapon, candidate)) continue;
     const d = distance(attacker, candidate);
-    if (d > effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range)) continue;
+    if (d > effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range, visionCap)) continue;
     if (d < minimumRangeForWeapon(weapon.kind as WeaponKind)) continue;
     // the player's possessed unit reads as high-value — AI applies pressure to it
     const score = candidate.playerControlled ? d * 0.55 : d;
@@ -469,12 +471,13 @@ function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: nu
 function acquireLineTarget(sim: GameSim, attacker: Entity, weapon: Weapon, ux: number, uz: number, range: number): Entity | undefined {
   let best: Entity | undefined;
   let bestAlong = range;
+  const visionCap = attacker.vision?.radius ?? range;
   for (const candidate of sim.world.entities) {
     if (!isWeaponTargetable(attacker, weapon, candidate)) continue;
     const dx = candidate.transform.x - attacker.transform.x;
     const dz = candidate.transform.z - attacker.transform.z;
     const along = dx * ux + dz * uz;
-    const targetRange = effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range);
+    const targetRange = effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range, visionCap);
     if (along < 0 || along > targetRange || along > bestAlong) continue;
     if (along < minimumRangeForWeapon(weapon.kind as WeaponKind)) continue;
     const perp = Math.abs(dx * uz - dz * ux);
@@ -505,6 +508,11 @@ function entityById(sim: GameSim, id: number): Entity | undefined {
   return Array.from(sim.world.entities).find((entity) => entity.id === id);
 }
 
+// Intentional design: when a base building/harvester is hit, nearby defenders rally
+// toward the attacker even if they can't personally see it — a "base alarm". This
+// only drives MOVEMENT toward the attacker's last known spot; actual firing stays
+// vision-gated in validTarget/acquireTarget, so it is not a fog-honesty violation
+// (defenders that arrive without line of sight simply won't shoot).
 function alertEconomyDefenders(sim: GameSim, damaged: Entity, attacker?: Entity): void {
   if (!attacker?.team || (!damaged.building && !damaged.harvester) || !damaged.team || damaged.destroyed) return;
   if (attacker.team.id === damaged.team.id) return;
@@ -569,9 +577,13 @@ function directDamageForTarget(kind: WeaponKind, target: Entity): number {
   return damageForArmor(kind, target.armor.kind);
 }
 
-function effectiveRangeForTarget(kind: WeaponKind, target: Entity, range: number): number {
+// Air targets use the weapon's dedicated airRange, but a unit may never auto-engage
+// beyond its own vision (fog-honesty invariant). visionCap carries that limit; ground
+// targets already had it folded into `range` by the caller.
+function effectiveRangeForTarget(kind: WeaponKind, target: Entity, range: number, visionCap: number): number {
   const def = WEAPONS[kind];
-  return target.armor?.kind === 'air' ? (def.airRange ?? range) : range;
+  if (target.armor?.kind !== 'air') return range;
+  return Math.min(def.airRange ?? range, visionCap);
 }
 
 function minimumRangeForWeapon(kind: WeaponKind): number {
