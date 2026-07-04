@@ -3,7 +3,7 @@ import { angleDelta, slewAngle } from './angles';
 import type { Entity, Weapon } from './components';
 import { hash2i, smoothstep } from './noise';
 import { applyStructureDamage } from './structureDamage';
-import { stopEntities, type GameSim } from './world';
+import { entityById, stopEntities, type GameSim } from './world';
 
 /** Cannons may only fire once the turret has traversed onto the bearing. */
 const AIM_TOLERANCE = 0.12;
@@ -442,7 +442,7 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
 
 function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
   if (!weapon.targetId) return undefined;
-  const target = Array.from(sim.world.entities).find((entity) => entity.id === weapon.targetId);
+  const target = entityById(sim, weapon.targetId);
   if (!target || !isWeaponTargetable(attacker, weapon, target)) return undefined;
   const visionCap = attacker.vision?.radius ?? range;
   const d = distance(attacker, target);
@@ -502,10 +502,6 @@ function isTargetable(attacker: Entity, target: Entity): boolean {
   if (attacker === target) return false;
   if (!attacker.team || !target.team) return false;
   return targetableByTeam(attacker.team.id, target);
-}
-
-function entityById(sim: GameSim, id: number): Entity | undefined {
-  return Array.from(sim.world.entities).find((entity) => entity.id === id);
 }
 
 // Intentional design: when a base building/harvester is hit, nearby defenders rally

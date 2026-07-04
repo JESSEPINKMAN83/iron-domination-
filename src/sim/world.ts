@@ -78,16 +78,27 @@ export interface GameSim {
   nav: NavigationGrid;
   movers: Query<With<Entity, 'transform' | 'previousTransform' | 'velocity' | 'mover'>>;
   selectables: Query<With<Entity, 'transform' | 'selectable'>>;
+  /** incrementally-maintained query of all buildings — avoids full-world rescans per tick */
+  buildingsQuery: Query<With<Entity, 'building'>>;
   events: CombatEvent[];
   projectiles: Projectile[];
   resourceNodes: ResourceNode[];
   tick: number;
   /** monotonically increasing entity id — sim-scoped so runs stay deterministic */
   nextEntityId: number;
+  /** id → entity index, kept in sync with world add/remove for O(1) lookups */
+  byId: Map<number, Entity>;
 }
 
 export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = []): GameSim {
   const world = new World<Entity>();
+  const byId = new Map<number, Entity>();
+  world.onEntityAdded.subscribe((entity) => {
+    if (entity.id !== undefined) byId.set(entity.id, entity);
+  });
+  world.onEntityRemoved.subscribe((entity) => {
+    if (entity.id !== undefined) byId.delete(entity.id);
+  });
   const resourceNodes = hf.oreFields.map((field, index) => {
     const capacity = Math.round(field.radius * field.radius * 5);
     return {
@@ -105,12 +116,19 @@ export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = 
     nav: new NavigationGrid(hf, footprints),
     movers: world.with('transform', 'previousTransform', 'velocity', 'mover'),
     selectables: world.with('transform', 'selectable'),
+    buildingsQuery: world.with('building'),
     events: [],
     projectiles: [],
     resourceNodes,
     tick: 0,
     nextEntityId: 1,
+    byId,
   };
+}
+
+/** O(1) entity lookup by id (see GameSim.byId). */
+export function entityById(sim: GameSim, id: number | undefined): Entity | undefined {
+  return id === undefined ? undefined : sim.byId.get(id);
 }
 
 export function spawnDebugTanks(sim: GameSim, hf: Heightfield, count = 120, seed = 0x2a11): Entity[] {

@@ -368,7 +368,12 @@ export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState
 }
 
 export function buildings(sim: GameSim, team?: number): Entity[] {
-  return Array.from(sim.world.entities).filter((entity) => entity.building && (team === undefined || entity.team?.id === team));
+  // iterate the incrementally-maintained buildings query, not the whole world
+  const out: Entity[] = [];
+  for (const entity of sim.buildingsQuery) {
+    if (team === undefined || entity.team?.id === team) out.push(entity);
+  }
+  return out;
 }
 
 export function hasStructure(sim: GameSim, kind: StructureKind, team = 1): boolean {
