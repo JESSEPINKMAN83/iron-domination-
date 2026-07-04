@@ -33,6 +33,99 @@ AI acceptance match.
 
 ---
 
+## Phase 6.4 — Command Sidebar Rework, C&C/Red-Alert-style (DO THIS FIRST)
+
+User playtest finding: the panel is hard to work with — switching between building
+construction and unit production is confusing, there's no visible queue ("I want to
+click 4 tanks and have them build one by one"), and clicking a building doesn't
+clearly show what it can produce. Rebuild the sidebar to match the conventions the
+C&C / Red Alert series established — these are the reference behaviors, spec'd below
+so no external reading is needed.
+
+### 6.4.1 Reference model (how RA does it — implement this contract)
+
+- The sidebar is **always fully visible**: radar on top, category tabs, then a grid of
+  build icons. Nothing ever replaces the tabs or hides the grid. Categories:
+  **BUILDINGS / DEFENSE / INFANTRY / VEHICLES** (AIRCRAFT arrives in Phase 6.5).
+  Move `aa-turret`-class defenses to DEFENSE when they exist; until then keep the tab
+  present but empty-with-hint (it teaches the layout).
+- **Click an icon = queue one. Click it four times = queue four.** The icon shows a
+  **queue badge (`×4`)** and the active item shows a **progress sweep** (radial
+  conic-gradient fill over the icon + % text). Items build strictly one at a time per
+  production line, auto-advancing through the queue.
+- **Right-click an icon = cancel/dequeue one** (full refund, ledger `refund` entry).
+  Right-click again keeps removing; canceling the active item refunds and advances.
+- **Buildings build in the sidebar, then you place them** (this is the C&C signature):
+  click a structure icon → progress sweep runs on the icon (no ghost yet) → icon
+  pulses **READY** → click it → placement ghost appears → click terrain to place an
+  (instantly complete) building with a fast 1 s scaffold-rise animation. Right-click
+  or Escape while placing returns to READY (not canceled). Only **one structure line**
+  total (classic construction-yard rule). Canceling a READY or in-progress structure
+  refunds fully.
+- **Units queue per production building, in parallel** (already in the sim:
+  `queueUnit` picks the least-busy producer; queue cap 5 per producer). The category
+  card shows the **aggregate** badge (sum over producers of that type).
+- **Selecting a production building** must answer "what can this make?": keep the
+  normal grid visible, auto-highlight its category tab, and show a compact
+  **SELECTED strip** between tabs and grid: building icon + name + health, its
+  personal queue as mini-icons with the active item's %, a rally-flag button state,
+  and "primary" toggle. Clicking unit cards while it's selected queues into *that*
+  building (already supported via `preferredProducer`).
+- **Primary factory**: selecting a producer and clicking the SELECTED strip's star
+  sets it as primary; sidebar unit clicks go to the primary when set (fall back to
+  least-busy). Classic RA2 behavior.
+- **Rally points**: with a producer selected, right-click on terrain sets
+  `producer.rally` (show a small flag marker via `orderMarkerView`); produced units
+  immediately `issueMoveOrder` to the rally. (`Producer.rally` already exists in
+  components — it's currently unwired.)
+- Disabled/blocked states: missing prerequisite → dark icon + lock reason (tooltip
+  already exists — also render the reason as a small caption, tooltips are easy to
+  miss); unaffordable → normal icon, red cost, click flashes the credits readout
+  (deny with feedback, don't silently ignore); queue full → badge flashes.
+- Low power: PWR readout turns red and active sweeps visibly slow (production scale
+  0.45 already in the sim — surface it with a "LOW POWER" tag on the status bar).
+- Tab affordances: a small activity dot on any tab that has an active build; the
+  BUILDINGS tab pulses when a structure is READY for placement.
+
+### 6.4.2 Implementation notes
+
+- All of this is UI + thin sim additions. Sim changes needed:
+  - `startStructureBuild(sim, economy, kind)` / `cancelStructureBuild` /
+    `economy.structureLine: { kind, remaining, total } | undefined` and
+    `economy.readyStructure?: StructureKind` — move construction time off the placed
+    entity (placement now spawns a complete building; keep a brief cosmetic scaffold
+    in `buildingView`). Keep everything deterministic and per-team — **the AI
+    commander must go through the same functions** (place = instant is a buff to AI
+    too; retest `src/ai/acceptance.spec.ts` pacing and retune `attackDelay` if the
+    match shortens materially).
+  - Wire `producer.rally` in `spawnProducedUnit`.
+- `sidebar.ts` is DOM-based with a `bodyKey` diffing hack — a rewrite to small
+  render-on-change components is fine, but keep it dependency-free DOM (no React
+  needed at this scope) and keep `pointerdown` on the sidebar from leaking into
+  world selection/orders (stopPropagation, as today).
+- Progress sweep: CSS `conic-gradient` overlay div on the icon, updated at ~10 Hz.
+- Keep keyboard focus rules: sidebar buttons must not steal Space/WASD (buttons get
+  `tabindex="-1"`; never call `focus()`).
+- Update the F1 help text for the new flows (queue, cancel, rally, primary).
+
+### 6.4.3 Acceptance
+
+1. Click the tank card 4× → `×4` badge; tanks roll out one by one; with a rally flag
+   set they drive to it. Two factories + 6 queued → work distributes; selecting each
+   factory shows its own line in the SELECTED strip.
+2. Select a barracks → INFANTRY tab highlights, SELECTED strip appears, and queueing
+   from the grid feeds that barracks. It is never unclear what a selected building
+   can produce.
+3. Structure flow: click power plant → sweep on icon → READY pulse → click → ghost →
+   place → 1 s scaffold rise. Escape during placement returns to READY. Right-click
+   mid-build cancels with full refund (ledger matches).
+4. Right-click dequeues units one at a time with correct refunds.
+5. Unaffordable/locked/queue-full each give visible feedback at the click site.
+6. All existing tests green; AI acceptance still lands in a sane window after the
+   instant-placement change.
+
+---
+
 ## Phase 6.5 — ★ Combat Aircraft & Aerial Possession (CRUCIAL — biggest budget)
 
 The user's headline feature: combat aircraft that fight in the RTS layer **and fly
