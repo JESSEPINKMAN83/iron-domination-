@@ -132,11 +132,11 @@ async function boot(): Promise<void> {
     {
       isPlacing: () => economy.placement !== undefined,
       preview: (x, z) => {
-        if (economy.selectedStructure) economy.placement = updatePlacement(sim, hf, economy.selectedStructure, x, z);
+        if (economy.selectedStructure) economy.placement = updatePlacement(sim, hf, economy.selectedStructure, x, z, economy.team, economy);
       },
       confirm: (x, z) => {
         if (!economy.selectedStructure) return;
-        const placement = updatePlacement(sim, hf, economy.selectedStructure, x, z);
+        const placement = updatePlacement(sim, hf, economy.selectedStructure, x, z, economy.team, economy);
         const placed = placeStructure(sim, hf, economy, placement);
         if (placed) {
           economy.selectedStructure = undefined;

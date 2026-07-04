@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
+import { STRUCTURES } from '../content/phase3';
 import { generateHeightfield } from './heightfield';
 import {
   buildings,
@@ -97,6 +98,61 @@ describe('phase 3 economy and production', () => {
     for (let i = 0; i < MAX_PRODUCER_JOBS; i++) expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(true);
     expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(false);
     expect(barracks.producer?.queue.length).toBe(MAX_PRODUCER_JOBS);
+  });
+
+  it('previews and places missing wall segments between two wall anchors', () => {
+    const hf = generateHeightfield(MAP01);
+    hf.walkable.fill(1);
+    const grid = hf.cellSize * 2;
+    let run:
+      | {
+          sim: ReturnType<typeof createGameSim>;
+          economy: ReturnType<typeof createEconomy>;
+          anchor: NonNullable<ReturnType<typeof placeStructure>>;
+          placement: ReturnType<typeof updatePlacement>;
+      }
+      | undefined;
+
+    for (let z = -grid * 6; z <= grid * 6; z += grid * 3) {
+      for (let x = -grid * 6; x <= grid * 6; x += grid * 3) {
+        const sim = createGameSim(hf);
+        const economy = createEconomy(1, 2200);
+        economy.readyStructure = 'wall';
+        const anchorPlacement = { kind: 'wall' as const, x: Math.round(x / grid) * grid, z: Math.round(z / grid) * grid, valid: true, reason: '' };
+        const anchor = placeStructure(sim, hf, economy, anchorPlacement);
+        if (!anchor) continue;
+        economy.readyStructure = 'wall';
+        for (const direction of [
+          { x: 1, z: 0 },
+          { x: -1, z: 0 },
+          { x: 0, z: 1 },
+          { x: 0, z: -1 },
+        ]) {
+          const placement = updatePlacement(sim, hf, 'wall', anchor.transform.x + grid * 2 * direction.x, anchor.transform.z + grid * 2 * direction.z, economy.team, economy);
+          if (placement.valid && (placement.wallLine?.length ?? 0) === 2) {
+            run = { sim, economy, anchor, placement };
+            break;
+          }
+        }
+        if (run) break;
+      }
+      if (run) break;
+    }
+
+    expect(run).toBeDefined();
+    const { sim, economy, anchor, placement } = run!;
+    const beforeCredits = economy.credits;
+    expect(placement.extraCost).toBe((placement.wallLine!.length - 1) * STRUCTURES.wall.cost);
+    expect(placeStructure(sim, hf, economy, placement)).toBeDefined();
+    expect(economy.credits).toBe(beforeCredits - placement.extraCost!);
+
+    const walls = buildings(sim, economy.team).filter((entity) => entity.building?.kind === 'wall');
+    expect(walls).toHaveLength(3);
+    const dx = Math.sign(placement.wallLine![0].x - anchor.transform.x);
+    const dz = Math.sign(placement.wallLine![0].z - anchor.transform.z);
+    for (let i = 0; i <= 2; i++) {
+      expect(walls.some((wall) => Math.hypot(wall.transform.x - (anchor.transform.x + grid * dx * i), wall.transform.z - (anchor.transform.z + grid * dz * i)) < 0.1)).toBe(true);
+    }
   });
 
   it('refunds structure and unit cancels, and sends produced units to a rally', () => {

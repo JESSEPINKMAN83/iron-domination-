@@ -38,7 +38,11 @@ export interface PlacementState {
   z: number;
   valid: boolean;
   reason: string;
+  wallLine?: Array<{ x: number; z: number }>;
+  extraCost?: number;
 }
+
+const WALL_CHAIN_MAX_SEGMENTS = 28;
 
 export function createEconomy(team = 1, initialCredits = 4600): EconomyState {
   return {
@@ -105,9 +109,18 @@ export function canQueueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind
   return { ok: true, reason: '', producers };
 }
 
-export function updatePlacement(sim: GameSim, hf: Heightfield, kind: StructureKind, x: number, z: number, team = 1): PlacementState {
+export function updatePlacement(
+  sim: GameSim,
+  hf: Heightfield,
+  kind: StructureKind,
+  x: number,
+  z: number,
+  team = 1,
+  economy?: Pick<EconomyState, 'credits'>,
+): PlacementState {
   const def = STRUCTURES[kind];
   const snapped = snapToGrid(hf, x, z);
+  if (kind === 'wall') return updateWallPlacement(sim, hf, snapped.x, snapped.z, team, economy);
   const blocked = footprintBlocked(sim, hf, snapped.x, snapped.z, def.footprint);
   const near = nearFriendlyStructure(sim, snapped.x, snapped.z, 92, team);
   const valid = !blocked && near;
@@ -123,11 +136,35 @@ export function updatePlacement(sim: GameSim, hf: Heightfield, kind: StructureKi
 export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomyState, placement: PlacementState): Entity | undefined {
   const def = STRUCTURES[placement.kind];
   if (!placement.valid || economy.readyStructure !== placement.kind) return undefined;
+  const points = placement.wallLine?.length ? placement.wallLine : [{ x: placement.x, z: placement.z }];
+  const extraCost = placement.extraCost ?? Math.max(0, points.length - 1) * def.cost;
+  if (extraCost > 0) {
+    if (economy.credits < extraCost) return undefined;
+    spend(economy, sim.tick, `${def.label} line`, extraCost);
+  }
+  let first: Entity | undefined;
+  for (const point of points) {
+    const entity = createPlacedStructure(sim, hf, economy, def, point.x, point.z);
+    first ??= entity;
+  }
+  economy.readyStructure = undefined;
+  recomputePower(sim, economy);
+  return first;
+}
+
+function createPlacedStructure(
+  sim: GameSim,
+  hf: Heightfield,
+  economy: EconomyState,
+  def: (typeof STRUCTURES)[StructureKind],
+  x: number,
+  z: number,
+): Entity {
   const entity = sim.world.add({
     id: sim.nextEntityId++,
     name: def.label,
-    transform: { x: placement.x, z: placement.z, rot: 0 },
-    previousTransform: { x: placement.x, z: placement.z, rot: 0 },
+    transform: { x, z, rot: 0 },
+    previousTransform: { x, z, rot: 0 },
     health: { current: def.health ?? 900, max: def.health ?? 900 },
     team: { id: economy.team },
     vision: { radius: def.visionRadius ?? 90 },
@@ -148,8 +185,6 @@ export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomySt
     armor: { kind: 'building' },
   });
   if (def.blocksMovement) sim.nav.setDynamicBlocker(entity.id, entity.transform.x, entity.transform.z, entity.collider?.radius ?? 4);
-  economy.readyStructure = undefined;
-  recomputePower(sim, economy);
   return entity;
 }
 
@@ -394,6 +429,102 @@ function snapToGrid(hf: Heightfield, x: number, z: number): { x: number; z: numb
   return { x: Math.round(x / g) * g, z: Math.round(z / g) * g };
 }
 
+function updateWallPlacement(
+  sim: GameSim,
+  hf: Heightfield,
+  x: number,
+  z: number,
+  team: number,
+  economy?: Pick<EconomyState, 'credits'>,
+): PlacementState {
+  const def = STRUCTURES.wall;
+  const chain = bestWallChain(sim, hf, x, z, team);
+  if (chain) {
+    const missing = chain.points.filter((point) => !existingWallAt(sim, point.x, point.z, team));
+    const blocked = missing.some((point) => wallFootprintBlocked(sim, hf, point.x, point.z, team));
+    const extraCost = Math.max(0, missing.length - 1) * def.cost;
+    const affordable = economy ? economy.credits >= extraCost : true;
+    const valid = missing.length > 0 && !blocked && affordable;
+    return {
+      kind: 'wall',
+      x: chain.end.x,
+      z: chain.end.z,
+      valid,
+      reason: missing.length === 0 ? 'Already walled' : blocked ? 'Wall line blocked' : affordable ? '' : `Needs $${extraCost}`,
+      wallLine: missing,
+      extraCost,
+    };
+  }
+
+  const blocked = wallFootprintBlocked(sim, hf, x, z, team);
+  const near = nearFriendlyStructure(sim, x, z, 92, team);
+  return {
+    kind: 'wall',
+    x,
+    z,
+    valid: !blocked && near,
+    reason: blocked ? 'Blocked terrain or overlap' : near ? '' : 'Place near base',
+    wallLine: [{ x, z }],
+    extraCost: 0,
+  };
+}
+
+function bestWallChain(
+  sim: GameSim,
+  hf: Heightfield,
+  x: number,
+  z: number,
+  team: number,
+): { end: { x: number; z: number }; points: Array<{ x: number; z: number }>; score: number } | undefined {
+  const g = hf.cellSize * 2;
+  let best: { end: { x: number; z: number }; points: Array<{ x: number; z: number }>; score: number } | undefined;
+  for (const wall of buildings(sim, team)) {
+    if (wall.building?.kind !== 'wall' || !wall.building.complete) continue;
+    const chain = wallChainFromAnchor(hf, wall.transform.x, wall.transform.z, x, z);
+    if (!chain || chain.points.length > WALL_CHAIN_MAX_SEGMENTS || chain.score > g * 1.55) continue;
+    if (!best || chain.score < best.score) best = chain;
+  }
+  return best;
+}
+
+function wallChainFromAnchor(
+  hf: Heightfield,
+  anchorX: number,
+  anchorZ: number,
+  targetX: number,
+  targetZ: number,
+): { end: { x: number; z: number }; points: Array<{ x: number; z: number }>; score: number } | undefined {
+  const g = hf.cellSize * 2;
+  const dxSteps = Math.round((targetX - anchorX) / g);
+  const dzSteps = Math.round((targetZ - anchorZ) / g);
+  const absX = Math.abs(dxSteps);
+  const absZ = Math.abs(dzSteps);
+  if (absX === 0 && absZ === 0) return undefined;
+
+  let stepX = 0;
+  let stepZ = 0;
+  let steps = 0;
+  if (absX >= absZ * 2) {
+    stepX = Math.sign(dxSteps);
+    steps = absX;
+  } else if (absZ >= absX * 2) {
+    stepZ = Math.sign(dzSteps);
+    steps = absZ;
+  } else {
+    stepX = Math.sign(dxSteps);
+    stepZ = Math.sign(dzSteps);
+    steps = Math.max(absX, absZ);
+  }
+  if (steps < 2) return undefined;
+
+  const points: Array<{ x: number; z: number }> = [];
+  for (let i = 1; i <= steps; i++) {
+    points.push({ x: anchorX + stepX * g * i, z: anchorZ + stepZ * g * i });
+  }
+  const end = points[points.length - 1];
+  return { end, points, score: Math.hypot(end.x - targetX, end.z - targetZ) };
+}
+
 function footprintBlocked(sim: GameSim, hf: Heightfield, x: number, z: number, footprint: { w: number; h: number }): boolean {
   const halfW = footprint.w * hf.cellSize;
   const halfH = footprint.h * hf.cellSize;
@@ -405,6 +536,29 @@ function footprintBlocked(sim: GameSim, hf: Heightfield, x: number, z: number, f
   }
   const radius = Math.hypot(halfW, halfH);
   return buildings(sim).some((entity) => Math.hypot(entity.transform.x - x, entity.transform.z - z) < (entity.collider?.radius ?? 5) + radius);
+}
+
+function wallFootprintBlocked(sim: GameSim, hf: Heightfield, x: number, z: number, team: number): boolean {
+  const footprint = STRUCTURES.wall.footprint;
+  const halfW = footprint.w * hf.cellSize;
+  const halfH = footprint.h * hf.cellSize;
+  for (let dz = -halfH; dz <= halfH; dz += hf.cellSize * 2) {
+    for (let dx = -halfW; dx <= halfW; dx += hf.cellSize * 2) {
+      const cell = sim.nav.worldToCell(x + dx, z + dz);
+      if (!sim.nav.inBounds(cell.x, cell.y) || hf.walkable[sim.nav.index(cell.x, cell.y)] === 0) return true;
+    }
+  }
+  const radius = Math.hypot(halfW, halfH);
+  return buildings(sim).some((entity) => {
+    if (entity.building?.kind === 'wall' && entity.team?.id === team) return false;
+    return Math.hypot(entity.transform.x - x, entity.transform.z - z) < (entity.collider?.radius ?? 5) + radius;
+  });
+}
+
+function existingWallAt(sim: GameSim, x: number, z: number, team: number): boolean {
+  return buildings(sim, team).some(
+    (entity) => entity.building?.kind === 'wall' && entity.building.complete && Math.hypot(entity.transform.x - x, entity.transform.z - z) < 0.1,
+  );
 }
 
 function nearFriendlyStructure(sim: GameSim, x: number, z: number, radius: number, team: number): boolean {

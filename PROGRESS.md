@@ -443,6 +443,11 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Fixed sidebar context switching so selecting a Command Yard/Barracks/Factory/Helipad still
   jumps to its useful build tab once, but manual tab clicks remain responsive while the
   building stays selected.
+- Added wall-chain placement: when placing a ready Wall Segment near an existing friendly wall
+  in a straight/near-straight line, the placement preview now shows every missing segment and
+  confirmation builds the full connecting run while charging extra in-between wall costs.
+- Added regression coverage proving a wall anchor plus a second placed endpoint auto-fills the
+  missing segments and charges the extra line cost.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
@@ -460,15 +465,17 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Follow-up browser smoke passed after building-selection UX: Defense tab stayed responsive,
   a selected Refinery showed the new footprint glow and capability chips, and selected-building
   context remained visible while switching tabs.
-- `npm test` passes (33 Vitest tests). `npm run build` passes.
+- Follow-up browser smoke passed after wall-chain placement: Defense tab opened, Wall Segment
+  entered READY state, and the sidebar stayed responsive.
+- `npm test` passes (34 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,
   AI air usage, and polished flight HUD are still pending.
 - Right-click AG missile is a first-pass instant manual shot through weapon data; the planned
   hold-to-preview ground-impact marker and travel-time missile come next.
-- Wall placement is currently one segment per ready build. Drag-to-place wall chains and
-  smarter wall-line previews are still future UX polish.
+- Wall chaining is click-to-anchor based. Drag-to-place wall painting and richer wall-line UI
+  messaging are still future UX polish.
 - Browser automation cannot issue a true right-button drag, so the facing-order gesture is
   covered by sim tests plus a browser load/runtime smoke pass.
 - Hidden hit confirmations are intentionally temporary indicators, not fog reveal; the target

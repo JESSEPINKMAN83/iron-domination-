@@ -25,7 +25,8 @@ export class BuildingView {
   private readonly objects = new Map<Entity, Mesh>();
   private readonly selectedGlows = new Map<Entity, SelectionGlow>();
   private readonly healthBars = new Map<Entity, { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial }>();
-  private readonly ghost: Mesh;
+  private readonly ghosts: Mesh[] = [];
+  private readonly ghostMaterial = new MeshBasicMaterial({ color: 0x7df27d, transparent: true, opacity: 0.35, depthWrite: false });
   private readonly materials: Record<string, Material>;
   private readonly healthBackMaterial = new MeshBasicMaterial({ color: 0x050806, transparent: true, opacity: 0.84, depthWrite: false, side: DoubleSide });
 
@@ -48,10 +49,7 @@ export class BuildingView {
       'guard-tower': ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x59646a, roughness: 0.78, metalness: 0.14 })),
       'aa-tower': ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x4b5f6d, roughness: 0.74, metalness: 0.18 })),
     };
-    this.ghost = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color: 0x7df27d, transparent: true, opacity: 0.35, depthWrite: false }));
-    this.ghost.visible = false;
-    this.ghost.renderOrder = 40;
-    this.group.add(this.ghost);
+    this.ensureGhostCount(1);
   }
 
   update(economy: EconomyState, camera: Camera): void {
@@ -128,15 +126,31 @@ export class BuildingView {
 
   private updateGhost(placement?: PlacementState): void {
     if (!placement) {
-      this.ghost.visible = false;
+      for (const ghost of this.ghosts) ghost.visible = false;
       return;
     }
     const def = STRUCTURES[placement.kind as StructureKind];
-    this.ghost.visible = true;
-    this.ghost.scale.set(def.footprint.w * this.hf.cellSize * 2, 1.2, def.footprint.h * this.hf.cellSize * 2);
-    this.ghost.position.set(placement.x, sampleHeight(this.hf, placement.x, placement.z) + 0.65, placement.z);
-    const material = this.ghost.material as MeshBasicMaterial;
-    material.color.setHex(placement.valid ? 0x7df27d : 0xff4040);
+    const points = placement.wallLine?.length ? placement.wallLine : [{ x: placement.x, z: placement.z }];
+    this.ensureGhostCount(points.length);
+    this.ghostMaterial.color.setHex(placement.valid ? 0x7df27d : 0xff4040);
+    for (let i = 0; i < this.ghosts.length; i++) {
+      const ghost = this.ghosts[i];
+      const point = points[i];
+      ghost.visible = !!point;
+      if (!point) continue;
+      ghost.scale.set(def.footprint.w * this.hf.cellSize * 2, 1.2, def.footprint.h * this.hf.cellSize * 2);
+      ghost.position.set(point.x, sampleHeight(this.hf, point.x, point.z) + 0.65, point.z);
+    }
+  }
+
+  private ensureGhostCount(count: number): void {
+    while (this.ghosts.length < count) {
+      const ghost = new Mesh(new BoxGeometry(1, 1, 1), this.ghostMaterial);
+      ghost.visible = false;
+      ghost.renderOrder = 40;
+      this.ghosts.push(ghost);
+      this.group.add(ghost);
+    }
   }
 
   private updateHealthBar(entity: Entity, groundY: number, camera: Camera): void {
