@@ -155,5 +155,5 @@ export interface Entity {
 }
 
 export function copyTransform(t: Transform): Transform {
-  return { x: t.x, z: t.z, rot: t.rot };
+  return { x: t.x, y: t.y, z: t.z, rot: t.rot };
 }

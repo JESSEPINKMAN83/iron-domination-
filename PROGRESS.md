@@ -414,6 +414,14 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Fixed radar/minimap orientation so terrain, fog, unit dots, focus marker, and radar clicks
   all use the current RTS camera yaw; screen-down movement now reads as down on the radar
   instead of rotating sideways.
+- Swapped Vulture secondary fire onto the same visible ballistic bomb pipeline as tanks:
+  right-click now launches a bomb from aircraft altitude, while rocket pods remain left-click.
+- Smoothed aircraft V-mode chase camera by preserving altitude in transform history, using
+  render-interpolated aircraft positions, damping the camera anchor, and removing render-time
+  bob that made the helicopter read as flaky.
+- Rebalanced shared tank/Vulture bombs downward: lower direct damage, smaller splash radius,
+  longer reload, and a smaller/shorter explosion effect so these are tactical secondary
+  weapons rather than heavy super-bombs.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
@@ -421,7 +429,9 @@ drafted in `drafts/phase6/` (unwired, see its README).
   opened, and no console errors were reported.
 - Follow-up browser smoke passed after radar orientation fix: radar canvas loaded, radar click
   navigation executed successfully, and no console errors were reported.
-- `npm test` passes (28 Vitest tests). `npm run build` passes.
+- Follow-up browser smoke passed after aircraft bomb/smoothing work: produced a Vulture from
+  the aircraft tab, drag-selected it, entered `CHASE Vulture`, and right-clicked in chase mode.
+- `npm test` passes (29 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,

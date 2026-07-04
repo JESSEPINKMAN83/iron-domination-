@@ -256,7 +256,7 @@ async function boot(): Promise<void> {
       simTicks++;
     },
     render: (alpha, dt, time) => {
-      if (firstPerson.active) firstPerson.update(dt);
+      if (firstPerson.active) firstPerson.update(dt, alpha);
       else {
         rig.setGrabSuppressed(controller.isRightOrderGestureActive());
         rig.update(dt);

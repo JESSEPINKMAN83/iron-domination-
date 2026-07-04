@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { damageForArmor, manualFireAt, stepCombat } from './combat';
 import { createEconomy, createInitialBase, placeStructure, startStructureBuild, stepEconomy, updatePlacement } from './economy';
-import { generateHeightfield } from './heightfield';
+import { generateHeightfield, sampleHeight } from './heightfield';
 import { createGameSim, hashSim, spawnTankAt, spawnVultureAt } from './world';
 
 const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
@@ -13,8 +13,8 @@ describe('phase 4 combat simulation', () => {
   it('applies weapon damage matrix values', () => {
     expect(damageForArmor('rifle', 'heavy')).toBeCloseTo(2.2);
     expect(damageForArmor('cannon', 'heavy')).toBeCloseTo(5.76);
-    expect(damageForArmor('bomb', 'heavy')).toBeCloseTo(24.48);
-    expect(damageForArmor('bomb', 'building')).toBeCloseTo(15.3);
+    expect(damageForArmor('bomb', 'heavy')).toBeCloseTo(15.08);
+    expect(damageForArmor('bomb', 'building')).toBeCloseTo(7.8);
   });
 
   it('resolves a deterministic tank engagement and records combat events', () => {
@@ -86,7 +86,7 @@ describe('phase 4 combat simulation', () => {
     expect(impact?.targetMaxHealth).toBe(100);
     expect(primary.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeLessThan(100);
-    expect(nearby.health?.current).toBeGreaterThan(70);
+    expect(nearby.health?.current).toBeGreaterThan(90);
   });
 
   it('lets player-controlled bombs fire beyond normal range with deterministic scatter', () => {
@@ -155,6 +155,27 @@ describe('phase 4 combat simulation', () => {
     expect(fired).toBe(true);
     expect(enemy.health?.current).toBeLessThan(100);
     expect(vulture.weapons?.primary.cooldown).toBeGreaterThan(0);
+  });
+
+  it('lets a player-controlled Vulture launch the shared ballistic bomb', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -14, -20, 'Vulture 1');
+    const enemy = spawnTankAt(sim, 24, 18, 'Target', 2);
+    vulture.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.atan2(enemy.transform.x - vulture.transform.x, enemy.transform.z - vulture.transform.z), climb: 0 };
+
+    const fired = manualFireAt(sim, vulture, enemy.transform.x, enemy.transform.z, 'secondary');
+
+    expect(fired).toBe(true);
+    expect(vulture.weapons?.secondary?.kind).toBe('bomb');
+    expect(sim.projectiles).toHaveLength(1);
+    expect(sim.events.at(-1)?.kind).toBe('bomb');
+    expect(sim.events.at(-1)?.fromY).toBeGreaterThan(sampleHeight(hf, vulture.transform.x, vulture.transform.z) + 20);
+    expect(enemy.health?.current).toBe(100);
+
+    settle(sim, 1.5);
+    expect(enemy.health?.current).toBeLessThan(100);
+    expect(vulture.weapons?.secondary?.cooldown).toBeGreaterThan(0);
   });
 
   it('walls block ground navigation until destroyed', () => {

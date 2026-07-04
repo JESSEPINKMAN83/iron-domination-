@@ -11,8 +11,10 @@ const clamp = (v: number, min: number, max: number): number => Math.max(min, Mat
 export interface CombatEvent {
   kind: string;
   fromX: number;
+  fromY?: number;
   fromZ: number;
   toX: number;
+  toY?: number;
   toZ: number;
   sourceTeamId?: number;
   targetId?: number;
@@ -154,7 +156,7 @@ export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: numb
     weapon: { kind: 'rocketPod', range: 92, cooldown: 0 },
     weapons: {
       primary: { kind: 'rocketPod', range: 92, cooldown: 0 },
-      secondary: { kind: 'agMissile', range: 130, cooldown: 0 },
+      secondary: { kind: 'bomb', range: 152, cooldown: 0 },
     },
     turret: { yaw: Math.PI * 0.25, turnRate: 4.0 },
     vision: { radius: 150 },

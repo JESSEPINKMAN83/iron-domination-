@@ -79,8 +79,8 @@ export class CombatView {
       // fights entirely inside the fog stay hidden, except brief player-fired hit confirmations
       if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
       const muzzleHeight = event.kind === 'bomb' ? 3.1 : event.kind === 'rifle' ? 1.35 : 2.2;
-      const fromY = sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
-      const toY = sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
+      const fromY = event.fromY ?? sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
+      const toY = event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
       if (event.kind === 'bomb') {
         this.spawnBombProjectile(event, fromY, toY);
         continue;
@@ -123,13 +123,13 @@ export class CombatView {
       const life = Math.max(0, burst.ttl / burst.total);
       const age = 1 - life;
       if (burst.kind === 'bomb') {
-        burst.group.scale.setScalar(1 + age * 1.65);
+        burst.group.scale.setScalar(1 + age * 1.28);
         for (const material of burst.materials) {
-          if (material.userData.role === 'smoke') material.opacity = Math.min(0.28, age * 0.48) * life;
-          else if (material.userData.role === 'shock') material.opacity = life * 0.28;
-          else if (material.userData.role === 'scorch') material.opacity = life * 0.2;
-          else if (material.userData.role === 'debris') material.opacity = life * 0.58;
-          else material.opacity = life * 0.68;
+          if (material.userData.role === 'smoke') material.opacity = Math.min(0.2, age * 0.36) * life;
+          else if (material.userData.role === 'shock') material.opacity = life * 0.2;
+          else if (material.userData.role === 'scorch') material.opacity = life * 0.14;
+          else if (material.userData.role === 'debris') material.opacity = life * 0.42;
+          else material.opacity = life * 0.54;
         }
       } else {
         burst.group.scale.multiplyScalar(1 + dt * 2.2);
@@ -165,7 +165,7 @@ export class CombatView {
     const from = new Vector3(event.fromX, fromY, event.fromZ);
     const to = new Vector3(event.toX, toY, event.toZ);
     const distance = Math.hypot(event.toX - event.fromX, event.toZ - event.fromZ);
-    const control = new Vector3((event.fromX + event.toX) / 2, Math.max(fromY, toY) + Math.min(110, distance * 0.34), (event.fromZ + event.toZ) / 2);
+    const control = new Vector3((event.fromX + event.toX) / 2, Math.max(fromY, toY) + Math.min(84, distance * 0.28), (event.fromZ + event.toZ) / 2);
     const group = this.makeBombMesh();
     group.position.copy(from);
     group.renderOrder = 60;
@@ -273,30 +273,30 @@ export class CombatView {
 
   private spawnBombBlast(x: number, y: number, z: number, killed: boolean): void {
     const group = new Group();
-    const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xffd078 : 0xffa140, transparent: true, opacity: 0.68, depthWrite: false });
+    const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xffc66b : 0xff9738, transparent: true, opacity: 0.54, depthWrite: false });
     const smokeMaterial = new MeshBasicMaterial({ color: 0x292520, transparent: true, opacity: 0.01, depthWrite: false });
-    const shockMaterial = new MeshBasicMaterial({ color: 0xffb861, transparent: true, opacity: 0.28, depthWrite: false, side: 2 });
-    const scorchMaterial = new MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.2, depthWrite: false, side: 2 });
-    const debrisMaterial = new MeshBasicMaterial({ color: 0x15120f, transparent: true, opacity: 0.58 });
+    const shockMaterial = new MeshBasicMaterial({ color: 0xffb861, transparent: true, opacity: 0.2, depthWrite: false, side: 2 });
+    const scorchMaterial = new MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.14, depthWrite: false, side: 2 });
+    const debrisMaterial = new MeshBasicMaterial({ color: 0x15120f, transparent: true, opacity: 0.42 });
     smokeMaterial.userData.role = 'smoke';
     shockMaterial.userData.role = 'shock';
     scorchMaterial.userData.role = 'scorch';
     debrisMaterial.userData.role = 'debris';
     fireMaterial.userData.role = 'fire';
-    const fireball = new Mesh(new SphereGeometry(killed ? 4.8 : 3.8, 14, 9), fireMaterial);
-    const smoke = new Mesh(new SphereGeometry(killed ? 5.6 : 4.6, 10, 7), smokeMaterial);
-    const shock = new Mesh(new RingGeometry(2.4, killed ? 7.8 : 6.2, 32), shockMaterial);
-    const scorch = new Mesh(new CircleGeometry(killed ? 6.4 : 5.1, 32), scorchMaterial);
-    fireball.position.y = 1.35;
-    smoke.position.y = 2.7;
+    const fireball = new Mesh(new SphereGeometry(killed ? 3.9 : 3.0, 14, 9), fireMaterial);
+    const smoke = new Mesh(new SphereGeometry(killed ? 4.6 : 3.7, 10, 7), smokeMaterial);
+    const shock = new Mesh(new RingGeometry(1.8, killed ? 6.1 : 4.9, 32), shockMaterial);
+    const scorch = new Mesh(new CircleGeometry(killed ? 5.0 : 4.0, 32), scorchMaterial);
+    fireball.position.y = 1.05;
+    smoke.position.y = 2.15;
     shock.rotation.x = -Math.PI / 2;
     shock.position.y = 0.16;
     scorch.rotation.x = -Math.PI / 2;
     scorch.position.y = 0.08;
     group.add(scorch, shock, fireball, smoke);
-    for (let i = 0; i < 6; i++) {
-      const debris = new Mesh(new BoxGeometry(0.46, 0.18, 0.28), debrisMaterial);
-      const angle = (i / 6) * Math.PI * 2 + (i % 2) * 0.18;
+    for (let i = 0; i < 5; i++) {
+      const debris = new Mesh(new BoxGeometry(0.36, 0.14, 0.22), debrisMaterial);
+      const angle = (i / 5) * Math.PI * 2 + (i % 2) * 0.18;
       const radius = 1.5 + (i % 3) * 0.75;
       debris.position.set(Math.cos(angle) * radius, 0.55 + (i % 3) * 0.28, Math.sin(angle) * radius);
       debris.rotation.set(0.45 + i * 0.13, angle, 0.25 + i * 0.17);
@@ -304,7 +304,7 @@ export class CombatView {
     }
     group.position.set(x, y, z);
     group.renderOrder = 55;
-    const ttl = killed ? 0.95 : 0.82;
+    const ttl = killed ? 0.82 : 0.68;
     this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial] });
     this.group.add(group);
   }

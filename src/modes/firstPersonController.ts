@@ -26,6 +26,9 @@ export class FirstPersonController {
   private readonly tmpHorizontal = new Vector3();
   private readonly tmpAimTarget = new Vector3();
   private readonly tmpCameraTarget = new Vector3();
+  private readonly tmpEntityCenter = new Vector3();
+  private readonly smoothFlightCenter = new Vector3();
+  private hasSmoothFlightCenter = false;
   private savedCursor = '';
 
   constructor(
@@ -73,7 +76,8 @@ export class FirstPersonController {
     this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
     this.transitionT = 0;
     this.fromPose = this.captureCameraPose();
-    this.toPose = this.poseFor(entity, this.lookYaw, this.lookPitch, 62);
+    this.hasSmoothFlightCenter = false;
+    this.toPose = this.poseFor(entity, this.lookYaw, this.lookPitch, 62, 1, 1 / 60);
     entity.playerControlled = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0 };
     this.mode = 'entering';
     this.savedCursor = this.dom.style.cursor;
@@ -105,7 +109,7 @@ export class FirstPersonController {
     this.possessed.playerControlled.climb = climb;
   }
 
-  update(dt: number): void {
+  update(dt: number, alpha = 1): void {
     if (!this.active || !this.possessed) return;
     const delta = this.input.consumeMouseDelta();
     if (this.mode === 'fps' && (delta.dx !== 0 || delta.dy !== 0)) {
@@ -117,7 +121,7 @@ export class FirstPersonController {
 
     if (this.mode === 'entering') {
       this.transitionT = Math.min(1, this.transitionT + dt / 0.6);
-      this.toPose = this.poseFor(this.possessed, this.lookYaw, this.lookPitch, 62);
+      this.toPose = this.poseFor(this.possessed, this.lookYaw, this.lookPitch, 62, alpha, dt);
       this.applyPose(lerpPose(this.fromPose, this.toPose, ease(this.transitionT)));
       if (this.transitionT >= 1) this.mode = 'fps';
       return;
@@ -131,7 +135,7 @@ export class FirstPersonController {
     }
 
     const speed = this.possessed.velocity ? Math.hypot(this.possessed.velocity.x, this.possessed.velocity.z) : 0;
-    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.possessed.flight ? MathUtils.lerp(62, 68, Math.min(1, speed / 46)) : 62));
+    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.possessed.flight ? MathUtils.lerp(62, 68, Math.min(1, speed / 46)) : 62, alpha, dt));
   }
 
   private beginExit(): void {
@@ -154,6 +158,7 @@ export class FirstPersonController {
       }
     }
     this.possessed = undefined;
+    this.hasSmoothFlightCenter = false;
     this.mode = 'rts';
     this.camera.fov = 50;
     this.camera.updateProjectionMatrix();
@@ -161,12 +166,13 @@ export class FirstPersonController {
     this.callbacks.onExit?.(entity);
   }
 
-  private poseFor(entity: Entity, yaw: number, pitch: number, fov: number): CameraPose {
-    if (entity.flight) return this.flightPoseFor(entity, yaw, pitch, fov);
-    const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
+  private poseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
+    if (entity.flight) return this.flightPoseFor(entity, yaw, pitch, fov, alpha, dt);
+    const center = this.interpolatedCenter(entity, alpha);
+    const groundY = sampleHeight(this.hf, center.x, center.z);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     this.tmpHorizontal.set(Math.sin(yaw), 0, Math.cos(yaw));
-    const tankCenter = new Vector3(entity.transform.x, groundY + 2.4, entity.transform.z);
+    const tankCenter = new Vector3(center.x, groundY + 2.4, center.z);
     const chaseDistance = 20;
     const chaseHeight = 8.6;
     const position = tankCenter.clone().addScaledVector(this.tmpHorizontal, -chaseDistance);
@@ -176,19 +182,25 @@ export class FirstPersonController {
     return this.lookPose(position, this.tmpAimTarget, fov);
   }
 
-  private flightPoseFor(entity: Entity, yaw: number, pitch: number, fov: number): CameraPose {
-    const y = entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28;
+  private flightPoseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
+    const aircraftCenter = this.interpolatedCenter(entity, alpha);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     this.tmpHorizontal.set(Math.sin(yaw), 0, Math.cos(yaw));
-    const center = new Vector3(entity.transform.x, y + 1.3, entity.transform.z);
+    const targetCenter = new Vector3(aircraftCenter.x, aircraftCenter.y + 1.3, aircraftCenter.z);
+    if (!this.hasSmoothFlightCenter) {
+      this.smoothFlightCenter.copy(targetCenter);
+      this.hasSmoothFlightCenter = true;
+    } else {
+      this.smoothFlightCenter.lerp(targetCenter, 1 - Math.exp(-dt * 16));
+    }
+    const center = this.smoothFlightCenter;
     const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
     const chaseDistance = MathUtils.lerp(15, 22, Math.min(1, speed / 46));
     const chaseHeight = MathUtils.lerp(5.4, 7.4, Math.min(1, speed / 46));
     const position = center.clone().addScaledVector(this.tmpHorizontal, -chaseDistance);
-    position.y += chaseHeight + Math.sin(performance.now() * 0.006 + entity.id) * 0.1;
+    position.y += chaseHeight;
     this.tmpAimTarget.copy(center).addScaledVector(this.tmpForward, 170);
     this.tmpCameraTarget.copy(center).addScaledVector(this.tmpForward, 80);
-    this.tmpCameraTarget.y += Math.sin(performance.now() * 0.004 + entity.id) * 0.08;
     return this.lookPose(position, this.tmpCameraTarget, fov);
   }
 
@@ -201,12 +213,24 @@ export class FirstPersonController {
   private flightTarget(entity: Entity, slot: 'primary' | 'secondary'): Vector3 {
     this.tmpForward.set(Math.sin(this.lookYaw) * Math.cos(this.lookPitch), Math.sin(this.lookPitch), Math.cos(this.lookYaw) * Math.cos(this.lookPitch));
     if (slot === 'secondary') {
-      const ground = this.terrainPoint();
-      if (ground) return ground;
+      return this.flightBombTarget(entity);
     }
     const origin = new Vector3(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28, entity.transform.z);
-    const range = slot === 'secondary' ? 150 : 112;
+    const range = 112;
     const target = origin.addScaledVector(this.tmpForward, range);
+    target.y = sampleHeight(this.hf, target.x, target.z);
+    return target;
+  }
+
+  private flightBombTarget(entity: Entity): Vector3 {
+    const ground = this.terrainPoint();
+    if (ground) return ground;
+    const y = entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28;
+    const origin = new Vector3(entity.transform.x, y, entity.transform.z);
+    const horizontal = new Vector3(Math.sin(this.lookYaw), 0, Math.cos(this.lookYaw));
+    const pitchT = MathUtils.clamp((this.lookPitch - MathUtils.degToRad(-34)) / MathUtils.degToRad(72), 0, 1);
+    const range = MathUtils.lerp(38, 430, pitchT);
+    const target = origin.addScaledVector(horizontal, range);
     target.y = sampleHeight(this.hf, target.x, target.z);
     return target;
   }
@@ -269,6 +293,15 @@ export class FirstPersonController {
     this.poseCamera.position.copy(position);
     this.poseCamera.lookAt(target);
     return { position: position.clone(), quaternion: this.poseCamera.quaternion.clone(), fov };
+  }
+
+  private interpolatedCenter(entity: Entity, alpha: number): Vector3 {
+    const x = MathUtils.lerp(entity.previousTransform.x, entity.transform.x, alpha);
+    const z = MathUtils.lerp(entity.previousTransform.z, entity.transform.z, alpha);
+    const fallbackY = entity.flight ? sampleHeight(this.hf, x, z) + entity.flight.cruiseAltitude : sampleHeight(this.hf, x, z);
+    const previousY = entity.previousTransform.y ?? entity.transform.y ?? fallbackY;
+    const currentY = entity.transform.y ?? fallbackY;
+    return this.tmpEntityCenter.set(x, MathUtils.lerp(previousY, currentY, alpha), z);
   }
 
   private captureCameraPose(): CameraPose {

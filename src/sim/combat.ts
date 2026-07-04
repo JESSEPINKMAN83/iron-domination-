@@ -167,6 +167,7 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
   sim.events.push({
     kind: 'bomb',
     fromX: attacker.transform.x,
+    fromY: bombMuzzleY(attacker),
     fromZ: attacker.transform.z,
     toX: impact.x,
     toZ: impact.z,
@@ -175,6 +176,11 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
     killed: false,
     duration,
   });
+}
+
+function bombMuzzleY(attacker: Entity): number | undefined {
+  if (attacker.transform.y === undefined) return undefined;
+  return attacker.flight ? attacker.transform.y - 0.45 : attacker.transform.y + 3.1;
 }
 
 function stepProjectiles(sim: GameSim, dt: number): void {
