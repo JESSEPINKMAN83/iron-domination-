@@ -162,7 +162,20 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     let desiredX = 0;
     let desiredZ = 0;
 
-    if (mover.target && mover.flow) {
+    if (entity.playerControlled) {
+      mover.target = undefined;
+      mover.formationOffset = undefined;
+      mover.flow = undefined;
+      mover.attackMove = false;
+      const throttle = Math.max(-1, Math.min(1, entity.playerControlled.throttle));
+      const turn = Math.max(-1, Math.min(1, entity.playerControlled.turn));
+      const turnRate = throttle === 0 ? 1.55 : 1.15;
+      transform.rot = normalizeAngle(transform.rot + turn * turnRate * dt);
+      const driveSpeed = mover.speed * (throttle < 0 ? 0.42 : 0.78);
+      desiredX = Math.sin(transform.rot) * driveSpeed * throttle;
+      desiredZ = Math.cos(transform.rot) * driveSpeed * throttle;
+      if (entity.turret) entity.turret.yaw = dampAngle(entity.turret.yaw, entity.playerControlled.aimYaw, 6, dt);
+    } else if (mover.target && mover.flow) {
       const finalX = mover.target.x + (mover.formationOffset?.x ?? 0);
       const finalZ = mover.target.z + (mover.formationOffset?.z ?? 0);
       const finalDx = finalX - transform.x;
@@ -198,7 +211,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     }
 
     const desiredLen = Math.hypot(desiredX, desiredZ);
-    if (desiredLen > 0) {
+    if (desiredLen > 0 && !entity.playerControlled) {
       desiredX = (desiredX / desiredLen) * mover.speed;
       desiredZ = (desiredZ / desiredLen) * mover.speed;
     }
@@ -227,7 +240,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     }
 
     const speed = Math.hypot(velocity.x, velocity.z);
-    if (speed > 0.05) transform.rot = Math.atan2(velocity.x, velocity.z);
+    if (!entity.playerControlled && speed > 0.05) transform.rot = Math.atan2(velocity.x, velocity.z);
     void sampleHeight(hf, transform.x, transform.z);
   }
 
@@ -248,4 +261,13 @@ export function hashSim(sim: GameSim): number {
     if (entity.health) mix(Math.round(entity.health.current * 100));
   }
   return h >>> 0;
+}
+
+function dampAngle(current: number, goal: number, lambda: number, dt: number): number {
+  const delta = Math.atan2(Math.sin(goal - current), Math.cos(goal - current));
+  return normalizeAngle(current + delta * (1 - Math.exp(-lambda * dt)));
+}
+
+function normalizeAngle(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
 }

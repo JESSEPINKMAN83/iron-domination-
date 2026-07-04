@@ -2,6 +2,7 @@ import { Fog, MeshStandardMaterial } from 'three';
 import { MAP01 } from './content/map01';
 import { Input } from './engine/input';
 import { GameLoop, SIM_HZ } from './engine/loop';
+import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
 import { AssetPipeline } from './render/assets';
@@ -17,7 +18,7 @@ import { WaterView } from './render/water';
 import { createEconomy, createInitialBase, placeStructure, queueUnit, stepEconomy, updatePlacement } from './sim/economy';
 import { stepCombat } from './sim/combat';
 import { generateHeightfield } from './sim/heightfield';
-import { createGameSim, spawnDebugTanks, spawnEnemyTanks, stepSim } from './sim/world';
+import { createGameSim, selectedEntities, spawnDebugTanks, spawnEnemyTanks, stepSim } from './sim/world';
 import { Hud } from './ui/hud';
 import { Sidebar } from './ui/sidebar';
 
@@ -125,6 +126,27 @@ async function boot(): Promise<void> {
       rig.jumpTo(x, z);
     },
   });
+  const firstPerson = new FirstPersonController(ctx.renderer.domElement, ctx.camera, input, hf, {
+    onEnter: () => {
+      controller.setEnabled(false);
+      unitView.setHiddenEntity(firstPerson.possessedEntity);
+      sidebar.setVisible(false);
+      hud.setFirstPerson(true);
+    },
+    onExit: (entity) => {
+      controller.setEnabled(true);
+      unitView.setHiddenEntity(undefined);
+      sidebar.setVisible(true);
+      hud.setFirstPerson(false);
+      if (entity) rig.jumpTo(entity.transform.x, entity.transform.z);
+    },
+  });
+  input.onKeyDown('KeyV', () => {
+    if (firstPerson.enter(selectedEntities(sim))) return;
+  });
+  input.onKeyDown('Escape', () => {
+    if (firstPerson.active) firstPerson.exit();
+  });
   input.onKeyDown('F3', () => water.setDebugOverlay(terrain.toggleWalkOverlay()));
   input.onKeyDown('F1', () => hud.toggleHelp());
 
@@ -135,6 +157,7 @@ async function boot(): Promise<void> {
 
   const loop = new GameLoop({
     simTick: () => {
+      firstPerson.simTick();
       const spawned = stepEconomy(sim, hf, economy, 1 / SIM_HZ);
       for (const entity of spawned) {
         if (entity.selectable?.type === 'tank') tanks.push(entity);
@@ -149,7 +172,8 @@ async function boot(): Promise<void> {
       simTicks++;
     },
     render: (alpha, dt, time) => {
-      rig.update(dt);
+      if (firstPerson.active) firstPerson.update(dt);
+      else rig.update(dt);
       unitView.update(alpha, ctx.camera);
       buildingView.update(economy);
       combatView.update(dt);
@@ -177,6 +201,7 @@ async function boot(): Promise<void> {
         pitchDeg: rig.pitchDegrees,
         units: unitView.count(),
         selected: controller.selectedCount(),
+        mode: firstPerson.inFirstPerson ? `FPS ${firstPerson.possessedName ?? ''}` : firstPerson.active ? 'entering FPS' : 'RTS',
       });
     },
   });

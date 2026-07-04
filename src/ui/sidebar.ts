@@ -61,6 +61,7 @@ export class Sidebar {
   }
 
   update(): void {
+    if (this.root.style.display === 'none') return;
     const statusText = [
       `$${Math.floor(this.economy.credits)}`,
       `PWR ${this.economy.powerProduced - this.economy.powerUsed >= 0 ? '+' : ''}${this.economy.powerProduced - this.economy.powerUsed}`,
@@ -79,6 +80,10 @@ export class Sidebar {
       this.lastBodyKey = bodyKey;
       this.renderBody();
     }
+  }
+
+  setVisible(visible: boolean): void {
+    this.root.style.display = visible ? 'flex' : 'none';
   }
 
   private renderTabs(): void {

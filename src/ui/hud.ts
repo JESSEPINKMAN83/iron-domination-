@@ -12,6 +12,7 @@ export interface HudStats {
   pitchDeg: number;
   units: number;
   selected: number;
+  mode: string;
 }
 
 const PANEL_CSS =
@@ -22,6 +23,7 @@ const PANEL_CSS =
 export class Hud {
   private readonly stats: HTMLDivElement;
   private readonly help: HTMLDivElement;
+  private readonly reticle: HTMLDivElement;
   private lastUpdate = 0;
 
   constructor(container: HTMLElement) {
@@ -32,7 +34,7 @@ export class Hud {
     this.help = document.createElement('div');
     this.help.style.cssText = PANEL_CSS + 'bottom:12px;left:12px;';
     this.help.textContent = [
-      'IRON DOMINION — Phase 4',
+      'IRON DOMINION — Phase 5',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  right-drag or hold Space + move',
       'Look      Cmd/Ctrl + left-drag free aim',
@@ -40,15 +42,33 @@ export class Hud {
       'Rotate    Q / E (90°)',
       'Build     sidebar button, then left-click terrain',
       'Attack    A, then right-click destination',
+      'Possess   select tank, press V',
+      'FPS       W/S drive, A/D turn, mouse aim',
+      'Exit FPS  Escape',
       'Cancel    Escape while placing',
       'Overlay   F3 walkability debug',
       'Help      F1 show/hide',
     ].join('\n');
     container.appendChild(this.help);
+
+    this.reticle = document.createElement('div');
+    this.reticle.style.cssText =
+      'position:fixed;left:50%;top:50%;width:22px;height:22px;transform:translate(-50%,-50%);z-index:11;pointer-events:none;display:none;' +
+      'border:1px solid rgba(210,230,210,.58);border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.45),0 0 12px rgba(125,242,125,.16);';
+    this.reticle.innerHTML =
+      '<span style="position:absolute;left:50%;top:-9px;width:1px;height:7px;background:rgba(210,230,210,.7)"></span>' +
+      '<span style="position:absolute;left:50%;bottom:-9px;width:1px;height:7px;background:rgba(210,230,210,.7)"></span>' +
+      '<span style="position:absolute;top:50%;left:-9px;width:7px;height:1px;background:rgba(210,230,210,.7)"></span>' +
+      '<span style="position:absolute;top:50%;right:-9px;width:7px;height:1px;background:rgba(210,230,210,.7)"></span>';
+    container.appendChild(this.reticle);
   }
 
   toggleHelp(): void {
     this.help.style.display = this.help.style.display === 'none' ? 'block' : 'none';
+  }
+
+  setFirstPerson(active: boolean): void {
+    this.reticle.style.display = active ? 'block' : 'none';
   }
 
   update(nowMs: number, s: HudStats): void {
@@ -60,6 +80,7 @@ export class Hud {
       `draw calls ${s.drawCalls} · tris ${tris}`,
       `sim ${s.simHz} Hz · instances ${s.instances}`,
       `units ${s.units} · selected ${s.selected}`,
+      `mode ${s.mode}`,
       `zoom ${s.zoom.toFixed(1)} · yaw ${Math.round(s.yawDeg)}° · pitch ${Math.round(s.pitchDeg)}°`,
     ].join('\n');
   }

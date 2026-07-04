@@ -166,3 +166,36 @@
 ### Next
 - Continue Phase 4 toward full combat acceptance: target-priority AI, fog/shroud, stronger VFX,
   damage states, and a verified 40v40 engagement scenario.
+
+## Phase 5 — First-Person Possession 🚧 (2026-07-04, started)
+
+### Done
+- Added a first playable possession mode: select a possessable tank and press `V` to fly the
+  camera into its driver/gunner socket; `Escape` exits back to RTS.
+- Added a renderer-side `FirstPersonController` that owns FPS camera transition, mouse aim,
+  right-click zoom FOV, reticle visibility, RTS sidebar hiding, and RTS control lockout while
+  possessed.
+- Added a renderer-independent `PlayerControlled` sim component. Possessed tanks keep moving
+  through the normal fixed-step `stepSim` path, while clearing AI move orders and preserving
+  deterministic sim ownership.
+- Added first-pass tank driving: `W/S` throttle, `A/D` hull turn, and mouse-driven turret/camera
+  yaw.
+- Tank turret visuals now follow sim turret yaw, so player aim and combat target tracking are
+  visible in RTS.
+- Added a Phase 5 movement test proving a player-controlled tank advances through the normal sim
+  step and clears AI flow-field orders.
+- Browser verification passed on Vite dev server: selected tanks, pressed `V`, saw the camera
+  enter low first-person view with `mode FPS`, reticle visible, sidebar hidden, then pressed
+  `Escape` and returned to RTS with sidebar restored.
+- `npm test` passes (now 11 Vitest tests). `npm run build` passes.
+
+### Known issues / notes
+- Phase 5 is only a playable MVP. Full Rapier suspension, weapon firing from FPS, reload UI,
+  damage indicators, kill feed, death/eject behavior, Tab cycling, audio, and full acceptance
+  combat run remain.
+- Pointer lock is requested on entry, but browser automation cannot fully verify native pointer
+  lock behavior.
+
+### Next
+- Add FPS firing/reload against the existing Phase 4 weapon data, then implement death/eject and
+  nearest-friendly Tab swap.

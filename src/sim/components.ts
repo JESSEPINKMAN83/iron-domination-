@@ -65,6 +65,12 @@ export interface Possessable {
   socketHeight: number;
 }
 
+export interface PlayerControlled {
+  throttle: number;
+  turn: number;
+  aimYaw: number;
+}
+
 export interface Collider {
   radius: number;
 }
@@ -117,6 +123,7 @@ export interface Entity {
   cargo?: Cargo;
   builder?: Builder;
   possessable?: Possessable;
+  playerControlled?: PlayerControlled;
   collider?: Collider;
   armor?: Armor;
   destroyed?: Destroyed;

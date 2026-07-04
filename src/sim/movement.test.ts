@@ -44,4 +44,18 @@ describe('phase 2 movement simulation', () => {
     }).length;
     expect(reached).toBeGreaterThan(100);
   });
+
+  it('moves a player-controlled tank through the same sim step', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const [tank] = spawnDebugTanks(sim, hf, 1);
+    const start = { x: tank.transform.x, z: tank.transform.z };
+    tank.playerControlled = { throttle: 1, turn: 0, aimYaw: tank.transform.rot };
+
+    for (let i = 0; i < 90; i++) stepSim(sim, hf, 1 / 30);
+
+    expect(Math.hypot(tank.transform.x - start.x, tank.transform.z - start.z)).toBeGreaterThan(8);
+    expect(tank.mover?.target).toBeUndefined();
+    expect(tank.mover?.flow).toBeUndefined();
+  });
 });

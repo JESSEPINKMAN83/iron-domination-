@@ -30,6 +30,7 @@ export class UnitView {
   private readonly ringMaterial: Material;
   private readonly healthBackMaterial: Material;
   private readonly healthBars = new Map<Entity, { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial }>();
+  private hiddenEntity?: Entity;
 
   constructor(entities: Entity[], private readonly hf: Heightfield, ctx: RenderContext) {
     this.hullMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x65787f, roughness: 0.78, metalness: 0.08 }));
@@ -91,11 +92,23 @@ export class UnitView {
     return this.entities.length;
   }
 
+  setHiddenEntity(entity?: Entity): void {
+    this.hiddenEntity = entity;
+  }
+
   update(alpha: number, camera: Camera): void {
     for (const entity of this.entities) {
       const obj = this.objects.get(entity);
       const ring = this.selectedRings.get(entity);
       if (!obj || !ring) continue;
+      if (entity === this.hiddenEntity) {
+        obj.visible = false;
+        ring.visible = false;
+        const healthBar = this.healthBars.get(entity);
+        if (healthBar) healthBar.root.visible = false;
+        continue;
+      }
+      obj.visible = true;
       if (entity.destroyed?.remaining !== undefined && entity.destroyed.remaining <= 0) {
         obj.visible = false;
         ring.visible = false;
@@ -111,6 +124,8 @@ export class UnitView {
       obj.rotation.y = rot;
       obj.rotation.z = entity.destroyed ? 0.18 : 0;
       obj.scale.y = entity.destroyed ? 0.45 : 1;
+      const turret = obj.getObjectByName('turretPivot');
+      if (turret && entity.turret) turret.rotation.y = entity.turret.yaw - rot;
       ring.position.set(x, sampleHeight(this.hf, x, z) + 0.08, z);
       ring.visible = !entity.destroyed && (entity.selectable?.selected ?? false);
       this.updateHealthBar(entity, x, y, z, camera);
@@ -195,17 +210,21 @@ function createTankObject(hullMaterial: Material, turretMaterial: Material, acce
   hull.position.y = 0.6;
   group.add(hull);
 
+  const turretPivot = new Group();
+  turretPivot.name = 'turretPivot';
+  group.add(turretPivot);
+
   const turret = new Mesh(new BoxGeometry(2.1, 0.65, 2.2), turretMaterial);
   turret.position.y = 1.25;
-  group.add(turret);
+  turretPivot.add(turret);
 
   const barrel = new Mesh(new BoxGeometry(0.28, 0.28, 3.2), turretMaterial);
   barrel.position.set(0, 1.27, 2.65);
-  group.add(barrel);
+  turretPivot.add(barrel);
 
   const teamMark = new Mesh(new BoxGeometry(2.5, 0.05, 0.32), accentMaterial);
   teamMark.position.set(0, 1.73, -0.2);
-  group.add(teamMark);
+  turretPivot.add(teamMark);
 
   const leftTrack = new Mesh(new BoxGeometry(0.62, 0.42, 5.4), hullMaterial);
   leftTrack.position.set(-2.02, 0.32, 0);
@@ -216,7 +235,7 @@ function createTankObject(hullMaterial: Material, turretMaterial: Material, acce
 
   const hatch = new Mesh(new CylinderGeometry(0.45, 0.55, 0.2, 8), turretMaterial);
   hatch.position.set(0, 1.7, -0.35);
-  group.add(hatch);
+  turretPivot.add(hatch);
   return group;
 }
 

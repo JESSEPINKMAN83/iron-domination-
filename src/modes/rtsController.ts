@@ -35,6 +35,7 @@ export class RtsController {
   private pointerDown?: PointerState;
   private lastClick = { time: 0, entity: undefined as Entity | undefined };
   private attackMoveQueued = false;
+  private enabled = true;
 
   constructor(
     private readonly dom: HTMLElement,
@@ -61,7 +62,17 @@ export class RtsController {
     return selectedEntities(this.sim).length;
   }
 
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.pointerDown = undefined;
+      this.selectionBox.style.display = 'none';
+      this.attackMoveQueued = false;
+    }
+  }
+
   private onPointerDown(e: PointerEvent): void {
+    if (!this.enabled) return;
     if (e.metaKey && e.button === 0) return;
     if (this.placement?.isPlacing()) {
       this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
@@ -72,6 +83,7 @@ export class RtsController {
   }
 
   private onPointerMove(e: PointerEvent): void {
+    if (!this.enabled) return;
     if (this.placement?.isPlacing()) {
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (p) this.placement.preview(p.x, p.z);
@@ -93,6 +105,7 @@ export class RtsController {
   }
 
   private onPointerUp(e: PointerEvent): void {
+    if (!this.enabled) return;
     if (!this.pointerDown) return;
     const down = this.pointerDown;
     this.pointerDown = undefined;
@@ -154,6 +167,7 @@ export class RtsController {
   }
 
   private onKeyDown(e: KeyboardEvent): void {
+    if (!this.enabled) return;
     if (e.code === 'Escape' && this.placement?.isPlacing()) {
       this.placement.cancel();
       e.preventDefault();
