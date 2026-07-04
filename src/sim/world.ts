@@ -158,7 +158,8 @@ export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: numb
   });
 }
 
-export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number, targetZ: number, attackMove = false): void {
+export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number, targetZ: number, attackMove = false): boolean {
+  let issued = false;
   const flyers = entities.filter((entity) => entity.flight);
   if (flyers.length > 0) {
     const spacing = 8;
@@ -174,13 +175,14 @@ export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number
       entity.mover.formationOffset = undefined;
       entity.mover.flow = undefined;
       entity.mover.attackMove = attackMove;
+      issued = true;
     });
   }
 
   const groundUnits = entities.filter((entity) => !entity.flight);
-  if (groundUnits.length === 0) return;
-  const target = sim.nav.nearestWalkableCell(targetX, targetZ);
-  if (!target) return;
+  if (groundUnits.length === 0) return issued;
+  const target = sim.nav.nearestWalkableCell(targetX, targetZ, 96);
+  if (!target) return issued;
   const p = sim.nav.cellCenter(target.x, target.y);
   const flow = new FlowField(sim.nav, p.x, p.z);
   const spacing = 5.2;
@@ -190,12 +192,14 @@ export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number
     const col = i % width;
     const row = Math.floor(i / width);
     const ox = (col - (width - 1) / 2) * spacing;
-    const oz = (row - Math.floor(entities.length / width) / 2) * spacing;
+    const oz = (row - Math.floor(groundUnits.length / width) / 2) * spacing;
     entity.mover.target = { x: p.x, z: p.z };
     entity.mover.formationOffset = { x: ox, z: oz };
     entity.mover.flow = flow;
     entity.mover.attackMove = attackMove;
+    issued = true;
   });
+  return issued;
 }
 
 export function stopEntities(entities: Entity[]): void {

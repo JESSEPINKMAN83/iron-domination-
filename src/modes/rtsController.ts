@@ -29,6 +29,9 @@ interface PointerState {
   time: number;
 }
 
+const LEFT_DRAG_THRESHOLD = 6;
+const RIGHT_ORDER_DRAG_THRESHOLD = 18;
+
 export class RtsController {
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
@@ -81,7 +84,10 @@ export class RtsController {
       return;
     }
     this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
-    if (e.button === 0) this.dom.setPointerCapture?.(e.pointerId);
+    if (e.button === 0 || e.button === 2) {
+      e.preventDefault();
+      this.dom.setPointerCapture?.(e.pointerId);
+    }
   }
 
   private onPointerMove(e: PointerEvent): void {
@@ -94,7 +100,7 @@ export class RtsController {
     if (!this.pointerDown || this.pointerDown.button !== 0 || e.metaKey) return;
     const dx = e.clientX - this.pointerDown.x;
     const dy = e.clientY - this.pointerDown.y;
-    if (Math.hypot(dx, dy) < 6) return;
+    if (Math.hypot(dx, dy) < LEFT_DRAG_THRESHOLD) return;
     const minX = Math.min(this.pointerDown.x, e.clientX);
     const minY = Math.min(this.pointerDown.y, e.clientY);
     const maxX = Math.max(this.pointerDown.x, e.clientX);
@@ -115,7 +121,8 @@ export class RtsController {
 
     const dx = e.clientX - down.x;
     const dy = e.clientY - down.y;
-    const dragged = Math.hypot(dx, dy) > 6;
+    const pointerDistance = Math.hypot(dx, dy);
+    const dragged = pointerDistance > (down.button === 2 ? RIGHT_ORDER_DRAG_THRESHOLD : LEFT_DRAG_THRESHOLD);
     if (this.placement?.isPlacing()) {
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (down.button === 0 && p) this.placement.confirm(p.x, p.z);
@@ -135,20 +142,21 @@ export class RtsController {
       }
     }
 
-    if (down.button === 2 && !dragged && performance.now() - down.time < 350) {
-      const p = this.terrainPoint(e.clientX, e.clientY);
+    if (down.button === 2 && !dragged) {
+      const p = this.terrainPoint(e.clientX, e.clientY) ?? this.terrainPoint(down.x, down.y);
       if (p) {
         if (this.orderFeedback?.tryRally?.(p.x, p.z)) {
           this.attackMoveQueued = false;
           return;
         }
         const selected = selectedEntities(this.sim).filter((entity) => entity.mover);
-        const target = this.sim.nav.nearestWalkableCell(p.x, p.z);
+        const target = this.sim.nav.nearestWalkableCell(p.x, p.z, 96);
         const attackMove = this.isAttackMoveQueued();
         if (selected.length > 0 && target) {
           const destination = this.sim.nav.cellCenter(target.x, target.y);
-          issueMoveOrder(this.sim, selected, destination.x, destination.z, attackMove);
-          this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack' : 'move');
+          if (issueMoveOrder(this.sim, selected, destination.x, destination.z, attackMove)) {
+            this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack' : 'move');
+          }
         }
         this.attackMoveQueued = false;
       }

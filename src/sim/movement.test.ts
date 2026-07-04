@@ -28,7 +28,7 @@ describe('phase 2 movement simulation', () => {
       const target = sim.nav.nearestWalkableCell(hf.size * 0.34, hf.size * 0.26);
       expect(target).toBeDefined();
       const p = sim.nav.cellCenter(target!.x, target!.y);
-      issueMoveOrder(sim, tanks, p.x, p.z);
+      expect(issueMoveOrder(sim, tanks, p.x, p.z)).toBe(true);
       for (let i = 0; i < 10000; i++) stepSim(sim, hf, 1 / 30);
       return { sim, tanks, hash: hashSim(sim) };
     };
@@ -59,12 +59,34 @@ describe('phase 2 movement simulation', () => {
     expect(tank.mover?.flow).toBeUndefined();
   });
 
+  it('snaps ground move orders from blocked clicks to a nearby walkable cell', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tanks = spawnDebugTanks(sim, hf, 2);
+    let blocked: { x: number; z: number } | undefined;
+    for (let y = 0; y < hf.cells && !blocked; y++) {
+      for (let x = 0; x < hf.cells; x++) {
+        if (hf.walkable[y * hf.cells + x] > 0) continue;
+        const p = sim.nav.cellCenter(x, y);
+        if (sim.nav.nearestWalkableCell(p.x, p.z, 96)) {
+          blocked = p;
+          break;
+        }
+      }
+    }
+    expect(blocked).toBeDefined();
+
+    expect(issueMoveOrder(sim, tanks, blocked!.x, blocked!.z)).toBe(true);
+
+    expect(tanks.every((tank) => tank.mover?.target && tank.mover.flow)).toBe(true);
+  });
+
   it('moves flyers directly over blocked terrain while maintaining altitude', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const vulture = spawnVultureAt(sim, hf, -hf.size * 0.3, -hf.size * 0.2, 'Vulture 1');
     const start = { x: vulture.transform.x, z: vulture.transform.z };
-    issueMoveOrder(sim, [vulture], hf.size * 0.3, hf.size * 0.22);
+    expect(issueMoveOrder(sim, [vulture], hf.size * 0.3, hf.size * 0.22)).toBe(true);
 
     for (let i = 0; i < 30 * 8; i++) stepSim(sim, hf, 1 / 30);
 

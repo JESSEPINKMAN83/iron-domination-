@@ -367,6 +367,11 @@ drafted in `drafts/phase6/` (unwired, see its README).
 ## Phase 6.5 — Combat Aircraft Foundation 🚧 (2026-07-04, started)
 
 ### Done
+- Improved RTS move-order reliability: right-click commands now tolerate normal pointer jitter,
+  retry terrain picking from the original click point, snap blocked ground clicks to a larger
+  nearby walkable search radius, and only show an order marker after the sim accepts the order.
+- Added regression coverage for issuing a move order onto blocked terrain and still assigning
+  selected tanks a valid target immediately.
 - Added the first aircraft tech content: `Helipad` structure and `Vulture` aircraft unit, plus
   an `AIRCRAFT` command sidebar tab with a locked empty state until a Helipad is available.
 - Added optional altitude to sim transforms and included altitude in deterministic sim hashing.
@@ -391,7 +396,7 @@ drafted in `drafts/phase6/` (unwired, see its README).
   state appeared, Helipad content was present, and no console errors were reported.
 - Follow-up browser smoke passed after Vulture V-mode wiring: app reloaded, `AIRCRAFT` tab
   opened, and no console errors were reported.
-- `npm test` passes (24 Vitest tests). `npm run build` passes.
+- `npm test` passes (25 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,
