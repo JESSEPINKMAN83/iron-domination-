@@ -45,6 +45,7 @@ export class Hud {
       'Cancel    right-click sidebar icon; Escape returns READY placement',
       'Factory   select producer, set PRIMARY, right-click map for rally',
       'Attack    A, then right-click destination',
+      'Face      right-click hold + drag to move, then face arrow',
       'Possess   select tank, press V',
       'Chase     W/S drive, A/D turn, mouse aim',
       'Vulture   W/S thrust, A/D yaw, Space/Ctrl altitude',

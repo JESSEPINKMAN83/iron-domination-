@@ -36,6 +36,8 @@ export interface Mover {
   formationOffset?: { x: number; z: number };
   flow?: FlowField;
   attackMove?: boolean;
+  /** optional final facing for right-drag move orders */
+  faceYaw?: number;
   /** guard behavior: combat sets this each tick when a visible foe is out of weapon range */
   engage?: { x: number; z: number };
 }

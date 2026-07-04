@@ -30,6 +30,7 @@ export class RtsCameraRig {
   private distGoal = 90;
   private pitchOffset = readSavedPitchOffset();
   private pitchOffsetGoal = this.pitchOffset;
+  private grabSuppressed = false;
 
   private readonly fwd = new Vector3();
   private readonly right = new Vector3();
@@ -69,6 +70,10 @@ export class RtsCameraRig {
     this.target.copy(this.goal);
   }
 
+  setGrabSuppressed(suppressed: boolean): void {
+    this.grabSuppressed = suppressed;
+  }
+
   update(dt: number): void {
     const input = this.input;
 
@@ -83,7 +88,7 @@ export class RtsCameraRig {
     // Command-left drag freely aims the RTS camera and persists the preference.
     const lookAdjusting = input.isCommandLookModifierDown() && input.isButton(0);
     // grab pan: right mouse drag, or any mouse movement while Space is held
-    const grabbing = !lookAdjusting && (input.isButton(2) || input.isDown('Space'));
+    const grabbing = !this.grabSuppressed && !lookAdjusting && (input.isButton(2) || input.isDown('Space'));
     const delta = input.consumeMouseDelta();
     if (lookAdjusting && (delta.dx !== 0 || delta.dy !== 0)) {
       this.yawGoal = normalizeAngle(this.yawGoal - delta.dx * 0.006);

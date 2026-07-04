@@ -401,12 +401,15 @@ drafted in `drafts/phase6/` (unwired, see its README).
   provide their own vision radius.
 - Added regression tests proving walls block/unblock navigation and Guard Towers auto-fire at
   nearby enemies.
+- Added Red Alert-style right-click hold-drag facing orders: selected movers can be ordered to
+  move to the mouse-down point, preview an arrow while dragging, and arrive in a line formation
+  facing the chosen direction.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
 - Follow-up browser smoke passed after Vulture V-mode wiring: app reloaded, `AIRCRAFT` tab
   opened, and no console errors were reported.
-- `npm test` passes (27 Vitest tests). `npm run build` passes.
+- `npm test` passes (28 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,
@@ -415,6 +418,8 @@ drafted in `drafts/phase6/` (unwired, see its README).
   hold-to-preview ground-impact marker and travel-time missile come next.
 - Wall placement is currently one segment per ready build. Drag-to-place wall chains and
   smarter wall-line previews are still future UX polish.
+- Browser automation cannot issue a true right-button drag, so the facing-order gesture is
+  covered by sim tests plus a browser load/runtime smoke pass.
 
 ### Next
 - Continue Phase 6.5 with air/ground weapon rules, Helipad production/rearm loop, AA turret,

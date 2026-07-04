@@ -81,6 +81,29 @@ describe('phase 2 movement simulation', () => {
     expect(tanks.every((tank) => tank.mover?.target && tank.mover.flow)).toBe(true);
   });
 
+  it('honors right-drag style move orders with a final facing direction and line formation', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tanks = spawnDebugTanks(sim, hf, 4);
+    const target = sim.nav.nearestWalkableCell(tanks[0].transform.x + 36, tanks[0].transform.z + 12, 96);
+    expect(target).toBeDefined();
+    const p = sim.nav.cellCenter(target!.x, target!.y);
+    const faceYaw = Math.PI / 2;
+
+    expect(issueMoveOrder(sim, tanks, p.x, p.z, false, faceYaw)).toBe(true);
+
+    const offsets = tanks.map((tank) => tank.mover?.formationOffset);
+    expect(offsets.every(Boolean)).toBe(true);
+    const spanX = Math.max(...offsets.map((offset) => offset!.x)) - Math.min(...offsets.map((offset) => offset!.x));
+    const spanZ = Math.max(...offsets.map((offset) => offset!.z)) - Math.min(...offsets.map((offset) => offset!.z));
+    expect(spanZ).toBeGreaterThan(spanX);
+
+    for (let i = 0; i < 30 * 12; i++) stepSim(sim, hf, 1 / 30);
+
+    expect(tanks.some((tank) => Math.abs(angleDelta(tank.transform.rot, faceYaw)) < 0.2)).toBe(true);
+    expect(tanks.every((tank) => tank.mover?.faceYaw === faceYaw)).toBe(true);
+  });
+
   it('moves flyers directly over blocked terrain while maintaining altitude', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -110,3 +133,7 @@ describe('phase 2 movement simulation', () => {
     expect(vulture.mover?.flow).toBeUndefined();
   });
 });
+
+function angleDelta(a: number, b: number): number {
+  return Math.atan2(Math.sin(a - b), Math.cos(a - b));
+}

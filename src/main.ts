@@ -150,6 +150,9 @@ async function boot(): Promise<void> {
     buildingView,
     {
       showOrder: (x, z, kind) => orderMarkers.push(x, z, kind),
+      showFacingOrder: (x, z, yaw, kind) => orderMarkers.pushFacing(x, z, yaw, kind),
+      showFacingPreview: (fromX, fromZ, toX, toZ, kind) => orderMarkers.showFacingPreview(fromX, fromZ, toX, toZ, kind),
+      clearFacingPreview: () => orderMarkers.clearFacingPreview(),
       tryRally: (x, z) => {
         const selected = selectedEntities(sim);
         if (selected.length !== 1) return false;
@@ -250,7 +253,10 @@ async function boot(): Promise<void> {
     },
     render: (alpha, dt, time) => {
       if (firstPerson.active) firstPerson.update(dt);
-      else rig.update(dt);
+      else {
+        rig.setGrabSuppressed(controller.isRightOrderGestureActive());
+        rig.update(dt);
+      }
       unitView.update(alpha, dt, ctx.camera);
       buildingView.update(economy);
       combatView.update(dt);

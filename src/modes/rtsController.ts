@@ -19,6 +19,9 @@ export interface BuildingPicker {
 
 export interface OrderFeedback {
   showOrder(x: number, z: number, kind: OrderMarkerKind): void;
+  showFacingOrder?(x: number, z: number, yaw: number, kind: OrderMarkerKind): void;
+  showFacingPreview?(fromX: number, fromZ: number, toX: number, toZ: number, kind: OrderMarkerKind): void;
+  clearFacingPreview?(): void;
   tryRally?(x: number, z: number): boolean;
 }
 
@@ -38,6 +41,7 @@ export class RtsController {
   private readonly selectionBox: HTMLDivElement;
   private readonly controlGroups = new Map<number, Entity[]>();
   private pointerDown?: PointerState;
+  private rightOrderStart?: { x: number; z: number };
   private lastClick = { time: 0, entity: undefined as Entity | undefined };
   private attackMoveQueued = false;
   private enabled = true;
@@ -67,11 +71,17 @@ export class RtsController {
     return selectedEntities(this.sim).length;
   }
 
+  isRightOrderGestureActive(): boolean {
+    return this.enabled && this.pointerDown?.button === 2 && this.rightOrderStart !== undefined;
+  }
+
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) {
       this.pointerDown = undefined;
+      this.rightOrderStart = undefined;
       this.selectionBox.style.display = 'none';
+      this.orderFeedback?.clearFacingPreview?.();
       this.attackMoveQueued = false;
     }
   }
@@ -84,6 +94,10 @@ export class RtsController {
       return;
     }
     this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
+    this.rightOrderStart = undefined;
+    if (e.button === 2 && selectedEntities(this.sim).some((entity) => entity.mover)) {
+      this.rightOrderStart = this.terrainPoint(e.clientX, e.clientY);
+    }
     if (e.button === 0 || e.button === 2) {
       e.preventDefault();
       this.dom.setPointerCapture?.(e.pointerId);
@@ -97,7 +111,19 @@ export class RtsController {
       if (p) this.placement.preview(p.x, p.z);
       return;
     }
-    if (!this.pointerDown || this.pointerDown.button !== 0 || e.metaKey) return;
+    if (!this.pointerDown) return;
+    if (this.pointerDown.button === 2 && this.rightOrderStart) {
+      const dx = e.clientX - this.pointerDown.x;
+      const dy = e.clientY - this.pointerDown.y;
+      if (Math.hypot(dx, dy) < RIGHT_ORDER_DRAG_THRESHOLD) {
+        this.orderFeedback?.clearFacingPreview?.();
+        return;
+      }
+      const p = this.terrainPoint(e.clientX, e.clientY);
+      if (p) this.orderFeedback?.showFacingPreview?.(this.rightOrderStart.x, this.rightOrderStart.z, p.x, p.z, this.isAttackMoveQueued() ? 'attack' : 'move');
+      return;
+    }
+    if (this.pointerDown.button !== 0 || e.metaKey) return;
     const dx = e.clientX - this.pointerDown.x;
     const dy = e.clientY - this.pointerDown.y;
     if (Math.hypot(dx, dy) < LEFT_DRAG_THRESHOLD) return;
@@ -118,6 +144,7 @@ export class RtsController {
     const down = this.pointerDown;
     this.pointerDown = undefined;
     this.selectionBox.style.display = 'none';
+    this.orderFeedback?.clearFacingPreview?.();
 
     const dx = e.clientX - down.x;
     const dy = e.clientY - down.y;
@@ -142,20 +169,33 @@ export class RtsController {
       }
     }
 
-    if (down.button === 2 && !dragged) {
-      const p = this.terrainPoint(e.clientX, e.clientY) ?? this.terrainPoint(down.x, down.y);
-      if (p) {
-        if (this.orderFeedback?.tryRally?.(p.x, p.z)) {
+    if (down.button === 2) {
+      const destinationPoint = dragged ? this.rightOrderStart : this.terrainPoint(e.clientX, e.clientY) ?? this.terrainPoint(down.x, down.y);
+      const facingPoint = dragged ? this.terrainPoint(e.clientX, e.clientY) : undefined;
+      this.rightOrderStart = undefined;
+      if (destinationPoint) {
+        if (!dragged && this.orderFeedback?.tryRally?.(destinationPoint.x, destinationPoint.z)) {
           this.attackMoveQueued = false;
           return;
         }
         const selected = selectedEntities(this.sim).filter((entity) => entity.mover);
-        const target = this.sim.nav.nearestWalkableCell(p.x, p.z, 96);
+        const target = this.sim.nav.nearestWalkableCell(destinationPoint.x, destinationPoint.z, 96);
         const attackMove = this.isAttackMoveQueued();
-        if (selected.length > 0 && target) {
-          const destination = this.sim.nav.cellCenter(target.x, target.y);
-          if (issueMoveOrder(this.sim, selected, destination.x, destination.z, attackMove)) {
+        if (!target) {
+          this.attackMoveQueued = false;
+          return;
+        }
+        const destination = this.sim.nav.cellCenter(target.x, target.y);
+        let faceYaw: number | undefined;
+        if (dragged && destination && facingPoint) {
+          const faceDx = facingPoint.x - destination.x;
+          const faceDz = facingPoint.z - destination.z;
+          if (Math.hypot(faceDx, faceDz) > 2) faceYaw = Math.atan2(faceDx, faceDz);
+        }
+        if (selected.length > 0) {
+          if (issueMoveOrder(this.sim, selected, destination.x, destination.z, attackMove, faceYaw)) {
             this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack' : 'move');
+            if (faceYaw !== undefined) this.orderFeedback?.showFacingOrder?.(destination.x, destination.z, faceYaw, attackMove ? 'attack' : 'move');
           }
         }
         this.attackMoveQueued = false;

@@ -158,23 +158,25 @@ export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: numb
   });
 }
 
-export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number, targetZ: number, attackMove = false): boolean {
+export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number, targetZ: number, attackMove = false, faceYaw?: number): boolean {
   let issued = false;
   const flyers = entities.filter((entity) => entity.flight);
   if (flyers.length > 0) {
     const spacing = 8;
-    const width = Math.max(1, Math.ceil(Math.sqrt(flyers.length)));
+    const width = formationWidth(flyers.length, faceYaw);
     flyers.forEach((entity, i) => {
       if (!entity.mover) return;
       const col = i % width;
       const row = Math.floor(i / width);
+      const offset = formationOffset(col, row, width, flyers.length, spacing, faceYaw);
       entity.mover.target = {
-        x: clamp(targetX + (col - (width - 1) / 2) * spacing, -sim.nav.size / 2, sim.nav.size / 2),
-        z: clamp(targetZ + (row - Math.floor(flyers.length / width) / 2) * spacing, -sim.nav.size / 2, sim.nav.size / 2),
+        x: clamp(targetX + offset.x, -sim.nav.size / 2, sim.nav.size / 2),
+        z: clamp(targetZ + offset.z, -sim.nav.size / 2, sim.nav.size / 2),
       };
       entity.mover.formationOffset = undefined;
       entity.mover.flow = undefined;
       entity.mover.attackMove = attackMove;
+      entity.mover.faceYaw = faceYaw;
       issued = true;
     });
   }
@@ -186,17 +188,17 @@ export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number
   const p = sim.nav.cellCenter(target.x, target.y);
   const flow = new FlowField(sim.nav, p.x, p.z);
   const spacing = 5.2;
-  const width = Math.max(1, Math.ceil(Math.sqrt(groundUnits.length)));
+  const width = formationWidth(groundUnits.length, faceYaw);
   groundUnits.forEach((entity, i) => {
     if (!entity.mover) return;
     const col = i % width;
     const row = Math.floor(i / width);
-    const ox = (col - (width - 1) / 2) * spacing;
-    const oz = (row - Math.floor(groundUnits.length / width) / 2) * spacing;
+    const offset = formationOffset(col, row, width, groundUnits.length, spacing, faceYaw);
     entity.mover.target = { x: p.x, z: p.z };
-    entity.mover.formationOffset = { x: ox, z: oz };
+    entity.mover.formationOffset = { x: offset.x, z: offset.z };
     entity.mover.flow = flow;
     entity.mover.attackMove = attackMove;
+    entity.mover.faceYaw = faceYaw;
     issued = true;
   });
   return issued;
@@ -208,6 +210,7 @@ export function stopEntities(entities: Entity[]): void {
     entity.mover.target = undefined;
     entity.mover.formationOffset = undefined;
     entity.mover.flow = undefined;
+    entity.mover.faceYaw = undefined;
     entity.velocity.x = 0;
     entity.velocity.z = 0;
   }
@@ -277,6 +280,9 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
           desiredZ = (dz / d) * mover.speed;
         }
         mover.engage = undefined;
+      } else if (mover.faceYaw !== undefined) {
+        transform.rot = slewAngle(transform.rot, mover.faceYaw, 2.8, dt);
+        if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, mover.faceYaw, entity.turret.turnRate, dt);
       }
     } else if (entity.playerControlled) {
       mover.target = undefined;
@@ -321,6 +327,9 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         desiredZ = dz / d;
       }
       mover.engage = undefined; // re-issued next combat tick while the foe stays visible
+    } else if (mover.faceYaw !== undefined) {
+      transform.rot = slewAngle(transform.rot, mover.faceYaw, 2.8, dt);
+      if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, mover.faceYaw, entity.turret.turnRate, dt);
     }
 
     for (let j = 0; j < movers.length; j++) {
@@ -402,6 +411,27 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
   }
 
   sim.tick++;
+}
+
+function formationWidth(count: number, faceYaw?: number): number {
+  if (count <= 1) return 1;
+  if (faceYaw === undefined) return Math.max(1, Math.ceil(Math.sqrt(count)));
+  return Math.min(count, Math.max(2, Math.ceil(Math.sqrt(count) * 1.8)));
+}
+
+function formationOffset(col: number, row: number, width: number, count: number, spacing: number, faceYaw?: number): { x: number; z: number } {
+  const rows = Math.ceil(count / width);
+  const localX = (col - (width - 1) / 2) * spacing;
+  const localZ = (row - (rows - 1) / 2) * spacing;
+  if (faceYaw === undefined) return { x: localX, z: localZ };
+  const rightX = Math.cos(faceYaw);
+  const rightZ = -Math.sin(faceYaw);
+  const backX = -Math.sin(faceYaw);
+  const backZ = -Math.cos(faceYaw);
+  return {
+    x: rightX * localX + backX * localZ,
+    z: rightZ * localX + backZ * localZ,
+  };
 }
 
 export function hashSim(sim: GameSim): number {
