@@ -139,9 +139,12 @@
   first, build-type tabs underneath, then a compact 3-column command grid.
 - Added a command icon asset contract at `public/assets/ui/command-icons/`; uploaded PNGs named
   after each item automatically replace the text placeholders in the grid.
+- Radar/minimap clicks now jump the RTS camera to the clicked world location and briefly mark
+  the chosen point on the radar.
 - Browser verification passed on Vite dev server: Phase 4 HUD rendered, 160 total units loaded,
   the radar/tabs/grid sidebar appeared in the expected order, and clicking the Command Yard
-  showed the selected-building contextual build menu within the same grid layout.
+  showed the selected-building contextual build menu within the same grid layout. Radar click
+  navigation was also verified by jumping from base view to an ore/water edge location.
 - `npm test` passes (10 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes

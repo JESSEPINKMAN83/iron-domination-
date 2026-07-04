@@ -58,6 +58,15 @@ export class RtsCameraRig {
     return MathUtils.radToDeg(this.currentPitch());
   }
 
+  jumpTo(x: number, z: number): void {
+    const bound = this.hf.size / 2 - 10;
+    const clampedX = MathUtils.clamp(x, -bound, bound);
+    const clampedZ = MathUtils.clamp(z, -bound, bound);
+    const y = Math.max(sampleHeight(this.hf, clampedX, clampedZ), this.hf.waterLevel);
+    this.goal.set(clampedX, y, clampedZ);
+    this.target.copy(this.goal);
+  }
+
   update(dt: number): void {
     const input = this.input;
 

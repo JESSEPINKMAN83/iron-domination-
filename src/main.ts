@@ -106,6 +106,9 @@ async function boot(): Promise<void> {
     queueUnit: (kind, producer) => {
       queueUnit(sim, economy, kind, producer);
     },
+    focusMap: (x, z) => {
+      rig.jumpTo(x, z);
+    },
   });
   input.onKeyDown('F3', () => water.setDebugOverlay(terrain.toggleWalkOverlay()));
   input.onKeyDown('F1', () => hud.toggleHelp());

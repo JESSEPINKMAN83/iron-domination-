@@ -9,6 +9,7 @@ type Tab = 'structures' | 'infantry' | 'vehicles';
 export interface SidebarActions {
   buildStructure(kind: StructureKind): void;
   queueUnit(kind: UnitKind, producer?: Entity): void;
+  focusMap(x: number, z: number): void;
 }
 
 export class Sidebar {
@@ -23,6 +24,7 @@ export class Sidebar {
   private lastStatusText = '';
   private lastBodyKey = '';
   private lastRadarTick = -1;
+  private radarFocus?: { x: number; z: number; ttl: number };
 
   constructor(private readonly sim: GameSim, private readonly hf: Heightfield, private readonly economy: EconomyState, private readonly actions: SidebarActions) {
     this.root = document.createElement('div');
@@ -39,6 +41,7 @@ export class Sidebar {
     this.radar.width = 294;
     this.radar.height = 148;
     this.radar.style.cssText = 'position:absolute;left:8px;right:8px;bottom:8px;width:294px;height:148px;image-rendering:pixelated;background:#07100c;';
+    this.radar.addEventListener('pointerdown', (event) => this.onRadarPointerDown(event));
     const radarCtx = this.radar.getContext('2d');
     if (!radarCtx) throw new Error('radar canvas unavailable');
     this.radarCtx = radarCtx;
@@ -283,6 +286,10 @@ export class Sidebar {
   }
 
   private drawRadar(): void {
+    if (this.radarFocus) {
+      this.radarFocus.ttl -= 1 / 30;
+      if (this.radarFocus.ttl <= 0) this.radarFocus = undefined;
+    }
     this.radarCtx.drawImage(this.radarTerrain, 0, 0);
     this.radarCtx.fillStyle = 'rgba(0,0,0,.22)';
     this.radarCtx.fillRect(0, 0, this.radar.width, this.radar.height);
@@ -295,8 +302,33 @@ export class Sidebar {
       this.radarCtx.fillStyle = entity.team?.id === 2 ? '#df5742' : entity.selectable?.selected ? '#f0d56a' : '#56d184';
       this.radarCtx.fillRect(Math.round(x) - (isBuilding ? 2 : 1), Math.round(y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
+    if (this.radarFocus) {
+      const x = ((this.radarFocus.x / this.hf.size) + 0.5) * this.radar.width;
+      const y = ((this.radarFocus.z / this.hf.size) + 0.5) * this.radar.height;
+      this.radarCtx.strokeStyle = '#f0d56a';
+      this.radarCtx.lineWidth = 1;
+      this.radarCtx.beginPath();
+      this.radarCtx.moveTo(x - 6, y);
+      this.radarCtx.lineTo(x + 6, y);
+      this.radarCtx.moveTo(x, y - 6);
+      this.radarCtx.lineTo(x, y + 6);
+      this.radarCtx.stroke();
+    }
     this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
+  }
+
+  private onRadarPointerDown(event: PointerEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = this.radar.getBoundingClientRect();
+    const u = (event.clientX - rect.left) / rect.width;
+    const v = (event.clientY - rect.top) / rect.height;
+    const x = (u - 0.5) * this.hf.size;
+    const z = (v - 0.5) * this.hf.size;
+    this.radarFocus = { x, z, ttl: 0.8 };
+    this.actions.focusMap(x, z);
+    this.drawRadar();
   }
 }
 
