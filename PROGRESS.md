@@ -141,10 +141,14 @@
   after each item automatically replace the text placeholders in the grid.
 - Radar/minimap clicks now jump the RTS camera to the clicked world location and briefly mark
   the chosen point on the radar.
+- Tanks now crush tree instances as they drive over them; crushed trees tip over and darken so
+  the path of destruction remains visible.
 - Browser verification passed on Vite dev server: Phase 4 HUD rendered, 160 total units loaded,
   the radar/tabs/grid sidebar appeared in the expected order, and clicking the Command Yard
   showed the selected-building contextual build menu within the same grid layout. Radar click
-  navigation was also verified by jumping from base view to an ore/water edge location.
+  navigation was also verified by jumping from base view to an ore/water edge location. Tree
+  crushing was verified by ordering a selected tank group through a tree line and observing
+  fallen/darkened tree instances along the path.
 - `npm test` passes (10 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes

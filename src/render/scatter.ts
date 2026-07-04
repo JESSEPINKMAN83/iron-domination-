@@ -6,9 +6,14 @@ import {
   Color,
   ConeGeometry,
   CylinderGeometry,
+  Euler,
   Group,
   IcosahedronGeometry,
+  InstancedMesh,
   Material,
+  Matrix4,
+  Quaternion,
+  Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32 } from '../sim/noise';
@@ -71,12 +76,87 @@ interface ScatterDef {
   isTree: boolean;
 }
 
+interface CrushableTree {
+  mesh: InstancedMesh;
+  index: number;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  scale: number;
+  crushed: boolean;
+}
+
+export class ScatterView {
+  readonly group = new Group();
+  private readonly trees: CrushableTree[] = [];
+  private readonly treeGrid = new Map<string, CrushableTree[]>();
+  private readonly matrix = new Matrix4();
+  private readonly quat = new Quaternion();
+  private readonly pos = new Vector3();
+  private readonly scale = new Vector3();
+  private readonly crushedColor = new Color('#3b3026');
+  private readonly gridSize = 9;
+
+  addMesh(mesh: InstancedMesh): void {
+    this.group.add(mesh);
+  }
+
+  addTree(tree: CrushableTree): void {
+    this.trees.push(tree);
+    const key = this.gridKey(tree.x, tree.z);
+    const bucket = this.treeGrid.get(key);
+    if (bucket) bucket.push(tree);
+    else this.treeGrid.set(key, [tree]);
+  }
+
+  crushNear(x: number, z: number, radius: number): number {
+    let crushed = 0;
+    const minX = Math.floor((x - radius) / this.gridSize);
+    const maxX = Math.floor((x + radius) / this.gridSize);
+    const minZ = Math.floor((z - radius) / this.gridSize);
+    const maxZ = Math.floor((z + radius) / this.gridSize);
+    const r2 = radius * radius;
+    for (let gz = minZ; gz <= maxZ; gz++) {
+      for (let gx = minX; gx <= maxX; gx++) {
+        const bucket = this.treeGrid.get(`${gx}:${gz}`);
+        if (!bucket) continue;
+        for (const tree of bucket) {
+          if (tree.crushed) continue;
+          const d2 = (tree.x - x) ** 2 + (tree.z - z) ** 2;
+          if (d2 > r2) continue;
+          tree.crushed = true;
+          crushed++;
+          this.applyCrushedTree(tree);
+        }
+      }
+    }
+    return crushed;
+  }
+
+  private applyCrushedTree(tree: CrushableTree): void {
+    const fallSide = tree.index % 2 === 0 ? 1 : -1;
+    this.quat.setFromEuler(new Euler(Math.PI * 0.47 * fallSide, tree.rotY, Math.PI * 0.08 * fallSide, 'YXZ'));
+    this.pos.set(tree.x, tree.y + 0.12, tree.z);
+    this.scale.set(tree.scale * 1.04, tree.scale * 0.72, tree.scale * 1.04);
+    this.matrix.compose(this.pos, this.quat, this.scale);
+    tree.mesh.setMatrixAt(tree.index, this.matrix);
+    tree.mesh.setColorAt(tree.index, this.crushedColor);
+    tree.mesh.instanceMatrix.needsUpdate = true;
+    if (tree.mesh.instanceColor) tree.mesh.instanceColor.needsUpdate = true;
+  }
+
+  private gridKey(x: number, z: number): string {
+    return `${Math.floor(x / this.gridSize)}:${Math.floor(z / this.gridSize)}`;
+  }
+}
+
 export function buildScatter(
   hf: Heightfield,
   registry: InstancedMeshRegistry,
   material: Material,
   seed: number,
-): Group {
+): ScatterView {
   const rng = mulberry32(seed);
   const defs: ScatterDef[] = [
     { name: 'pine', geometry: pineGeometry(), count: 2200, scaleMin: 0.7, scaleMax: 1.5, maxSlope: 0.5, isTree: true },
@@ -85,7 +165,7 @@ export function buildScatter(
     { name: 'rock-b', geometry: rockGeometry(rng, 0.45), count: 700, scaleMin: 0.4, scaleMax: 1.5, maxSlope: 0.9, isTree: false },
   ];
 
-  const group = new Group();
+  const view = new ScatterView();
   const bound = hf.size / 2 - 12;
   for (const def of defs) {
     const list: InstanceTransform[] = [];
@@ -111,7 +191,22 @@ export function buildScatter(
         tint,
       });
     }
-    group.add(registry.register(def.name, def.geometry, material, list));
+    const mesh = registry.register(def.name, def.geometry, material, list);
+    view.addMesh(mesh);
+    if (def.isTree) {
+      list.forEach((inst, index) => {
+        view.addTree({
+          mesh,
+          index,
+          x: inst.x,
+          y: inst.y,
+          z: inst.z,
+          rotY: inst.rotY,
+          scale: inst.scale,
+          crushed: false,
+        });
+      });
+    }
   }
-  return group;
+  return view;
 }

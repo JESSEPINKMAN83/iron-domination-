@@ -61,7 +61,8 @@ async function boot(): Promise<void> {
   const scatterMaterial = ctx.setupLitMaterial(
     new MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, flatShading: true }),
   );
-  ctx.scene.add(buildScatter(hf, registry, scatterMaterial, MAP01.seed ^ 0x5eed));
+  const scatter = buildScatter(hf, registry, scatterMaterial, MAP01.seed ^ 0x5eed);
+  ctx.scene.add(scatter.group);
 
   const sim = createGameSim(hf);
   const economy = createEconomy();
@@ -126,6 +127,9 @@ async function boot(): Promise<void> {
         unitView.addEntity(entity);
       }
       stepSim(sim, hf, 1 / SIM_HZ);
+      for (const entity of sim.world.entities) {
+        if (entity.selectable?.type === 'tank' && !entity.destroyed) scatter.crushNear(entity.transform.x, entity.transform.z, 3.6);
+      }
       stepCombat(sim, 1 / SIM_HZ);
       combatView.push(sim.events.splice(0));
       simTicks++;
