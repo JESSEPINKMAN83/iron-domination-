@@ -128,9 +128,9 @@ export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomySt
     name: def.label,
     transform: { x: placement.x, z: placement.z, rot: 0 },
     previousTransform: { x: placement.x, z: placement.z, rot: 0 },
-    health: { current: 900, max: 900 },
+    health: { current: def.health ?? 900, max: def.health ?? 900 },
     team: { id: economy.team },
-    vision: { radius: 90 },
+    vision: { radius: def.visionRadius ?? 90 },
     selectable: { selected: false, type: 'building', radius: Math.max(def.footprint.w, def.footprint.h) },
     building: {
       kind: def.kind,
@@ -142,9 +142,12 @@ export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomySt
       buildProgress: 0,
     },
     producer: def.producer ? { queue: [] } : undefined,
-    collider: { radius: Math.max(def.footprint.w, def.footprint.h) },
+    weapon: def.weaponKind ? { kind: def.weaponKind, range: def.weaponRange ?? 80, cooldown: 0 } : undefined,
+    turret: def.weaponKind ? { yaw: 0, turnRate: 2.4 } : undefined,
+    collider: { radius: def.blocksMovement ? footprintRadius(hf, def.footprint) : Math.max(def.footprint.w, def.footprint.h) },
     armor: { kind: 'building' },
   });
+  if (def.blocksMovement) sim.nav.setDynamicBlocker(entity.id, entity.transform.x, entity.transform.z, entity.collider?.radius ?? 4);
   economy.readyStructure = undefined;
   recomputePower(sim, economy);
   return entity;
@@ -406,4 +409,8 @@ function footprintBlocked(sim: GameSim, hf: Heightfield, x: number, z: number, f
 
 function nearFriendlyStructure(sim: GameSim, x: number, z: number, radius: number, team: number): boolean {
   return buildings(sim, team).some((entity) => entity.building?.complete && Math.hypot(entity.transform.x - x, entity.transform.z - z) <= radius);
+}
+
+function footprintRadius(hf: Heightfield, footprint: { w: number; h: number }): number {
+  return Math.hypot(footprint.w * hf.cellSize, footprint.h * hf.cellSize);
 }

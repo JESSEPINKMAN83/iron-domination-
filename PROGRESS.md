@@ -354,7 +354,8 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - `npm test` passes (20 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
-- Defense tab is intentionally present but empty until the next tech/content phase.
+- Defense tab now has first-pass wall and tower content, added during the Phase 6.5
+  defense interlude.
 - Command card artwork still depends on optional PNGs in `public/assets/ui/command-icons/`;
   text initials remain the fallback for missing art.
 - Browser verification was a smoke pass, not a full manual interaction pass through every
@@ -391,18 +392,29 @@ drafted in `drafts/phase6/` (unwired, see its README).
   and longer downrange aim so flight reads differently from tank possession.
 - Added first-pass aircraft weapon data for rocket pods and AG missiles, plus tests proving
   player-controlled flight moves/climbs and Vulture rockets damage ground targets.
+- Added the first defensive-building interlude: `Wall Segment` and `Guard Tower` now live in
+  the `DEFENSE` sidebar tab after Power Plant tech is online.
+- Defensive structures can register as dynamic ground navigation blockers. Walls and towers
+  block tank movement while alive, and destroyed blockers are removed immediately so breaches
+  open usable paths.
+- Guard Towers use the existing cannon weapon data, acquire nearby enemies automatically, and
+  provide their own vision radius.
+- Added regression tests proving walls block/unblock navigation and Guard Towers auto-fire at
+  nearby enemies.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
 - Follow-up browser smoke passed after Vulture V-mode wiring: app reloaded, `AIRCRAFT` tab
   opened, and no console errors were reported.
-- `npm test` passes (25 Vitest tests). `npm run build` passes.
+- `npm test` passes (27 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,
   AA turret behavior, AI air usage, and polished flight HUD are still pending.
 - Right-click AG missile is a first-pass instant manual shot through weapon data; the planned
   hold-to-preview ground-impact marker and travel-time missile come next.
+- Wall placement is currently one segment per ready build. Drag-to-place wall chains and
+  smarter wall-line previews are still future UX polish.
 
 ### Next
 - Continue Phase 6.5 with air/ground weapon rules, Helipad production/rearm loop, AA turret,

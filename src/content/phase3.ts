@@ -1,17 +1,24 @@
-export type StructureKind = 'power-plant' | 'refinery' | 'barracks' | 'factory' | 'helipad';
+import type { WeaponKind } from './phase4';
+
+export type StructureKind = 'power-plant' | 'refinery' | 'barracks' | 'factory' | 'helipad' | 'wall' | 'guard-tower';
 export type UnitKind = 'infantry' | 'tank' | 'vulture';
 
 export interface StructureDef {
   kind: StructureKind;
   label: string;
-  tab: 'structures';
+  tab: 'structures' | 'defense';
   cost: number;
   buildTime: number;
+  health?: number;
   footprint: { w: number; h: number };
   powerProduced: number;
   powerUsed: number;
   requires?: StructureKind;
   producer?: 'structures' | 'infantry' | 'vehicles' | 'aircraft';
+  blocksMovement?: boolean;
+  weaponKind?: WeaponKind;
+  weaponRange?: number;
+  visionRadius?: number;
 }
 
 export interface UnitDef {
@@ -81,6 +88,36 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     powerUsed: 10,
     requires: 'factory',
     producer: 'aircraft',
+  },
+  wall: {
+    kind: 'wall',
+    label: 'Wall Segment',
+    tab: 'defense',
+    cost: 80,
+    buildTime: 1.4,
+    health: 420,
+    footprint: { w: 2, h: 2 },
+    powerProduced: 0,
+    powerUsed: 0,
+    requires: 'power-plant',
+    blocksMovement: true,
+    visionRadius: 0,
+  },
+  'guard-tower': {
+    kind: 'guard-tower',
+    label: 'Guard Tower',
+    tab: 'defense',
+    cost: 650,
+    buildTime: 6,
+    health: 760,
+    footprint: { w: 4, h: 4 },
+    powerProduced: 0,
+    powerUsed: 6,
+    requires: 'power-plant',
+    blocksMovement: true,
+    weaponKind: 'cannon',
+    weaponRange: 88,
+    visionRadius: 105,
   },
 };
 

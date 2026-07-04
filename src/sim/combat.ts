@@ -102,7 +102,7 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
   let damage = 0;
   let killed = false;
   if (target?.health && target.armor) {
-    damage = applyDamage(target, damageForArmor(def.kind, target.armor.kind));
+    damage = applyDamage(sim, target, damageForArmor(def.kind, target.armor.kind));
     const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, target);
     killed = target.health.current <= 0 || area.killed;
     weapon.targetId = target.id;
@@ -176,7 +176,7 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
   if (!target.health || !target.armor || !attacker.team) return;
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def) return;
-  const damage = applyDamage(target, damageForArmor(def.kind, target.armor.kind));
+  const damage = applyDamage(sim, target, damageForArmor(def.kind, target.armor.kind));
   const area = applyAreaDamage(sim, attacker.team.id, target.transform.x, target.transform.z, def.splashRadius, def.kind, target);
   weapon.cooldown = def.cooldown;
   sim.events.push({
@@ -244,7 +244,7 @@ function targetableByTeam(teamId: number, target: Entity): boolean {
   return true;
 }
 
-function applyDamage(target: Entity, amount: number): number {
+function applyDamage(sim: GameSim, target: Entity, amount: number): number {
   if (!target.health || amount <= 0) return 0;
   const before = target.health.current;
   target.health.current = Math.max(0, target.health.current - amount);
@@ -252,6 +252,7 @@ function applyDamage(target: Entity, amount: number): number {
     target.destroyed = { remaining: 20 };
     target.selectable && (target.selectable.selected = false);
     stopEntities([target]);
+    if (target.building) sim.nav.removeDynamicBlocker(target.id);
   }
   return before - target.health.current;
 }
@@ -276,7 +277,7 @@ function applyAreaDamage(
     if (d > radius) continue;
     const falloff = 1 - d / radius;
     const splashMultiplier = kind === 'bomb' ? 1 : 0.55;
-    damage += applyDamage(target, damageForArmor(kind, target.armor.kind) * falloff * splashMultiplier);
+    damage += applyDamage(sim, target, damageForArmor(kind, target.armor.kind) * falloff * splashMultiplier);
     killed ||= target.health?.current === 0;
   }
   return { damage, killed };

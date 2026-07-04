@@ -157,7 +157,7 @@ export class Sidebar {
     if (selected) this.body.appendChild(this.selectedBuildingStrip(selected));
 
     if (this.activeTab === 'buildings') {
-      for (const def of Object.values(STRUCTURES)) {
+      for (const def of Object.values(STRUCTURES).filter((structure) => structure.tab === 'structures')) {
         this.body.appendChild(
           this.card(def.kind, def.label, def.cost, 'STRUCTURE', this.structureCardState(def.kind), () => this.actions.buildStructure(def.kind), () =>
             this.actions.cancelStructure(),
@@ -168,7 +168,13 @@ export class Sidebar {
     }
 
     if (this.activeTab === 'defense') {
-      this.body.appendChild(this.emptyState('DEFENSE OFFLINE', 'Anti-air, turrets, and walls are not online yet.'));
+      for (const def of Object.values(STRUCTURES).filter((structure) => structure.tab === 'defense')) {
+        this.body.appendChild(
+          this.card(def.kind, def.label, def.cost, 'DEFENSE', this.structureCardState(def.kind), () => this.actions.buildStructure(def.kind), () =>
+            this.actions.cancelStructure(),
+          ),
+        );
+      }
       return;
     }
 
@@ -422,8 +428,14 @@ export class Sidebar {
   }
 
   private tabHasActivity(tab: Tab): boolean {
-    if (tab === 'buildings') return !!this.economy.readyStructure || !!this.economy.structureLine;
-    if (tab === 'defense') return false;
+    if (tab === 'buildings') {
+      const kind = this.economy.readyStructure ?? (this.economy.structureLine?.kind as StructureKind | undefined);
+      return !!kind && STRUCTURES[kind]?.tab === 'structures';
+    }
+    if (tab === 'defense') {
+      const kind = this.economy.readyStructure ?? (this.economy.structureLine?.kind as StructureKind | undefined);
+      return !!kind && STRUCTURES[kind]?.tab === 'defense';
+    }
     return this.unitProducers(tab).some((entity) => entity.producer?.active || (entity.producer?.queue.length ?? 0) > 0);
   }
 

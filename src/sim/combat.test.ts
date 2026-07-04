@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { damageForArmor, manualFireAt, stepCombat } from './combat';
+import { createEconomy, createInitialBase, placeStructure, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield } from './heightfield';
 import { createGameSim, hashSim, spawnTankAt, spawnVultureAt } from './world';
 
@@ -143,5 +144,58 @@ describe('phase 4 combat simulation', () => {
     expect(fired).toBe(true);
     expect(enemy.health?.current).toBeLessThan(100);
     expect(vulture.weapons?.primary.cooldown).toBeGreaterThan(0);
+  });
+
+  it('walls block ground navigation until destroyed', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    let placement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z);
+    expect(placeStructure(sim, hf, economy, placement)).toBeDefined();
+
+    expect(startStructureBuild(sim, economy, 'wall')).toBe(true);
+    for (let i = 0; i < 30 * 2; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    placement = updatePlacement(sim, hf, 'wall', base.transform.x + 22, base.transform.z);
+    const wall = placeStructure(sim, hf, economy, placement);
+    expect(wall).toBeDefined();
+    const cell = sim.nav.worldToCell(wall!.transform.x, wall!.transform.z);
+    expect(sim.nav.isWalkableCell(cell.x, cell.y)).toBe(false);
+
+    const attacker = spawnTankAt(sim, wall!.transform.x, wall!.transform.z - 24, 'Breacher', 2);
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    attacker.turret!.yaw = 0;
+    wall!.health!.current = 1;
+    expect(manualFireAt(sim, attacker, wall!.transform.x, wall!.transform.z)).toBe(true);
+
+    expect(wall!.destroyed).toBeDefined();
+    expect(sim.nav.isWalkableCell(cell.x, cell.y)).toBe(true);
+  });
+
+  it('guard towers automatically fire at nearby enemies', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    let placement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z);
+    expect(placeStructure(sim, hf, economy, placement)).toBeDefined();
+
+    expect(startStructureBuild(sim, economy, 'guard-tower')).toBe(true);
+    for (let i = 0; i < 30 * 7; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    placement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 24, base.transform.z);
+    const tower = placeStructure(sim, hf, economy, placement);
+    expect(tower?.weapon?.kind).toBe('cannon');
+
+    const enemy = spawnTankAt(sim, tower!.transform.x + 34, tower!.transform.z, 'Raider', 2);
+    settle(sim, 4);
+
+    expect(enemy.health?.current).toBeLessThan(100);
+    expect(sim.events.some((event) => event.kind === 'cannon')).toBe(true);
   });
 });

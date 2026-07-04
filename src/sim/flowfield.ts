@@ -11,11 +11,17 @@ export interface BlockedFootprint {
   radius: number;
 }
 
+interface DynamicBlocker extends BlockedFootprint {
+  id: number;
+}
+
 export class NavigationGrid {
   readonly cells: number;
   readonly cellSize: number;
   readonly size: number;
   readonly blocked: Uint8Array;
+  private readonly baseBlocked: Uint8Array;
+  private readonly dynamicBlockers = new Map<number, DynamicBlocker>();
 
   constructor(hf: Heightfield, footprints: BlockedFootprint[] = []) {
     this.cells = hf.cells;
@@ -23,7 +29,9 @@ export class NavigationGrid {
     this.size = hf.size;
     this.blocked = new Uint8Array(hf.walkable.length);
     for (let i = 0; i < hf.walkable.length; i++) this.blocked[i] = hf.walkable[i] ? 0 : 1;
+    this.baseBlocked = new Uint8Array(this.blocked);
     for (const f of footprints) this.blockCircle(f.x, f.z, f.radius);
+    this.baseBlocked.set(this.blocked);
   }
 
   index(cx: number, cy: number): number {
@@ -65,6 +73,21 @@ export class NavigationGrid {
       }
     }
     return undefined;
+  }
+
+  setDynamicBlocker(id: number, x: number, z: number, radius: number): void {
+    this.dynamicBlockers.set(id, { id, x, z, radius });
+    this.rebuildBlocked();
+  }
+
+  removeDynamicBlocker(id: number): void {
+    if (!this.dynamicBlockers.delete(id)) return;
+    this.rebuildBlocked();
+  }
+
+  private rebuildBlocked(): void {
+    this.blocked.set(this.baseBlocked);
+    for (const blocker of this.dynamicBlockers.values()) this.blockCircle(blocker.x, blocker.z, blocker.radius);
   }
 
   private blockCircle(x: number, z: number, radius: number): void {
