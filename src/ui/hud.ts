@@ -38,7 +38,7 @@ export class Hud {
       'Test start all tech unlocked · ?start=normal for build-up',
       'AI opts   ?ai=easy|normal|hard  ?ai-style=turtle|rusher|balanced',
       'Pan       W A S D / arrows / screen edge',
-      'Grab pan  hold Space + left/right-drag',
+      'Grab pan  hold Space + move/drag',
       'Look      Cmd/Ctrl + left-drag free aim',
       'Zoom      mouse wheel (28–140)',
       'Rotate    Q / E (90°)',

@@ -471,9 +471,9 @@ drafted in `drafts/phase6/` (unwired, see its README).
   mobile defenders. Idle defenders temporarily target and move toward the attacker even when
   the shooter is bombarding from outside their normal idle engagement, so bases no longer sit
   passive while being shelled from afar.
-- Follow-up camera UX fix: RTS grab-pan now uses Space + left/right-drag, while Command/Ctrl
-  + left-drag remains the saved free-look camera angle control and plain right-drag stays
-  available for unit-facing orders.
+- Follow-up camera UX fix: holding Space now puts the RTS camera into grab-pan mode for mouse
+  movement/dragging, while Command/Ctrl + left-drag remains the saved free-look camera angle
+  control and plain right-drag stays available for unit-facing orders.
 - Follow-up wall-chain fix: wall previews now snap from open wall ends only, not from middle
   side segments, so extending a wall from its left/right/top/bottom edge no longer latches to
   the wrong side of an existing run.
