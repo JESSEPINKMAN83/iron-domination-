@@ -1,5 +1,5 @@
 export type ArmorClass = 'infantry' | 'light' | 'heavy' | 'building';
-export type WeaponKind = 'rifle' | 'cannon' | 'bomb' | 'rocketPod' | 'agMissile';
+export type WeaponKind = 'rifle' | 'cannon' | 'bomb' | 'rocketPod' | 'agMissile' | 'aaMissile';
 
 export interface WeaponDef {
   kind: WeaponKind;
@@ -62,5 +62,15 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     splashRadius: 6,
     targetTypes: ['light', 'heavy', 'building'],
     vs: { infantry: 0.75, light: 1.0, heavy: 0.9, building: 0.72 },
+  },
+  aaMissile: {
+    kind: 'aaMissile',
+    label: 'AA Missile',
+    damage: 42,
+    cooldown: 2.8,
+    range: 145,
+    splashRadius: 5,
+    targetTypes: ['light'],
+    vs: { infantry: 0.2, light: 1.1, heavy: 0.25, building: 0.08 },
   },
 };

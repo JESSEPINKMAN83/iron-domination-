@@ -1,6 +1,6 @@
 import type { WeaponKind } from './phase4';
 
-export type StructureKind = 'power-plant' | 'refinery' | 'barracks' | 'factory' | 'helipad' | 'wall' | 'guard-tower';
+export type StructureKind = 'power-plant' | 'refinery' | 'barracks' | 'factory' | 'helipad' | 'wall' | 'guard-tower' | 'aa-tower';
 export type UnitKind = 'infantry' | 'tank' | 'vulture';
 
 export interface StructureDef {
@@ -118,6 +118,22 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     weaponKind: 'cannon',
     weaponRange: 88,
     visionRadius: 105,
+  },
+  'aa-tower': {
+    kind: 'aa-tower',
+    label: 'AA Missile Tower',
+    tab: 'defense',
+    cost: 780,
+    buildTime: 7,
+    health: 680,
+    footprint: { w: 4, h: 4 },
+    powerProduced: 0,
+    powerUsed: 8,
+    requires: 'power-plant',
+    blocksMovement: true,
+    weaponKind: 'aaMissile',
+    weaponRange: 145,
+    visionRadius: 165,
   },
 };
 

@@ -429,6 +429,14 @@ drafted in `drafts/phase6/` (unwired, see its README).
   weapons rather than heavy super-bombs.
 - Split bomb visuals by launch platform: tank bombs keep the arcing lob, while Vulture bombs
   render as a downward air-drop path from aircraft altitude.
+- Added air-target combat rules so rifles/cannons can still chip aircraft, but with reduced
+  range and damage; ordinary ground bomb splash now only grazes Vultures instead of deleting
+  them from near misses.
+- Added `AA Missile Tower` to the `DEFENSE` tab with a dedicated `aaMissile` weapon, long
+  anti-air range, and aircraft-height hit events so anti-air fire travels up to airborne
+  targets.
+- Added regression tests proving normal tank fire damages Vultures slowly, ground bomb splash
+  barely affects aircraft, and AA missile towers are the intended hard counter.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
@@ -443,11 +451,11 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Follow-up browser smoke passed after Vulture steering/drop fix: produced a Vulture,
   drag-selected it, entered `CHASE Vulture`, tapped `D`/`S`, right-clicked a bomb, and saw no
   new console errors.
-- `npm test` passes (30 Vitest tests). `npm run build` passes.
+- `npm test` passes (33 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,
-  AA turret behavior, AI air usage, and polished flight HUD are still pending.
+  AI air usage, and polished flight HUD are still pending.
 - Right-click AG missile is a first-pass instant manual shot through weapon data; the planned
   hold-to-preview ground-impact marker and travel-time missile come next.
 - Wall placement is currently one segment per ready build. Drag-to-place wall chains and
@@ -458,5 +466,5 @@ drafted in `drafts/phase6/` (unwired, see its README).
   disappears again unless normal vision sees it.
 
 ### Next
-- Continue Phase 6.5 with air/ground weapon rules, Helipad production/rearm loop, AA turret,
-  and then the dedicated Vulture V-mode flight controller.
+- Continue Phase 6.5 with Helipad production/rearm loop, visible missile trails, AI air usage,
+  and then deeper dedicated Vulture V-mode flight polish.

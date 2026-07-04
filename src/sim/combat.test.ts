@@ -179,6 +179,60 @@ describe('phase 4 combat simulation', () => {
     expect(vulture.weapons?.secondary?.cooldown).toBeGreaterThan(0);
   });
 
+  it('makes ordinary ground fire poor against airborne Vultures', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -20, -20, 'Vulture 1');
+    const tank = spawnTankAt(sim, -20, 24, 'Ash Tank', 2);
+    vulture.playerControlled = { throttle: 0, turn: 0, aimYaw: 0, climb: 0 };
+    tank.weapons!.secondary!.cooldown = 999;
+    tank.turret!.yaw = Math.atan2(vulture.transform.x - tank.transform.x, vulture.transform.z - tank.transform.z);
+
+    settle(sim, 6);
+
+    expect(vulture.health?.current).toBeGreaterThan(135);
+    expect(sim.events.some((event) => event.kind === 'cannon' && event.targetId === vulture.id)).toBe(true);
+  });
+
+  it('lets ground bomb splash only graze aircraft', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, -20, -20, 'Bomber', 2);
+    const vulture = spawnVultureAt(sim, hf, 20, -20, 'Vulture 1');
+    tank.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+
+    expect(manualFireAt(sim, tank, vulture.transform.x, vulture.transform.z, 'secondary')).toBe(true);
+    settle(sim, 1.5);
+
+    expect(vulture.health?.current).toBeGreaterThan(158);
+    expect(sim.events.some((event) => event.kind === 'bomb-impact')).toBe(true);
+  });
+
+  it('gives AA missile towers a real anti-air role', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(2, 5200);
+    const base = createInitialBase(sim, hf, economy, 2);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    let placement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, 2);
+    expect(placeStructure(sim, hf, economy, placement)).toBeDefined();
+
+    expect(startStructureBuild(sim, economy, 'aa-tower')).toBe(true);
+    for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    placement = updatePlacement(sim, hf, 'aa-tower', base.transform.x + 24, base.transform.z, 2);
+    const tower = placeStructure(sim, hf, economy, placement);
+    expect(tower?.weapon?.kind).toBe('aaMissile');
+
+    const vulture = spawnVultureAt(sim, hf, tower!.transform.x + 58, tower!.transform.z, 'Vulture 1');
+    vulture.playerControlled = { throttle: 0, turn: 0, aimYaw: 0, climb: 0 };
+    settle(sim, 6);
+
+    expect(vulture.health?.current).toBeLessThan(80);
+    expect(sim.events.some((event) => event.kind === 'aaMissile' && event.targetId === vulture.id)).toBe(true);
+  });
+
   it('walls block ground navigation until destroyed', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
