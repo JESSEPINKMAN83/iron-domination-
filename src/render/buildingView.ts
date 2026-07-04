@@ -1,4 +1,17 @@
-import { BoxGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, RingGeometry, type Camera, type Material } from 'three';
+import {
+  AdditiveBlending,
+  BoxGeometry,
+  CircleGeometry,
+  DoubleSide,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  PlaneGeometry,
+  RingGeometry,
+  type Camera,
+  type Material,
+} from 'three';
 import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity } from '../sim/components';
 import type { EconomyState } from '../sim/economy';
@@ -10,11 +23,10 @@ import type { RenderContext } from './renderer';
 export class BuildingView {
   readonly group = new Group();
   private readonly objects = new Map<Entity, Mesh>();
-  private readonly selectedRings = new Map<Entity, Mesh>();
+  private readonly selectedGlows = new Map<Entity, SelectionGlow>();
   private readonly healthBars = new Map<Entity, { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial }>();
   private readonly ghost: Mesh;
   private readonly materials: Record<string, Material>;
-  private readonly ringMaterial = new MeshBasicMaterial({ color: 0xd2b15f, transparent: true, opacity: 0.78, depthWrite: false });
   private readonly healthBackMaterial = new MeshBasicMaterial({ color: 0x050806, transparent: true, opacity: 0.84, depthWrite: false, side: DoubleSide });
 
   private readonly playerAccent: Material;
@@ -47,12 +59,12 @@ export class BuildingView {
     for (const [entity, mesh] of this.objects) {
       if (this.sim.world.has(entity)) continue;
       this.group.remove(mesh);
-      const ring = this.selectedRings.get(entity);
-      if (ring) this.group.remove(ring);
+      const glow = this.selectedGlows.get(entity);
+      if (glow) this.group.remove(glow.root);
       const healthBar = this.healthBars.get(entity);
       if (healthBar) this.group.remove(healthBar.root);
       this.objects.delete(entity);
-      this.selectedRings.delete(entity);
+      this.selectedGlows.delete(entity);
       this.healthBars.delete(entity);
     }
     for (const entity of buildings(this.sim)) {
@@ -72,13 +84,9 @@ export class BuildingView {
         this.objects.set(entity, mesh);
         this.group.add(mesh);
 
-        const radius = Math.hypot(entity.building.footprint.w * this.hf.cellSize, entity.building.footprint.h * this.hf.cellSize);
-        const ring = new Mesh(new RingGeometry(radius, radius + 0.65, 48), this.ringMaterial);
-        ring.rotation.x = -Math.PI / 2;
-        ring.visible = false;
-        ring.renderOrder = 32;
-        this.selectedRings.set(entity, ring);
-        this.group.add(ring);
+        const glow = createSelectionGlow(entity, this.hf.cellSize);
+        this.selectedGlows.set(entity, glow);
+        this.group.add(glow.root);
 
         if (entity.health) {
           const healthBar = createBuildingHealthBar(this.healthBackMaterial);
@@ -93,11 +101,7 @@ export class BuildingView {
       mesh.scale.y = entity.destroyed ? 0.45 : progress;
       if (entity.destroyed && mesh.material !== this.wreckMaterial) mesh.material = this.wreckMaterial;
 
-      const ring = this.selectedRings.get(entity);
-      if (ring) {
-        ring.position.set(entity.transform.x, y + 0.1, entity.transform.z);
-        ring.visible = entity.selectable?.selected ?? false;
-      }
+      this.updateSelectionGlow(entity, y);
       this.updateHealthBar(entity, y, camera);
     }
     this.updateGhost(economy.placement);
@@ -149,6 +153,61 @@ export class BuildingView {
     healthBar.fill.position.x = -2.2 * (1 - pct);
     healthBar.fillMaterial.color.setHex(pct < 0.3 ? 0xff5142 : pct < 0.62 ? 0xffc04a : 0x79f06f);
   }
+
+  private updateSelectionGlow(entity: Entity, groundY: number): void {
+    const glow = this.selectedGlows.get(entity);
+    if (!glow) return;
+    const selected = (entity.selectable?.selected ?? false) && !entity.destroyed;
+    glow.root.visible = selected;
+    if (!selected) return;
+    const pulse = 0.5 + 0.5 * Math.sin(this.sim.tick * 0.16 + entity.id * 0.7);
+    const lift = 0.08;
+    glow.root.position.set(entity.transform.x, groundY + lift, entity.transform.z);
+    glow.fillMaterial.opacity = 0.18 + pulse * 0.12;
+    glow.ringMaterial.opacity = 0.48 + pulse * 0.22;
+    const scale = 1 + pulse * 0.035;
+    glow.fill.scale.set(scale, scale, 1);
+    glow.ring.scale.set(1 + pulse * 0.025, 1 + pulse * 0.025, 1);
+  }
+}
+
+interface SelectionGlow {
+  root: Group;
+  fill: Mesh;
+  ring: Mesh;
+  fillMaterial: MeshBasicMaterial;
+  ringMaterial: MeshBasicMaterial;
+}
+
+function createSelectionGlow(entity: Entity, cellSize: number): SelectionGlow {
+  const root = new Group();
+  root.visible = false;
+  root.rotation.x = -Math.PI / 2;
+  root.renderOrder = 34;
+  const accent = entity.team?.id === 2 ? 0xff6048 : 0xf0d56a;
+  const radius = Math.hypot(entity.building!.footprint.w * cellSize, entity.building!.footprint.h * cellSize);
+  const fillMaterial = new MeshBasicMaterial({
+    color: accent,
+    transparent: true,
+    opacity: 0.24,
+    depthWrite: false,
+    side: DoubleSide,
+    blending: AdditiveBlending,
+  });
+  const ringMaterial = new MeshBasicMaterial({
+    color: accent,
+    transparent: true,
+    opacity: 0.58,
+    depthWrite: false,
+    side: DoubleSide,
+    blending: AdditiveBlending,
+  });
+  const fill = new Mesh(new CircleGeometry(radius * 0.92, 64), fillMaterial);
+  const ring = new Mesh(new RingGeometry(radius * 0.94, radius + 0.7, 72), ringMaterial);
+  fill.renderOrder = 34;
+  ring.renderOrder = 35;
+  root.add(fill, ring);
+  return { root, fill, ring, fillMaterial, ringMaterial };
 }
 
 function createBuildingHealthBar(backMaterial: Material): { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial } {

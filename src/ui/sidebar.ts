@@ -48,6 +48,7 @@ export class Sidebar {
   private lastStatusText = '';
   private lastBodyKey = '';
   private lastRadarTick = -1;
+  private lastSelectedBuildingId?: number;
   private radarFocus?: { x: number; z: number; ttl: number };
   private readonly fogCanvas: HTMLCanvasElement;
   private notice?: { text: string; untilTick: number };
@@ -103,10 +104,14 @@ export class Sidebar {
     if (this.root.style.display === 'none') return;
     const selected = this.selectedBuilding();
     const context = selected ? this.contextTab(selected) : undefined;
-    if (context && this.activeTab !== context) {
-      this.activeTab = context;
-      this.renderTabs();
-      this.lastBodyKey = '';
+    const selectedId = selected?.id;
+    if (selectedId !== this.lastSelectedBuildingId) {
+      this.lastSelectedBuildingId = selectedId;
+      if (context && this.activeTab !== context) {
+        this.activeTab = context;
+        this.renderTabs();
+        this.lastBodyKey = '';
+      }
     }
 
     const powerDelta = this.economy.powerProduced - this.economy.powerUsed;
@@ -336,6 +341,7 @@ export class Sidebar {
       `<div style="font-size:10px;color:#d2b15f">SELECTED</div>` +
       `<div style="font-size:14px;color:#f0f3e8">${entity.building?.label ?? entity.name ?? 'Building'}</div>` +
       `<div style="font-size:11px;color:#aebbc4">hull ${health} · ${queue}</div>`;
+    copy.appendChild(this.capabilityChips(entity));
 
     const controls = document.createElement('div');
     controls.style.cssText = 'display:grid;gap:4px;';
@@ -360,6 +366,30 @@ export class Sidebar {
     const activeText = active ? `${initials(active.label)} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle';
     const queued = entity.producer.queue.map((job) => initials(job.label)).join(' ');
     return `${activeText}${queued ? ` · ${queued}` : ''}`;
+  }
+
+  private capabilityChips(entity: Entity): HTMLDivElement {
+    const el = document.createElement('div');
+    el.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;';
+    const chips: string[] = [];
+    const kind = entity.building?.kind;
+    const def = kind ? STRUCTURES[kind as StructureKind] : undefined;
+    if (kind === 'command-yard') chips.push('STRUCTURES');
+    if (def?.producer) chips.push(`PRODUCES ${def.producer.toUpperCase()}`);
+    if (def?.powerProduced) chips.push(`POWER +${def.powerProduced}`);
+    if (def?.powerUsed) chips.push(`POWER -${def.powerUsed}`);
+    if (kind === 'refinery') chips.push('CREDITS');
+    if (def?.weaponKind) chips.push(def.weaponKind === 'aaMissile' ? 'ANTI-AIR' : 'GROUND DEFENSE');
+    if (def?.blocksMovement) chips.push('BLOCKS');
+    if (chips.length === 0) chips.push('BASE NODE');
+    for (const text of chips) {
+      const chip = document.createElement('span');
+      chip.textContent = text;
+      chip.style.cssText =
+        'display:inline-block;padding:2px 5px;border:1px solid #3e4744;background:#121817;color:#d2b15f;font-size:9px;line-height:12px;white-space:nowrap;';
+      el.appendChild(chip);
+    }
+    return el;
   }
 
   private productionSummary(tab: 'infantry' | 'vehicles' | 'aircraft'): HTMLDivElement {

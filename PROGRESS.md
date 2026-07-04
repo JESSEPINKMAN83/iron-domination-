@@ -437,6 +437,12 @@ drafted in `drafts/phase6/` (unwired, see its README).
   targets.
 - Added regression tests proving normal tank fire damages Vultures slowly, ground bomb splash
   barely affects aircraft, and AA missile towers are the intended hard counter.
+- Improved building selection UX: selected buildings now get a pulsing golden footprint glow
+  under the structure, and the right panel selected-building card shows compact capability
+  chips such as structures, power, credits, blockers, and defense role.
+- Fixed sidebar context switching so selecting a Command Yard/Barracks/Factory/Helipad still
+  jumps to its useful build tab once, but manual tab clicks remain responsive while the
+  building stays selected.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
@@ -451,6 +457,9 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Follow-up browser smoke passed after Vulture steering/drop fix: produced a Vulture,
   drag-selected it, entered `CHASE Vulture`, tapped `D`/`S`, right-clicked a bomb, and saw no
   new console errors.
+- Follow-up browser smoke passed after building-selection UX: Defense tab stayed responsive,
+  a selected Refinery showed the new footprint glow and capability chips, and selected-building
+  context remained visible while switching tabs.
 - `npm test` passes (33 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
@@ -464,6 +473,9 @@ drafted in `drafts/phase6/` (unwired, see its README).
   covered by sim tests plus a browser load/runtime smoke pass.
 - Hidden hit confirmations are intentionally temporary indicators, not fog reveal; the target
   disappears again unless normal vision sees it.
+- Building upgrade actions are intentionally not stubbed as fake buttons yet; the selected
+  building card now has the visual/capability area where real upgrade actions can be added once
+  upgrade data and effects exist.
 
 ### Next
 - Continue Phase 6.5 with Helipad production/rearm loop, visible missile trails, AI air usage,
