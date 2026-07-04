@@ -117,8 +117,10 @@ export class RtsCameraRig {
     // Command-left drag, or right-drag with no movable selection, freely aims
     // the RTS camera and persists the preference.
     const lookAdjusting = (input.isCommandLookModifierDown() && input.isButton(0)) || (this.emptyRightDragLook && input.isButton(2));
-    // Holding Space turns mouse movement into grab-pan. Clicks are suppressed by RtsController.
-    const grabbing = !this.grabSuppressed && !lookAdjusting && input.isDown('Space');
+    // Holding Space + dragging a mouse button grab-pans; Space alone must NOT pan on
+    // bare mouse movement (that felt shaky). Clicks are suppressed by RtsController.
+    const grabbing =
+      !this.grabSuppressed && !lookAdjusting && input.isDown('Space') && (input.isButton(0) || input.isButton(2));
     const delta = input.consumeMouseDelta();
     if (lookAdjusting && (delta.dx !== 0 || delta.dy !== 0)) {
       this.yawGoal = normalizeAngle(this.yawGoal - delta.dx * 0.006);

@@ -39,7 +39,7 @@ export class Hud {
       'Default: Command Yard + small escort · ?start=test all tech · ?start=armies stress battle',
       'AI opts   ?ai=easy|normal|hard  ?ai-style=turtle|rusher|balanced',
       'Pan       W A S D / arrows / screen edge',
-      'Grab pan  hold Space + move/drag',
+      'Grab pan  hold Space + drag mouse button',
       'Look      Cmd/Ctrl + left-drag; empty right-drag',
       'Zoom      mouse wheel (28–280)',
       'Rotate    Q / E (90°)',
