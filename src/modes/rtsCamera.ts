@@ -1,4 +1,4 @@
-// Classic RTS camera: keyboard/edge pan, right-drag & space-drag grab pan,
+// Classic RTS camera: keyboard/edge pan, Space + right-drag grab pan,
 // wheel zoom (28–140), Q/E 90° rotation, saved Command-left-drag free look,
 // smooth exponential damping. The look-target follows terrain height.
 import { MathUtils, PerspectiveCamera, Vector3 } from 'three';
@@ -111,8 +111,8 @@ export class RtsCameraRig {
 
     // Command-left drag freely aims the RTS camera and persists the preference.
     const lookAdjusting = input.isCommandLookModifierDown() && input.isButton(0);
-    // grab pan: right mouse drag, or any mouse movement while Space is held
-    const grabbing = !this.grabSuppressed && !lookAdjusting && (input.isButton(2) || input.isDown('Space'));
+    // Space + right-drag grabs the terrain for map navigation without stealing Command-look.
+    const grabbing = !this.grabSuppressed && !lookAdjusting && input.isDown('Space') && input.isButton(2);
     const delta = input.consumeMouseDelta();
     if (lookAdjusting && (delta.dx !== 0 || delta.dy !== 0)) {
       this.yawGoal = normalizeAngle(this.yawGoal - delta.dx * 0.006);

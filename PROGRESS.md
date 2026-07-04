@@ -471,6 +471,9 @@ drafted in `drafts/phase6/` (unwired, see its README).
   mobile defenders. Idle defenders temporarily target and move toward the attacker even when
   the shooter is bombarding from outside their normal idle engagement, so bases no longer sit
   passive while being shelled from afar.
+- Follow-up camera UX fix: RTS grab-pan now uses the explicit Space + right-drag gesture, while
+  Command/Ctrl + left-drag remains the saved free-look camera angle control and plain
+  right-drag stays available for unit-facing orders.
 - `npm test` passes (36 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes

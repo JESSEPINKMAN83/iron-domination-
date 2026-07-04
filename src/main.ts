@@ -125,6 +125,7 @@ async function boot(): Promise<void> {
   rig.jumpTo(playerBase.transform.x, playerBase.transform.z);
   const controller = new RtsController(
     ctx.renderer.domElement,
+    input,
     ctx.camera,
     hf,
     sim,

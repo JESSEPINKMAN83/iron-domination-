@@ -5,6 +5,7 @@ import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
 import type { OrderMarkerKind } from '../render/orderMarkerView';
 import type { UnitView } from '../render/unitView';
+import type { Input } from '../engine/input';
 
 export interface PlacementControls {
   isPlacing(): boolean;
@@ -48,6 +49,7 @@ export class RtsController {
 
   constructor(
     private readonly dom: HTMLElement,
+    private readonly input: Input,
     private readonly camera: PerspectiveCamera,
     private readonly hf: Heightfield,
     private readonly sim: GameSim,
@@ -89,6 +91,14 @@ export class RtsController {
   private onPointerDown(e: PointerEvent): void {
     if (!this.enabled) return;
     if (e.metaKey && e.button === 0) return;
+    if (e.button === 2 && this.input.isDown('Space')) {
+      this.pointerDown = undefined;
+      this.rightOrderStart = undefined;
+      this.orderFeedback?.clearFacingPreview?.();
+      e.preventDefault();
+      this.dom.setPointerCapture?.(e.pointerId);
+      return;
+    }
     if (this.placement?.isPlacing()) {
       this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
       return;
