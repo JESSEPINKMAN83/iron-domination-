@@ -467,7 +467,11 @@ drafted in `drafts/phase6/` (unwired, see its README).
   context remained visible while switching tabs.
 - Follow-up browser smoke passed after wall-chain placement: Defense tab opened, Wall Segment
   entered READY state, and the sidebar stayed responsive.
-- `npm test` passes (34 Vitest tests). `npm run build` passes.
+- Follow-up improvement: buildings under direct or splash attack now alert nearby friendly
+  mobile defenders. Idle defenders temporarily target and move toward the attacker even when
+  the shooter is bombarding from outside their normal idle engagement, so bases no longer sit
+  passive while being shelled from afar.
+- `npm test` passes (36 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,
@@ -485,5 +489,28 @@ drafted in `drafts/phase6/` (unwired, see its README).
   upgrade data and effects exist.
 
 ### Next
-- Continue Phase 6.5 with Helipad production/rearm loop, visible missile trails, AI air usage,
-  and then deeper dedicated Vulture V-mode flight polish.
+- Continue into Phase 6.6: real oil economy, harvester collection/deposit loop, depletion,
+  and AI economy raids.
+
+## Phase 6.6 — Real Resource Economy 🚧 (2026-07-04, started)
+
+### Done
+- Added gameplay-visible `ResourceNode` sim data seeded deterministically from the map's
+  existing ore fields. Nodes are finite oil sources with id, position, radius, capacity,
+  and remaining stored value.
+- Included resource nodes in `hashSim`, so future harvester collection/depletion changes are
+  covered by the deterministic sim hash instead of living as hidden side state.
+- Added regression coverage proving oil nodes are deterministic, finite, mapped one-to-one
+  from terrain ore fields, and included in the sim hash.
+- Browser smoke passed on Vite dev server: app reloaded at `127.0.0.1:5173`, the canvas/HUD
+  and command sidebar rendered, and no new app runtime errors were introduced.
+- `npm test` passes (36 Vitest tests). `npm run build` passes.
+
+### Known issues / notes
+- Resource nodes are now modeled in the sim, but the collector/harvester unit and refinery
+  deposit loop are still pending. Refineries therefore still use the temporary flat-income
+  behavior until the next Phase 6.6 slice replaces it.
+
+### Next
+- Add the harvester/collector state machine: seek oil, gather, return to refinery, deposit,
+  retry when blocked, and stop income when collectors or routes are destroyed.

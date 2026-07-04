@@ -8,6 +8,8 @@ import { stopEntities, type GameSim } from './world';
 const AIM_TOLERANCE = 0.12;
 const BOMB_SPEED = 95; // meters per second of flight, drives travel time
 const BOMB_MANUAL_MAX_RANGE = 440;
+const DEFENSE_ALERT_RADIUS = 145;
+const DEFENSE_ALERT_TTL = 9;
 const AIR_DIRECT_MULTIPLIER: Record<WeaponKind, number> = {
   rifle: 0.08,
   cannon: 0.12,
@@ -83,13 +85,13 @@ export function stepCombat(sim: GameSim, dt: number): void {
     if (attacker.turret) {
       attacker.turret.yaw = slewAngle(attacker.turret.yaw, turretGoalYaw ?? attacker.transform.rot, attacker.turret.turnRate, dt);
     }
-    updateGuardBehavior(sim, attacker);
+    updateGuardBehavior(sim, attacker, dt);
   }
   tickDestroyed(sim, dt);
 }
 
 /** Idle units don't stand and take bombardment — they close on visible foes. */
-function updateGuardBehavior(sim: GameSim, attacker: Entity): void {
+function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number): void {
   if (!attacker.mover || attacker.mover.target || !attacker.vision) return;
   const slots = weaponSlots(attacker);
   if (slots.length === 0) return;
@@ -100,6 +102,20 @@ function updateGuardBehavior(sim: GameSim, attacker: Entity): void {
   }
   if (weaponRange === 0) weaponRange = WEAPONS[slots[0].kind as WeaponKind]?.range ?? 42;
   const foe = acquireTarget(sim, attacker, slots[0], attacker.vision.radius);
+  if (!foe && attacker.mover.defenseAlert) {
+    const alert = attacker.mover.defenseAlert;
+    alert.ttl -= dt;
+    const target = entityById(sim, alert.targetId);
+    if (alert.ttl <= 0 || !target || !isWeaponTargetable(attacker, slots[0], target)) {
+      attacker.mover.defenseAlert = undefined;
+    } else {
+      alert.x = target.transform.x;
+      alert.z = target.transform.z;
+      for (const weapon of slots) weapon.targetId = target.id;
+      attacker.mover.engage = { x: alert.x, z: alert.z };
+      return;
+    }
+  }
   attacker.mover.engage =
     foe && distance(attacker, foe) > weaponRange * 0.85 ? { x: foe.transform.x, z: foe.transform.z } : undefined;
 }
@@ -137,14 +153,15 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
   let hit: HitSummary | undefined;
   if (target?.health && target.armor) {
     const direct = applyDamage(sim, target, directDamageForTarget(def.kind, target));
+    if (direct > 0) alertBuildingDefenders(sim, target, attacker);
     damage = direct;
     hit = direct > 0 ? summarizeHit(target, direct) : undefined;
-    const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, target);
+    const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, target, attacker);
     damage += area.damage;
     killed = target.health.current <= 0 || area.killed;
     weapon.targetId = target.id;
   } else {
-    const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind);
+    const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, undefined, attacker);
     damage = area.damage;
     killed = area.killed;
     hit = area.hit;
@@ -215,7 +232,8 @@ function stepProjectiles(sim: GameSim, dt: number): void {
     projectile.elapsed += dt;
     if (projectile.elapsed < projectile.duration) continue;
     const def = WEAPONS[projectile.kind];
-    const area = applyAreaDamage(sim, projectile.teamId, projectile.toX, projectile.toZ, def.splashRadius, projectile.kind);
+    const attacker = entityById(sim, projectile.attackerId);
+    const area = applyAreaDamage(sim, projectile.teamId, projectile.toX, projectile.toZ, def.splashRadius, projectile.kind, undefined, attacker);
     sim.events.push({
       kind: 'bomb-impact',
       fromX: projectile.toX,
@@ -236,8 +254,9 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def) return;
   const directDamage = applyDamage(sim, target, directDamageForTarget(def.kind, target));
+  if (directDamage > 0) alertBuildingDefenders(sim, target, attacker);
   const hit = directDamage > 0 ? summarizeHit(target, directDamage) : undefined;
-  const area = applyAreaDamage(sim, attacker.team.id, target.transform.x, target.transform.z, def.splashRadius, def.kind, target);
+  const area = applyAreaDamage(sim, attacker.team.id, target.transform.x, target.transform.z, def.splashRadius, def.kind, target, attacker);
   weapon.cooldown = def.cooldown;
   sim.events.push({
     kind: def.kind,
@@ -311,6 +330,27 @@ function isTargetable(attacker: Entity, target: Entity): boolean {
   return targetableByTeam(attacker.team.id, target);
 }
 
+function entityById(sim: GameSim, id: number): Entity | undefined {
+  return Array.from(sim.world.entities).find((entity) => entity.id === id);
+}
+
+function alertBuildingDefenders(sim: GameSim, damaged: Entity, attacker?: Entity): void {
+  if (!attacker?.team || !damaged.building || !damaged.team || damaged.destroyed) return;
+  if (attacker.team.id === damaged.team.id) return;
+  for (const defender of sim.world.entities) {
+    if (defender.team?.id !== damaged.team.id || defender.destroyed || defender.playerControlled) continue;
+    if (!defender.mover || !defender.health || defender.building) continue;
+    const slots = weaponSlots(defender);
+    if (slots.length === 0 || !slots.some((weapon) => isWeaponTargetable(defender, weapon, attacker))) continue;
+    const dx = defender.transform.x - damaged.transform.x;
+    const dz = defender.transform.z - damaged.transform.z;
+    if (Math.hypot(dx, dz) > DEFENSE_ALERT_RADIUS) continue;
+    defender.mover.defenseAlert = { targetId: attacker.id, x: attacker.transform.x, z: attacker.transform.z, ttl: DEFENSE_ALERT_TTL };
+    if (!defender.mover.target) defender.mover.engage = { x: attacker.transform.x, z: attacker.transform.z };
+    for (const weapon of slots) weapon.targetId = attacker.id;
+  }
+}
+
 function targetableByTeam(teamId: number, target: Entity): boolean {
   if (!target.team || target.team.id === teamId) return false;
   if (!target.health || target.health.current <= 0 || target.destroyed) return false;
@@ -354,6 +394,7 @@ function applyAreaDamage(
   radius: number,
   kind: WeaponKind,
   primary?: Entity,
+  attacker?: Entity,
 ): { damage: number; killed: boolean; hit?: HitSummary } {
   if (radius <= 0) return { damage: 0, killed: false };
   let damage = 0;
@@ -367,6 +408,7 @@ function applyAreaDamage(
     if (d > radius) continue;
     const falloff = 1 - d / radius;
     const dealt = applyDamage(sim, target, splashDamageForTarget(kind, target, falloff));
+    if (dealt > 0) alertBuildingDefenders(sim, target, attacker);
     damage += dealt;
     if (dealt > 0 && (!hit || dealt > hit.damage)) hit = summarizeHit(target, dealt);
     killed ||= target.health?.current === 0;

@@ -3,7 +3,7 @@ import { MAP01 } from '../content/map01';
 import { damageForArmor, manualFireAt, stepCombat } from './combat';
 import { createEconomy, createInitialBase, placeStructure, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
-import { createGameSim, hashSim, spawnTankAt, spawnVultureAt } from './world';
+import { createGameSim, hashSim, spawnTankAt, spawnVultureAt, stepSim } from './world';
 
 const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
   for (let i = 0; i < Math.round(seconds * 30); i++) stepCombat(sim, 1 / 30);
@@ -284,5 +284,27 @@ describe('phase 4 combat simulation', () => {
 
     expect(enemy.health?.current).toBeLessThan(100);
     expect(sim.events.some((event) => event.kind === 'cannon')).toBe(true);
+  });
+
+  it('alerts nearby defenders when a friendly building is hit from long range', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+    const defender = spawnTankAt(sim, base.transform.x + 28, base.transform.z, 'Home Guard');
+    const attacker = spawnTankAt(sim, base.transform.x + 190, base.transform.z, 'Siege Tank', 2);
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: -Math.PI / 2 };
+
+    expect(manualFireAt(sim, attacker, base.transform.x, base.transform.z, 'secondary')).toBe(true);
+    settle(sim, 3);
+
+    expect(base.health?.current).toBeLessThan(base.health!.max);
+    expect(defender.mover?.defenseAlert?.targetId).toBe(attacker.id);
+    const before = defender.transform.x;
+    for (let i = 0; i < 30; i++) {
+      stepCombat(sim, 1 / 30);
+      stepSim(sim, hf, 1 / 30);
+    }
+    expect(defender.transform.x).toBeGreaterThan(before);
   });
 });

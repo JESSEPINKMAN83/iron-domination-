@@ -40,6 +40,8 @@ export interface Mover {
   faceYaw?: number;
   /** guard behavior: combat sets this each tick when a visible foe is out of weapon range */
   engage?: { x: number; z: number };
+  /** temporary local-base response when a nearby friendly building is hit */
+  defenseAlert?: { targetId: number; x: number; z: number; ttl: number };
 }
 
 export interface Flight {

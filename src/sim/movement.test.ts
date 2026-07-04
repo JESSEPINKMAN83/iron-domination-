@@ -59,6 +59,32 @@ describe('phase 2 movement simulation', () => {
     expect(tank.mover?.flow).toBeUndefined();
   });
 
+  it('seeds deterministic finite oil nodes from map ore fields', () => {
+    const aHf = generateHeightfield(MAP01);
+    const bHf = generateHeightfield(MAP01);
+    const a = createGameSim(aHf);
+    const b = createGameSim(bHf);
+
+    expect(a.resourceNodes).toHaveLength(aHf.oreFields.length);
+    expect(a.resourceNodes.length).toBeGreaterThan(0);
+    expect(a.resourceNodes).toEqual(b.resourceNodes);
+    expect(hashSim(a)).toBe(hashSim(b));
+    expect(
+      a.resourceNodes.every((node, index) => {
+        const field = aHf.oreFields[index];
+        return (
+          node.id === index + 1 &&
+          node.kind === 'oil' &&
+          node.x === field.x &&
+          node.z === field.z &&
+          node.radius === field.radius &&
+          node.capacity > 0 &&
+          node.remaining === node.capacity
+        );
+      }),
+    ).toBe(true);
+  });
+
   it('snaps ground move orders from blocked clicks to a nearby walkable cell', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

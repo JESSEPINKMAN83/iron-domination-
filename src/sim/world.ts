@@ -42,6 +42,16 @@ export interface Projectile {
   attackerId: number;
 }
 
+export interface ResourceNode {
+  id: number;
+  kind: 'oil';
+  x: number;
+  z: number;
+  radius: number;
+  capacity: number;
+  remaining: number;
+}
+
 export interface GameSim {
   world: World<Entity>;
   nav: NavigationGrid;
@@ -49,6 +59,7 @@ export interface GameSim {
   selectables: Query<With<Entity, 'transform' | 'selectable'>>;
   events: CombatEvent[];
   projectiles: Projectile[];
+  resourceNodes: ResourceNode[];
   tick: number;
   /** monotonically increasing entity id — sim-scoped so runs stay deterministic */
   nextEntityId: number;
@@ -56,6 +67,18 @@ export interface GameSim {
 
 export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = []): GameSim {
   const world = new World<Entity>();
+  const resourceNodes = hf.oreFields.map((field, index) => {
+    const capacity = Math.round(field.radius * field.radius * 5);
+    return {
+      id: index + 1,
+      kind: 'oil' as const,
+      x: field.x,
+      z: field.z,
+      radius: field.radius,
+      capacity,
+      remaining: capacity,
+    };
+  });
   return {
     world,
     nav: new NavigationGrid(hf, footprints),
@@ -63,6 +86,7 @@ export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = 
     selectables: world.with('transform', 'selectable'),
     events: [],
     projectiles: [],
+    resourceNodes,
     tick: 0,
     nextEntityId: 1,
   };
@@ -186,6 +210,7 @@ export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number
       entity.mover.flow = undefined;
       entity.mover.attackMove = attackMove;
       entity.mover.faceYaw = faceYaw;
+      entity.mover.defenseAlert = undefined;
       issued = true;
     });
   }
@@ -208,6 +233,7 @@ export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number
     entity.mover.flow = flow;
     entity.mover.attackMove = attackMove;
     entity.mover.faceYaw = faceYaw;
+    entity.mover.defenseAlert = undefined;
     issued = true;
   });
   return issued;
@@ -220,6 +246,7 @@ export function stopEntities(entities: Entity[]): void {
     entity.mover.formationOffset = undefined;
     entity.mover.flow = undefined;
     entity.mover.faceYaw = undefined;
+    entity.mover.defenseAlert = undefined;
     entity.velocity.x = 0;
     entity.velocity.z = 0;
   }
@@ -470,6 +497,14 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round(projectile.toZ * 100));
     mix(Math.round(projectile.elapsed * 1000));
     mix(projectile.attackerId);
+  }
+  for (const node of sim.resourceNodes) {
+    mix(node.id);
+    mix(Math.round(node.x * 100));
+    mix(Math.round(node.z * 100));
+    mix(Math.round(node.radius * 100));
+    mix(node.capacity);
+    mix(Math.round(node.remaining));
   }
   return h >>> 0;
 }
