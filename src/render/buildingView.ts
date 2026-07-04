@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, RingGeometry, type Material } from 'three';
+import { BoxGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, RingGeometry, type Camera, type Material } from 'three';
 import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity } from '../sim/components';
 import type { EconomyState } from '../sim/economy';
@@ -11,9 +11,11 @@ export class BuildingView {
   readonly group = new Group();
   private readonly objects = new Map<Entity, Mesh>();
   private readonly selectedRings = new Map<Entity, Mesh>();
+  private readonly healthBars = new Map<Entity, { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial }>();
   private readonly ghost: Mesh;
   private readonly materials: Record<string, Material>;
   private readonly ringMaterial = new MeshBasicMaterial({ color: 0xd2b15f, transparent: true, opacity: 0.78, depthWrite: false });
+  private readonly healthBackMaterial = new MeshBasicMaterial({ color: 0x050806, transparent: true, opacity: 0.84, depthWrite: false, side: DoubleSide });
 
   private readonly playerAccent: Material;
   private readonly enemyAccent: Material;
@@ -39,15 +41,18 @@ export class BuildingView {
     this.group.add(this.ghost);
   }
 
-  update(economy: EconomyState): void {
+  update(economy: EconomyState, camera: Camera): void {
     // sweep meshes whose entities were removed from the world (destroyed timers expired)
     for (const [entity, mesh] of this.objects) {
       if (this.sim.world.has(entity)) continue;
       this.group.remove(mesh);
       const ring = this.selectedRings.get(entity);
       if (ring) this.group.remove(ring);
+      const healthBar = this.healthBars.get(entity);
+      if (healthBar) this.group.remove(healthBar.root);
       this.objects.delete(entity);
       this.selectedRings.delete(entity);
+      this.healthBars.delete(entity);
     }
     for (const entity of buildings(this.sim)) {
       let mesh = this.objects.get(entity);
@@ -73,6 +78,12 @@ export class BuildingView {
         ring.renderOrder = 32;
         this.selectedRings.set(entity, ring);
         this.group.add(ring);
+
+        if (entity.health) {
+          const healthBar = createBuildingHealthBar(this.healthBackMaterial);
+          this.healthBars.set(entity, healthBar);
+          this.group.add(healthBar.root);
+        }
       }
       if (!mesh || !entity.building) continue;
       const y = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
@@ -86,6 +97,7 @@ export class BuildingView {
         ring.position.set(entity.transform.x, y + 0.1, entity.transform.z);
         ring.visible = entity.selectable?.selected ?? false;
       }
+      this.updateHealthBar(entity, y, camera);
     }
     this.updateGhost(economy.placement);
   }
@@ -121,4 +133,33 @@ export class BuildingView {
     const material = this.ghost.material as MeshBasicMaterial;
     material.color.setHex(placement.valid ? 0x7df27d : 0xff4040);
   }
+
+  private updateHealthBar(entity: Entity, groundY: number, camera: Camera): void {
+    const healthBar = this.healthBars.get(entity);
+    if (!healthBar || !entity.health || !entity.building) return;
+    const pct = Math.max(0, Math.min(1, entity.health.current / entity.health.max));
+    const selected = entity.selectable?.selected ?? false;
+    healthBar.root.visible = !entity.destroyed && (selected || pct < 0.995);
+    if (!healthBar.root.visible) return;
+    const height = 4.5 + Math.max(entity.building.footprint.w, entity.building.footprint.h) * 0.42;
+    healthBar.root.position.set(entity.transform.x, groundY + height, entity.transform.z);
+    healthBar.root.lookAt(camera.position);
+    healthBar.fill.scale.x = Math.max(0.02, pct);
+    healthBar.fill.position.x = -2.2 * (1 - pct);
+    healthBar.fillMaterial.color.setHex(pct < 0.3 ? 0xff5142 : pct < 0.62 ? 0xffc04a : 0x79f06f);
+  }
+}
+
+function createBuildingHealthBar(backMaterial: Material): { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial } {
+  const root = new Group();
+  root.visible = false;
+  const back = new Mesh(new PlaneGeometry(5.0, 0.56), backMaterial);
+  back.renderOrder = 42;
+  root.add(back);
+  const fillMaterial = new MeshBasicMaterial({ color: 0x79f06f, transparent: true, opacity: 0.92, depthWrite: false, side: DoubleSide });
+  const fill = new Mesh(new PlaneGeometry(4.4, 0.25), fillMaterial);
+  fill.position.z = 0.02;
+  fill.renderOrder = 43;
+  root.add(fill);
+  return { root, fill, fillMaterial };
 }

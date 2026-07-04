@@ -258,7 +258,7 @@ async function boot(): Promise<void> {
         rig.update(dt);
       }
       unitView.update(alpha, dt, ctx.camera);
-      buildingView.update(economy);
+      buildingView.update(economy, ctx.camera);
       combatView.update(dt);
       orderMarkers.update(dt);
       water.update(time);

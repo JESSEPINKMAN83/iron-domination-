@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
@@ -13,6 +14,8 @@ import {
   Quaternion,
   RingGeometry,
   SphereGeometry,
+  Sprite,
+  SpriteMaterial,
   Vector3,
 } from 'three';
 import type { CombatEvent } from '../sim/world';
@@ -44,6 +47,15 @@ interface BombProjectile {
   event: CombatEvent;
 }
 
+interface HitIndicator {
+  sprite: Sprite;
+  material: SpriteMaterial;
+  texture: CanvasTexture;
+  ttl: number;
+  total: number;
+  rise: number;
+}
+
 export class CombatView {
   readonly group = new Group();
   private readonly cannonMaterial = new LineBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.92 });
@@ -51,6 +63,7 @@ export class CombatView {
   private readonly tracers: Tracer[] = [];
   private readonly bursts: Burst[] = [];
   private readonly bombProjectiles: BombProjectile[] = [];
+  private readonly hitIndicators: HitIndicator[] = [];
   private readonly up = new Vector3(0, 1, 0);
 
   constructor(
@@ -60,8 +73,11 @@ export class CombatView {
 
   push(events: CombatEvent[]): void {
     for (const event of events) {
-      // fights entirely inside the fog stay hidden
-      if (!this.isVisible(event.fromX, event.fromZ) && !this.isVisible(event.toX, event.toZ)) continue;
+      const sourceVisible = this.isVisible(event.fromX, event.fromZ);
+      const impactVisible = this.isVisible(event.toX, event.toZ);
+      const playerHiddenHit = event.sourceTeamId === 1 && event.damage > 0;
+      // fights entirely inside the fog stay hidden, except brief player-fired hit confirmations
+      if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
       const muzzleHeight = event.kind === 'bomb' ? 3.1 : event.kind === 'rifle' ? 1.35 : 2.2;
       const fromY = sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
       const toY = sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
@@ -71,6 +87,7 @@ export class CombatView {
       }
       if (event.kind === 'bomb-impact') {
         this.spawnBombBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.4, event.toZ, event.killed);
+        if (event.damage > 0 || event.killed) this.spawnHitIndicator(event);
         continue;
       }
 
@@ -83,6 +100,7 @@ export class CombatView {
       this.group.add(line);
 
       this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed);
+      if (event.damage > 0 || event.killed) this.spawnHitIndicator(event);
     }
   }
 
@@ -124,6 +142,21 @@ export class CombatView {
         });
         for (const material of burst.materials) material.dispose();
         this.bursts.splice(i, 1);
+      }
+    }
+    for (let i = this.hitIndicators.length - 1; i >= 0; i--) {
+      const indicator = this.hitIndicators[i];
+      indicator.ttl -= dt;
+      const life = Math.max(0, indicator.ttl / indicator.total);
+      const age = 1 - life;
+      indicator.sprite.position.y += indicator.rise * dt;
+      indicator.sprite.scale.setScalar(1 + Math.sin(Math.min(1, age * 3.5) * Math.PI) * 0.12);
+      indicator.material.opacity = Math.min(1, life * 1.6);
+      if (indicator.ttl <= 0) {
+        this.group.remove(indicator.sprite);
+        indicator.texture.dispose();
+        indicator.material.dispose();
+        this.hitIndicators.splice(i, 1);
       }
     }
   }
@@ -275,6 +308,79 @@ export class CombatView {
     this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial] });
     this.group.add(group);
   }
+
+  private spawnHitIndicator(event: CombatEvent): void {
+    const texture = makeHitTexture(event);
+    const material = new SpriteMaterial({ map: texture, transparent: true, opacity: 1, depthWrite: false, depthTest: false });
+    const sprite = new Sprite(material);
+    const y = sampleHeight(this.hf, event.toX, event.toZ) + (event.targetType === 'building' ? 8.2 : 5.1);
+    sprite.position.set(event.toX, y, event.toZ);
+    sprite.scale.set(10.6, 3.9, 1);
+    sprite.renderOrder = 95;
+    this.group.add(sprite);
+    const ttl = event.sourceTeamId === 1 && !this.isVisible(event.toX, event.toZ) ? 3.1 : 1.65;
+    this.hitIndicators.push({ sprite, material, texture, ttl, total: ttl, rise: 0.45 });
+    while (this.hitIndicators.length > 28) {
+      const old = this.hitIndicators.shift();
+      if (!old) continue;
+      this.group.remove(old.sprite);
+      old.texture.dispose();
+      old.material.dispose();
+    }
+  }
+}
+
+function makeHitTexture(event: CombatEvent): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 96;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
+  const maxHealth = event.targetMaxHealth ?? 0;
+  const health = event.targetHealth ?? 0;
+  const healthPct = maxHealth > 0 ? Math.max(0, Math.min(1, health / maxHealth)) : 0;
+  const damagePct = maxHealth > 0 ? Math.max(1, Math.round((event.damage / maxHealth) * 100)) : Math.max(1, Math.round(event.damage));
+  const title = event.killed ? 'DESTROYED' : `HIT -${damagePct}%`;
+  const label = (event.targetLabel ?? 'target').slice(0, 18).toUpperCase();
+  const healthText = maxHealth > 0 ? `${Math.round(healthPct * 100)}%` : '';
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(5, 8, 7, 0.78)';
+  roundRect(ctx, 8, 8, 240, 80, 8);
+  ctx.fill();
+  ctx.strokeStyle = event.killed ? 'rgba(255, 94, 67, 0.95)' : 'rgba(240, 213, 106, 0.92)';
+  ctx.lineWidth = 3;
+  roundRect(ctx, 8, 8, 240, 80, 8);
+  ctx.stroke();
+  ctx.font = '700 22px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = event.killed ? '#ff6a54' : '#f0d56a';
+  ctx.fillText(title, 22, 34);
+  ctx.font = '12px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = '#dce8df';
+  ctx.fillText(`${label}${healthText ? `  ${healthText}` : ''}`, 22, 53);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  roundRect(ctx, 22, 64, 212, 10, 4);
+  ctx.fill();
+  ctx.fillStyle = healthPct < 0.3 ? '#ff5142' : healthPct < 0.62 ? '#ffc04a' : '#79f06f';
+  roundRect(ctx, 22, 64, Math.max(4, 212 * healthPct), 10, 4);
+  ctx.fill();
+  const texture = new CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
 }
 
 function bezier(from: Vector3, control: Vector3, to: Vector3, t: number): Vector3 {

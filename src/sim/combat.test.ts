@@ -49,6 +49,12 @@ describe('phase 4 combat simulation', () => {
     attacker.turret!.yaw = Math.PI / 2; // traversed onto the shot line
     expect(manualFireAt(sim, attacker, 42, -20)).toBe(true);
     expect(target.health?.current).toBeLessThan(100);
+    const event = sim.events.at(-1);
+    expect(event?.sourceTeamId).toBe(1);
+    expect(event?.targetId).toBe(target.id);
+    expect(event?.targetLabel).toBe('B');
+    expect(event?.targetHealth).toBe(target.health?.current);
+    expect(event?.targetMaxHealth).toBe(100);
     expect(attacker.weapons?.primary.cooldown).toBeGreaterThan(0);
   });
 
@@ -71,8 +77,13 @@ describe('phase 4 combat simulation', () => {
     expect(primary.health?.current).toBe(100);
 
     settle(sim, 1.5);
+    const impact = sim.events.find((event) => event.kind === 'bomb-impact');
     expect(sim.projectiles).toHaveLength(0);
-    expect(sim.events.some((event) => event.kind === 'bomb-impact')).toBe(true);
+    expect(impact).toBeDefined();
+    expect(impact?.sourceTeamId).toBe(1);
+    expect(impact?.targetId).toBeDefined();
+    expect(impact?.targetHealth).toBeLessThan(100);
+    expect(impact?.targetMaxHealth).toBe(100);
     expect(primary.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeGreaterThan(70);

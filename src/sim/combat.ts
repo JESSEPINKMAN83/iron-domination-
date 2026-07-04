@@ -9,6 +9,15 @@ const AIM_TOLERANCE = 0.12;
 const BOMB_SPEED = 95; // meters per second of flight, drives travel time
 const BOMB_MANUAL_MAX_RANGE = 440;
 
+interface HitSummary {
+  targetId: number;
+  targetLabel: string;
+  targetType: string;
+  targetHealth: number;
+  targetMaxHealth: number;
+  damage: number;
+}
+
 export function damageForArmor(kind: WeaponKind, armor: ArmorClass): number {
   const def = WEAPONS[kind];
   return def.damage * def.vs[armor];
@@ -101,19 +110,34 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
   const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
   let damage = 0;
   let killed = false;
+  let hit: HitSummary | undefined;
   if (target?.health && target.armor) {
-    damage = applyDamage(sim, target, damageForArmor(def.kind, target.armor.kind));
+    const direct = applyDamage(sim, target, damageForArmor(def.kind, target.armor.kind));
+    damage = direct;
+    hit = direct > 0 ? summarizeHit(target, direct) : undefined;
     const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, target);
+    damage += area.damage;
     killed = target.health.current <= 0 || area.killed;
     weapon.targetId = target.id;
   } else {
     const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind);
     damage = area.damage;
     killed = area.killed;
+    hit = area.hit;
     weapon.targetId = undefined;
   }
   weapon.cooldown = def.cooldown;
-  sim.events.push({ kind: def.kind, fromX: attacker.transform.x, fromZ: attacker.transform.z, toX: hitX, toZ: hitZ, damage, killed });
+  sim.events.push({
+    kind: def.kind,
+    fromX: attacker.transform.x,
+    fromZ: attacker.transform.z,
+    toX: hitX,
+    toZ: hitZ,
+    sourceTeamId: attacker.team.id,
+    damage,
+    killed,
+    ...hit,
+  });
   return true;
 }
 
@@ -146,6 +170,7 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
     fromZ: attacker.transform.z,
     toX: impact.x,
     toZ: impact.z,
+    sourceTeamId: attacker.team.id,
     damage: 0,
     killed: false,
     duration,
@@ -165,8 +190,10 @@ function stepProjectiles(sim: GameSim, dt: number): void {
       fromZ: projectile.toZ,
       toX: projectile.toX,
       toZ: projectile.toZ,
+      sourceTeamId: projectile.teamId,
       damage: area.damage,
       killed: area.killed,
+      ...area.hit,
     });
     sim.projectiles.splice(i, 1);
   }
@@ -176,7 +203,8 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
   if (!target.health || !target.armor || !attacker.team) return;
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def) return;
-  const damage = applyDamage(sim, target, damageForArmor(def.kind, target.armor.kind));
+  const directDamage = applyDamage(sim, target, damageForArmor(def.kind, target.armor.kind));
+  const hit = directDamage > 0 ? summarizeHit(target, directDamage) : undefined;
   const area = applyAreaDamage(sim, attacker.team.id, target.transform.x, target.transform.z, def.splashRadius, def.kind, target);
   weapon.cooldown = def.cooldown;
   sim.events.push({
@@ -185,8 +213,10 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
     fromZ: attacker.transform.z,
     toX: target.transform.x,
     toZ: target.transform.z,
-    damage,
+    sourceTeamId: attacker.team.id,
+    damage: directDamage + area.damage,
     killed: target.health.current <= 0 || area.killed,
+    ...hit,
   });
 }
 
@@ -265,10 +295,11 @@ function applyAreaDamage(
   radius: number,
   kind: WeaponKind,
   primary?: Entity,
-): { damage: number; killed: boolean } {
+): { damage: number; killed: boolean; hit?: HitSummary } {
   if (radius <= 0) return { damage: 0, killed: false };
   let damage = 0;
   let killed = false;
+  let hit: HitSummary | undefined;
   for (const target of sim.world.entities) {
     if (target === primary || !targetableByTeam(teamId, target) || !target.armor) continue;
     const dx = target.transform.x - x;
@@ -277,10 +308,24 @@ function applyAreaDamage(
     if (d > radius) continue;
     const falloff = 1 - d / radius;
     const splashMultiplier = kind === 'bomb' ? 1 : 0.55;
-    damage += applyDamage(sim, target, damageForArmor(kind, target.armor.kind) * falloff * splashMultiplier);
+    const dealt = applyDamage(sim, target, damageForArmor(kind, target.armor.kind) * falloff * splashMultiplier);
+    damage += dealt;
+    if (dealt > 0 && (!hit || dealt > hit.damage)) hit = summarizeHit(target, dealt);
     killed ||= target.health?.current === 0;
   }
-  return { damage, killed };
+  return { damage, killed, hit };
+}
+
+function summarizeHit(target: Entity, damage: number): HitSummary | undefined {
+  if (!target.health) return undefined;
+  return {
+    targetId: target.id,
+    targetLabel: target.name ?? target.building?.label ?? target.selectable?.type ?? 'target',
+    targetType: target.building ? 'building' : target.selectable?.type ?? 'unit',
+    targetHealth: target.health.current,
+    targetMaxHealth: target.health.max,
+    damage,
+  };
 }
 
 function tickDestroyed(sim: GameSim, dt: number): void {

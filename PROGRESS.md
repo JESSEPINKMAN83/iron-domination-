@@ -404,6 +404,9 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Added Red Alert-style right-click hold-drag facing orders: selected movers can be ordered to
   move to the mouse-down point, preview an arrow while dragging, and arrive in a line formation
   facing the chosen direction.
+- Added hit-confirmation feedback for combat: damage events now carry source-team and target
+  health snapshots, player-fired hidden impacts can briefly show `HIT`/`DESTROYED` cards with
+  percentage damage and remaining health, and damaged buildings now show health bars like units.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
@@ -420,6 +423,8 @@ drafted in `drafts/phase6/` (unwired, see its README).
   smarter wall-line previews are still future UX polish.
 - Browser automation cannot issue a true right-button drag, so the facing-order gesture is
   covered by sim tests plus a browser load/runtime smoke pass.
+- Hidden hit confirmations are intentionally temporary indicators, not fog reveal; the target
+  disappears again unless normal vision sees it.
 
 ### Next
 - Continue Phase 6.5 with air/ground weapon rules, Helipad production/rearm loop, AA turret,

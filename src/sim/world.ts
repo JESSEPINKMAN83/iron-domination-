@@ -14,6 +14,12 @@ export interface CombatEvent {
   fromZ: number;
   toX: number;
   toZ: number;
+  sourceTeamId?: number;
+  targetId?: number;
+  targetLabel?: string;
+  targetType?: string;
+  targetHealth?: number;
+  targetMaxHealth?: number;
   damage: number;
   killed: boolean;
   /** flight time in seconds for ballistic launches ('bomb') */
