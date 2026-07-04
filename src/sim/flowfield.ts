@@ -75,6 +75,31 @@ export class NavigationGrid {
     return undefined;
   }
 
+  /**
+   * Guaranteed walkable cell: the radius-limited nearestWalkableCell can miss when a
+   * spawn point sits in a large water/cliff region (some map seeds). This full-grid
+   * scan returns the walkable cell closest to (x,z), or undefined only if the entire
+   * map is unwalkable. Use for critical placement (bases) that must never fail.
+   */
+  nearestWalkableCellGlobal(x: number, z: number): Cell | undefined {
+    const near = this.nearestWalkableCell(x, z);
+    if (near) return near;
+    const start = this.worldToCell(x, z);
+    let best: Cell | undefined;
+    let bestD2 = Infinity;
+    for (let cy = 0; cy < this.cells; cy++) {
+      for (let cx = 0; cx < this.cells; cx++) {
+        if (this.blocked[this.index(cx, cy)] !== 0) continue;
+        const d2 = (cx - start.x) ** 2 + (cy - start.y) ** 2;
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          best = { x: cx, y: cy };
+        }
+      }
+    }
+    return best;
+  }
+
   setDynamicBlocker(id: number, x: number, z: number, radius: number): void {
     this.dynamicBlockers.set(id, { id, x, z, radius });
     this.rebuildBlocked();

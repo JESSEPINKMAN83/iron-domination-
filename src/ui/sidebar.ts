@@ -48,7 +48,9 @@ export class Sidebar {
   private activeTab: Tab = 'buildings';
   private lastStatusText = '';
   private lastBodyKey = '';
+  private lastBodyTick = -1;
   private lastRadarTick = -1;
+  private fogImage?: ImageData;
   private lastSelectedBuildingId?: number;
   private radarFocus?: { x: number; z: number; ttl: number };
   private readonly fogCanvas: HTMLCanvasElement;
@@ -132,10 +134,16 @@ export class Sidebar {
       this.lastRadarTick = this.sim.tick;
       this.drawRadar();
     }
-    const bodyKey = this.bodyKey();
-    if (bodyKey !== this.lastBodyKey) {
-      this.lastBodyKey = bodyKey;
-      this.renderBody();
+    // the body is a pure function of sim state, which only advances per tick — skip the
+    // expensive bodyKey scan on frames where the tick hasn't changed (tab switches call
+    // renderBody directly, so they stay responsive)
+    if (this.sim.tick !== this.lastBodyTick) {
+      this.lastBodyTick = this.sim.tick;
+      const bodyKey = this.bodyKey();
+      if (bodyKey !== this.lastBodyKey) {
+        this.lastBodyKey = bodyKey;
+        this.renderBody();
+      }
     }
   }
 
@@ -741,7 +749,7 @@ export class Sidebar {
   private drawRadarFog(): void {
     const ctx = this.fogCanvas.getContext('2d');
     if (!ctx) return;
-    const image = ctx.createImageData(this.fog.res, this.fog.res);
+    const image = (this.fogImage ??= ctx.createImageData(this.fog.res, this.fog.res));
     for (let i = 0; i < this.fog.state.length; i++) {
       const alpha = this.fog.state[i] === 2 ? 0 : this.fog.state[i] === 1 ? 96 : 225;
       const o = i * 4;

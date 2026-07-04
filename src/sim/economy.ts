@@ -65,7 +65,9 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
   const fallback = startPosition(hf.size, economy.team === 2 ? 2 : 1);
   const x = atX ?? fallback.x;
   const z = atZ ?? fallback.z;
-  const cell = sim.nav.nearestWalkableCell(x, z) ?? sim.nav.nearestWalkableCell(0, 0);
+  // global fallback guarantees a walkable cell on any seed (some seeds put the spawn
+  // in a large water/cliff region beyond the radius-limited search)
+  const cell = sim.nav.nearestWalkableCellGlobal(x, z);
   if (!cell) throw new Error('no walkable base cell');
   const p = sim.nav.cellCenter(cell.x, cell.y);
   const conyard = sim.world.add({

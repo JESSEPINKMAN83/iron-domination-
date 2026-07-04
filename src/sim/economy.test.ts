@@ -24,6 +24,16 @@ import {
 import { createGameSim, spawnTankAt, stepSim } from './world';
 
 describe('phase 3 economy and production', () => {
+  it('places a base on any map seed (regression: seed 490 broke boot with "no walkable base cell")', () => {
+    // random-seed matches from the setup screen could put the base spawn in a large
+    // water/cliff region beyond the radius-limited search, throwing during boot.
+    for (const seed of [490, 1337, 7, 999]) {
+      const hf = generateHeightfield({ ...MAP01, seed });
+      const sim = createGameSim(hf);
+      expect(() => createInitialBase(sim, hf, createEconomy(1, 4600))).not.toThrow();
+    }
+  });
+
   it('does not create passive credits without a working collector loop', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

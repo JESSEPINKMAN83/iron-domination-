@@ -734,4 +734,18 @@ async function start(): Promise<void> {
   await boot(chosen);
 }
 
-void start();
+// Surface boot failures on screen instead of hanging silently on the loading overlay.
+void start().catch((err) => {
+  console.error('[iron-dominion] failed to start', err);
+  const el = document.createElement('div');
+  el.style.cssText =
+    'position:fixed;inset:0;z-index:300;display:flex;flex-direction:column;gap:12px;padding:32px;overflow:auto;' +
+    'background:#140708;color:#ffb3a0;font:12px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;';
+  el.innerHTML =
+    '<div style="font-size:20px;color:#ff6a54;letter-spacing:.14em">IRON DOMINION — failed to start</div>' +
+    '<div style="color:#cfd8e3">Reload to try a new map, or report this:</div>';
+  const pre = document.createElement('div');
+  pre.textContent = String((err as Error)?.stack ?? err);
+  el.appendChild(pre);
+  document.body.appendChild(el);
+});
