@@ -5,7 +5,7 @@ import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { selectedEntities, type GameSim } from '../sim/world';
 
-type Tab = 'buildings' | 'defense' | 'infantry' | 'vehicles';
+type Tab = 'buildings' | 'defense' | 'infantry' | 'vehicles' | 'aircraft';
 
 export interface SidebarActions {
   buildStructure(kind: StructureKind): void;
@@ -31,6 +31,7 @@ const TAB_LABELS: Record<Tab, string> = {
   defense: 'DEFENSE',
   infantry: 'INFANTRY',
   vehicles: 'VEHICLES',
+  aircraft: 'AIRCRAFT',
 };
 
 export class Sidebar {
@@ -88,7 +89,7 @@ export class Sidebar {
     radarWrap.append(this.radar, this.status);
 
     this.tabs = document.createElement('div');
-    this.tabs.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:4px;';
+    this.tabs.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:4px;';
     this.body = document.createElement('div');
     this.body.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:6px;overflow:auto;padding-right:1px;';
     this.root.append(radarWrap, this.tabs, this.body);
@@ -136,7 +137,7 @@ export class Sidebar {
 
   private renderTabs(): void {
     this.tabs.replaceChildren();
-    for (const tab of ['buildings', 'defense', 'infantry', 'vehicles'] as const) {
+    for (const tab of ['buildings', 'defense', 'infantry', 'vehicles', 'aircraft'] as const) {
       const button = document.createElement('button');
       button.textContent = TAB_LABELS[tab];
       button.style.cssText = buttonCss(tab === this.activeTab, this.tabHasActivity(tab));
@@ -175,8 +176,14 @@ export class Sidebar {
     const units = Object.values(UNITS).filter((unit) => unit.tab === this.activeTab);
     const hasProducer = this.unitProducers(this.activeTab).length > 0;
     if (!hasProducer) {
-      const required = this.activeTab === 'vehicles' ? 'FACTORY REQUIRED' : 'BARRACKS REQUIRED';
-      const detail = this.activeTab === 'vehicles' ? 'Build and place a Factory before vehicle production opens.' : 'Build and place a Barracks before infantry production opens.';
+      const required =
+        this.activeTab === 'vehicles' ? 'FACTORY REQUIRED' : this.activeTab === 'aircraft' ? 'HELIPAD REQUIRED' : 'BARRACKS REQUIRED';
+      const detail =
+        this.activeTab === 'vehicles'
+          ? 'Build and place a Factory before vehicle production opens.'
+          : this.activeTab === 'aircraft'
+            ? 'Build and place a Helipad before aircraft production opens.'
+            : 'Build and place a Barracks before infantry production opens.';
       this.body.appendChild(this.emptyState(required, detail));
       return;
     }
@@ -301,7 +308,7 @@ export class Sidebar {
     const el = document.createElement('div');
     const health = entity.health ? `${Math.ceil(entity.health.current)}/${entity.health.max}` : 'online';
     const producerType = this.contextTab(entity);
-    const producerName = producerType === 'infantry' || producerType === 'vehicles' ? producerType : undefined;
+    const producerName = producerType === 'infantry' || producerType === 'vehicles' || producerType === 'aircraft' ? producerType : undefined;
     const isPrimary = producerName ? this.economy.primaryProducerIds[producerName] === entity.id : false;
     el.style.cssText =
       'grid-column:1/-1;display:grid;grid-template-columns:46px 1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #4b5552;' +
@@ -347,13 +354,18 @@ export class Sidebar {
     return `${activeText}${queued ? ` · ${queued}` : ''}`;
   }
 
-  private productionSummary(tab: 'infantry' | 'vehicles'): HTMLDivElement {
+  private productionSummary(tab: 'infantry' | 'vehicles' | 'aircraft'): HTMLDivElement {
     const el = document.createElement('div');
     el.style.cssText =
       'grid-column:1/-1;display:grid;gap:4px;padding:7px 8px;border:1px solid #2f3735;background:#101514;color:#aebbc4;box-shadow:inset 0 0 10px rgba(0,0,0,.35);';
     const producers = this.unitProducers(tab);
     if (producers.length === 0) {
-      el.textContent = tab === 'vehicles' ? 'Build a Factory to unlock vehicle production.' : 'Build a Barracks to unlock infantry production.';
+      el.textContent =
+        tab === 'vehicles'
+          ? 'Build a Factory to unlock vehicle production.'
+          : tab === 'aircraft'
+            ? 'Build a Helipad to unlock aircraft production.'
+            : 'Build a Barracks to unlock infantry production.';
       return el;
     }
     for (const producer of producers) {
@@ -397,10 +409,11 @@ export class Sidebar {
     if (entity.building.kind === 'command-yard') return 'buildings';
     if (entity.building.kind === 'barracks') return 'infantry';
     if (entity.building.kind === 'factory') return 'vehicles';
+    if (entity.building.kind === 'helipad') return 'aircraft';
     return undefined;
   }
 
-  private unitProducers(type: 'infantry' | 'vehicles', preferred?: Entity): Entity[] {
+  private unitProducers(type: 'infantry' | 'vehicles' | 'aircraft', preferred?: Entity): Entity[] {
     const producers = buildings(this.sim, this.economy.team).filter(
       (entity) => entity.producer && entity.building?.complete && STRUCTURES[entity.building.kind as StructureKind]?.producer === type,
     );
@@ -563,7 +576,7 @@ function cardCss(state: CardState): string {
 
 function buttonCss(active: boolean, activity: boolean): string {
   return (
-    'height:31px;border-radius:2px;border:1px solid #4b5552;font:9px ui-monospace,Menlo,monospace;letter-spacing:0;' +
+    'height:31px;border-radius:2px;border:1px solid #4b5552;font:8px ui-monospace,Menlo,monospace;letter-spacing:0;' +
     `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : activity ? 'linear-gradient(180deg,#3f3b25,#151816)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
     `color:${active ? '#141614' : activity ? '#f0d56a' : '#d7e0e7'};cursor:pointer;`
   );

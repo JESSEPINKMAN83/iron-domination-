@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  CircleGeometry,
   CylinderGeometry,
   DoubleSide,
   Group,
@@ -40,6 +41,8 @@ export class UnitView {
   private readonly healthBars = new Map<Entity, { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial }>();
   private readonly soldierRigs = new Map<Entity, SoldierRig>();
   private readonly anims = new Map<Entity, AnimState>();
+  private readonly airShadows = new Map<Entity, Mesh>();
+  private readonly airShadowMaterial = new MeshBasicMaterial({ color: 0x020403, transparent: true, opacity: 0.26, depthWrite: false });
   private readonly wrecked = new Set<Entity>();
   private hiddenEntity?: Entity;
   private selectionOverlayVisible = true;
@@ -87,6 +90,13 @@ export class UnitView {
       this.soldierRigs.set(entity, rig);
       this.anims.set(entity, { phase: 0, swing: 0 });
       unit = rig.root;
+    } else if (entity.selectable?.type === 'vulture') {
+      unit = createVultureObject(this.hullMaterial, this.turretMaterial, accent);
+      const shadow = new Mesh(new CircleGeometry(3.8, 32), this.airShadowMaterial);
+      shadow.rotation.x = -Math.PI / 2;
+      shadow.renderOrder = 18;
+      this.airShadows.set(entity, shadow);
+      this.group.add(shadow);
     } else {
       unit = createTankObject(this.hullMaterial, this.turretMaterial, accent);
     }
@@ -98,7 +108,7 @@ export class UnitView {
     this.objects.set(entity, unit);
     this.group.add(unit);
 
-    const radius = entity.selectable?.type === 'infantry' ? 1.7 : 2.8;
+    const radius = entity.selectable?.type === 'infantry' ? 1.7 : entity.selectable?.type === 'vulture' ? 3.9 : 2.8;
     const ring = new Mesh(new RingGeometry(radius, radius + 0.35, 32), this.ringMaterial);
     ring.rotation.x = -Math.PI / 2;
     ring.visible = false;
@@ -139,6 +149,8 @@ export class UnitView {
       if (gone || fogged) {
         obj.visible = false;
         ring.visible = false;
+        const shadow = this.airShadows.get(entity);
+        if (shadow) shadow.visible = false;
         const healthBar = this.healthBars.get(entity);
         if (healthBar) healthBar.root.visible = false;
         continue;
@@ -147,14 +159,22 @@ export class UnitView {
       const x = lerp(entity.previousTransform.x, entity.transform.x, alpha);
       const z = lerp(entity.previousTransform.z, entity.transform.z, alpha);
       const rot = lerpAngle(entity.previousTransform.rot, entity.transform.rot, alpha);
-      const y = sampleHeight(this.hf, x, z) + 0.35;
+      const groundY = sampleHeight(this.hf, x, z);
+      const y = entity.flight ? lerp(entity.previousTransform.y ?? entity.transform.y ?? groundY, entity.transform.y ?? groundY, alpha) : groundY + 0.35;
       obj.position.set(x, y, z);
       obj.rotation.y = rot;
       this.applyPose(entity, obj, dt);
       const turret = obj.getObjectByName('turretPivot');
       if (turret && entity.turret && !entity.destroyed) turret.rotation.y = entity.turret.yaw - rot;
-      ring.position.set(x, sampleHeight(this.hf, x, z) + 0.08, z);
+      ring.position.set(x, groundY + 0.08, z);
       ring.visible = this.selectionOverlayVisible && !entity.destroyed && (entity.selectable?.selected ?? false);
+      const shadow = this.airShadows.get(entity);
+      if (shadow) {
+        const agl = Math.max(0, y - groundY);
+        shadow.visible = !entity.destroyed;
+        shadow.position.set(x, groundY + 0.09, z);
+        shadow.scale.setScalar(Math.max(0.55, 1 + agl / 62));
+      }
       this.updateHealthBar(entity, x, y, z, camera);
     }
   }
@@ -183,6 +203,17 @@ export class UnitView {
           turret.position.y = -0.12;
         }
       }
+      return;
+    }
+
+    if (entity.flight) {
+      obj.rotation.z = -(entity.flight.bank ?? 0);
+      const mainRotor = obj.getObjectByName('mainRotor');
+      const tailRotor = obj.getObjectByName('tailRotor');
+      const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
+      if (mainRotor) mainRotor.rotation.y += dt * (18 + speed * 1.7);
+      if (tailRotor) tailRotor.rotation.x += dt * (24 + speed * 2.2);
+      if (!entity.destroyed) obj.position.y += Math.sin(performance.now() * 0.004 + entity.id) * 0.035;
       return;
     }
 
@@ -256,7 +287,7 @@ export class UnitView {
     const selected = entity.selectable?.selected ?? false;
     healthBar.root.visible = !entity.destroyed && ((this.selectionOverlayVisible && selected) || pct < 0.995);
     if (!healthBar.root.visible) return;
-    healthBar.root.position.set(x, y + (entity.selectable?.type === 'infantry' ? 2.6 : 4.9), z);
+    healthBar.root.position.set(x, y + (entity.selectable?.type === 'infantry' ? 2.6 : entity.selectable?.type === 'vulture' ? 3.2 : 4.9), z);
     healthBar.root.lookAt(camera.position);
     healthBar.fill.scale.x = Math.max(0.02, pct);
     healthBar.fill.position.x = -1.8 * (1 - pct);
@@ -316,9 +347,66 @@ function createTankObject(hullMaterial: Material, turretMaterial: Material, acce
   return group;
 }
 
+function createVultureObject(hullMaterial: Material, rotorMaterial: Material, accentMaterial: Material): Group {
+  const group = new Group();
+
+  const fuselage = new Mesh(new BoxGeometry(2.2, 1.0, 5.2), hullMaterial);
+  fuselage.position.y = 0.25;
+  group.add(fuselage);
+
+  const nose = new Mesh(new BoxGeometry(1.35, 0.72, 1.45), accentMaterial);
+  nose.position.set(0, 0.28, 2.55);
+  group.add(nose);
+
+  const tail = new Mesh(new BoxGeometry(0.55, 0.45, 4.2), hullMaterial);
+  tail.position.set(0, 0.32, -4.2);
+  group.add(tail);
+
+  const leftSkid = new Mesh(new BoxGeometry(0.18, 0.16, 4.2), rotorMaterial);
+  leftSkid.position.set(-1.35, -0.65, 0.15);
+  group.add(leftSkid);
+  const rightSkid = new Mesh(new BoxGeometry(0.18, 0.16, 4.2), rotorMaterial);
+  rightSkid.position.set(1.35, -0.65, 0.15);
+  group.add(rightSkid);
+  const skidBarA = new Mesh(new BoxGeometry(2.9, 0.12, 0.16), rotorMaterial);
+  skidBarA.position.set(0, -0.55, 1.5);
+  group.add(skidBarA);
+  const skidBarB = new Mesh(new BoxGeometry(2.9, 0.12, 0.16), rotorMaterial);
+  skidBarB.position.set(0, -0.55, -1.45);
+  group.add(skidBarB);
+
+  const mast = new Mesh(new CylinderGeometry(0.11, 0.13, 0.72, 10), rotorMaterial);
+  mast.position.y = 1.05;
+  group.add(mast);
+  const mainRotor = new Group();
+  mainRotor.name = 'mainRotor';
+  mainRotor.position.y = 1.48;
+  const bladeA = new Mesh(new BoxGeometry(8.0, 0.045, 0.26), rotorMaterial);
+  const bladeB = new Mesh(new BoxGeometry(0.26, 0.045, 8.0), rotorMaterial);
+  mainRotor.add(bladeA, bladeB);
+  group.add(mainRotor);
+
+  const tailRotor = new Group();
+  tailRotor.name = 'tailRotor';
+  tailRotor.position.set(0, 0.5, -6.35);
+  const tailBladeA = new Mesh(new BoxGeometry(0.09, 1.45, 0.12), rotorMaterial);
+  const tailBladeB = new Mesh(new BoxGeometry(1.45, 0.09, 0.12), rotorMaterial);
+  tailRotor.add(tailBladeA, tailBladeB);
+  group.add(tailRotor);
+
+  const podL = new Mesh(new BoxGeometry(0.36, 0.36, 1.6), rotorMaterial);
+  podL.position.set(-1.42, 0.05, 1.25);
+  group.add(podL);
+  const podR = new Mesh(new BoxGeometry(0.36, 0.36, 1.6), rotorMaterial);
+  podR.position.set(1.42, 0.05, 1.25);
+  group.add(podR);
+  return group;
+}
+
 function projectEntity(entity: Entity, hf: Heightfield, camera: Camera): Vector3 {
   const p = camera.position.clone();
-  p.set(entity.transform.x, sampleHeight(hf, entity.transform.x, entity.transform.z) + 1.2, entity.transform.z);
+  const y = entity.flight ? entity.transform.y ?? sampleHeight(hf, entity.transform.x, entity.transform.z) + 28 : sampleHeight(hf, entity.transform.x, entity.transform.z) + 1.2;
+  p.set(entity.transform.x, y, entity.transform.z);
   return p.project(camera);
 }
 

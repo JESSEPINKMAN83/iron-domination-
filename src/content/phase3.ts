@@ -1,5 +1,5 @@
-export type StructureKind = 'power-plant' | 'refinery' | 'barracks' | 'factory';
-export type UnitKind = 'infantry' | 'tank';
+export type StructureKind = 'power-plant' | 'refinery' | 'barracks' | 'factory' | 'helipad';
+export type UnitKind = 'infantry' | 'tank' | 'vulture';
 
 export interface StructureDef {
   kind: StructureKind;
@@ -11,17 +11,17 @@ export interface StructureDef {
   powerProduced: number;
   powerUsed: number;
   requires?: StructureKind;
-  producer?: 'structures' | 'infantry' | 'vehicles';
+  producer?: 'structures' | 'infantry' | 'vehicles' | 'aircraft';
 }
 
 export interface UnitDef {
   kind: UnitKind;
   label: string;
-  tab: 'infantry' | 'vehicles';
+  tab: 'infantry' | 'vehicles' | 'aircraft';
   cost: number;
   buildTime: number;
   requires: StructureKind;
-  producer: 'infantry' | 'vehicles';
+  producer: 'infantry' | 'vehicles' | 'aircraft';
 }
 
 export const STRUCTURES: Record<StructureKind, StructureDef> = {
@@ -70,6 +70,18 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     requires: 'refinery',
     producer: 'vehicles',
   },
+  helipad: {
+    kind: 'helipad',
+    label: 'Helipad',
+    tab: 'structures',
+    cost: 500,
+    buildTime: 6,
+    footprint: { w: 7, h: 7 },
+    powerProduced: 0,
+    powerUsed: 10,
+    requires: 'factory',
+    producer: 'aircraft',
+  },
 };
 
 export const UNITS: Record<UnitKind, UnitDef> = {
@@ -90,5 +102,14 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     buildTime: 9,
     requires: 'factory',
     producer: 'vehicles',
+  },
+  vulture: {
+    kind: 'vulture',
+    label: 'Vulture',
+    tab: 'aircraft',
+    cost: 950,
+    buildTime: 12,
+    requires: 'helipad',
+    producer: 'aircraft',
   },
 };

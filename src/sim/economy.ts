@@ -3,9 +3,9 @@ import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
 import type { GameSim } from './world';
-import { issueMoveOrder, spawnTankAt } from './world';
+import { issueMoveOrder, spawnTankAt, spawnVultureAt } from './world';
 
-export type UnitProducerType = 'infantry' | 'vehicles';
+export type UnitProducerType = 'infantry' | 'vehicles' | 'aircraft';
 export const MAX_PRODUCER_JOBS = 10;
 
 export interface LedgerEntry {
@@ -234,7 +234,7 @@ export function cancelUnitQueue(sim: GameSim, economy: EconomyState, kind: UnitK
 export function setPrimaryProducer(economy: EconomyState, producer: Entity): boolean {
   if (!producer.producer || !producer.building?.complete) return false;
   const producerType = STRUCTURES[producer.building.kind as StructureKind]?.producer;
-  if (producerType !== 'infantry' && producerType !== 'vehicles') return false;
+  if (producerType !== 'infantry' && producerType !== 'vehicles' && producerType !== 'aircraft') return false;
   if (producer.team?.id !== economy.team) return false;
   economy.primaryProducerIds[producerType] = producer.id;
   return true;
@@ -351,6 +351,11 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
     const tank = spawnTankAt(sim, pos.x, pos.z, `${designation} ${sim.world.entities.length + 1}`, team);
     orderToRally(sim, producer, tank);
     return tank;
+  }
+  if (kind === 'vulture') {
+    const vulture = spawnVultureAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Vulture' : 'Vulture'} ${sim.world.entities.length + 1}`, team);
+    orderToRally(sim, producer, vulture);
+    return vulture;
   }
   const entity = sim.world.add({
     id: sim.nextEntityId++,

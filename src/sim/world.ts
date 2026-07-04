@@ -6,6 +6,8 @@ import { FlowField, NavigationGrid, type BlockedFootprint } from './flowfield';
 import { sampleHeight, type Heightfield } from './heightfield';
 import { mulberry32 } from './noise';
 
+const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
+
 export interface CombatEvent {
   kind: string;
   fromX: number;
@@ -129,14 +131,60 @@ export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, te
   });
 }
 
+export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team = 1): Entity {
+  const ground = sampleHeight(hf, x, z);
+  const y = ground + 28;
+  return sim.world.add({
+    id: sim.nextEntityId++,
+    name,
+    transform: { x, y, z, rot: Math.PI * 0.25 },
+    previousTransform: { x, y, z, rot: Math.PI * 0.25 },
+    velocity: { x: 0, z: 0 },
+    health: { current: 160, max: 160 },
+    team: { id: team },
+    selectable: { selected: false, type: 'vulture', radius: 3.2 },
+    mover: { speed: 46, radius: 3.0 },
+    flight: { cruiseAltitude: 28, minAGL: 6, maxAltitude: 90, climbRate: 14, bank: 0, verticalVelocity: 0 },
+    weapon: { kind: 'rocketPod', range: 92, cooldown: 0 },
+    weapons: {
+      primary: { kind: 'rocketPod', range: 92, cooldown: 0 },
+      secondary: { kind: 'agMissile', range: 130, cooldown: 0 },
+    },
+    turret: { yaw: Math.PI * 0.25, turnRate: 4.0 },
+    vision: { radius: 150 },
+    collider: { radius: 3.0 },
+    armor: { kind: 'light' },
+  });
+}
+
 export function issueMoveOrder(sim: GameSim, entities: Entity[], targetX: number, targetZ: number, attackMove = false): void {
+  const flyers = entities.filter((entity) => entity.flight);
+  if (flyers.length > 0) {
+    const spacing = 8;
+    const width = Math.max(1, Math.ceil(Math.sqrt(flyers.length)));
+    flyers.forEach((entity, i) => {
+      if (!entity.mover) return;
+      const col = i % width;
+      const row = Math.floor(i / width);
+      entity.mover.target = {
+        x: clamp(targetX + (col - (width - 1) / 2) * spacing, -sim.nav.size / 2, sim.nav.size / 2),
+        z: clamp(targetZ + (row - Math.floor(flyers.length / width) / 2) * spacing, -sim.nav.size / 2, sim.nav.size / 2),
+      };
+      entity.mover.formationOffset = undefined;
+      entity.mover.flow = undefined;
+      entity.mover.attackMove = attackMove;
+    });
+  }
+
+  const groundUnits = entities.filter((entity) => !entity.flight);
+  if (groundUnits.length === 0) return;
   const target = sim.nav.nearestWalkableCell(targetX, targetZ);
   if (!target) return;
   const p = sim.nav.cellCenter(target.x, target.y);
   const flow = new FlowField(sim.nav, p.x, p.z);
   const spacing = 5.2;
-  const width = Math.max(1, Math.ceil(Math.sqrt(entities.length)));
-  entities.forEach((entity, i) => {
+  const width = Math.max(1, Math.ceil(Math.sqrt(groundUnits.length)));
+  groundUnits.forEach((entity, i) => {
     if (!entity.mover) return;
     const col = i % width;
     const row = Math.floor(i / width);
@@ -183,10 +231,35 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     const entity = movers[i];
     if (entity.destroyed) continue;
     const { transform, velocity, mover } = entity;
+    transform.y ??= sampleHeight(hf, transform.x, transform.z);
     let desiredX = 0;
     let desiredZ = 0;
 
-    if (entity.playerControlled) {
+    if (entity.flight) {
+      if (mover.target) {
+        const dx = mover.target.x - transform.x;
+        const dz = mover.target.z - transform.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < mover.radius * 1.8) {
+          mover.target = undefined;
+          velocity.x *= 0.7;
+          velocity.z *= 0.7;
+        } else {
+          const slow = clamp(dist / 36, 0.25, 1);
+          desiredX = (dx / dist) * mover.speed * slow;
+          desiredZ = (dz / dist) * mover.speed * slow;
+        }
+      } else if (mover.engage) {
+        const dx = mover.engage.x - transform.x;
+        const dz = mover.engage.z - transform.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 2) {
+          desiredX = (dx / d) * mover.speed;
+          desiredZ = (dz / d) * mover.speed;
+        }
+        mover.engage = undefined;
+      }
+    } else if (entity.playerControlled) {
       mover.target = undefined;
       mover.formationOffset = undefined;
       mover.flow = undefined;
@@ -234,6 +307,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     for (let j = 0; j < movers.length; j++) {
       if (i === j) continue;
       const other = movers[j];
+      if (!!entity.flight !== !!other.flight) continue;
       const dx = transform.x - other.transform.x;
       const dz = transform.z - other.transform.z;
       const minD = mover.radius + other.mover.radius + 1.2;
@@ -246,7 +320,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     }
 
     const desiredLen = Math.hypot(desiredX, desiredZ);
-    if (desiredLen > 0 && !entity.playerControlled) {
+    if (desiredLen > 0 && !entity.playerControlled && !entity.flight) {
       desiredX = (desiredX / desiredLen) * mover.speed;
       desiredZ = (desiredZ / desiredLen) * mover.speed;
     }
@@ -255,28 +329,56 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
     const nextX = transform.x + velocity.x * dt;
     const nextZ = transform.z + velocity.z * dt;
-    const cell = sim.nav.worldToCell(nextX, nextZ);
-    if (sim.nav.isWalkableCell(cell.x, cell.y)) {
+    if (entity.flight) {
       transform.x = nextX;
       transform.z = nextZ;
-    } else {
-      const xCell = sim.nav.worldToCell(nextX, transform.z);
-      const zCell = sim.nav.worldToCell(transform.x, nextZ);
-      if (sim.nav.isWalkableCell(xCell.x, xCell.y)) {
-        transform.x = nextX;
-        velocity.z = 0;
-      } else if (sim.nav.isWalkableCell(zCell.x, zCell.y)) {
-        transform.z = nextZ;
-        velocity.x = 0;
+      const speed = Math.hypot(velocity.x, velocity.z);
+      if (speed > 0.05) {
+        const nextRot = Math.atan2(velocity.x, velocity.z);
+        const yawDelta = normalizeAngle(nextRot - transform.rot);
+        transform.rot = nextRot;
+        entity.flight.bank = clamp(yawDelta * speed * 0.08, -0.45, 0.45);
       } else {
-        velocity.x = 0;
-        velocity.z = 0;
+        entity.flight.bank *= Math.max(0, 1 - dt * 4);
       }
-    }
+      const ground = sampleHeight(hf, transform.x, transform.z);
+      const ahead = sampleHeight(hf, transform.x + velocity.x * 1.5, transform.z + velocity.z * 1.5);
+      const desiredY = Math.min(
+        entity.flight.maxAltitude,
+        Math.max(ground + entity.flight.cruiseAltitude, ahead + entity.flight.minAGL, ground + entity.flight.minAGL),
+      );
+      const desiredVy = clamp((desiredY - (transform.y ?? desiredY)) * 2.2, -entity.flight.climbRate, entity.flight.climbRate);
+      entity.flight.verticalVelocity += (desiredVy - entity.flight.verticalVelocity) * Math.min(1, dt * 5);
+      transform.y = (transform.y ?? desiredY) + entity.flight.verticalVelocity * dt;
+      if (transform.y < ground + 1) {
+        if (entity.health) entity.health.current = 0;
+        entity.destroyed = { remaining: 20 };
+        sim.events.push({ kind: 'crash', fromX: transform.x, fromZ: transform.z, toX: transform.x, toZ: transform.z, damage: 999, killed: true });
+      }
+    } else {
+      const cell = sim.nav.worldToCell(nextX, nextZ);
+      if (sim.nav.isWalkableCell(cell.x, cell.y)) {
+        transform.x = nextX;
+        transform.z = nextZ;
+      } else {
+        const xCell = sim.nav.worldToCell(nextX, transform.z);
+        const zCell = sim.nav.worldToCell(transform.x, nextZ);
+        if (sim.nav.isWalkableCell(xCell.x, xCell.y)) {
+          transform.x = nextX;
+          velocity.z = 0;
+        } else if (sim.nav.isWalkableCell(zCell.x, zCell.y)) {
+          transform.z = nextZ;
+          velocity.x = 0;
+        } else {
+          velocity.x = 0;
+          velocity.z = 0;
+        }
+      }
 
-    const speed = Math.hypot(velocity.x, velocity.z);
-    if (!entity.playerControlled && speed > 0.05) transform.rot = Math.atan2(velocity.x, velocity.z);
-    void sampleHeight(hf, transform.x, transform.z);
+      const speed = Math.hypot(velocity.x, velocity.z);
+      if (!entity.playerControlled && speed > 0.05) transform.rot = Math.atan2(velocity.x, velocity.z);
+      transform.y = sampleHeight(hf, transform.x, transform.z);
+    }
   }
 
   sim.tick++;
@@ -291,6 +393,7 @@ export function hashSim(sim: GameSim): number {
   for (const entity of entities) {
     mix(entity.id);
     mix(Math.round(entity.transform.x * 100));
+    mix(Math.round((entity.transform.y ?? 0) * 100));
     mix(Math.round(entity.transform.z * 100));
     mix(Math.round(entity.transform.rot * 10000));
     if (entity.health) mix(Math.round(entity.health.current * 100));

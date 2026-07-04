@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { FlowField } from './flowfield';
-import { generateHeightfield } from './heightfield';
-import { createGameSim, hashSim, issueMoveOrder, spawnDebugTanks, stepSim } from './world';
+import { generateHeightfield, sampleHeight } from './heightfield';
+import { createGameSim, hashSim, issueMoveOrder, spawnDebugTanks, spawnVultureAt, stepSim } from './world';
 
 describe('phase 2 movement simulation', () => {
   it('builds a flow field between distant walkable cells', () => {
@@ -57,5 +57,19 @@ describe('phase 2 movement simulation', () => {
     expect(Math.hypot(tank.transform.x - start.x, tank.transform.z - start.z)).toBeGreaterThan(8);
     expect(tank.mover?.target).toBeUndefined();
     expect(tank.mover?.flow).toBeUndefined();
+  });
+
+  it('moves flyers directly over blocked terrain while maintaining altitude', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -hf.size * 0.3, -hf.size * 0.2, 'Vulture 1');
+    const start = { x: vulture.transform.x, z: vulture.transform.z };
+    issueMoveOrder(sim, [vulture], hf.size * 0.3, hf.size * 0.22);
+
+    for (let i = 0; i < 30 * 8; i++) stepSim(sim, hf, 1 / 30);
+
+    expect(Math.hypot(vulture.transform.x - start.x, vulture.transform.z - start.z)).toBeGreaterThan(120);
+    expect(vulture.mover?.flow).toBeUndefined();
+    expect((vulture.transform.y ?? 0) - sampleHeight(hf, vulture.transform.x, vulture.transform.z)).toBeGreaterThanOrEqual(vulture.flight!.minAGL - 0.1);
   });
 });

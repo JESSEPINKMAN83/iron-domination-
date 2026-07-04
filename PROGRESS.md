@@ -363,3 +363,32 @@ drafted in `drafts/phase6/` (unwired, see its README).
 ### Next
 - Continue CODEX_PHASES_PLAN.md with Phase 6.5: combat aircraft, anti-air behavior, and aerial
   possession controls.
+
+## Phase 6.5 — Combat Aircraft Foundation 🚧 (2026-07-04, started)
+
+### Done
+- Added the first aircraft tech content: `Helipad` structure and `Vulture` aircraft unit, plus
+  an `AIRCRAFT` command sidebar tab with a locked empty state until a Helipad is available.
+- Added optional altitude to sim transforms and included altitude in deterministic sim hashing.
+- Added a `Flight` component and a `spawnVultureAt` factory with cruise altitude, climb limits,
+  banking state, vision, health, and flight movement stats.
+- Branched `issueMoveOrder` and `stepSim` for flyers: aircraft ignore ground walkability/flow
+  fields, fly directly to orders over water/cliffs, maintain terrain-safe altitude, avoid rising
+  terrain ahead, bank while turning, and crash if driven below terrain.
+- Added Vulture rendering with fuselage, cockpit accent, skids, rocket pods, spinning main/tail
+  rotors, banking, and a ground blob shadow.
+- Added Helipad building material support.
+- Added movement test coverage proving flyers move directly and maintain minimum AGL.
+- Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
+  state appeared, Helipad content was present, and no console errors were reported.
+- `npm test` passes (22 Vitest tests). `npm run build` passes.
+
+### Known issues / notes
+- Vulture production content is present, but aircraft weapons, ammo/rearm, AA, AI air usage,
+  and V-mode gunship controls are not implemented yet.
+- Vulture possession is intentionally disabled until the dedicated gunship controller is added;
+  this avoids routing aircraft through the tank possession code.
+
+### Next
+- Continue Phase 6.5 with air/ground weapon rules, Helipad production/rearm loop, AA turret,
+  and then the dedicated Vulture V-mode flight controller.

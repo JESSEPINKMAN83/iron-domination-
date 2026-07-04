@@ -3,6 +3,8 @@ import type { ArmorClass } from '../content/phase4';
 
 export interface Transform {
   x: number;
+  /** absolute altitude; ground units are glued to terrain height by the sim */
+  y?: number;
   z: number;
   rot: number;
 }
@@ -36,6 +38,15 @@ export interface Mover {
   attackMove?: boolean;
   /** guard behavior: combat sets this each tick when a visible foe is out of weapon range */
   engage?: { x: number; z: number };
+}
+
+export interface Flight {
+  cruiseAltitude: number;
+  minAGL: number;
+  maxAltitude: number;
+  climbRate: number;
+  bank: number;
+  verticalVelocity: number;
 }
 
 export interface Weapon {
@@ -124,6 +135,7 @@ export interface Entity {
   team?: Team;
   selectable?: Selectable;
   mover?: Mover;
+  flight?: Flight;
   weapon?: Weapon;
   weapons?: WeaponRack;
   turret?: Turret;
