@@ -81,6 +81,7 @@ export class EnemyCommander {
       else if (this.count('refinery') < this.personality.targetRefineries) next = 'refinery';
       else if (this.count('factory') < this.personality.targetFactories) next = 'factory';
       else if (this.personality.wantsBarracks && this.count('barracks') < 1) next = 'barracks';
+      else if (this.count('factory') > 0 && this.count('helipad') < 1 && this.economy.credits > 1200) next = 'helipad';
       rebuilding = next !== undefined && this.everCompleted.has(next) && this.count(next) === 0;
     }
     if (!next) return;
@@ -134,8 +135,25 @@ export class EnemyCommander {
     const mine = this.myUnits();
     const tanks = mine.filter((entity) => entity.selectable?.type === 'tank').length;
     const infantry = mine.filter((entity) => entity.selectable?.type === 'infantry').length;
-    if (tanks < this.difficulty.tankCap) queueUnit(this.sim, this.economy, 'tank' as UnitKind);
-    else if (infantry < this.difficulty.infantryCap) queueUnit(this.sim, this.economy, 'infantry' as UnitKind);
+    const aircraft = mine.filter((entity) => entity.flight).length;
+    if (tanks < this.difficulty.tankCap) queueUnit(this.sim, this.economy, this.nextVehicleKind(tanks));
+    else if (this.count('helipad') > 0 && aircraft < Math.max(2, Math.floor(this.difficulty.tankCap / 7))) {
+      queueUnit(this.sim, this.economy, this.nextAircraftKind(aircraft));
+    } else if (infantry < this.difficulty.infantryCap) {
+      queueUnit(this.sim, this.economy, this.nextInfantryKind(infantry));
+    }
+  }
+
+  private nextVehicleKind(count: number): UnitKind {
+    return (['scout-tank', 'tank', 'tank', 'siege-tank'] as UnitKind[])[count % 4];
+  }
+
+  private nextInfantryKind(count: number): UnitKind {
+    return (['infantry', 'grenadier', 'rocket-infantry'] as UnitKind[])[count % 3];
+  }
+
+  private nextAircraftKind(count: number): UnitKind {
+    return (['wasp', 'vulture', 'hammerhead'] as UnitKind[])[count % 3];
   }
 
   private myUnits(): Entity[] {

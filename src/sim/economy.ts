@@ -3,7 +3,7 @@ import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
 import type { GameSim } from './world';
-import { issueMoveOrder, spawnTankAt, spawnVultureAt } from './world';
+import { issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt } from './world';
 
 export type UnitProducerType = 'infantry' | 'vehicles' | 'aircraft';
 export const MAX_PRODUCER_JOBS = 10;
@@ -384,37 +384,46 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
   const p = sim.nav.nearestWalkableCell(producer.transform.x + 14, producer.transform.z + 9, 24);
   if (!p) return undefined;
   const pos = sim.nav.cellCenter(p.x, p.y);
-  const designation = team === 2 ? 'Ash' : 'M-17';
-  if (kind === 'tank') {
-    const tank = spawnTankAt(sim, pos.x, pos.z, `${designation} ${sim.world.entities.length + 1}`, team);
-    orderToRally(sim, producer, tank);
-    return tank;
-  }
-  if (kind === 'vulture') {
-    const vulture = spawnVultureAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Vulture' : 'Vulture'} ${sim.world.entities.length + 1}`, team);
-    orderToRally(sim, producer, vulture);
-    return vulture;
-  }
+  let entity: Entity | undefined;
+  const suffix = sim.world.entities.length + 1;
+  if (kind === 'scout-tank') entity = spawnScoutTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash Jackal' : 'Jackal'} ${suffix}`, team);
+  else if (kind === 'tank') entity = spawnTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash M-17' : 'M-17'} ${suffix}`, team);
+  else if (kind === 'siege-tank') entity = spawnSiegeTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash Mauler' : 'Mauler'} ${suffix}`, team);
+  else if (kind === 'wasp') entity = spawnWaspAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Wasp' : 'Wasp'} ${suffix}`, team);
+  else if (kind === 'vulture') entity = spawnVultureAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Vulture' : 'Vulture'} ${suffix}`, team);
+  else if (kind === 'hammerhead') entity = spawnHammerheadAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Hammerhead' : 'Hammerhead'} ${suffix}`, team);
+  else entity = spawnInfantryAt(sim, pos.x, pos.z, team, kind);
+  if (!entity) return undefined;
+  void sampleHeight(hf, pos.x, pos.z);
+  orderToRally(sim, producer, entity);
+  return entity;
+}
+
+function spawnInfantryAt(sim: GameSim, x: number, z: number, team: number, kind: UnitKind): Entity {
+  const config =
+    kind === 'grenadier'
+      ? { label: 'Grenadier', enemyLabel: 'Ash Grenadier', weapon: 'grenade', range: 48, health: 52, speed: 11, vision: 82 }
+      : kind === 'rocket-infantry'
+        ? { label: 'Rocket Team', enemyLabel: 'Ash Rockets', weapon: 'rocketLauncher', range: 72, health: 50, speed: 10, vision: 94 }
+        : { label: 'Rifle Team', enemyLabel: 'Ash Rifles', weapon: 'rifle', range: 42, health: 45, speed: 12, vision: 78 };
   const entity = sim.world.add({
     id: sim.nextEntityId++,
-    name: team === 2 ? 'Ash Rifles' : 'Rifle Team',
-    transform: { x: pos.x, z: pos.z, rot: Math.PI * 0.25 },
-    previousTransform: { x: pos.x, z: pos.z, rot: Math.PI * 0.25 },
+    name: team === 2 ? config.enemyLabel : config.label,
+    transform: { x, z, rot: Math.PI * 0.25 },
+    previousTransform: { x, z, rot: Math.PI * 0.25 },
     velocity: { x: 0, z: 0 },
-    health: { current: 45, max: 45 },
+    health: { current: config.health, max: config.health },
     team: { id: team },
     selectable: { selected: false, type: 'infantry', radius: 1.4 },
-    mover: { speed: 12, radius: 1.1 },
-    weapon: { kind: 'rifle', range: 42, cooldown: 0 },
+    mover: { speed: config.speed, radius: 1.1 },
+    weapon: { kind: config.weapon, range: config.range, cooldown: 0 },
     // soldiers aim with their upper body — same slew path as a (fast) turret
     turret: { yaw: Math.PI * 0.25, turnRate: 5.5 },
-    vision: { radius: 78 },
+    vision: { radius: config.vision },
     possessable: { socketHeight: 1.7 },
     collider: { radius: 1.1 },
     armor: { kind: 'infantry' },
   });
-  void sampleHeight(hf, pos.x, pos.z);
-  orderToRally(sim, producer, entity);
   return entity;
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
-import { STRUCTURES } from '../content/phase3';
+import { STRUCTURES, UNITS, type UnitKind } from '../content/phase3';
 import { generateHeightfield } from './heightfield';
 import {
   buildings,
@@ -98,6 +98,50 @@ describe('phase 3 economy and production', () => {
     for (let i = 0; i < MAX_PRODUCER_JOBS; i++) expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(true);
     expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(false);
     expect(barracks.producer?.queue.length).toBe(MAX_PRODUCER_JOBS);
+  });
+
+  it('produces the expanded infantry, vehicle, and aircraft roster with distinct weapons', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 18000);
+    const base = createInitialBase(sim, hf, economy);
+
+    const buildReady = (kind: Parameters<typeof canBuildStructure>[2], dx: number, z: number) => {
+      expect(startStructureBuild(sim, economy, kind)).toBe(true);
+      for (let i = 0; i < 30 * 10; i++) stepEconomy(sim, hf, economy, 1 / 30);
+      const placement = updatePlacement(sim, hf, kind, base.transform.x + dx, base.transform.z + z);
+      expect(placement.valid, placement.reason).toBe(true);
+      const entity = placeStructure(sim, hf, economy, placement);
+      expect(entity).toBeDefined();
+      return entity!;
+    };
+
+    buildReady('power-plant', -28, 0);
+    buildReady('refinery', 28, 0);
+    const barracks = buildReady('barracks', 0, 28);
+    const factory = buildReady('factory', 60, 20);
+    const helipad = buildReady('helipad', 82, -28);
+
+    for (const kind of Object.keys(UNITS) as UnitKind[]) {
+      expect(canQueueUnit(sim, economy, kind).ok).toBe(true);
+      const producer = UNITS[kind].producer === 'infantry' ? barracks : UNITS[kind].producer === 'vehicles' ? factory : helipad;
+      expect(queueUnit(sim, economy, kind, producer)).toBe(true);
+    }
+    for (let i = 0; i < 30 * 55; i++) {
+      stepEconomy(sim, hf, economy, 1 / 30);
+      stepSim(sim, hf, 1 / 30);
+    }
+
+    const units = Array.from(sim.world.entities).filter((entity) => entity.mover && !entity.building);
+    expect(units.some((entity) => entity.name === 'Rifle Team' && entity.weapon?.kind === 'rifle')).toBe(true);
+    expect(units.some((entity) => entity.name === 'Grenadier' && entity.weapon?.kind === 'grenade')).toBe(true);
+    expect(units.some((entity) => entity.name === 'Rocket Team' && entity.weapon?.kind === 'rocketLauncher')).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Jackal') && entity.weapon?.kind === 'autocannon')).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('M-17') && entity.weapon?.kind === 'cannon')).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Mauler') && entity.weapon?.kind === 'heavyCannon')).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Wasp') && entity.flight && entity.weapon?.kind === 'autocannon')).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Vulture') && entity.flight && entity.weapon?.kind === 'rocketPod')).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Hammerhead') && entity.flight && entity.health?.max === 230)).toBe(true);
   });
 
   it('previews and places missing wall segments between two wall anchors', () => {

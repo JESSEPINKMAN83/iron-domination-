@@ -100,6 +100,8 @@ export class UnitView {
     } else {
       unit = createTankObject(this.hullMaterial, this.turretMaterial, accent);
     }
+    const scale = visualScaleForEntity(entity);
+    unit.scale.set(scale.x, scale.y, scale.z);
     unit.castShadow = true;
     unit.traverse((obj) => {
       obj.castShadow = true;
@@ -401,6 +403,15 @@ function createVultureObject(hullMaterial: Material, rotorMaterial: Material, ac
   podR.position.set(1.42, 0.05, 1.25);
   group.add(podR);
   return group;
+}
+
+function visualScaleForEntity(entity: Entity): { x: number; y: number; z: number } {
+  const name = entity.name ?? '';
+  if (name.includes('Jackal')) return { x: 0.82, y: 0.82, z: 0.88 };
+  if (name.includes('Mauler')) return { x: 1.16, y: 1.1, z: 1.22 };
+  if (name.includes('Wasp')) return { x: 0.78, y: 0.72, z: 0.82 };
+  if (name.includes('Hammerhead')) return { x: 1.22, y: 1.12, z: 1.28 };
+  return { x: 1, y: 1, z: 1 };
 }
 
 function projectEntity(entity: Entity, hf: Heightfield, camera: Camera): Vector3 {

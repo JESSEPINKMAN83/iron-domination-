@@ -477,7 +477,11 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Follow-up wall-chain fix: wall previews now snap from open wall ends only, not from middle
   side segments, so extending a wall from its left/right/top/bottom edge no longer latches to
   the wrong side of an existing run.
-- `npm test` passes (37 Vitest tests). `npm run build` passes.
+- Follow-up roster expansion: added Grenadier and Rocket Team infantry, Jackal Scout and
+  Mauler Siege tanks, plus Wasp Scout and Hammerhead aircraft. Each has distinct weapon,
+  health, speed/vision, production cost/time, and first-pass visual scale; the enemy commander
+  now mixes these roles into its army through the same production queues.
+- `npm test` passes (38 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,

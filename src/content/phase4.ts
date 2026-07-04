@@ -1,5 +1,5 @@
 export type ArmorClass = 'infantry' | 'light' | 'heavy' | 'building';
-export type WeaponKind = 'rifle' | 'cannon' | 'bomb' | 'rocketPod' | 'agMissile' | 'aaMissile';
+export type WeaponKind = 'rifle' | 'grenade' | 'rocketLauncher' | 'autocannon' | 'cannon' | 'heavyCannon' | 'bomb' | 'rocketPod' | 'agMissile' | 'aaMissile';
 
 export interface WeaponDef {
   kind: WeaponKind;
@@ -23,6 +23,36 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     targetTypes: ['infantry', 'light', 'heavy'],
     vs: { infantry: 1, light: 0.45, heavy: 0.2, building: 0.12 },
   },
+  grenade: {
+    kind: 'grenade',
+    label: 'Grenade Volley',
+    damage: 18,
+    cooldown: 1.25,
+    range: 48,
+    splashRadius: 3.6,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 1.25, light: 0.62, heavy: 0.32, building: 0.22 },
+  },
+  rocketLauncher: {
+    kind: 'rocketLauncher',
+    label: 'Rocket Launcher',
+    damage: 25,
+    cooldown: 1.7,
+    range: 72,
+    splashRadius: 2.4,
+    targetTypes: ['light', 'heavy', 'building'],
+    vs: { infantry: 0.45, light: 0.95, heavy: 0.78, building: 0.52 },
+  },
+  autocannon: {
+    kind: 'autocannon',
+    label: 'Autocannon',
+    damage: 8,
+    cooldown: 0.16,
+    range: 62,
+    splashRadius: 0,
+    targetTypes: ['infantry', 'light', 'heavy'],
+    vs: { infantry: 1.05, light: 0.72, heavy: 0.26, building: 0.08 },
+  },
   cannon: {
     kind: 'cannon',
     label: 'Light Cannon',
@@ -32,6 +62,16 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     splashRadius: 1.5,
     targetTypes: ['light', 'heavy', 'building'],
     vs: { infantry: 0.9, light: 0.75, heavy: 0.48, building: 0.28 },
+  },
+  heavyCannon: {
+    kind: 'heavyCannon',
+    label: 'Heavy Cannon',
+    damage: 24,
+    cooldown: 1.65,
+    range: 104,
+    splashRadius: 2.2,
+    targetTypes: ['light', 'heavy', 'building'],
+    vs: { infantry: 0.75, light: 0.82, heavy: 0.88, building: 0.48 },
   },
   bomb: {
     kind: 'bomb',

@@ -139,54 +139,181 @@ export function spawnEnemyTanks(sim: GameSim, hf: Heightfield, count = 40): Enti
   return spawned;
 }
 
+interface TankVariant {
+  primary: string;
+  secondary?: string;
+  primaryRange: number;
+  secondaryRange?: number;
+  health: number;
+  speed: number;
+  radius: number;
+  turretRate: number;
+  vision: number;
+}
+
+const STANDARD_TANK: TankVariant = {
+  primary: 'cannon',
+  secondary: 'bomb',
+  primaryRange: 78,
+  secondaryRange: 152,
+  health: 100,
+  speed: 18,
+  radius: 2.2,
+  turretRate: 2.2,
+  vision: 120,
+};
+
 export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
-  const primaryWeapon = { kind: 'cannon', range: 78, cooldown: 0 };
+  return spawnTankVariantAt(sim, x, z, name, team, STANDARD_TANK);
+}
+
+export function spawnScoutTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
+  return spawnTankVariantAt(sim, x, z, name, team, {
+    primary: 'autocannon',
+    primaryRange: 62,
+    health: 72,
+    speed: 24,
+    radius: 1.9,
+    turretRate: 3.4,
+    vision: 142,
+  });
+}
+
+export function spawnSiegeTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
+  return spawnTankVariantAt(sim, x, z, name, team, {
+    primary: 'heavyCannon',
+    secondary: 'bomb',
+    primaryRange: 104,
+    secondaryRange: 176,
+    health: 138,
+    speed: 13,
+    radius: 2.7,
+    turretRate: 1.35,
+    vision: 132,
+  });
+}
+
+function spawnTankVariantAt(sim: GameSim, x: number, z: number, name: string, team: number, variant: TankVariant): Entity {
+  const primaryWeapon = { kind: variant.primary, range: variant.primaryRange, cooldown: 0 };
   return sim.world.add({
     id: sim.nextEntityId++,
     name,
     transform: { x, z, rot: Math.PI * 0.25 },
     previousTransform: { x, z, rot: Math.PI * 0.25 },
     velocity: { x: 0, z: 0 },
-    health: { current: 100, max: 100 },
+    health: { current: variant.health, max: variant.health },
     team: { id: team },
-    selectable: { selected: false, type: 'tank', radius: 2.4 },
-    mover: { speed: 18, radius: 2.2 },
+    selectable: { selected: false, type: 'tank', radius: variant.radius + 0.2 },
+    mover: { speed: variant.speed, radius: variant.radius },
     weapon: primaryWeapon,
     weapons: {
       primary: primaryWeapon,
-      secondary: { kind: 'bomb', range: 152, cooldown: 0 },
+      secondary: variant.secondary ? { kind: variant.secondary, range: variant.secondaryRange ?? variant.primaryRange, cooldown: 0 } : undefined,
     },
-    turret: { yaw: Math.PI * 0.25, turnRate: 2.2 },
-    vision: { radius: 120 },
+    turret: { yaw: Math.PI * 0.25, turnRate: variant.turretRate },
+    vision: { radius: variant.vision },
     possessable: { socketHeight: 2.4 },
-    collider: { radius: 2.2 },
+    collider: { radius: variant.radius },
     armor: { kind: 'heavy' },
   });
 }
 
 export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team = 1): Entity {
+  return spawnAircraftAt(sim, hf, x, z, name, team, {
+    primary: 'rocketPod',
+    secondary: 'bomb',
+    health: 160,
+    speed: 46,
+    cruiseAltitude: 28,
+    minAGL: 6,
+    maxAltitude: 90,
+    climbRate: 14,
+    primaryRange: 92,
+    secondaryRange: 152,
+    radius: 3.0,
+    vision: 150,
+  });
+}
+
+export function spawnWaspAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team = 1): Entity {
+  return spawnAircraftAt(sim, hf, x, z, name, team, {
+    primary: 'autocannon',
+    secondary: 'rocketPod',
+    health: 95,
+    speed: 58,
+    cruiseAltitude: 24,
+    minAGL: 6,
+    maxAltitude: 82,
+    climbRate: 18,
+    primaryRange: 68,
+    secondaryRange: 96,
+    radius: 2.5,
+    vision: 172,
+  });
+}
+
+export function spawnHammerheadAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team = 1): Entity {
+  return spawnAircraftAt(sim, hf, x, z, name, team, {
+    primary: 'rocketPod',
+    secondary: 'bomb',
+    health: 230,
+    speed: 34,
+    cruiseAltitude: 34,
+    minAGL: 8,
+    maxAltitude: 96,
+    climbRate: 10,
+    primaryRange: 118,
+    secondaryRange: 188,
+    radius: 3.8,
+    vision: 138,
+  });
+}
+
+interface AircraftVariant {
+  primary: string;
+  secondary?: string;
+  primaryRange: number;
+  secondaryRange?: number;
+  health: number;
+  speed: number;
+  radius: number;
+  cruiseAltitude: number;
+  minAGL: number;
+  maxAltitude: number;
+  climbRate: number;
+  vision: number;
+}
+
+function spawnAircraftAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team: number, variant: AircraftVariant): Entity {
   const ground = sampleHeight(hf, x, z);
-  const y = ground + 28;
+  const y = ground + variant.cruiseAltitude;
   return sim.world.add({
     id: sim.nextEntityId++,
     name,
     transform: { x, y, z, rot: Math.PI * 0.25 },
     previousTransform: { x, y, z, rot: Math.PI * 0.25 },
     velocity: { x: 0, z: 0 },
-    health: { current: 160, max: 160 },
+    health: { current: variant.health, max: variant.health },
     team: { id: team },
-    selectable: { selected: false, type: 'vulture', radius: 3.2 },
-    mover: { speed: 46, radius: 3.0 },
-    flight: { cruiseAltitude: 28, minAGL: 6, maxAltitude: 90, climbRate: 14, bank: 0, verticalVelocity: 0 },
-    weapon: { kind: 'rocketPod', range: 92, cooldown: 0 },
+    selectable: { selected: false, type: 'vulture', radius: variant.radius + 0.2 },
+    mover: { speed: variant.speed, radius: variant.radius },
+    flight: {
+      cruiseAltitude: variant.cruiseAltitude,
+      minAGL: variant.minAGL,
+      maxAltitude: variant.maxAltitude,
+      climbRate: variant.climbRate,
+      bank: 0,
+      verticalVelocity: 0,
+    },
+    weapon: { kind: variant.primary, range: variant.primaryRange, cooldown: 0 },
     weapons: {
-      primary: { kind: 'rocketPod', range: 92, cooldown: 0 },
-      secondary: { kind: 'bomb', range: 152, cooldown: 0 },
+      primary: { kind: variant.primary, range: variant.primaryRange, cooldown: 0 },
+      secondary: variant.secondary ? { kind: variant.secondary, range: variant.secondaryRange ?? variant.primaryRange, cooldown: 0 } : undefined,
     },
     turret: { yaw: Math.PI * 0.25, turnRate: 4.0 },
-    vision: { radius: 150 },
+    vision: { radius: variant.vision },
     possessable: { socketHeight: 1.6 },
-    collider: { radius: 3.0 },
+    collider: { radius: variant.radius },
     armor: { kind: 'light' },
   });
 }

@@ -1,7 +1,7 @@
 import type { WeaponKind } from './phase4';
 
 export type StructureKind = 'power-plant' | 'refinery' | 'barracks' | 'factory' | 'helipad' | 'wall' | 'guard-tower' | 'aa-tower';
-export type UnitKind = 'infantry' | 'tank' | 'vulture';
+export type UnitKind = 'infantry' | 'grenadier' | 'rocket-infantry' | 'scout-tank' | 'tank' | 'siege-tank' | 'wasp' | 'vulture' | 'hammerhead';
 
 export interface StructureDef {
   kind: StructureKind;
@@ -147,6 +147,33 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     requires: 'barracks',
     producer: 'infantry',
   },
+  grenadier: {
+    kind: 'grenadier',
+    label: 'Grenadier',
+    tab: 'infantry',
+    cost: 150,
+    buildTime: 5,
+    requires: 'barracks',
+    producer: 'infantry',
+  },
+  'rocket-infantry': {
+    kind: 'rocket-infantry',
+    label: 'Rocket Team',
+    tab: 'infantry',
+    cost: 220,
+    buildTime: 7,
+    requires: 'barracks',
+    producer: 'infantry',
+  },
+  'scout-tank': {
+    kind: 'scout-tank',
+    label: 'Jackal Scout',
+    tab: 'vehicles',
+    cost: 360,
+    buildTime: 6,
+    requires: 'factory',
+    producer: 'vehicles',
+  },
   tank: {
     kind: 'tank',
     label: 'M-17 Tank',
@@ -156,12 +183,39 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     requires: 'factory',
     producer: 'vehicles',
   },
+  'siege-tank': {
+    kind: 'siege-tank',
+    label: 'Mauler Siege',
+    tab: 'vehicles',
+    cost: 820,
+    buildTime: 13,
+    requires: 'factory',
+    producer: 'vehicles',
+  },
+  wasp: {
+    kind: 'wasp',
+    label: 'Wasp Scout',
+    tab: 'aircraft',
+    cost: 650,
+    buildTime: 8,
+    requires: 'helipad',
+    producer: 'aircraft',
+  },
   vulture: {
     kind: 'vulture',
     label: 'Vulture',
     tab: 'aircraft',
     cost: 950,
     buildTime: 12,
+    requires: 'helipad',
+    producer: 'aircraft',
+  },
+  hammerhead: {
+    kind: 'hammerhead',
+    label: 'Hammerhead',
+    tab: 'aircraft',
+    cost: 1250,
+    buildTime: 16,
     requires: 'helipad',
     producer: 'aircraft',
   },

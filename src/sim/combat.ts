@@ -12,7 +12,11 @@ const DEFENSE_ALERT_RADIUS = 145;
 const DEFENSE_ALERT_TTL = 9;
 const AIR_DIRECT_MULTIPLIER: Record<WeaponKind, number> = {
   rifle: 0.08,
+  grenade: 0.02,
+  rocketLauncher: 0.7,
+  autocannon: 0.28,
   cannon: 0.12,
+  heavyCannon: 0.05,
   bomb: 0,
   rocketPod: 0.35,
   agMissile: 1,
@@ -20,7 +24,11 @@ const AIR_DIRECT_MULTIPLIER: Record<WeaponKind, number> = {
 };
 const AIR_SPLASH_MULTIPLIER: Record<WeaponKind, number> = {
   rifle: 0,
+  grenade: 0.04,
+  rocketLauncher: 0.35,
+  autocannon: 0,
   cannon: 0.03,
+  heavyCannon: 0.02,
   bomb: 0.035,
   rocketPod: 0.12,
   agMissile: 0.75,
@@ -28,7 +36,11 @@ const AIR_SPLASH_MULTIPLIER: Record<WeaponKind, number> = {
 };
 const AIR_RANGE_MULTIPLIER: Record<WeaponKind, number> = {
   rifle: 0.55,
+  grenade: 0.3,
+  rocketLauncher: 0.9,
+  autocannon: 0.75,
   cannon: 0.65,
+  heavyCannon: 0.55,
   bomb: 0,
   rocketPod: 0.75,
   agMissile: 1,
