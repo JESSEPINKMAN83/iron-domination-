@@ -18,7 +18,7 @@ describe('phase 3 economy and production', () => {
   it('runs build order and parallel factory production with a matching ledger', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
-    const economy = createEconomy(5200);
+    const economy = createEconomy(1, 5200);
     const base = createInitialBase(sim, hf, economy);
 
     const build = (kind: Parameters<typeof canBuildStructure>[2], dx: number, z: number) => {

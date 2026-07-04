@@ -17,6 +17,12 @@ import {
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { RenderContext } from './renderer';
+import { buildSoldier, type SoldierMaterials, type SoldierRig } from './soldier';
+
+interface AnimState {
+  phase: number; // walk-cycle phase, radians
+  swing: number; // 0..1 blend between idle and walking pose
+}
 
 export class UnitView {
   readonly group = new Group();
@@ -27,13 +33,23 @@ export class UnitView {
   private readonly turretMaterial: Material;
   private readonly accentMaterial: Material;
   private readonly enemyAccentMaterial: Material;
+  private readonly wreckMaterial: Material;
   private readonly ringMaterial: Material;
   private readonly healthBackMaterial: Material;
+  private readonly soldierMaterials: Omit<SoldierMaterials, 'accent'>;
   private readonly healthBars = new Map<Entity, { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial }>();
+  private readonly soldierRigs = new Map<Entity, SoldierRig>();
+  private readonly anims = new Map<Entity, AnimState>();
+  private readonly wrecked = new Set<Entity>();
   private hiddenEntity?: Entity;
   private selectionOverlayVisible = true;
 
-  constructor(entities: Entity[], private readonly hf: Heightfield, ctx: RenderContext) {
+  constructor(
+    entities: Entity[],
+    private readonly hf: Heightfield,
+    ctx: RenderContext,
+    private readonly isVisible: (x: number, z: number) => boolean = () => true,
+  ) {
     this.hullMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x65787f, roughness: 0.78, metalness: 0.08 }));
     this.turretMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x3f535a, roughness: 0.82, metalness: 0.12 }));
     this.accentMaterial = ctx.setupLitMaterial(
@@ -42,6 +58,13 @@ export class UnitView {
     this.enemyAccentMaterial = ctx.setupLitMaterial(
       new MeshStandardMaterial({ color: 0xd65b46, emissive: 0x2a0600, roughness: 0.72, metalness: 0.08 }),
     );
+    this.wreckMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1d1a16, roughness: 1, metalness: 0.05 }));
+    this.soldierMaterials = {
+      uniform: ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x55603f, roughness: 0.9, metalness: 0.02 })),
+      gear: ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x33392c, roughness: 0.92, metalness: 0.04 })),
+      skin: ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0xb98a63, roughness: 0.85, metalness: 0 })),
+      gunmetal: ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x23262a, roughness: 0.55, metalness: 0.45 })),
+    };
     this.ringMaterial = new MeshBasicMaterial({ color: 0x7df27d, transparent: true, opacity: 0.72, depthWrite: false });
     this.healthBackMaterial = new MeshBasicMaterial({
       color: 0x050806,
@@ -58,10 +81,15 @@ export class UnitView {
     if (this.objects.has(entity)) return;
     this.entities.push(entity);
     const accent = entity.team?.id === 2 ? this.enemyAccentMaterial : this.accentMaterial;
-    const unit =
-      entity.selectable?.type === 'infantry'
-        ? createInfantryObject(this.hullMaterial, accent)
-        : createTankObject(this.hullMaterial, this.turretMaterial, accent);
+    let unit: Object3D;
+    if (entity.selectable?.type === 'infantry') {
+      const rig = buildSoldier({ ...this.soldierMaterials, accent });
+      this.soldierRigs.set(entity, rig);
+      this.anims.set(entity, { phase: 0, swing: 0 });
+      unit = rig.root;
+    } else {
+      unit = createTankObject(this.hullMaterial, this.turretMaterial, accent);
+    }
     unit.castShadow = true;
     unit.traverse((obj) => {
       obj.castShadow = true;
@@ -101,12 +129,14 @@ export class UnitView {
     this.selectionOverlayVisible = visible;
   }
 
-  update(alpha: number, camera: Camera): void {
+  update(alpha: number, dt: number, camera: Camera): void {
     for (const entity of this.entities) {
       const obj = this.objects.get(entity);
       const ring = this.selectedRings.get(entity);
       if (!obj || !ring) continue;
-      if (entity === this.hiddenEntity) {
+      const gone = entity === this.hiddenEntity || (entity.destroyed?.remaining !== undefined && entity.destroyed.remaining <= 0);
+      const fogged = entity.team?.id !== 1 && !this.isVisible(entity.transform.x, entity.transform.z);
+      if (gone || fogged) {
         obj.visible = false;
         ring.visible = false;
         const healthBar = this.healthBars.get(entity);
@@ -114,27 +144,69 @@ export class UnitView {
         continue;
       }
       obj.visible = true;
-      if (entity.destroyed?.remaining !== undefined && entity.destroyed.remaining <= 0) {
-        obj.visible = false;
-        ring.visible = false;
-        const healthBar = this.healthBars.get(entity);
-        if (healthBar) healthBar.root.visible = false;
-        continue;
-      }
       const x = lerp(entity.previousTransform.x, entity.transform.x, alpha);
       const z = lerp(entity.previousTransform.z, entity.transform.z, alpha);
       const rot = lerpAngle(entity.previousTransform.rot, entity.transform.rot, alpha);
       const y = sampleHeight(this.hf, x, z) + 0.35;
       obj.position.set(x, y, z);
       obj.rotation.y = rot;
-      obj.rotation.z = entity.destroyed ? 0.18 : 0;
-      obj.scale.y = entity.destroyed ? 0.45 : 1;
+      this.applyPose(entity, obj, dt);
       const turret = obj.getObjectByName('turretPivot');
-      if (turret && entity.turret) turret.rotation.y = entity.turret.yaw - rot;
+      if (turret && entity.turret && !entity.destroyed) turret.rotation.y = entity.turret.yaw - rot;
       ring.position.set(x, sampleHeight(this.hf, x, z) + 0.08, z);
       ring.visible = this.selectionOverlayVisible && !entity.destroyed && (entity.selectable?.selected ?? false);
       this.updateHealthBar(entity, x, y, z, camera);
     }
+  }
+
+  /** Walk cycles, death poses, and wreck states — all driven by sim data. */
+  private applyPose(entity: Entity, obj: Object3D, dt: number): void {
+    const isInfantry = entity.selectable?.type === 'infantry';
+    if (entity.destroyed) {
+      const sinceDeath = Math.max(0, 20 - entity.destroyed.remaining);
+      const fall = Math.min(1, sinceDeath / 0.45);
+      if (isInfantry) {
+        // soldiers crumple sideways
+        obj.rotation.z = fall * (Math.PI / 2) * 0.96;
+        obj.position.y += 0.12 - fall * 0.18;
+        obj.scale.setScalar(1);
+      } else if (!this.wrecked.has(entity)) {
+        // tanks become scorched husks that persist
+        this.wrecked.add(entity);
+        obj.traverse((child) => {
+          if (child instanceof Mesh) child.material = this.wreckMaterial;
+        });
+        obj.rotation.z = 0.09;
+        const turret = obj.getObjectByName('turretPivot');
+        if (turret) {
+          turret.rotation.x = 0.14;
+          turret.position.y = -0.12;
+        }
+      }
+      return;
+    }
+
+    if (!isInfantry) return;
+    const rig = this.soldierRigs.get(entity);
+    const anim = this.anims.get(entity);
+    if (!rig || !anim) return;
+    const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
+    const moving = speed > 0.4;
+    anim.swing += ((moving ? 1 : 0) - anim.swing) * Math.min(1, dt * 8);
+    if (moving) anim.phase += dt * (3.2 + speed * 0.62);
+
+    const s = Math.sin(anim.phase);
+    const c = Math.sin(anim.phase + Math.PI);
+    rig.hipL.rotation.x = s * 0.62 * anim.swing;
+    rig.hipR.rotation.x = c * 0.62 * anim.swing;
+    // knee bends as the leg swings back and lifts
+    rig.kneeL.rotation.x = Math.max(0, -s) * 0.85 * anim.swing;
+    rig.kneeR.rotation.x = Math.max(0, -c) * 0.85 * anim.swing;
+    // gait bob + a touch of forward lean when running
+    rig.root.position.y += (Math.abs(Math.sin(anim.phase * 2)) * 0.05 - 0.02) * anim.swing;
+    rig.root.rotation.x = 0.08 * anim.swing;
+    // idle breathing
+    rig.torso.position.y = 1.1 + Math.sin(anim.phase * 0.35 + entity.id) * 0.008 * (1 - anim.swing);
   }
 
   pickAt(x: number, z: number, maxRadius = 4.2): Entity | undefined {
@@ -241,20 +313,6 @@ function createTankObject(hullMaterial: Material, turretMaterial: Material, acce
   const hatch = new Mesh(new CylinderGeometry(0.45, 0.55, 0.2, 8), turretMaterial);
   hatch.position.set(0, 1.7, -0.35);
   turretPivot.add(hatch);
-  return group;
-}
-
-function createInfantryObject(bodyMaterial: Material, accentMaterial: Material): Group {
-  const group = new Group();
-  const body = new Mesh(new BoxGeometry(0.85, 1.4, 0.55), bodyMaterial);
-  body.position.y = 0.9;
-  group.add(body);
-  const head = new Mesh(new BoxGeometry(0.55, 0.45, 0.55), bodyMaterial);
-  head.position.y = 1.7;
-  group.add(head);
-  const rifle = new Mesh(new BoxGeometry(0.16, 0.16, 1.4), accentMaterial);
-  rifle.position.set(0.25, 1.25, 0.55);
-  group.add(rifle);
   return group;
 }
 

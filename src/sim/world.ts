@@ -1,4 +1,5 @@
 import { World, type Query, type With } from 'miniplex';
+import { normalizeAngle, slewAngle } from './angles';
 import type { Entity } from './components';
 import { copyTransform } from './components';
 import { FlowField, NavigationGrid, type BlockedFootprint } from './flowfield';
@@ -13,6 +14,21 @@ export interface CombatEvent {
   toZ: number;
   damage: number;
   killed: boolean;
+  /** flight time in seconds for ballistic launches ('bomb') */
+  duration?: number;
+}
+
+/** In-flight ballistic ordnance. Damage happens on impact, at the aimed location. */
+export interface Projectile {
+  kind: 'bomb';
+  fromX: number;
+  fromZ: number;
+  toX: number;
+  toZ: number;
+  elapsed: number;
+  duration: number;
+  teamId: number;
+  attackerId: number;
 }
 
 export interface GameSim {
@@ -21,6 +37,7 @@ export interface GameSim {
   movers: Query<With<Entity, 'transform' | 'previousTransform' | 'velocity' | 'mover'>>;
   selectables: Query<With<Entity, 'transform' | 'selectable'>>;
   events: CombatEvent[];
+  projectiles: Projectile[];
   tick: number;
 }
 
@@ -35,6 +52,7 @@ export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = 
     movers: world.with('transform', 'previousTransform', 'velocity', 'mover'),
     selectables: world.with('transform', 'selectable'),
     events: [],
+    projectiles: [],
     tick: 0,
   };
 }
@@ -102,7 +120,7 @@ export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, te
       primary: primaryWeapon,
       secondary: { kind: 'bomb', range: 152, cooldown: 0 },
     },
-    turret: { yaw: Math.PI * 0.25, turnRate: 1.4 },
+    turret: { yaw: Math.PI * 0.25, turnRate: 2.2 },
     vision: { radius: 120 },
     possessable: { socketHeight: 2.4 },
     collider: { radius: 2.2 },
@@ -179,7 +197,8 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       const driveSpeed = mover.speed * (throttle < 0 ? 0.42 : 0.78);
       desiredX = Math.sin(transform.rot) * driveSpeed * throttle;
       desiredZ = Math.cos(transform.rot) * driveSpeed * throttle;
-      if (entity.turret) entity.turret.yaw = dampAngle(entity.turret.yaw, entity.playerControlled.aimYaw, 6, dt);
+      // real traverse speed — you feel the turret's weight chasing the crosshair
+      if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, entity.playerControlled.aimYaw, entity.turret.turnRate, dt);
     } else if (mover.target && mover.flow) {
       const finalX = mover.target.x + (mover.formationOffset?.x ?? 0);
       const finalZ = mover.target.z + (mover.formationOffset?.z ?? 0);
@@ -265,14 +284,11 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round(entity.transform.rot * 10000));
     if (entity.health) mix(Math.round(entity.health.current * 100));
   }
+  for (const projectile of sim.projectiles) {
+    mix(Math.round(projectile.toX * 100));
+    mix(Math.round(projectile.toZ * 100));
+    mix(Math.round(projectile.elapsed * 1000));
+    mix(projectile.attackerId);
+  }
   return h >>> 0;
-}
-
-function dampAngle(current: number, goal: number, lambda: number, dt: number): number {
-  const delta = Math.atan2(Math.sin(goal - current), Math.cos(goal - current));
-  return normalizeAngle(current + delta * (1 - Math.exp(-lambda * dt)));
-}
-
-function normalizeAngle(angle: number): number {
-  return Math.atan2(Math.sin(angle), Math.cos(angle));
 }

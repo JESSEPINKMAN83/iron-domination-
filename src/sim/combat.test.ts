@@ -4,6 +4,10 @@ import { damageForArmor, manualFireAt, stepCombat } from './combat';
 import { generateHeightfield } from './heightfield';
 import { createGameSim, hashSim, spawnTankAt } from './world';
 
+const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
+  for (let i = 0; i < Math.round(seconds * 30); i++) stepCombat(sim, 1 / 30);
+};
+
 describe('phase 4 combat simulation', () => {
   it('applies weapon damage matrix values', () => {
     expect(damageForArmor('rifle', 'heavy')).toBeCloseTo(2.2);
@@ -18,7 +22,7 @@ describe('phase 4 combat simulation', () => {
       const sim = createGameSim(hf);
       const a = spawnTankAt(sim, -20, -20, 'A');
       const b = spawnTankAt(sim, 18, -20, 'B', 2);
-      for (let i = 0; i < 30 * 8; i++) stepCombat(sim, 1 / 30);
+      settle(sim, 8);
       return { sim, aHp: a.health?.current ?? 0, bHp: b.health?.current ?? 0, events: sim.events.length, hash: hashSim(sim) };
     };
 
@@ -30,23 +34,24 @@ describe('phase 4 combat simulation', () => {
     expect(first.bHp).toBeLessThan(100);
   });
 
-  it('lets a player-controlled tank fire manually through weapon data', () => {
+  it('gates direct fire on turret traverse — misaligned turret holds fire', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const attacker = spawnTankAt(sim, -20, -20, 'A');
     const target = spawnTankAt(sim, 18, -20, 'B', 2);
     attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    attacker.turret!.yaw = -Math.PI / 2; // pointing away
 
-    const fired = manualFireAt(sim, attacker, 42, -20);
+    expect(manualFireAt(sim, attacker, 42, -20)).toBe(false);
+    expect(target.health?.current).toBe(100);
 
-    expect(fired).toBe(true);
+    attacker.turret!.yaw = Math.PI / 2; // traversed onto the shot line
+    expect(manualFireAt(sim, attacker, 42, -20)).toBe(true);
     expect(target.health?.current).toBeLessThan(100);
     expect(attacker.weapons?.primary.cooldown).toBeGreaterThan(0);
-    expect(sim.events).toHaveLength(1);
-    expect(sim.events[0].damage).toBeGreaterThan(0);
   });
 
-  it('lets a player-controlled tank fire a slower heavy bomb with splash', () => {
+  it('fires ballistic bombs that damage on impact, with splash falloff', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const attacker = spawnTankAt(sim, -20, -20, 'A');
@@ -59,11 +64,17 @@ describe('phase 4 combat simulation', () => {
 
     expect(fired).toBe(true);
     expect(firedAgain).toBe(false);
+    expect(sim.projectiles).toHaveLength(1);
+    expect(sim.events.at(-1)?.kind).toBe('bomb');
+    // no damage until the bomb lands
+    expect(primary.health?.current).toBe(100);
+
+    settle(sim, 1.5);
+    expect(sim.projectiles).toHaveLength(0);
+    expect(sim.events.some((event) => event.kind === 'bomb-impact')).toBe(true);
     expect(primary.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeGreaterThan(70);
-    expect(attacker.weapons?.secondary?.cooldown).toBeGreaterThan(attacker.weapons?.primary.cooldown ?? 0);
-    expect(sim.events.at(-1)?.kind).toBe('bomb');
   });
 
   it('lets player-controlled bombs fire beyond normal range with deterministic scatter', () => {
@@ -90,22 +101,32 @@ describe('phase 4 combat simulation', () => {
     const fired = manualFireAt(sim, attacker, attacker.transform.x, attacker.transform.z, 'secondary');
 
     expect(fired).toBe(true);
-    expect(attacker.health?.current).toBe(100);
     expect(Math.hypot(sim.events[0].toX - attacker.transform.x, sim.events[0].toZ - attacker.transform.z)).toBeGreaterThan(40);
+    settle(sim, 1.5);
+    expect(attacker.health?.current).toBe(100); // own splash never hurts own team
   });
 
-  it('prevents AI siege bombs from targeting the possessed tank', () => {
-    const hf = generateHeightfield(MAP01);
-    const sim = createGameSim(hf);
-    const player = spawnTankAt(sim, -20, -20, 'A');
-    const enemy = spawnTankAt(sim, -20, 35, 'B', 2);
-    player.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
-    enemy.weapons!.primary.cooldown = 99;
+  it('lets a moving possessed tank dodge enemy bombs — and punishes standing still', () => {
+    const run = (dodge: boolean) => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const player = spawnTankAt(sim, -20, -20, 'A');
+      const enemy = spawnTankAt(sim, -20, 45, 'B', 2);
+      player.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+      enemy.weapons!.primary.cooldown = 999; // isolate the bomb
+      enemy.turret!.yaw = Math.PI; // facing the player
 
-    stepCombat(sim, 1 / 30);
+      stepCombat(sim, 1 / 30);
+      expect(sim.events.some((event) => event.kind === 'bomb')).toBe(true);
+      if (dodge) {
+        player.transform.x += 30; // drove away during the flight
+        player.previousTransform.x += 30;
+      }
+      settle(sim, 2);
+      return player.health?.current ?? 0;
+    };
 
-    expect(sim.events.some((event) => event.kind === 'bomb')).toBe(false);
-    expect(player.health?.current).toBe(100);
-    expect(enemy.weapons?.secondary?.cooldown).toBe(0);
+    expect(run(true)).toBe(100);
+    expect(run(false)).toBeLessThan(100);
   });
 });

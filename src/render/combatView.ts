@@ -53,14 +53,24 @@ export class CombatView {
   private readonly bombProjectiles: BombProjectile[] = [];
   private readonly up = new Vector3(0, 1, 0);
 
-  constructor(private readonly hf: Heightfield) {}
+  constructor(
+    private readonly hf: Heightfield,
+    private readonly isVisible: (x: number, z: number) => boolean = () => true,
+  ) {}
 
   push(events: CombatEvent[]): void {
     for (const event of events) {
-      const fromY = sampleHeight(this.hf, event.fromX, event.fromZ) + (event.kind === 'bomb' ? 3.1 : 2.2);
+      // fights entirely inside the fog stay hidden
+      if (!this.isVisible(event.fromX, event.fromZ) && !this.isVisible(event.toX, event.toZ)) continue;
+      const muzzleHeight = event.kind === 'bomb' ? 3.1 : event.kind === 'rifle' ? 1.35 : 2.2;
+      const fromY = sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
       const toY = sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
       if (event.kind === 'bomb') {
         this.spawnBombProjectile(event, fromY, toY);
+        continue;
+      }
+      if (event.kind === 'bomb-impact') {
+        this.spawnBombBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.4, event.toZ, event.killed);
         continue;
       }
 
@@ -142,7 +152,8 @@ export class CombatView {
       control,
       to,
       elapsed: 0,
-      duration: Math.min(3.2, Math.max(0.9, distance / 125)),
+      // matches the sim's flight time exactly — the blast lands when the damage does
+      duration: event.duration ?? Math.min(3.4, Math.max(0.85, distance / 95)),
       event,
     });
   }
@@ -170,7 +181,7 @@ export class CombatView {
         this.group.remove(projectile.trail);
         projectile.trail.geometry.dispose();
         (projectile.trail.material as LineBasicMaterial).dispose();
-        this.spawnBombBlast(projectile.to.x, projectile.to.y, projectile.to.z, projectile.event.killed);
+        // the blast is driven by the sim's 'bomb-impact' event, not the visual flight
         this.bombProjectiles.splice(i, 1);
       }
     }

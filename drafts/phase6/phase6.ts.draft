@@ -1,0 +1,62 @@
+import type { StructureKind } from './phase3';
+
+export type Personality = 'turtle' | 'rusher' | 'balanced';
+export type Difficulty = 'easy' | 'normal' | 'hard';
+
+export interface PersonalityDef {
+  buildOrder: StructureKind[];
+  targetRefineries: number;
+  targetFactories: number;
+  wantsBarracks: boolean;
+  squadSize: number;
+  /** tanks kept home as base defense before forming attack squads */
+  homeGuard: number;
+  /** seconds before the first attack squad may launch */
+  attackDelay: number;
+}
+
+export interface DifficultyDef {
+  /** seconds between AI decisions — its "reaction time" */
+  reactionDelay: number;
+  /** resource handicap; Normal is exactly 1 — never map hacks, only economics */
+  incomeMultiplier: number;
+  tankCap: number;
+  infantryCap: number;
+  startCredits: number;
+}
+
+export const AI_PERSONALITY: Record<Personality, PersonalityDef> = {
+  turtle: {
+    buildOrder: ['power-plant', 'refinery', 'power-plant', 'factory'],
+    targetRefineries: 3,
+    targetFactories: 1,
+    wantsBarracks: true,
+    squadSize: 10,
+    homeGuard: 6,
+    attackDelay: 420,
+  },
+  rusher: {
+    buildOrder: ['power-plant', 'refinery', 'factory'],
+    targetRefineries: 1,
+    targetFactories: 2,
+    wantsBarracks: false,
+    squadSize: 4,
+    homeGuard: 0,
+    attackDelay: 60,
+  },
+  balanced: {
+    buildOrder: ['power-plant', 'refinery', 'factory'],
+    targetRefineries: 2,
+    targetFactories: 2,
+    wantsBarracks: true,
+    squadSize: 7,
+    homeGuard: 3,
+    attackDelay: 150,
+  },
+};
+
+export const AI_DIFFICULTY: Record<Difficulty, DifficultyDef> = {
+  easy: { reactionDelay: 2.4, incomeMultiplier: 0.7, tankCap: 10, infantryCap: 4, startCredits: 3000 },
+  normal: { reactionDelay: 1.1, incomeMultiplier: 1.0, tankCap: 22, infantryCap: 8, startCredits: 4600 },
+  hard: { reactionDelay: 0.55, incomeMultiplier: 1.35, tankCap: 34, infantryCap: 12, startCredits: 6500 },
+};

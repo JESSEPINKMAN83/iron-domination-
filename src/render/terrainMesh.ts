@@ -81,6 +81,8 @@ function buildChunkGeometry(hf: Heightfield, startX: number, startY: number, chu
 
 export class TerrainView {
   readonly group = new Group();
+  /** shared with overlays that drape data over the terrain (walkability, fog) */
+  readonly chunkGeometries: BufferGeometry[] = [];
   private readonly overlayGroup = new Group();
 
   constructor(hf: Heightfield, csm: CSM, maxAnisotropy: number) {
@@ -91,6 +93,7 @@ export class TerrainView {
     for (let cy = 0; cy < CHUNKS; cy++) {
       for (let cx = 0; cx < CHUNKS; cx++) {
         const geom = buildChunkGeometry(hf, cx * chunkCells, cy * chunkCells, chunkCells);
+        this.chunkGeometries.push(geom);
         const mesh = new Mesh(geom, material);
         mesh.receiveShadow = true;
         mesh.castShadow = false;

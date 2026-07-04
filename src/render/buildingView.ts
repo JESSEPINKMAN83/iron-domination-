@@ -15,7 +15,14 @@ export class BuildingView {
   private readonly materials: Record<string, Material>;
   private readonly ringMaterial = new MeshBasicMaterial({ color: 0xd2b15f, transparent: true, opacity: 0.78, depthWrite: false });
 
+  private readonly playerAccent: Material;
+  private readonly enemyAccent: Material;
+  private readonly wreckMaterial: Material;
+
   constructor(private readonly sim: GameSim, private readonly hf: Heightfield, ctx: RenderContext) {
+    this.playerAccent = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0xf0c85a, emissive: 0x2b1d00, roughness: 0.7 }));
+    this.enemyAccent = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0xd65b46, emissive: 0x2a0600, roughness: 0.72 }));
+    this.wreckMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1d1a16, roughness: 1, metalness: 0.05 }));
     this.materials = {
       'command-yard': ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x5d6670, roughness: 0.8, metalness: 0.1 })),
       'power-plant': ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x586d7b, roughness: 0.78, metalness: 0.12 })),
@@ -30,6 +37,15 @@ export class BuildingView {
   }
 
   update(economy: EconomyState): void {
+    // sweep meshes whose entities were removed from the world (destroyed timers expired)
+    for (const [entity, mesh] of this.objects) {
+      if (this.sim.world.has(entity)) continue;
+      this.group.remove(mesh);
+      const ring = this.selectedRings.get(entity);
+      if (ring) this.group.remove(ring);
+      this.objects.delete(entity);
+      this.selectedRings.delete(entity);
+    }
     for (const entity of buildings(this.sim)) {
       let mesh = this.objects.get(entity);
       if (!mesh && entity.building) {
@@ -37,6 +53,13 @@ export class BuildingView {
         mesh = new Mesh(geometry, this.materials[entity.building.kind] ?? this.materials['command-yard']);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
+        const accent = new Mesh(
+          new BoxGeometry(entity.building.footprint.w * this.hf.cellSize, 0.5, entity.building.footprint.h * this.hf.cellSize * 0.3),
+          entity.team?.id === 2 ? this.enemyAccent : this.playerAccent,
+        );
+        accent.position.y = 1.85;
+        accent.castShadow = true;
+        mesh.add(accent);
         this.objects.set(entity, mesh);
         this.group.add(mesh);
 
@@ -52,7 +75,8 @@ export class BuildingView {
       const y = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
       const progress = entity.building.complete ? 1 : Math.max(0.08, entity.building.buildProgress);
       mesh.position.set(entity.transform.x, y + 1.6 * progress, entity.transform.z);
-      mesh.scale.y = progress;
+      mesh.scale.y = entity.destroyed ? 0.45 : progress;
+      if (entity.destroyed && mesh.material !== this.wreckMaterial) mesh.material = this.wreckMaterial;
 
       const ring = this.selectedRings.get(entity);
       if (ring) {

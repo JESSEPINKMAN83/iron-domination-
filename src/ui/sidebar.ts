@@ -2,6 +2,7 @@ import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content
 import type { Entity } from '../sim/components';
 import { buildings, canBuildStructure, canQueueUnit, type EconomyState } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
+import type { VisibilityGrid } from '../sim/visibility';
 import { selectedEntities, type GameSim } from '../sim/world';
 
 type Tab = 'structures' | 'infantry' | 'vehicles';
@@ -25,8 +26,17 @@ export class Sidebar {
   private lastBodyKey = '';
   private lastRadarTick = -1;
   private radarFocus?: { x: number; z: number; ttl: number };
+  private readonly fogCanvas: HTMLCanvasElement;
 
-  constructor(private readonly sim: GameSim, private readonly hf: Heightfield, private readonly economy: EconomyState, private readonly actions: SidebarActions) {
+  constructor(
+    private readonly sim: GameSim,
+    private readonly hf: Heightfield,
+    private readonly economy: EconomyState,
+    private readonly fog: VisibilityGrid,
+    private readonly actions: SidebarActions,
+  ) {
+    this.fogCanvas = document.createElement('canvas');
+    this.fogCanvas.width = this.fogCanvas.height = this.fog.res;
     this.root = document.createElement('div');
     this.root.style.cssText =
       'position:fixed;top:10px;right:10px;width:318px;max-height:calc(100vh - 20px);display:flex;flex-direction:column;gap:7px;' +
@@ -133,7 +143,7 @@ export class Sidebar {
         const check = canQueueUnit(this.sim, this.economy, def.kind);
         this.body.appendChild(this.card(def.kind, def.label, def.cost, check.ok, check.reason, 'UNIT', () => this.actions.queueUnit(def.kind, producer)));
       }
-      for (const producer of buildings(this.sim).filter((entity) => entity.producer && entity.building?.complete)) {
+      for (const producer of buildings(this.sim, 1).filter((entity) => entity.producer && entity.building?.complete)) {
         const line = document.createElement('div');
         const active = producer.producer?.active;
         line.style.cssText =
@@ -225,11 +235,11 @@ export class Sidebar {
     const selected = selectedEntities(this.sim)
       .map((entity) => `${entity.id}:${entity.building?.kind ?? entity.selectable?.type}:${entity.selectable?.selected}`)
       .join('|');
-    const completedBuildings = buildings(this.sim)
+    const completedBuildings = buildings(this.sim, 1)
       .filter((entity) => entity.building?.complete)
       .map((entity) => `${entity.id}:${entity.building?.kind}`)
       .join('|');
-    const producers = buildings(this.sim)
+    const producers = buildings(this.sim, 1)
       .filter((entity) => entity.producer && entity.building?.complete)
       .map((entity) => {
         const active = entity.producer?.active;
@@ -300,6 +310,8 @@ export class Sidebar {
     this.radarCtx.fillRect(0, 0, this.radar.width, this.radar.height);
     for (const entity of this.sim.world.entities) {
       if (!entity.transform || entity.destroyed) continue;
+      // enemies hide inside the fog — radar shows only what team 1 can see
+      if (entity.team?.id !== 1 && !this.fog.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
       const x = ((entity.transform.x / this.hf.size) + 0.5) * this.radar.width;
       const y = ((entity.transform.z / this.hf.size) + 0.5) * this.radar.height;
       if (x < 0 || y < 0 || x >= this.radar.width || y >= this.radar.height) continue;
@@ -307,6 +319,7 @@ export class Sidebar {
       this.radarCtx.fillStyle = entity.team?.id === 2 ? '#df5742' : entity.selectable?.selected ? '#f0d56a' : '#56d184';
       this.radarCtx.fillRect(Math.round(x) - (isBuilding ? 2 : 1), Math.round(y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
+    this.drawRadarFog();
     if (this.radarFocus) {
       const x = ((this.radarFocus.x / this.hf.size) + 0.5) * this.radar.width;
       const y = ((this.radarFocus.z / this.hf.size) + 0.5) * this.radar.height;
@@ -321,6 +334,23 @@ export class Sidebar {
     }
     this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
+  }
+
+  private drawRadarFog(): void {
+    const ctx = this.fogCanvas.getContext('2d');
+    if (!ctx) return;
+    const image = ctx.createImageData(this.fog.res, this.fog.res);
+    for (let i = 0; i < this.fog.state.length; i++) {
+      const alpha = this.fog.state[i] === 2 ? 0 : this.fog.state[i] === 1 ? 96 : 225;
+      const o = i * 4;
+      image.data[o] = 4;
+      image.data[o + 1] = 7;
+      image.data[o + 2] = 8;
+      image.data[o + 3] = alpha;
+    }
+    ctx.putImageData(image, 0, 0);
+    this.radarCtx.imageSmoothingEnabled = true;
+    this.radarCtx.drawImage(this.fogCanvas, 0, 0, this.radar.width, this.radar.height);
   }
 
   private onRadarPointerDown(event: PointerEvent): void {

@@ -245,3 +245,47 @@
 ### Next
 - Add FPS firing/reload against the existing Phase 4 weapon data, then implement death/eject and
   nearest-friendly Tab swap.
+
+## Quality Uplift — bug fix + spec catch-up ✅ (2026-07-04)
+
+Per QUALITY_PLAN.md. Stopped before Phase 6 at user request — Phase 6 AI is
+drafted in `drafts/phase6/` (unwired, see its README).
+
+### Done
+- **Fixed: tank destroyed on exiting V mode.** Bombs are now real sim projectiles
+  (`sim.projectiles`): they fly at 95 m/s to the aimed *location* and damage on
+  impact. The `playerControlled` bomb-immunity hack is deleted — while possessed you
+  can be shot at by everything, and you dodge by driving. No rule change on exit,
+  so no death cliff. Bomb visuals use the sim's flight duration; the blast VFX fires
+  on the sim's `bomb-impact` event, exactly when damage lands.
+- Turret traverse: constant-rate slew (`slewAngle`, tank 2.2 rad/s, soldiers 5.5);
+  cannons (AI *and* manual fire) only fire within ±7° of the bearing — heavy turrets
+  are felt in chase mode. AI turrets return to hull facing when idle.
+- Soldiers rebuilt (`render/soldier.ts`): articulated rig — helmet/head, torso with
+  vest, two-segment legs with knees, arms holding a rifle; procedural walk cycle
+  driven by sim velocity (hip/knee swing, gait bob, forward lean), idle breathing,
+  upper-body aiming via the turret-yaw path, crumple-sideways death. Rifle tracers
+  now originate at shoulder height.
+- Destroyed tanks become scorched wreck husks (material swap + turret sag) for their
+  20 s persistence; destroyed buildings darken and slump; building meshes are now
+  removed from the scene when wrecks expire (was a leak).
+- **Fog of war**: per-team `VisibilityGrid` (128², unexplored/explored/visible),
+  updated every sim tick; terrain shroud draped on terrain chunks (soft edges via
+  linear filtering); enemy units/health bars hidden in fog; combat VFX suppressed
+  when both endpoints are hidden; minimap fogged and hides unseen enemies; buildings
+  provide vision. F4 toggles the shroud for debugging.
+- Per-team economy: `EconomyState.team` + income multiplier; all build/queue/power
+  paths are team-scoped (groundwork Phase 6 needs, no behavior change for team 1).
+- AI targeting prefers the player's possessed unit (distance-discounted) — pressure
+  per the plan's Phase 5/6 notes.
+- Tests: 16 passing, including new ones — turret-gating, ballistic impact/splash
+  timing, and "moving possessed tank dodges bombs / standing still is punished".
+
+### Known issues / notes
+- Cannons remain hitscan by design (fast flat-trajectory reads fine); only bombs arc.
+- Fog shroud doesn't dim the water plane (terrain-draped only) — cosmetic, later.
+- Soldier rig is procedural placeholder animation until Phase 7 skeletal GLBs.
+
+### Next
+- Phase 6 — Enemy Commander AI: restore `drafts/phase6/` per its README, wire into
+  main, small starting armies + victory/defeat, playtest ~12-minute Normal game.

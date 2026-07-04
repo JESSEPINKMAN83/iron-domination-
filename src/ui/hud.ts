@@ -47,7 +47,7 @@ export class Hud {
       'Fire      left-click cannon, right-click bomb',
       'Exit      Escape',
       'Cancel    Escape while placing',
-      'Overlay   F3 walkability debug',
+      'Overlay   F3 walkability · F4 fog debug',
       'Help      F1 show/hide',
     ].join('\n');
     container.appendChild(this.help);
