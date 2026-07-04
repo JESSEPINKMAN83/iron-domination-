@@ -1,7 +1,9 @@
-import { MathUtils, Object3D, PerspectiveCamera, Quaternion, Vector3 } from 'three';
+import { MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
+import { manualFireAt } from '../sim/combat';
+import type { GameSim } from '../sim/world';
 
 type PossessionMode = 'rts' | 'entering' | 'fps' | 'exiting';
 
@@ -19,16 +21,30 @@ export class FirstPersonController {
   private transitionT = 0;
   private fromPose?: CameraPose;
   private toPose?: CameraPose;
-  private readonly poseTarget = new Object3D();
+  private readonly poseCamera = new PerspectiveCamera();
   private readonly tmpForward = new Vector3();
+  private readonly tmpAimTarget = new Vector3();
+  private savedCursor = '';
 
   constructor(
     private readonly dom: HTMLElement,
     private readonly camera: PerspectiveCamera,
     private readonly input: Input,
     private readonly hf: Heightfield,
+    private readonly sim: GameSim,
     private readonly callbacks: { onEnter?: () => void; onExit?: (entity?: Entity) => void } = {},
-  ) {}
+  ) {
+    dom.addEventListener(
+      'mousedown',
+      (event) => {
+        if (this.mode !== 'fps' || event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        this.fire();
+      },
+      { capture: true },
+    );
+  }
 
   get active(): boolean {
     return this.mode !== 'rts';
@@ -51,13 +67,15 @@ export class FirstPersonController {
     const entity = candidates.find((candidate) => candidate.possessable && candidate.mover && !candidate.destroyed);
     if (!entity) return false;
     this.possessed = entity;
-    this.lookYaw = entity.turret?.yaw ?? entity.transform.rot;
-    this.lookPitch = 0;
+    this.lookYaw = entity.transform.rot;
+    this.lookPitch = MathUtils.degToRad(-6);
     this.transitionT = 0;
     this.fromPose = this.captureCameraPose();
-    this.toPose = this.poseFor(entity, this.lookYaw, this.lookPitch, 75);
+    this.toPose = this.poseFor(entity, this.lookYaw, this.lookPitch, 62);
     entity.playerControlled = { throttle: 0, turn: 0, aimYaw: this.lookYaw };
     this.mode = 'entering';
+    this.savedCursor = this.dom.style.cursor;
+    this.dom.style.cursor = 'none';
     this.callbacks.onEnter?.();
     void this.dom.requestPointerLock?.();
     return true;
@@ -91,7 +109,7 @@ export class FirstPersonController {
 
     if (this.mode === 'entering') {
       this.transitionT = Math.min(1, this.transitionT + dt / 0.6);
-      this.toPose = this.poseFor(this.possessed, this.lookYaw, this.lookPitch, 75);
+      this.toPose = this.poseFor(this.possessed, this.lookYaw, this.lookPitch, 62);
       this.applyPose(lerpPose(this.fromPose, this.toPose, ease(this.transitionT)));
       if (this.transitionT >= 1) this.mode = 'fps';
       return;
@@ -104,7 +122,7 @@ export class FirstPersonController {
       return;
     }
 
-    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.input.isButton(2) ? 42 : 75));
+    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.input.isButton(2) ? 38 : 62));
   }
 
   private beginExit(): void {
@@ -113,6 +131,7 @@ export class FirstPersonController {
     this.toPose = this.rtsPoseNear(this.possessed);
     this.transitionT = 0;
     this.mode = 'exiting';
+    this.dom.style.cursor = this.savedCursor;
     document.exitPointerLock?.();
   }
 
@@ -129,17 +148,60 @@ export class FirstPersonController {
     this.mode = 'rts';
     this.camera.fov = 50;
     this.camera.updateProjectionMatrix();
+    this.dom.style.cursor = this.savedCursor;
     this.callbacks.onExit?.(entity);
   }
 
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number): CameraPose {
-    const socketHeight = entity.possessable?.socketHeight ?? 2.2;
     const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
-    const hullForwardX = Math.sin(entity.transform.rot);
-    const hullForwardZ = Math.cos(entity.transform.rot);
-    const position = new Vector3(entity.transform.x + hullForwardX * 1.2, groundY + socketHeight, entity.transform.z + hullForwardZ * 1.2);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-    return this.lookPose(position, position.clone().add(this.tmpForward), fov);
+    const tankCenter = new Vector3(entity.transform.x, groundY + 2.4, entity.transform.z);
+    const chaseDistance = this.input.isButton(2) ? 14 : 22;
+    const chaseHeight = this.input.isButton(2) ? 6.8 : 10.2;
+    const position = tankCenter.clone().addScaledVector(this.tmpForward, -chaseDistance);
+    position.y += chaseHeight - this.tmpForward.y * 2;
+    const target = tankCenter.clone().addScaledVector(this.tmpForward, 3.8);
+    target.y -= 1.15;
+    this.tmpAimTarget.copy(tankCenter).addScaledVector(this.tmpForward, 96);
+    this.tmpAimTarget.y += Math.sin(pitch) * 36;
+    return this.lookPose(position, target, fov);
+  }
+
+  private fire(): void {
+    if (!this.possessed) return;
+    manualFireAt(this.sim, this.possessed, this.tmpAimTarget.x, this.tmpAimTarget.z);
+  }
+
+  /*
+   * Kept for later shell-drop/ground targeting. Manual cannon fire currently uses the turret
+   * aim vector so the shot does not snap down to the near ground in chase camera.
+   */
+  private terrainPoint(): Vector3 | undefined {
+    const origin = this.camera.position;
+    const dir = new Vector3();
+    this.camera.getWorldDirection(dir);
+    let lo = 0;
+    let hi = 260;
+    let hit = false;
+    const p = new Vector3();
+    for (let i = 1; i <= 96; i++) {
+      const t = (hi / 96) * i;
+      p.copy(origin).addScaledVector(dir, t);
+      if (p.y <= sampleHeight(this.hf, p.x, p.z) + 0.4) {
+        hi = t;
+        lo = Math.max(0, t - hi / 96);
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) return undefined;
+    for (let i = 0; i < 16; i++) {
+      const mid = (lo + hi) / 2;
+      p.copy(origin).addScaledVector(dir, mid);
+      if (p.y > sampleHeight(this.hf, p.x, p.z) + 0.4) lo = mid;
+      else hi = mid;
+    }
+    return origin.clone().addScaledVector(dir, hi);
   }
 
   private rtsPoseNear(entity: Entity): CameraPose {
@@ -154,9 +216,9 @@ export class FirstPersonController {
   }
 
   private lookPose(position: Vector3, target: Vector3, fov: number): CameraPose {
-    this.poseTarget.position.copy(position);
-    this.poseTarget.lookAt(target);
-    return { position: position.clone(), quaternion: this.poseTarget.quaternion.clone(), fov };
+    this.poseCamera.position.copy(position);
+    this.poseCamera.lookAt(target);
+    return { position: position.clone(), quaternion: this.poseCamera.quaternion.clone(), fov };
   }
 
   private captureCameraPose(): CameraPose {

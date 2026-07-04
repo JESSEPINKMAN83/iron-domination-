@@ -31,6 +31,7 @@ export class UnitView {
   private readonly healthBackMaterial: Material;
   private readonly healthBars = new Map<Entity, { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial }>();
   private hiddenEntity?: Entity;
+  private selectionOverlayVisible = true;
 
   constructor(entities: Entity[], private readonly hf: Heightfield, ctx: RenderContext) {
     this.hullMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x65787f, roughness: 0.78, metalness: 0.08 }));
@@ -96,6 +97,10 @@ export class UnitView {
     this.hiddenEntity = entity;
   }
 
+  setSelectionOverlayVisible(visible: boolean): void {
+    this.selectionOverlayVisible = visible;
+  }
+
   update(alpha: number, camera: Camera): void {
     for (const entity of this.entities) {
       const obj = this.objects.get(entity);
@@ -127,7 +132,7 @@ export class UnitView {
       const turret = obj.getObjectByName('turretPivot');
       if (turret && entity.turret) turret.rotation.y = entity.turret.yaw - rot;
       ring.position.set(x, sampleHeight(this.hf, x, z) + 0.08, z);
-      ring.visible = !entity.destroyed && (entity.selectable?.selected ?? false);
+      ring.visible = this.selectionOverlayVisible && !entity.destroyed && (entity.selectable?.selected ?? false);
       this.updateHealthBar(entity, x, y, z, camera);
     }
   }
@@ -177,7 +182,7 @@ export class UnitView {
     if (!healthBar || !entity.health) return;
     const pct = Math.max(0, Math.min(1, entity.health.current / entity.health.max));
     const selected = entity.selectable?.selected ?? false;
-    healthBar.root.visible = !entity.destroyed && (selected || pct < 0.995);
+    healthBar.root.visible = !entity.destroyed && ((this.selectionOverlayVisible && selected) || pct < 0.995);
     if (!healthBar.root.visible) return;
     healthBar.root.position.set(x, y + (entity.selectable?.type === 'infantry' ? 2.6 : 4.9), z);
     healthBar.root.lookAt(camera.position);

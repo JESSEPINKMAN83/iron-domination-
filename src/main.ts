@@ -126,16 +126,18 @@ async function boot(): Promise<void> {
       rig.jumpTo(x, z);
     },
   });
-  const firstPerson = new FirstPersonController(ctx.renderer.domElement, ctx.camera, input, hf, {
+  const firstPerson = new FirstPersonController(ctx.renderer.domElement, ctx.camera, input, hf, sim, {
     onEnter: () => {
       controller.setEnabled(false);
-      unitView.setHiddenEntity(firstPerson.possessedEntity);
+      unitView.setHiddenEntity(undefined);
+      unitView.setSelectionOverlayVisible(false);
       sidebar.setVisible(false);
       hud.setFirstPerson(true);
     },
     onExit: (entity) => {
       controller.setEnabled(true);
       unitView.setHiddenEntity(undefined);
+      unitView.setSelectionOverlayVisible(true);
       sidebar.setVisible(true);
       hud.setFirstPerson(false);
       if (entity) rig.jumpTo(entity.transform.x, entity.transform.z);
@@ -201,7 +203,7 @@ async function boot(): Promise<void> {
         pitchDeg: rig.pitchDegrees,
         units: unitView.count(),
         selected: controller.selectedCount(),
-        mode: firstPerson.inFirstPerson ? `FPS ${firstPerson.possessedName ?? ''}` : firstPerson.active ? 'entering FPS' : 'RTS',
+        mode: firstPerson.inFirstPerson ? `CHASE ${firstPerson.possessedName ?? ''}` : firstPerson.active ? 'entering chase' : 'RTS',
       });
     },
   });

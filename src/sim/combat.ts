@@ -14,6 +14,7 @@ export function stepCombat(sim: GameSim, dt: number): void {
     const def = WEAPONS[attacker.weapon.kind as WeaponKind];
     if (!def) continue;
     attacker.weapon.cooldown = Math.max(0, attacker.weapon.cooldown - dt);
+    if (attacker.playerControlled) continue;
 
     const target = validTarget(sim, attacker, def.range) ?? acquireTarget(sim, attacker, def.range);
     attacker.weapon.targetId = target?.id;
@@ -37,6 +38,47 @@ export function stepCombat(sim: GameSim, dt: number): void {
   tickDestroyed(sim, dt);
 }
 
+export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, targetZ: number): boolean {
+  if (!attacker.weapon || !attacker.team || attacker.destroyed) return false;
+  const def = WEAPONS[attacker.weapon.kind as WeaponKind];
+  if (!def || attacker.weapon.cooldown > 0) return false;
+
+  const dx = targetX - attacker.transform.x;
+  const dz = targetZ - attacker.transform.z;
+  const len = Math.max(0.0001, Math.hypot(dx, dz));
+  const ux = dx / len;
+  const uz = dz / len;
+  const range = Math.min(def.range, len);
+  const impactX = attacker.transform.x + ux * range;
+  const impactZ = attacker.transform.z + uz * range;
+  const target = acquireLineTarget(sim, attacker, ux, uz, range);
+  const hitX = target?.transform.x ?? impactX;
+  const hitZ = target?.transform.z ?? impactZ;
+  let damage = 0;
+  let killed = false;
+
+  if (target?.health && target.armor) {
+    damage = applyDamage(target, damageForArmor(def.kind, target.armor.kind));
+    applySplash(sim, attacker, target, def.splashRadius, def.kind);
+    killed = target.health.current <= 0;
+    attacker.weapon.targetId = target.id;
+  } else {
+    attacker.weapon.targetId = undefined;
+  }
+  attacker.weapon.cooldown = def.cooldown;
+  if (attacker.turret) attacker.turret.yaw = Math.atan2(ux, uz);
+  sim.events.push({
+    kind: def.kind,
+    fromX: attacker.transform.x,
+    fromZ: attacker.transform.z,
+    toX: hitX,
+    toZ: hitZ,
+    damage,
+    killed,
+  });
+  return true;
+}
+
 function validTarget(sim: GameSim, attacker: Entity, range: number): Entity | undefined {
   if (!attacker.weapon?.targetId) return undefined;
   const target = Array.from(sim.world.entities).find((entity) => entity.id === attacker.weapon?.targetId);
@@ -54,6 +96,24 @@ function acquireTarget(sim: GameSim, attacker: Entity, range: number): Entity | 
       bestD = d;
       best = candidate;
     }
+  }
+  return best;
+}
+
+function acquireLineTarget(sim: GameSim, attacker: Entity, ux: number, uz: number, range: number): Entity | undefined {
+  let best: Entity | undefined;
+  let bestAlong = range;
+  for (const candidate of sim.world.entities) {
+    if (!isTargetable(attacker, candidate)) continue;
+    const dx = candidate.transform.x - attacker.transform.x;
+    const dz = candidate.transform.z - attacker.transform.z;
+    const along = dx * ux + dz * uz;
+    if (along < 0 || along > range || along > bestAlong) continue;
+    const perp = Math.abs(dx * uz - dz * ux);
+    const radius = candidate.collider?.radius ?? candidate.selectable?.radius ?? 2.4;
+    if (perp > radius + 2.2) continue;
+    best = candidate;
+    bestAlong = along;
   }
   return best;
 }

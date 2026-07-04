@@ -172,22 +172,30 @@
 ### Done
 - Added a first playable possession mode: select a possessable tank and press `V` to fly the
   camera into its driver/gunner socket; `Escape` exits back to RTS.
+- Reworked possession from the initial first-person socket into a third-person chase/gunner
+  camera so the controlled tank remains visible while aiming.
 - Added a renderer-side `FirstPersonController` that owns FPS camera transition, mouse aim,
   right-click zoom FOV, reticle visibility, RTS sidebar hiding, and RTS control lockout while
   possessed.
+- Possession now hides the OS cursor over the canvas and suppresses RTS selection overlays so
+  the reticle/target view stays clean.
 - Added a renderer-independent `PlayerControlled` sim component. Possessed tanks keep moving
   through the normal fixed-step `stepSim` path, while clearing AI move orders and preserving
   deterministic sim ownership.
 - Added first-pass tank driving: `W/S` throttle, `A/D` hull turn, and mouse-driven turret/camera
   yaw.
+- Added left-click manual cannon fire for possessed tanks using the existing weapon data,
+  cooldowns, armor damage, splash, wreck, and combat event/tracer pipeline.
 - Tank turret visuals now follow sim turret yaw, so player aim and combat target tracking are
   visible in RTS.
 - Added a Phase 5 movement test proving a player-controlled tank advances through the normal sim
   step and clears AI flow-field orders.
+- Added a Phase 5 manual-fire test proving player-controlled click fire damages enemies through
+  weapon data and records combat events.
 - Browser verification passed on Vite dev server: selected tanks, pressed `V`, saw the camera
-  enter low first-person view with `mode FPS`, reticle visible, sidebar hidden, then pressed
-  `Escape` and returned to RTS with sidebar restored.
-- `npm test` passes (now 11 Vitest tests). `npm run build` passes.
+  enter chase view with `mode CHASE`, the possessed tank visible, reticle visible, sidebar hidden,
+  selection overlays suppressed, then left-clicked fire and verified no new runtime errors.
+- `npm test` passes (now 12 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Phase 5 is only a playable MVP. Full Rapier suspension, weapon firing from FPS, reload UI,
