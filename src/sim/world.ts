@@ -5,11 +5,22 @@ import { FlowField, NavigationGrid, type BlockedFootprint } from './flowfield';
 import { sampleHeight, type Heightfield } from './heightfield';
 import { mulberry32 } from './noise';
 
+export interface CombatEvent {
+  kind: string;
+  fromX: number;
+  fromZ: number;
+  toX: number;
+  toZ: number;
+  damage: number;
+  killed: boolean;
+}
+
 export interface GameSim {
   world: World<Entity>;
   nav: NavigationGrid;
   movers: Query<With<Entity, 'transform' | 'previousTransform' | 'velocity' | 'mover'>>;
   selectables: Query<With<Entity, 'transform' | 'selectable'>>;
+  events: CombatEvent[];
   tick: number;
 }
 
@@ -23,6 +34,7 @@ export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = 
     nav: new NavigationGrid(hf, footprints),
     movers: world.with('transform', 'previousTransform', 'velocity', 'mover'),
     selectables: world.with('transform', 'selectable'),
+    events: [],
     tick: 0,
   };
 }
@@ -52,7 +64,28 @@ export function spawnDebugTanks(sim: GameSim, hf: Heightfield, count = 120, seed
   return spawned;
 }
 
-export function spawnTankAt(sim: GameSim, x: number, z: number, name: string): Entity {
+export function spawnEnemyTanks(sim: GameSim, hf: Heightfield, count = 40): Entity[] {
+  const spawned: Entity[] = [];
+  const start = sim.nav.nearestWalkableCell(hf.size * 0.18, hf.size * 0.08) ?? sim.nav.nearestWalkableCell(hf.size * 0.12, hf.size * 0.12);
+  if (!start) return spawned;
+  const center = sim.nav.cellCenter(start.x, start.y);
+  let cursor = 0;
+  let guard = 0;
+  while (spawned.length < count && guard++ < count * 80) {
+    const col = cursor % 10;
+    const row = Math.floor(cursor / 10);
+    cursor++;
+    const x = center.x + (col - 5) * 5.2;
+    const z = center.z + row * 5.2;
+    const cell = sim.nav.nearestWalkableCell(x, z, 4);
+    if (!cell) continue;
+    const p = sim.nav.cellCenter(cell.x, cell.y);
+    spawned.push(spawnTankAt(sim, p.x, p.z, `Ash Tank ${spawned.length + 1}`, 2));
+  }
+  return spawned;
+}
+
+export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
   return sim.world.add({
     id: nextEntityId++,
     name,
@@ -60,7 +93,7 @@ export function spawnTankAt(sim: GameSim, x: number, z: number, name: string): E
     previousTransform: { x, z, rot: Math.PI * 0.25 },
     velocity: { x: 0, z: 0 },
     health: { current: 100, max: 100 },
-    team: { id: 1 },
+    team: { id: team },
     selectable: { selected: false, type: 'tank', radius: 2.4 },
     mover: { speed: 18, radius: 2.2 },
     weapon: { kind: 'cannon', range: 78, cooldown: 0 },
@@ -68,6 +101,7 @@ export function spawnTankAt(sim: GameSim, x: number, z: number, name: string): E
     vision: { radius: 120 },
     possessable: { socketHeight: 2.4 },
     collider: { radius: 2.2 },
+    armor: { kind: 'heavy' },
   });
 }
 
@@ -123,6 +157,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
   for (let i = 0; i < movers.length; i++) {
     const entity = movers[i];
+    if (entity.destroyed) continue;
     const { transform, velocity, mover } = entity;
     let desiredX = 0;
     let desiredZ = 0;

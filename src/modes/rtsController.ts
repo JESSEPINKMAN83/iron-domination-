@@ -12,6 +12,10 @@ export interface PlacementControls {
   cancel(): void;
 }
 
+export interface BuildingPicker {
+  pickAt(x: number, z: number): Entity | undefined;
+}
+
 interface PointerState {
   x: number;
   y: number;
@@ -26,6 +30,7 @@ export class RtsController {
   private readonly controlGroups = new Map<number, Entity[]>();
   private pointerDown?: PointerState;
   private lastClick = { time: 0, entity: undefined as Entity | undefined };
+  private attackMoveQueued = false;
 
   constructor(
     private readonly dom: HTMLElement,
@@ -34,6 +39,7 @@ export class RtsController {
     private readonly sim: GameSim,
     private readonly units: UnitView,
     private readonly placement?: PlacementControls,
+    private readonly buildings?: BuildingPicker,
   ) {
     this.selectionBox = document.createElement('div');
     this.selectionBox.style.cssText =
@@ -114,6 +120,7 @@ export class RtsController {
       if (p) {
         const selected = selectedEntities(this.sim);
         issueMoveOrder(this.sim, selected, p.x, p.z, this.isAttackMoveQueued());
+        this.attackMoveQueued = false;
       }
     }
   }
@@ -121,7 +128,7 @@ export class RtsController {
   private selectClick(e: PointerEvent): void {
     const p = this.terrainPoint(e.clientX, e.clientY);
     if (!p) return;
-    const hit = this.units.pickAt(p.x, p.z);
+    const hit = this.buildings?.pickAt(p.x, p.z) ?? this.units.pickAt(p.x, p.z);
     if (!hit) {
       if (!e.shiftKey) setSelected(this.sim, []);
       return;
@@ -144,6 +151,11 @@ export class RtsController {
     if (e.code === 'KeyS' && selectedEntities(this.sim).length > 0) {
       stopEntities(selectedEntities(this.sim));
       e.preventDefault();
+    }
+    if (e.code === 'KeyA' && selectedEntities(this.sim).some((entity) => entity.weapon)) {
+      this.attackMoveQueued = true;
+      e.preventDefault();
+      return;
     }
     if (!e.code.startsWith('Digit')) return;
     const n = Number(e.code.slice(5));
@@ -193,6 +205,6 @@ export class RtsController {
   }
 
   private isAttackMoveQueued(): boolean {
-    return false;
+    return this.attackMoveQueued;
   }
 }

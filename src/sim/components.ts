@@ -1,4 +1,5 @@
 import type { FlowField } from './flowfield';
+import type { ArmorClass } from '../content/phase4';
 
 export interface Transform {
   x: number;
@@ -39,6 +40,7 @@ export interface Weapon {
   kind: string;
   range: number;
   cooldown: number;
+  targetId?: number;
 }
 
 export interface Turret {
@@ -65,6 +67,14 @@ export interface Possessable {
 
 export interface Collider {
   radius: number;
+}
+
+export interface Armor {
+  kind: ArmorClass;
+}
+
+export interface Destroyed {
+  remaining: number;
 }
 
 export interface Building {
@@ -108,6 +118,8 @@ export interface Entity {
   builder?: Builder;
   possessable?: Possessable;
   collider?: Collider;
+  armor?: Armor;
+  destroyed?: Destroyed;
   building?: Building;
   producer?: Producer;
 }

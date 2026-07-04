@@ -24,6 +24,7 @@ export class UnitView {
   private readonly hullMaterial: Material;
   private readonly turretMaterial: Material;
   private readonly accentMaterial: Material;
+  private readonly enemyAccentMaterial: Material;
   private readonly ringMaterial: Material;
 
   constructor(entities: Entity[], private readonly hf: Heightfield, ctx: RenderContext) {
@@ -31,6 +32,9 @@ export class UnitView {
     this.turretMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x3f535a, roughness: 0.82, metalness: 0.12 }));
     this.accentMaterial = ctx.setupLitMaterial(
       new MeshStandardMaterial({ color: 0xf0c85a, emissive: 0x2b1d00, roughness: 0.7, metalness: 0.1 }),
+    );
+    this.enemyAccentMaterial = ctx.setupLitMaterial(
+      new MeshStandardMaterial({ color: 0xd65b46, emissive: 0x2a0600, roughness: 0.72, metalness: 0.08 }),
     );
     this.ringMaterial = new MeshBasicMaterial({ color: 0x7df27d, transparent: true, opacity: 0.72, depthWrite: false });
 
@@ -40,10 +44,11 @@ export class UnitView {
   addEntity(entity: Entity): void {
     if (this.objects.has(entity)) return;
     this.entities.push(entity);
+    const accent = entity.team?.id === 2 ? this.enemyAccentMaterial : this.accentMaterial;
     const unit =
       entity.selectable?.type === 'infantry'
-        ? createInfantryObject(this.hullMaterial, this.accentMaterial)
-        : createTankObject(this.hullMaterial, this.turretMaterial, this.accentMaterial);
+        ? createInfantryObject(this.hullMaterial, accent)
+        : createTankObject(this.hullMaterial, this.turretMaterial, accent);
     unit.castShadow = true;
     unit.traverse((obj) => {
       obj.castShadow = true;
@@ -74,14 +79,21 @@ export class UnitView {
       const obj = this.objects.get(entity);
       const ring = this.selectedRings.get(entity);
       if (!obj || !ring) continue;
+      if (entity.destroyed?.remaining !== undefined && entity.destroyed.remaining <= 0) {
+        obj.visible = false;
+        ring.visible = false;
+        continue;
+      }
       const x = lerp(entity.previousTransform.x, entity.transform.x, alpha);
       const z = lerp(entity.previousTransform.z, entity.transform.z, alpha);
       const rot = lerpAngle(entity.previousTransform.rot, entity.transform.rot, alpha);
       const y = sampleHeight(this.hf, x, z) + 0.35;
       obj.position.set(x, y, z);
       obj.rotation.y = rot;
+      obj.rotation.z = entity.destroyed ? 0.18 : 0;
+      obj.scale.y = entity.destroyed ? 0.45 : 1;
       ring.position.set(x, sampleHeight(this.hf, x, z) + 0.08, z);
-      ring.visible = entity.selectable?.selected ?? false;
+      ring.visible = !entity.destroyed && (entity.selectable?.selected ?? false);
     }
   }
 
@@ -89,6 +101,7 @@ export class UnitView {
     let best: Entity | undefined;
     let bestD2 = maxRadius * maxRadius;
     for (const entity of this.entities) {
+      if (entity.destroyed) continue;
       const radius = entity.selectable?.radius ?? 2.4;
       const d2 = (entity.transform.x - x) ** 2 + (entity.transform.z - z) ** 2;
       if (d2 < Math.max(bestD2, radius * radius) && d2 < bestD2) {
@@ -102,6 +115,7 @@ export class UnitView {
   entitiesInScreenRect(camera: Camera, minX: number, minY: number, maxX: number, maxY: number, viewportW: number, viewportH: number): Entity[] {
     const out: Entity[] = [];
     for (const entity of this.entities) {
+      if (entity.destroyed) continue;
       const p = projectEntity(entity, this.hf, camera);
       const sx = (p.x * 0.5 + 0.5) * viewportW;
       const sy = (-p.y * 0.5 + 0.5) * viewportH;
@@ -113,6 +127,7 @@ export class UnitView {
   visibleOfType(camera: Camera, type: string, viewportW: number, viewportH: number): Entity[] {
     const out: Entity[] = [];
     for (const entity of this.entities) {
+      if (entity.destroyed) continue;
       if (entity.selectable?.type !== type) continue;
       const p = projectEntity(entity, this.hf, camera);
       const sx = (p.x * 0.5 + 0.5) * viewportW;

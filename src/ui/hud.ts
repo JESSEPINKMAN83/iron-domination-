@@ -32,13 +32,14 @@ export class Hud {
     this.help = document.createElement('div');
     this.help.style.cssText = PANEL_CSS + 'bottom:12px;left:12px;';
     this.help.textContent = [
-      'IRON DOMINION — Phase 3',
+      'IRON DOMINION — Phase 4',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  right-drag or hold Space + move',
       'Look      Cmd + left-drag free aim',
       'Zoom      mouse wheel (28–140)',
       'Rotate    Q / E (90°)',
       'Build     sidebar button, then left-click terrain',
+      'Attack    A, then right-click destination',
       'Cancel    Escape while placing',
       'Overlay   F3 walkability debug',
       'Help      F1 show/hide',

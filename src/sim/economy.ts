@@ -65,6 +65,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
     },
     producer: { queue: [] },
     collider: { radius: 9 },
+    armor: { kind: 'building' },
   });
   recomputePower(sim, economy);
   return conyard;
@@ -125,14 +126,16 @@ export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomySt
     },
     producer: def.producer ? { queue: [] } : undefined,
     collider: { radius: Math.max(def.footprint.w, def.footprint.h) },
+    armor: { kind: 'building' },
   });
   return entity;
 }
 
-export function queueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind): boolean {
+export function queueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind, preferredProducer?: Entity): boolean {
   const check = canQueueUnit(sim, economy, kind);
   if (!check.ok) return false;
-  const producer = check.producers.reduce((best, entity) => {
+  const preferred = preferredProducer && check.producers.includes(preferredProducer) ? preferredProducer : undefined;
+  const producer = preferred ?? check.producers.reduce((best, entity) => {
     const bestDepth = (best.producer?.queue.length ?? 0) + (best.producer?.active ? 1 : 0);
     const depth = (entity.producer?.queue.length ?? 0) + (entity.producer?.active ? 1 : 0);
     return depth < bestDepth ? entity : best;
@@ -229,6 +232,7 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
     vision: { radius: 78 },
     possessable: { socketHeight: 1.7 },
     collider: { radius: 1.1 },
+    armor: { kind: 'infantry' },
   });
   void sampleHeight(hf, pos.x, pos.z);
   return entity;

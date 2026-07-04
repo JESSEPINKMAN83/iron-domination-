@@ -115,5 +115,37 @@
   future polish.
 - Refineries generate simplified periodic income without harvesters or ore depletion.
 
+### Follow-up improvement added
+- Building selection now prioritizes building footprints over nearby units, so clicking the
+  Command Yard immediately selects the structure even when tanks are parked around it.
+- The sidebar now switches into a contextual selected-building command panel with original
+  illustrated build cards in a retro military-console style. Command Yard shows structure
+  options immediately; Barracks/Factory route production to the selected producer.
+
+## Phase 4 — Combat, Targeting & Weapons 🚧 (2026-07-04, started)
+
+### Done
+- Added original Phase 4 weapon data for rifle and cannon weapons, including cooldowns, ranges,
+  splash radius, target classes, and an armor damage matrix.
+- Added `Armor` and temporary `Destroyed` sim components while keeping `/src/sim`
+  renderer-independent.
+- Added deterministic combat stepping: target acquisition, cooldowns, turret yaw toward target,
+  damage application, splash damage, death state, 20-second wreck lifetime, and combat events.
+- Added `A` then right-click attack-move command queuing.
+- Added 40 opposing placeholder tanks with red team accents so the map now has a hostile force.
+- Added transient tracer and impact rendering driven by sim combat events.
+- Added Phase 4 tests for damage-matrix values and deterministic tank engagements.
+- Browser verification passed on Vite dev server: Phase 4 HUD rendered, 160 total units loaded,
+  illustrated command cards appeared, and clicking the Command Yard showed the selected-building
+  contextual build menu.
+- `npm test` passes (10 Vitest tests). `npm run build` passes.
+
+### Known issues / notes
+- Phase 4 is not complete yet: fog of war, minimap integration, veterancy, guard mode, full
+  40v40 battle balancing, building smoke/fire damage states, and polished wreck art remain.
+- Combat visuals are lightweight placeholder tracers/impact flashes.
+- Enemy units are spawned as a static opposing force; commander AI remains Phase 6.
+
 ### Next
-- Phase 4 — Combat, targeting, weapons, damage, death, and attack-move behavior.
+- Continue Phase 4 toward full combat acceptance: target-priority AI, fog/shroud, stronger VFX,
+  damage states, and a verified 40v40 engagement scenario.

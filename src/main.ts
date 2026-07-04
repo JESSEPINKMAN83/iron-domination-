@@ -6,6 +6,7 @@ import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
 import { AssetPipeline } from './render/assets';
 import { BuildingView } from './render/buildingView';
+import { CombatView } from './render/combatView';
 import { InstancedMeshRegistry } from './render/instancing';
 import { RenderContext } from './render/renderer';
 import { buildScatter } from './render/scatter';
@@ -13,8 +14,9 @@ import { TerrainView } from './render/terrainMesh';
 import { UnitView } from './render/unitView';
 import { WaterView } from './render/water';
 import { createEconomy, createInitialBase, placeStructure, queueUnit, stepEconomy, updatePlacement } from './sim/economy';
+import { stepCombat } from './sim/combat';
 import { generateHeightfield } from './sim/heightfield';
-import { createGameSim, spawnDebugTanks, stepSim } from './sim/world';
+import { createGameSim, spawnDebugTanks, spawnEnemyTanks, stepSim } from './sim/world';
 import { Hud } from './ui/hud';
 import { Sidebar } from './ui/sidebar';
 
@@ -65,10 +67,13 @@ async function boot(): Promise<void> {
   const economy = createEconomy();
   createInitialBase(sim, hf, economy);
   const tanks = spawnDebugTanks(sim, hf, 120);
-  const unitView = new UnitView(tanks, hf, ctx);
+  const enemyTanks = spawnEnemyTanks(sim, hf, 40);
+  const unitView = new UnitView([...tanks, ...enemyTanks], hf, ctx);
   unitView.attach(ctx.scene);
   const buildingView = new BuildingView(sim, hf, ctx);
   ctx.scene.add(buildingView.group);
+  const combatView = new CombatView(hf);
+  ctx.scene.add(combatView.group);
 
   const rig = new RtsCameraRig(ctx.camera, input, hf);
   const controller = new RtsController(ctx.renderer.domElement, ctx.camera, hf, sim, unitView, {
@@ -91,15 +96,15 @@ async function boot(): Promise<void> {
       economy.selectedStructure = undefined;
       economy.placement = undefined;
     },
-  });
+  }, buildingView);
   const hud = new Hud(document.body);
   const sidebar = new Sidebar(sim, economy, {
     buildStructure: (kind) => {
       economy.selectedStructure = kind;
       economy.placement = updatePlacement(sim, hf, kind, 0, 0);
     },
-    queueUnit: (kind) => {
-      queueUnit(sim, economy, kind);
+    queueUnit: (kind, producer) => {
+      queueUnit(sim, economy, kind, producer);
     },
   });
   input.onKeyDown('F3', () => water.setDebugOverlay(terrain.toggleWalkOverlay()));
@@ -118,12 +123,15 @@ async function boot(): Promise<void> {
         unitView.addEntity(entity);
       }
       stepSim(sim, hf, 1 / SIM_HZ);
+      stepCombat(sim, 1 / SIM_HZ);
+      combatView.push(sim.events.splice(0));
       simTicks++;
     },
     render: (alpha, dt, time) => {
       rig.update(dt);
       unitView.update(alpha);
       buildingView.update(economy);
+      combatView.update(dt);
       water.update(time);
       ctx.render(dt);
       sidebar.update();
