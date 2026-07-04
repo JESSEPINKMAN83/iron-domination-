@@ -72,4 +72,19 @@ describe('phase 2 movement simulation', () => {
     expect(vulture.mover?.flow).toBeUndefined();
     expect((vulture.transform.y ?? 0) - sampleHeight(hf, vulture.transform.x, vulture.transform.z)).toBeGreaterThanOrEqual(vulture.flight!.minAGL - 0.1);
   });
+
+  it('lets a player-controlled flyer steer forward and climb in the sim', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -hf.size * 0.08, -hf.size * 0.08, 'Vulture 1');
+    const start = { x: vulture.transform.x, y: vulture.transform.y ?? 0, z: vulture.transform.z };
+    vulture.playerControlled = { throttle: 1, turn: 0, aimYaw: Math.PI * 0.25, climb: 1 };
+
+    for (let i = 0; i < 90; i++) stepSim(sim, hf, 1 / 30);
+
+    expect(Math.hypot(vulture.transform.x - start.x, vulture.transform.z - start.z)).toBeGreaterThan(30);
+    expect((vulture.transform.y ?? 0) - start.y).toBeGreaterThan(4);
+    expect(vulture.mover?.target).toBeUndefined();
+    expect(vulture.mover?.flow).toBeUndefined();
+  });
 });

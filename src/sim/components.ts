@@ -87,6 +87,7 @@ export interface PlayerControlled {
   throttle: number;
   turn: number;
   aimYaw: number;
+  climb?: number;
 }
 
 export interface Collider {

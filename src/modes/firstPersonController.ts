@@ -25,6 +25,7 @@ export class FirstPersonController {
   private readonly tmpForward = new Vector3();
   private readonly tmpHorizontal = new Vector3();
   private readonly tmpAimTarget = new Vector3();
+  private readonly tmpCameraTarget = new Vector3();
   private savedCursor = '';
 
   constructor(
@@ -69,11 +70,11 @@ export class FirstPersonController {
     if (!entity) return false;
     this.possessed = entity;
     this.lookYaw = entity.transform.rot;
-    this.lookPitch = MathUtils.degToRad(-3);
+    this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
     this.transitionT = 0;
     this.fromPose = this.captureCameraPose();
     this.toPose = this.poseFor(entity, this.lookYaw, this.lookPitch, 62);
-    entity.playerControlled = { throttle: 0, turn: 0, aimYaw: this.lookYaw };
+    entity.playerControlled = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0 };
     this.mode = 'entering';
     this.savedCursor = this.dom.style.cursor;
     this.dom.style.cursor = 'none';
@@ -97,9 +98,11 @@ export class FirstPersonController {
     // heading uses (sin rot, cos rot): positive turn rotates toward -screen-right,
     // so D (turn right) must apply negative turn — matches mouse-look direction
     const turn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
+    const climb = (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('ControlLeft') || this.input.isDown('ControlRight') ? 1 : 0);
     this.possessed.playerControlled.throttle = forward;
     this.possessed.playerControlled.turn = turn;
     this.possessed.playerControlled.aimYaw = this.lookYaw;
+    this.possessed.playerControlled.climb = climb;
   }
 
   update(dt: number): void {
@@ -107,7 +110,9 @@ export class FirstPersonController {
     const delta = this.input.consumeMouseDelta();
     if (this.mode === 'fps' && (delta.dx !== 0 || delta.dy !== 0)) {
       this.lookYaw = normalizeAngle(this.lookYaw - delta.dx * 0.0024);
-      this.lookPitch = MathUtils.clamp(this.lookPitch - delta.dy * 0.0018, MathUtils.degToRad(-18), MathUtils.degToRad(52));
+      const minPitch = this.possessed.flight ? MathUtils.degToRad(-42) : MathUtils.degToRad(-18);
+      const maxPitch = this.possessed.flight ? MathUtils.degToRad(38) : MathUtils.degToRad(52);
+      this.lookPitch = MathUtils.clamp(this.lookPitch - delta.dy * 0.0018, minPitch, maxPitch);
     }
 
     if (this.mode === 'entering') {
@@ -125,7 +130,8 @@ export class FirstPersonController {
       return;
     }
 
-    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, 62));
+    const speed = this.possessed.velocity ? Math.hypot(this.possessed.velocity.x, this.possessed.velocity.z) : 0;
+    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.possessed.flight ? MathUtils.lerp(62, 68, Math.min(1, speed / 46)) : 62));
   }
 
   private beginExit(): void {
@@ -142,7 +148,7 @@ export class FirstPersonController {
     const entity = this.possessed;
     if (entity) {
       delete entity.playerControlled;
-      if (entity.velocity) {
+      if (entity.velocity && !entity.flight) {
         entity.velocity.x = 0;
         entity.velocity.z = 0;
       }
@@ -156,6 +162,7 @@ export class FirstPersonController {
   }
 
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number): CameraPose {
+    if (entity.flight) return this.flightPoseFor(entity, yaw, pitch, fov);
     const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     this.tmpHorizontal.set(Math.sin(yaw), 0, Math.cos(yaw));
@@ -169,10 +176,39 @@ export class FirstPersonController {
     return this.lookPose(position, this.tmpAimTarget, fov);
   }
 
+  private flightPoseFor(entity: Entity, yaw: number, pitch: number, fov: number): CameraPose {
+    const y = entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28;
+    this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    this.tmpHorizontal.set(Math.sin(yaw), 0, Math.cos(yaw));
+    const center = new Vector3(entity.transform.x, y + 1.3, entity.transform.z);
+    const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
+    const chaseDistance = MathUtils.lerp(15, 22, Math.min(1, speed / 46));
+    const chaseHeight = MathUtils.lerp(5.4, 7.4, Math.min(1, speed / 46));
+    const position = center.clone().addScaledVector(this.tmpHorizontal, -chaseDistance);
+    position.y += chaseHeight + Math.sin(performance.now() * 0.006 + entity.id) * 0.1;
+    this.tmpAimTarget.copy(center).addScaledVector(this.tmpForward, 170);
+    this.tmpCameraTarget.copy(center).addScaledVector(this.tmpForward, 80);
+    this.tmpCameraTarget.y += Math.sin(performance.now() * 0.004 + entity.id) * 0.08;
+    return this.lookPose(position, this.tmpCameraTarget, fov);
+  }
+
   private fire(slot: 'primary' | 'secondary'): void {
     if (!this.possessed) return;
-    const target = slot === 'secondary' ? this.bombTarget(this.possessed) : this.tmpAimTarget;
+    const target = this.possessed.flight ? this.flightTarget(this.possessed, slot) : slot === 'secondary' ? this.bombTarget(this.possessed) : this.tmpAimTarget;
     manualFireAt(this.sim, this.possessed, target.x, target.z, slot);
+  }
+
+  private flightTarget(entity: Entity, slot: 'primary' | 'secondary'): Vector3 {
+    this.tmpForward.set(Math.sin(this.lookYaw) * Math.cos(this.lookPitch), Math.sin(this.lookPitch), Math.cos(this.lookYaw) * Math.cos(this.lookPitch));
+    if (slot === 'secondary') {
+      const ground = this.terrainPoint();
+      if (ground) return ground;
+    }
+    const origin = new Vector3(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28, entity.transform.z);
+    const range = slot === 'secondary' ? 150 : 112;
+    const target = origin.addScaledVector(this.tmpForward, range);
+    target.y = sampleHeight(this.hf, target.x, target.z);
+    return target;
   }
 
   private bombTarget(entity: Entity): Vector3 {
@@ -220,7 +256,7 @@ export class FirstPersonController {
 
   private rtsPoseNear(entity: Entity): CameraPose {
     const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
-    const target = new Vector3(entity.transform.x, groundY, entity.transform.z);
+    const target = new Vector3(entity.transform.x, entity.flight ? entity.transform.y ?? groundY + 28 : groundY, entity.transform.z);
     const yaw = this.lookYaw;
     const pitch = MathUtils.degToRad(50);
     const offset = new Vector3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(Math.cos(pitch) * 70);

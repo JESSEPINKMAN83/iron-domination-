@@ -152,6 +152,7 @@ export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: numb
     },
     turret: { yaw: Math.PI * 0.25, turnRate: 4.0 },
     vision: { radius: 150 },
+    possessable: { socketHeight: 1.6 },
     collider: { radius: 3.0 },
     armor: { kind: 'light' },
   });
@@ -236,7 +237,21 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     let desiredZ = 0;
 
     if (entity.flight) {
-      if (mover.target) {
+      if (entity.playerControlled) {
+        mover.target = undefined;
+        mover.formationOffset = undefined;
+        mover.flow = undefined;
+        mover.attackMove = false;
+        const throttle = clamp(entity.playerControlled.throttle, -1, 1);
+        const turn = clamp(entity.playerControlled.turn, -1, 1);
+        const aimYaw = entity.playerControlled.aimYaw;
+        const yawGoal = normalizeAngle(aimYaw + turn * 0.42);
+        transform.rot = slewAngle(transform.rot, yawGoal, 2.8, dt);
+        const cruise = mover.speed * (throttle >= 0 ? throttle : throttle * 0.34);
+        desiredX = Math.sin(transform.rot) * cruise;
+        desiredZ = Math.cos(transform.rot) * cruise;
+        if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, aimYaw, entity.turret.turnRate, dt);
+      } else if (mover.target) {
         const dx = mover.target.x - transform.x;
         const dz = mover.target.z - transform.z;
         const dist = Math.hypot(dx, dz);
@@ -343,10 +358,11 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       }
       const ground = sampleHeight(hf, transform.x, transform.z);
       const ahead = sampleHeight(hf, transform.x + velocity.x * 1.5, transform.z + velocity.z * 1.5);
-      const desiredY = Math.min(
-        entity.flight.maxAltitude,
-        Math.max(ground + entity.flight.cruiseAltitude, ahead + entity.flight.minAGL, ground + entity.flight.minAGL),
-      );
+      const playerClimb = entity.playerControlled?.climb ?? 0;
+      const baselineY = entity.playerControlled
+        ? (transform.y ?? ground + entity.flight.cruiseAltitude) + playerClimb * entity.flight.climbRate * 0.85
+        : ground + entity.flight.cruiseAltitude;
+      const desiredY = Math.min(entity.flight.maxAltitude, Math.max(baselineY, ahead + entity.flight.minAGL, ground + entity.flight.minAGL));
       const desiredVy = clamp((desiredY - (transform.y ?? desiredY)) * 2.2, -entity.flight.climbRate, entity.flight.climbRate);
       entity.flight.verticalVelocity += (desiredVy - entity.flight.verticalVelocity) * Math.min(1, dt * 5);
       transform.y = (transform.y ?? desiredY) + entity.flight.verticalVelocity * dt;

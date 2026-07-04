@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { damageForArmor, manualFireAt, stepCombat } from './combat';
 import { generateHeightfield } from './heightfield';
-import { createGameSim, hashSim, spawnTankAt } from './world';
+import { createGameSim, hashSim, spawnTankAt, spawnVultureAt } from './world';
 
 const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
   for (let i = 0; i < Math.round(seconds * 30); i++) stepCombat(sim, 1 / 30);
@@ -128,5 +128,20 @@ describe('phase 4 combat simulation', () => {
 
     expect(run(true)).toBe(100);
     expect(run(false)).toBeLessThan(100);
+  });
+
+  it('lets a player-controlled Vulture fire rockets at ground targets', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -14, -20, 'Vulture 1');
+    const enemy = spawnTankAt(sim, 24, 18, 'Target', 2);
+    vulture.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.atan2(enemy.transform.x - vulture.transform.x, enemy.transform.z - vulture.transform.z), climb: 0 };
+    if (vulture.turret) vulture.turret.yaw = vulture.playerControlled.aimYaw;
+
+    const fired = manualFireAt(sim, vulture, enemy.transform.x, enemy.transform.z, 'primary');
+
+    expect(fired).toBe(true);
+    expect(enemy.health?.current).toBeLessThan(100);
+    expect(vulture.weapons?.primary.cooldown).toBeGreaterThan(0);
   });
 });

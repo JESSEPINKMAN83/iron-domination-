@@ -379,15 +379,25 @@ drafted in `drafts/phase6/` (unwired, see its README).
   rotors, banking, and a ground blob shadow.
 - Added Helipad building material support.
 - Added movement test coverage proving flyers move directly and maintain minimum AGL.
+- Enabled V-mode possession for Vultures with a dedicated gunship control path:
+  `W/S` thrust/brake, `A/D` yaw trim, mouse nose aim, `Space/Ctrl` climb/descend,
+  left-click rocket pods, and right-click AG missile.
+- Added a Vulture chase camera using real aircraft altitude, speed-based FOV, hover bob,
+  and longer downrange aim so flight reads differently from tank possession.
+- Added first-pass aircraft weapon data for rocket pods and AG missiles, plus tests proving
+  player-controlled flight moves/climbs and Vulture rockets damage ground targets.
+- Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
-- `npm test` passes (22 Vitest tests). `npm run build` passes.
+- Follow-up browser smoke passed after Vulture V-mode wiring: app reloaded, `AIRCRAFT` tab
+  opened, and no console errors were reported.
+- `npm test` passes (24 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
-- Vulture production content is present, but aircraft weapons, ammo/rearm, AA, AI air usage,
-  and V-mode gunship controls are not implemented yet.
-- Vulture possession is intentionally disabled until the dedicated gunship controller is added;
-  this avoids routing aircraft through the tank possession code.
+- Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,
+  AA turret behavior, AI air usage, and polished flight HUD are still pending.
+- Right-click AG missile is a first-pass instant manual shot through weapon data; the planned
+  hold-to-preview ground-impact marker and travel-time missile come next.
 
 ### Next
 - Continue Phase 6.5 with air/ground weapon rules, Helipad production/rearm loop, AA turret,
