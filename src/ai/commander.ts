@@ -4,7 +4,7 @@
 import { STRUCTURES, type StructureKind, type UnitKind } from '../content/phase3';
 import { AI_DIFFICULTY, AI_PERSONALITY, type Difficulty, type DifficultyDef, type Personality, type PersonalityDef } from '../content/phase6';
 import type { Entity } from '../sim/components';
-import { buildings, canBuildStructure, placeStructure, queueUnit, updatePlacement, type EconomyState } from '../sim/economy';
+import { buildings, canBuildStructure, placeStructure, queueUnit, startStructureBuild, updatePlacement, type EconomyState } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { issueMoveOrder, type GameSim } from '../sim/world';
@@ -84,18 +84,27 @@ export class EnemyCommander {
       rebuilding = next !== undefined && this.everCompleted.has(next) && this.count(next) === 0;
     }
     if (!next) return;
+    if (this.economy.readyStructure) {
+      const spot = this.findPlacement(this.economy.readyStructure);
+      if (!spot) return;
+      const placedKind = this.economy.readyStructure;
+      if (!placeStructure(this.sim, this.hf, this.economy, spot)) return;
+      if (this.buildQueue[0] === placedKind) this.buildQueue.shift();
+      this.stats.structuresPlaced++;
+      if (rebuilding) {
+        this.stats.rebuilds++;
+        this.log(`rebuilding lost ${STRUCTURES[placedKind].label}`);
+      } else {
+        this.log(`expanding — constructed ${STRUCTURES[placedKind].label} (${this.count(placedKind)} total)`);
+      }
+      return;
+    }
+    if (this.economy.structureLine) return;
     if (!canBuildStructure(this.sim, this.economy, next).ok) return;
     const spot = this.findPlacement(next);
     if (!spot) return;
-    if (!placeStructure(this.sim, this.hf, this.economy, spot)) return;
-    if (this.buildQueue[0] === next) this.buildQueue.shift();
-    this.stats.structuresPlaced++;
-    if (rebuilding) {
-      this.stats.rebuilds++;
-      this.log(`rebuilding lost ${STRUCTURES[next].label}`);
-    } else {
-      this.log(`expanding — constructing ${STRUCTURES[next].label} (${this.count(next)} total)`);
-    }
+    if (!startStructureBuild(this.sim, this.economy, next)) return;
+    this.log(`expanding — building ${STRUCTURES[next].label}`);
   }
 
   /** Deterministic ring search around the base for a valid footprint. */

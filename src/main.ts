@@ -18,7 +18,21 @@ import { buildScatter } from './render/scatter';
 import { TerrainView } from './render/terrainMesh';
 import { UnitView } from './render/unitView';
 import { WaterView } from './render/water';
-import { buildings, createEconomy, createInitialBase, placeStructure, queueUnit, stepEconomy, updatePlacement } from './sim/economy';
+import {
+  buildings,
+  cancelStructureBuild,
+  cancelUnitQueue,
+  createEconomy,
+  createInitialBase,
+  enterReadyStructurePlacement,
+  placeStructure,
+  queueUnit,
+  setPrimaryProducer,
+  setProducerRally,
+  startStructureBuild,
+  stepEconomy,
+  updatePlacement,
+} from './sim/economy';
 import { stepCombat } from './sim/combat';
 import { generateHeightfield } from './sim/heightfield';
 import { VisibilityGrid } from './sim/visibility';
@@ -136,16 +150,36 @@ async function boot(): Promise<void> {
     buildingView,
     {
       showOrder: (x, z, kind) => orderMarkers.push(x, z, kind),
+      tryRally: (x, z) => {
+        const selected = selectedEntities(sim);
+        if (selected.length !== 1) return false;
+        const rally = setProducerRally(sim, economy, selected[0], x, z);
+        if (!rally) return false;
+        orderMarkers.push(rally.x, rally.z, 'rally');
+        return true;
+      },
     },
   );
   const hud = new Hud(document.body);
   const sidebar = new Sidebar(sim, hf, economy, playerVision, {
     buildStructure: (kind) => {
-      economy.selectedStructure = kind;
-      economy.placement = updatePlacement(sim, hf, kind, 0, 0);
+      if (economy.readyStructure === kind) {
+        enterReadyStructurePlacement(sim, hf, economy);
+        return;
+      }
+      startStructureBuild(sim, economy, kind);
+    },
+    cancelStructure: () => {
+      cancelStructureBuild(sim, economy);
     },
     queueUnit: (kind, producer) => {
       queueUnit(sim, economy, kind, producer);
+    },
+    cancelUnit: (kind, producer) => {
+      cancelUnitQueue(sim, economy, kind, producer);
+    },
+    setPrimaryProducer: (producer) => {
+      setPrimaryProducer(economy, producer);
     },
     focusMap: (x, z) => {
       rig.jumpTo(x, z);

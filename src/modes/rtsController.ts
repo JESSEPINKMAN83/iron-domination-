@@ -3,6 +3,7 @@ import type { GameSim } from '../sim/world';
 import { issueMoveOrder, selectedEntities, setSelected, stopEntities } from '../sim/world';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
+import type { OrderMarkerKind } from '../render/orderMarkerView';
 import type { UnitView } from '../render/unitView';
 
 export interface PlacementControls {
@@ -17,7 +18,8 @@ export interface BuildingPicker {
 }
 
 export interface OrderFeedback {
-  showOrder(x: number, z: number, kind: 'move' | 'attack'): void;
+  showOrder(x: number, z: number, kind: OrderMarkerKind): void;
+  tryRally?(x: number, z: number): boolean;
 }
 
 interface PointerState {
@@ -136,6 +138,10 @@ export class RtsController {
     if (down.button === 2 && !dragged && performance.now() - down.time < 350) {
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (p) {
+        if (this.orderFeedback?.tryRally?.(p.x, p.z)) {
+          this.attackMoveQueued = false;
+          return;
+        }
         const selected = selectedEntities(this.sim).filter((entity) => entity.mover);
         const target = this.sim.nav.nearestWalkableCell(p.x, p.z);
         const attackMove = this.isAttackMoveQueued();

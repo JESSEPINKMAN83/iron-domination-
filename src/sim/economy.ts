@@ -1,9 +1,11 @@
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
-import type { Entity } from './components';
+import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
 import type { GameSim } from './world';
-import { spawnTankAt } from './world';
+import { issueMoveOrder, spawnTankAt } from './world';
+
+export type UnitProducerType = 'infantry' | 'vehicles';
 
 export interface LedgerEntry {
   tick: number;
@@ -22,6 +24,9 @@ export interface EconomyState {
   powerUsed: number;
   ledger: LedgerEntry[];
   selectedStructure?: StructureKind;
+  structureLine?: ProductionJob;
+  readyStructure?: StructureKind;
+  primaryProducerIds: Partial<Record<UnitProducerType, number>>;
   placement?: PlacementState;
   lastIncomeTick: number;
 }
@@ -42,6 +47,7 @@ export function createEconomy(team = 1, initialCredits = 4600): EconomyState {
     powerProduced: 0,
     powerUsed: 0,
     ledger: [],
+    primaryProducerIds: {},
     lastIncomeTick: 0,
   };
 }
@@ -80,6 +86,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
 
 export function canBuildStructure(sim: GameSim, economy: EconomyState, kind: StructureKind): { ok: boolean; reason: string } {
   const def = STRUCTURES[kind];
+  if (economy.structureLine || economy.readyStructure) return { ok: false, reason: 'Structure line busy' };
   if (economy.credits < def.cost) return { ok: false, reason: 'Insufficient credits' };
   if (def.requires && !hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}` };
   return { ok: true, reason: '' };
@@ -93,6 +100,7 @@ export function canQueueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind
   if (!hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}`, producers };
   if (producers.length === 0) return { ok: false, reason: 'No producer', producers };
   if (economy.credits < def.cost) return { ok: false, reason: 'Insufficient credits', producers };
+  if (producers.every((entity) => queueDepth(entity) >= 5)) return { ok: false, reason: 'Queue full', producers };
   return { ok: true, reason: '', producers };
 }
 
@@ -113,9 +121,7 @@ export function updatePlacement(sim: GameSim, hf: Heightfield, kind: StructureKi
 
 export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomyState, placement: PlacementState): Entity | undefined {
   const def = STRUCTURES[placement.kind];
-  const affordable = canBuildStructure(sim, economy, placement.kind);
-  if (!placement.valid || !affordable.ok) return undefined;
-  spend(economy, sim.tick, def.label, def.cost);
+  if (!placement.valid || economy.readyStructure !== placement.kind) return undefined;
   const entity = sim.world.add({
     id: sim.nextEntityId++,
     name: def.label,
@@ -131,34 +137,131 @@ export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomySt
       footprint: def.footprint,
       powerProduced: def.powerProduced,
       powerUsed: def.powerUsed,
-      complete: false,
+      complete: true,
       buildProgress: 0,
     },
     producer: def.producer ? { queue: [] } : undefined,
     collider: { radius: Math.max(def.footprint.w, def.footprint.h) },
     armor: { kind: 'building' },
   });
+  economy.readyStructure = undefined;
+  recomputePower(sim, economy);
   return entity;
+}
+
+export function startStructureBuild(sim: GameSim, economy: EconomyState, kind: StructureKind): boolean {
+  const check = canBuildStructure(sim, economy, kind);
+  if (!check.ok) return false;
+  const def = STRUCTURES[kind];
+  spend(economy, sim.tick, def.label, def.cost);
+  economy.structureLine = { kind, label: def.label, remaining: def.buildTime, total: def.buildTime, cost: def.cost };
+  economy.readyStructure = undefined;
+  return true;
+}
+
+export function enterReadyStructurePlacement(sim: GameSim, hf: Heightfield, economy: EconomyState, x = 0, z = 0): boolean {
+  if (!economy.readyStructure) return false;
+  economy.selectedStructure = economy.readyStructure;
+  economy.placement = updatePlacement(sim, hf, economy.readyStructure, x, z, economy.team);
+  return true;
+}
+
+export function cancelStructureBuild(sim: GameSim, economy: EconomyState): boolean {
+  const job = economy.structureLine;
+  if (job) {
+    economy.structureLine = undefined;
+    refund(economy, sim.tick, job.label, job.cost);
+    return true;
+  }
+  const ready = economy.readyStructure;
+  if (ready) {
+    const def = STRUCTURES[ready];
+    economy.readyStructure = undefined;
+    if (economy.selectedStructure === ready) economy.selectedStructure = undefined;
+    economy.placement = undefined;
+    refund(economy, sim.tick, def.label, def.cost);
+    return true;
+  }
+  return false;
 }
 
 export function queueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind, preferredProducer?: Entity): boolean {
   const check = canQueueUnit(sim, economy, kind);
   if (!check.ok) return false;
-  const preferred = preferredProducer && check.producers.includes(preferredProducer) ? preferredProducer : undefined;
+  const def = UNITS[kind];
+  const primary = economy.primaryProducerIds[def.producer];
+  const primaryProducer = primary ? check.producers.find((entity) => entity.id === primary) : undefined;
+  const preferred = preferredProducer && check.producers.includes(preferredProducer) ? preferredProducer : primaryProducer;
   const producer = preferred ?? check.producers.reduce((best, entity) => {
-    const bestDepth = (best.producer?.queue.length ?? 0) + (best.producer?.active ? 1 : 0);
-    const depth = (entity.producer?.queue.length ?? 0) + (entity.producer?.active ? 1 : 0);
+    const bestDepth = queueDepth(best);
+    const depth = queueDepth(entity);
     return depth < bestDepth ? entity : best;
   }, check.producers[0]);
-  if (!producer.producer || producer.producer.queue.length >= 5) return false;
-  const def = UNITS[kind];
+  if (!producer.producer || queueDepth(producer) >= 5) return false;
   spend(economy, sim.tick, def.label, def.cost);
   producer.producer.queue.push({ kind, label: def.label, remaining: def.buildTime, total: def.buildTime, cost: def.cost });
   return true;
 }
 
+export function cancelUnitQueue(sim: GameSim, economy: EconomyState, kind: UnitKind, preferredProducer?: Entity): boolean {
+  const def = UNITS[kind];
+  const producers = buildings(sim, economy.team).filter(
+    (entity) => entity.building?.complete && entity.producer && STRUCTURES[entity.building.kind as StructureKind]?.producer === def.producer,
+  );
+  const ordered = preferredProducer && producers.includes(preferredProducer) ? [preferredProducer, ...producers.filter((p) => p !== preferredProducer)] : producers;
+  for (const producer of ordered) {
+    const queue = producer.producer?.queue;
+    if (!queue) continue;
+    const index = findLastIndex(queue, (job) => job.kind === kind);
+    if (index >= 0) {
+      const [job] = queue.splice(index, 1);
+      refund(economy, sim.tick, job.label, job.cost);
+      return true;
+    }
+  }
+  for (const producer of ordered) {
+    const active = producer.producer?.active;
+    if (active?.kind === kind) {
+      producer.producer!.active = undefined;
+      refund(economy, sim.tick, active.label, active.cost);
+      return true;
+    }
+  }
+  return false;
+}
+
+export function setPrimaryProducer(economy: EconomyState, producer: Entity): boolean {
+  if (!producer.producer || !producer.building?.complete) return false;
+  const producerType = STRUCTURES[producer.building.kind as StructureKind]?.producer;
+  if (producerType !== 'infantry' && producerType !== 'vehicles') return false;
+  if (producer.team?.id !== economy.team) return false;
+  economy.primaryProducerIds[producerType] = producer.id;
+  return true;
+}
+
+export function setProducerRally(sim: GameSim, economy: EconomyState, producer: Entity, x: number, z: number): { x: number; z: number } | undefined {
+  if (!producer.producer || !producer.building?.complete || producer.team?.id !== economy.team) return undefined;
+  const target = sim.nav.nearestWalkableCell(x, z);
+  if (!target) return undefined;
+  const p = sim.nav.cellCenter(target.x, target.y);
+  producer.producer.rally = { x: p.x, z: p.z };
+  return producer.producer.rally;
+}
+
 export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState, dt: number): Entity[] {
   const spawned: Entity[] = [];
+  const powered = economy.powerProduced >= economy.powerUsed;
+  const productionScale = powered ? 1 : 0.45;
+
+  const structureJob = economy.structureLine;
+  if (structureJob) {
+    structureJob.remaining -= dt * productionScale;
+    if (structureJob.remaining <= 0) {
+      economy.readyStructure = structureJob.kind as StructureKind;
+      economy.structureLine = undefined;
+    }
+  }
+
   for (const entity of buildings(sim, economy.team)) {
     if (!entity.building) continue;
     if (!entity.building.complete) {
@@ -168,11 +271,11 @@ export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState
         entity.building.complete = true;
         recomputePower(sim, economy);
       }
+    } else if (entity.building.buildProgress < 1) {
+      entity.building.buildProgress = Math.min(1, entity.building.buildProgress + dt);
     }
   }
 
-  const powered = economy.powerProduced >= economy.powerUsed;
-  const productionScale = powered ? 1 : 0.45;
   for (const producer of buildings(sim, economy.team)) {
     if (!producer.producer || !producer.building?.complete) continue;
     if (!producer.producer.active) producer.producer.active = producer.producer.queue.shift();
@@ -223,13 +326,31 @@ function spend(economy: EconomyState, tick: number, label: string, amount: numbe
   economy.ledger.push({ tick, type: 'spend', label, amount: -amount });
 }
 
+function refund(economy: EconomyState, tick: number, label: string, amount: number): void {
+  economy.credits += amount;
+  economy.ledger.push({ tick, type: 'refund', label: `${label} refund`, amount });
+}
+
+function queueDepth(entity: Entity): number {
+  return (entity.producer?.queue.length ?? 0) + (entity.producer?.active ? 1 : 0);
+}
+
+function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
+  for (let i = items.length - 1; i >= 0; i--) if (predicate(items[i])) return i;
+  return -1;
+}
+
 function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind: UnitKind): Entity | undefined {
   const team = producer.team?.id ?? 1;
   const p = sim.nav.nearestWalkableCell(producer.transform.x + 14, producer.transform.z + 9, 24);
   if (!p) return undefined;
   const pos = sim.nav.cellCenter(p.x, p.y);
   const designation = team === 2 ? 'Ash' : 'M-17';
-  if (kind === 'tank') return spawnTankAt(sim, pos.x, pos.z, `${designation} ${sim.world.entities.length + 1}`, team);
+  if (kind === 'tank') {
+    const tank = spawnTankAt(sim, pos.x, pos.z, `${designation} ${sim.world.entities.length + 1}`, team);
+    orderToRally(sim, producer, tank);
+    return tank;
+  }
   const entity = sim.world.add({
     id: sim.nextEntityId++,
     name: team === 2 ? 'Ash Rifles' : 'Rifle Team',
@@ -249,7 +370,14 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
     armor: { kind: 'infantry' },
   });
   void sampleHeight(hf, pos.x, pos.z);
+  orderToRally(sim, producer, entity);
   return entity;
+}
+
+function orderToRally(sim: GameSim, producer: Entity, entity: Entity): void {
+  const rally = producer.producer?.rally;
+  if (!rally) return;
+  issueMoveOrder(sim, [entity], rally.x, rally.z, false);
 }
 
 function snapToGrid(hf: Heightfield, x: number, z: number): { x: number; z: number } {

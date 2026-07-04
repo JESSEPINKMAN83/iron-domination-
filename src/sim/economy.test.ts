@@ -5,10 +5,14 @@ import {
   buildings,
   canBuildStructure,
   canQueueUnit,
+  cancelStructureBuild,
+  cancelUnitQueue,
   createEconomy,
   createInitialBase,
   placeStructure,
   queueUnit,
+  setProducerRally,
+  startStructureBuild,
   stepEconomy,
   updatePlacement,
 } from './economy';
@@ -24,15 +28,22 @@ describe('phase 3 economy and production', () => {
     const build = (kind: Parameters<typeof canBuildStructure>[2], dx: number, z: number) => {
       const check = canBuildStructure(sim, economy, kind);
       expect(check.ok).toBe(true);
-      const placement = updatePlacement(sim, hf, kind, base.transform.x + dx, base.transform.z + z);
-      expect(placement.valid, placement.reason).toBe(true);
-      const entity = placeStructure(sim, hf, economy, placement);
-      expect(entity).toBeDefined();
+      expect(startStructureBuild(sim, economy, kind)).toBe(true);
       for (let i = 0; i < 30 * 10; i++) {
         stepEconomy(sim, hf, economy, 1 / 30);
         stepSim(sim, hf, 1 / 30);
       }
+      expect(economy.readyStructure).toBe(kind);
+      const placement = updatePlacement(sim, hf, kind, base.transform.x + dx, base.transform.z + z);
+      expect(placement.valid, placement.reason).toBe(true);
+      const entity = placeStructure(sim, hf, economy, placement);
+      expect(entity).toBeDefined();
       expect(entity!.building?.complete).toBe(true);
+      for (let i = 0; i < 30 * 2; i++) {
+        stepEconomy(sim, hf, economy, 1 / 30);
+        stepSim(sim, hf, 1 / 30);
+      }
+      expect(entity!.building?.buildProgress).toBe(1);
       return entity!;
     };
 
@@ -63,5 +74,43 @@ describe('phase 3 economy and production', () => {
     expect(economy.ledger.some((entry) => entry.type === 'income' && entry.amount > 0)).toBe(true);
     const ledgerTotal = economy.ledger.reduce((sum, entry) => sum + entry.amount, 0);
     expect(economy.credits).toBe(5200 + ledgerTotal);
+  });
+
+  it('refunds structure and unit cancels, and sends produced units to a rally', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    expect(cancelStructureBuild(sim, economy)).toBe(true);
+    expect(economy.credits).toBe(5200);
+
+    const buildReady = (kind: Parameters<typeof canBuildStructure>[2], dx: number, z: number) => {
+      expect(startStructureBuild(sim, economy, kind)).toBe(true);
+      for (let i = 0; i < 30 * 10; i++) stepEconomy(sim, hf, economy, 1 / 30);
+      const placement = updatePlacement(sim, hf, kind, base.transform.x + dx, base.transform.z + z);
+      const entity = placeStructure(sim, hf, economy, placement);
+      expect(entity).toBeDefined();
+      return entity!;
+    };
+
+    buildReady('power-plant', -28, 0);
+    buildReady('refinery', 28, 0);
+    const factory = buildReady('factory', -70, 18);
+    const rally = setProducerRally(sim, economy, factory, base.transform.x + 80, base.transform.z + 80);
+    expect(rally).toBeDefined();
+
+    expect(queueUnit(sim, economy, 'tank', factory)).toBe(true);
+    expect(cancelUnitQueue(sim, economy, 'tank', factory)).toBe(true);
+    expect(factory.producer?.queue.length).toBe(0);
+
+    expect(queueUnit(sim, economy, 'tank', factory)).toBe(true);
+    for (let i = 0; i < 30 * 12; i++) {
+      stepEconomy(sim, hf, economy, 1 / 30);
+      stepSim(sim, hf, 1 / 30);
+    }
+    const tank = Array.from(sim.world.entities).find((entity) => entity.selectable?.type === 'tank' && entity.team?.id === 1);
+    expect(tank?.mover?.target).toEqual(rally);
   });
 });

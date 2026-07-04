@@ -73,7 +73,7 @@ export class BuildingView {
       }
       if (!mesh || !entity.building) continue;
       const y = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
-      const progress = entity.building.complete ? 1 : Math.max(0.08, entity.building.buildProgress);
+      const progress = Math.max(0.08, entity.building.buildProgress);
       mesh.position.set(entity.transform.x, y + 1.6 * progress, entity.transform.z);
       mesh.scale.y = entity.destroyed ? 0.45 : progress;
       if (entity.destroyed && mesh.material !== this.wreckMaterial) mesh.material = this.wreckMaterial;

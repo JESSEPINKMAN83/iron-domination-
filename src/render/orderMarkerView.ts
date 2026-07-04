@@ -10,7 +10,7 @@ import {
 } from 'three';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 
-export type OrderMarkerKind = 'move' | 'attack';
+export type OrderMarkerKind = 'move' | 'attack' | 'rally';
 
 interface Marker {
   root: Group;
@@ -34,7 +34,7 @@ export class OrderMarkerView {
 
   push(x: number, z: number, kind: OrderMarkerKind): void {
     const y = sampleHeight(this.hf, x, z);
-    const color = kind === 'attack' ? 0xff543e : 0x7df27d;
+    const color = kind === 'attack' ? 0xff543e : kind === 'rally' ? 0xf0d56a : 0x7df27d;
     const core = new MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false });
     const ringMaterial = new MeshBasicMaterial({
       color,

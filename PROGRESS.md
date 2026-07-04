@@ -322,3 +322,44 @@ drafted in `drafts/phase6/` (unwired, see its README).
 
 ### Next
 - Playtest Phase 6, file findings, then follow CODEX_PHASES_PLAN.md — next up is Phase 6.4 (C&C-style command sidebar rework), then 6.5 (combat aircraft + aerial possession), then 7–9.
+
+## Phase 6.4 — Command Sidebar Rework ✅ (2026-07-04)
+
+### Done
+- Reworked the command sidebar into the Red Alert-style always-visible flow: radar on top,
+  four tabs underneath (`BUILDINGS`, `DEFENSE`, `INFANTRY`, `VEHICLES`), and a compact
+  3-column command grid that stays visible even when a production building is selected.
+- Added a selected-building strip with icon, hull, active/pending queue mini status, rally
+  state, and primary producer toggle.
+- Moved structures to a single economy construction line: click starts construction in the
+  sidebar, the card shows progress, completion becomes `READY`, and clicking the ready card
+  enters placement. Escape/right-click while placing returns to ready without refunding.
+- Structure placement now spends up front and places complete, with a 1-second scaffold rise
+  animation instead of the old map-side construction timer.
+- Added full refunds for right-click cancel on the structure line, ready structures, queued
+  units, and active unit production.
+- Added per-producer queue cap enforcement, visible `xN` card badges, progress sweeps, queue
+  full/lockout captions, unaffordable red costs, low-power status tagging, and tab activity
+  coloring.
+- Added primary Barracks/Factory routing: selected producer clicks queue locally; primary
+  producers receive future sidebar clicks; otherwise unit production falls back to least-busy.
+- Added rally points for production buildings: select a producer and right-click terrain to
+  set a rally marker, then produced units immediately receive a move order to that point.
+- Updated the AI commander to use the same structure-line/ready-placement economy path as
+  the player.
+- Updated F1 help for the new queue/cancel/ready/rally/primary flows.
+- Tests now cover structure-line ready placement, refunds, unit cancel, and rally orders.
+- Browser smoke passed on Vite dev server: the app booted at `127.0.0.1:5173`, the four-tab
+  sidebar rendered with the expected build grid, and no console errors were reported.
+- `npm test` passes (20 Vitest tests). `npm run build` passes.
+
+### Known issues / notes
+- Defense tab is intentionally present but empty until the next tech/content phase.
+- Command card artwork still depends on optional PNGs in `public/assets/ui/command-icons/`;
+  text initials remain the fallback for missing art.
+- Browser verification was a smoke pass, not a full manual interaction pass through every
+  card state. Sim/unit tests cover the risky production logic.
+
+### Next
+- Continue CODEX_PHASES_PLAN.md with Phase 6.5: combat aircraft, anti-air behavior, and aerial
+  possession controls.
