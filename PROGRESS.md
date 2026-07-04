@@ -202,9 +202,11 @@
   available and mixing in the heavier bomb on its longer cooldown.
 - Replaced bomb tracers with a visible thrown shell: right-click now launches a large bomb mesh
   with nose, fins, glow, and trail that follows the arc until landing.
-- Added a layered bomb detonation with fireball, smoke, shock ring, scorch mark, and debris, and
-  strengthened bomb splash falloff/radius so nearby units take meaningful damage around the
-  landing point.
+- Rebalanced tank bombs down to a compact secondary weapon so they do not compete with future
+  heavy bombs: lower damage, smaller splash radius, weaker anti-heavy/building modifiers, and a
+  smaller/shorter detonation effect.
+- Added a restrained layered bomb detonation with modest fireball, smoke, shock ring, scorch
+  mark, and debris so nearby units take noticeable but not overwhelming splash damage.
 - Tank turret visuals now follow sim turret yaw, so player aim and combat target tracking are
   visible in RTS.
 - Added a Phase 5 movement test proving a player-controlled tank advances through the normal sim
@@ -226,6 +228,8 @@
 - Follow-up browser smoke passed after bomb-visual polish: reloaded the Vite page, entered
   `CHASE`, right-click fired a clearly visible large shell in flight, and no fresh console
   errors were reported.
+- Follow-up browser smoke passed after tank-bomb rebalance: reloaded the Vite page, confirmed
+  the canvas/HUD rendered at `sim 30 Hz`, and saw no fresh console errors.
 - `npm test` passes (now 16 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes

@@ -43,7 +43,7 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
   const len = Math.max(0.0001, rawLen);
   const ballisticBomb = slot === 'secondary' && def.kind === 'bomb';
   const maxRange = ballisticBomb ? Math.max(def.range, 440) : def.range;
-  const range = ballisticBomb ? Math.min(maxRange, Math.max(48, len)) : Math.min(maxRange, len);
+  const range = ballisticBomb && len < 8 ? 48 : Math.min(maxRange, len);
   const intendedX = attacker.transform.x + ux * range;
   const intendedZ = attacker.transform.z + uz * range;
   const impact = ballisticBomb ? scatterBombImpact(sim, attacker, intendedX, intendedZ, range, maxRange) : { x: intendedX, z: intendedZ };

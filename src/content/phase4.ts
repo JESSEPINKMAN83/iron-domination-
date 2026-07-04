@@ -36,11 +36,11 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   bomb: {
     kind: 'bomb',
     label: 'Siege Bomb',
-    damage: 72,
+    damage: 34,
     cooldown: 3.8,
     range: 152,
-    splashRadius: 14,
+    splashRadius: 7.5,
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
-    vs: { infantry: 1.35, light: 1.15, heavy: 1, building: 0.9 },
+    vs: { infantry: 1.1, light: 0.85, heavy: 0.72, building: 0.45 },
   },
 };

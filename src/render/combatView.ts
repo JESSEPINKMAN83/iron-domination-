@@ -95,13 +95,13 @@ export class CombatView {
       const life = Math.max(0, burst.ttl / burst.total);
       const age = 1 - life;
       if (burst.kind === 'bomb') {
-        burst.group.scale.setScalar(1 + age * 2.7);
+        burst.group.scale.setScalar(1 + age * 1.65);
         for (const material of burst.materials) {
-          if (material.userData.role === 'smoke') material.opacity = Math.min(0.42, age * 0.75) * life;
-          else if (material.userData.role === 'shock') material.opacity = life * 0.48;
-          else if (material.userData.role === 'scorch') material.opacity = life * 0.34;
-          else if (material.userData.role === 'debris') material.opacity = life * 0.82;
-          else material.opacity = life * 0.9;
+          if (material.userData.role === 'smoke') material.opacity = Math.min(0.28, age * 0.48) * life;
+          else if (material.userData.role === 'shock') material.opacity = life * 0.28;
+          else if (material.userData.role === 'scorch') material.opacity = life * 0.2;
+          else if (material.userData.role === 'debris') material.opacity = life * 0.58;
+          else material.opacity = life * 0.68;
         }
       } else {
         burst.group.scale.multiplyScalar(1 + dt * 2.2);
@@ -211,7 +211,7 @@ export class CombatView {
       fin.rotation.y = i >= 2 ? Math.PI / 2 : 0;
       group.add(fin);
     }
-    group.scale.setScalar(2.85);
+    group.scale.setScalar(1.75);
     return group;
   }
 
@@ -229,38 +229,38 @@ export class CombatView {
 
   private spawnBombBlast(x: number, y: number, z: number, killed: boolean): void {
     const group = new Group();
-    const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xfff09a : 0xffb347, transparent: true, opacity: 0.9, depthWrite: false });
+    const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xffd078 : 0xffa140, transparent: true, opacity: 0.68, depthWrite: false });
     const smokeMaterial = new MeshBasicMaterial({ color: 0x292520, transparent: true, opacity: 0.01, depthWrite: false });
-    const shockMaterial = new MeshBasicMaterial({ color: 0xffd178, transparent: true, opacity: 0.48, depthWrite: false, side: 2 });
-    const scorchMaterial = new MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.34, depthWrite: false, side: 2 });
-    const debrisMaterial = new MeshBasicMaterial({ color: 0x15120f, transparent: true, opacity: 0.82 });
+    const shockMaterial = new MeshBasicMaterial({ color: 0xffb861, transparent: true, opacity: 0.28, depthWrite: false, side: 2 });
+    const scorchMaterial = new MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.2, depthWrite: false, side: 2 });
+    const debrisMaterial = new MeshBasicMaterial({ color: 0x15120f, transparent: true, opacity: 0.58 });
     smokeMaterial.userData.role = 'smoke';
     shockMaterial.userData.role = 'shock';
     scorchMaterial.userData.role = 'scorch';
     debrisMaterial.userData.role = 'debris';
     fireMaterial.userData.role = 'fire';
-    const fireball = new Mesh(new SphereGeometry(killed ? 9.2 : 7.8, 18, 12), fireMaterial);
-    const smoke = new Mesh(new SphereGeometry(killed ? 10.4 : 8.8, 12, 8), smokeMaterial);
-    const shock = new Mesh(new RingGeometry(5.2, killed ? 16.5 : 14.2, 44), shockMaterial);
-    const scorch = new Mesh(new CircleGeometry(killed ? 12.5 : 10.5, 40), scorchMaterial);
-    fireball.position.y = 2.2;
-    smoke.position.y = 4.2;
+    const fireball = new Mesh(new SphereGeometry(killed ? 4.8 : 3.8, 14, 9), fireMaterial);
+    const smoke = new Mesh(new SphereGeometry(killed ? 5.6 : 4.6, 10, 7), smokeMaterial);
+    const shock = new Mesh(new RingGeometry(2.4, killed ? 7.8 : 6.2, 32), shockMaterial);
+    const scorch = new Mesh(new CircleGeometry(killed ? 6.4 : 5.1, 32), scorchMaterial);
+    fireball.position.y = 1.35;
+    smoke.position.y = 2.7;
     shock.rotation.x = -Math.PI / 2;
     shock.position.y = 0.16;
     scorch.rotation.x = -Math.PI / 2;
     scorch.position.y = 0.08;
     group.add(scorch, shock, fireball, smoke);
-    for (let i = 0; i < 10; i++) {
-      const debris = new Mesh(new BoxGeometry(0.9, 0.28, 0.44), debrisMaterial);
-      const angle = (i / 10) * Math.PI * 2 + (i % 2) * 0.18;
-      const radius = 2.5 + (i % 4) * 1.25;
-      debris.position.set(Math.cos(angle) * radius, 0.9 + (i % 3) * 0.5, Math.sin(angle) * radius);
+    for (let i = 0; i < 6; i++) {
+      const debris = new Mesh(new BoxGeometry(0.46, 0.18, 0.28), debrisMaterial);
+      const angle = (i / 6) * Math.PI * 2 + (i % 2) * 0.18;
+      const radius = 1.5 + (i % 3) * 0.75;
+      debris.position.set(Math.cos(angle) * radius, 0.55 + (i % 3) * 0.28, Math.sin(angle) * radius);
       debris.rotation.set(0.45 + i * 0.13, angle, 0.25 + i * 0.17);
       group.add(debris);
     }
     group.position.set(x, y, z);
     group.renderOrder = 55;
-    const ttl = killed ? 1.55 : 1.35;
+    const ttl = killed ? 0.95 : 0.82;
     this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial] });
     this.group.add(group);
   }
