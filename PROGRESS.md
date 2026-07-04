@@ -195,6 +195,9 @@
 - High-angle siege bomb shots now lob out to long range instead of silently clipping to the
   normal weapon range. Close shots stay accurate; long shots get deterministic distance-based
   scatter so the tradeoff is range versus precision.
+- Possessed-tank bomb safety now prevents the controlled tank from eating its own shot: manual
+  bombs have a minimum arming distance, degenerate aim vectors fall back to turret aim, and AI
+  siege bombs are not allowed to target the player-controlled tank during possession.
 - AI-controlled tanks now use both weapon slots during combat, firing their quick cannon when
   available and mixing in the heavier bomb on its longer cooldown.
 - Replaced bomb tracers with a visible thrown shell: right-click now launches a large bomb mesh
@@ -212,6 +215,8 @@
   multiple enemies through splash.
 - Added a long-range secondary-fire test proving player-controlled bombs fire past the old range
   cap and land with deterministic scatter.
+- Added possession bomb-safety tests proving manual bombs land safely away from the firing tank
+  and AI siege bombs do not target the possessed tank.
 - Browser verification passed on Vite dev server: selected tanks, pressed `V`, saw the camera
   enter chase view with `mode CHASE`, the possessed tank visible, reticle visible, sidebar hidden,
   selection overlays suppressed, then left-clicked fire and verified no new runtime errors.
@@ -221,7 +226,7 @@
 - Follow-up browser smoke passed after bomb-visual polish: reloaded the Vite page, entered
   `CHASE`, right-click fired a clearly visible large shell in flight, and no fresh console
   errors were reported.
-- `npm test` passes (now 14 Vitest tests). `npm run build` passes.
+- `npm test` passes (now 16 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Phase 5 is only a playable MVP. Full Rapier suspension, reload UI,

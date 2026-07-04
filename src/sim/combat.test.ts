@@ -80,4 +80,32 @@ describe('phase 4 combat simulation', () => {
     expect(sim.events[0].toX).not.toBeCloseTo(360);
     expect(sim.events[0].kind).toBe('bomb');
   });
+
+  it('keeps a manually fired bomb safely away from the firing tank', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnTankAt(sim, -20, -20, 'A');
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+
+    const fired = manualFireAt(sim, attacker, attacker.transform.x, attacker.transform.z, 'secondary');
+
+    expect(fired).toBe(true);
+    expect(attacker.health?.current).toBe(100);
+    expect(Math.hypot(sim.events[0].toX - attacker.transform.x, sim.events[0].toZ - attacker.transform.z)).toBeGreaterThan(40);
+  });
+
+  it('prevents AI siege bombs from targeting the possessed tank', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const player = spawnTankAt(sim, -20, -20, 'A');
+    const enemy = spawnTankAt(sim, -20, 35, 'B', 2);
+    player.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    enemy.weapons!.primary.cooldown = 99;
+
+    stepCombat(sim, 1 / 30);
+
+    expect(sim.events.some((event) => event.kind === 'bomb')).toBe(false);
+    expect(player.health?.current).toBe(100);
+    expect(enemy.weapons?.secondary?.cooldown).toBe(0);
+  });
 });

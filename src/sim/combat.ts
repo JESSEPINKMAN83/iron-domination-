@@ -18,7 +18,7 @@ export function stepCombat(sim: GameSim, dt: number): void {
     for (const weapon of weaponSlots(attacker)) {
       const def = WEAPONS[weapon.kind as WeaponKind];
       if (!def || weapon.cooldown > 0) continue;
-      const target = validTarget(sim, attacker, weapon, def.range) ?? acquireTarget(sim, attacker, def.range);
+      const target = validTarget(sim, attacker, weapon, def.range) ?? acquireTarget(sim, attacker, weapon, def.range);
       weapon.targetId = target?.id;
       if (!target?.health || !target.armor) continue;
       fireWeaponAtEntity(sim, attacker, weapon, target);
@@ -34,14 +34,16 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def || weapon.cooldown > 0) return false;
 
-  const dx = targetX - attacker.transform.x;
-  const dz = targetZ - attacker.transform.z;
-  const len = Math.max(0.0001, Math.hypot(dx, dz));
-  const ux = dx / len;
-  const uz = dz / len;
+  const rawDx = targetX - attacker.transform.x;
+  const rawDz = targetZ - attacker.transform.z;
+  const rawLen = Math.hypot(rawDx, rawDz);
+  const fallbackYaw = attacker.playerControlled?.aimYaw ?? attacker.turret?.yaw ?? attacker.transform.rot;
+  const ux = rawLen > 0.001 ? rawDx / rawLen : Math.sin(fallbackYaw);
+  const uz = rawLen > 0.001 ? rawDz / rawLen : Math.cos(fallbackYaw);
+  const len = Math.max(0.0001, rawLen);
   const ballisticBomb = slot === 'secondary' && def.kind === 'bomb';
   const maxRange = ballisticBomb ? Math.max(def.range, 440) : def.range;
-  const range = Math.min(maxRange, len);
+  const range = ballisticBomb ? Math.min(maxRange, Math.max(48, len)) : Math.min(maxRange, len);
   const intendedX = attacker.transform.x + ux * range;
   const intendedZ = attacker.transform.z + uz * range;
   const impact = ballisticBomb ? scatterBombImpact(sim, attacker, intendedX, intendedZ, range, maxRange) : { x: intendedX, z: intendedZ };
@@ -100,14 +102,16 @@ function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: numb
   if (!weapon.targetId) return undefined;
   const target = Array.from(sim.world.entities).find((entity) => entity.id === weapon.targetId);
   if (!target || !isTargetable(attacker, target)) return undefined;
+  if (!isWeaponAllowedToTarget(weapon, target)) return undefined;
   return distance(attacker, target) <= range ? target : undefined;
 }
 
-function acquireTarget(sim: GameSim, attacker: Entity, range: number): Entity | undefined {
+function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
   let best: Entity | undefined;
   let bestD = range;
   for (const candidate of sim.world.entities) {
     if (!isTargetable(attacker, candidate)) continue;
+    if (!isWeaponAllowedToTarget(weapon, candidate)) continue;
     const d = distance(attacker, candidate);
     if (d < bestD) {
       bestD = d;
@@ -140,6 +144,10 @@ function isTargetable(attacker: Entity, target: Entity): boolean {
   if (!attacker.team || !target.team || attacker.team.id === target.team.id) return false;
   if (!target.health || target.health.current <= 0 || target.destroyed) return false;
   return true;
+}
+
+function isWeaponAllowedToTarget(weapon: Weapon, target: Entity): boolean {
+  return !(weapon.kind === 'bomb' && target.playerControlled);
 }
 
 function applyDamage(target: Entity, amount: number): number {
