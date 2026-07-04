@@ -14,6 +14,7 @@ export interface SidebarActions {
   cancelUnit(kind: UnitKind, producer?: Entity): void;
   setPrimaryProducer(producer: Entity): void;
   focusMap(x: number, z: number): void;
+  radarYaw(): number;
 }
 
 interface CardState {
@@ -516,30 +517,28 @@ export class Sidebar {
       this.radarFocus.ttl -= 1 / 30;
       if (this.radarFocus.ttl <= 0) this.radarFocus = undefined;
     }
-    this.radarCtx.drawImage(this.radarTerrain, 0, 0);
+    this.drawOrientedRadarImage(this.radarTerrain);
     this.radarCtx.fillStyle = 'rgba(0,0,0,.22)';
     this.radarCtx.fillRect(0, 0, this.radar.width, this.radar.height);
     for (const entity of this.sim.world.entities) {
       if (!entity.transform || entity.destroyed) continue;
       if (entity.team?.id !== 1 && !this.fog.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
-      const x = ((entity.transform.x / this.hf.size) + 0.5) * this.radar.width;
-      const y = ((entity.transform.z / this.hf.size) + 0.5) * this.radar.height;
-      if (x < 0 || y < 0 || x >= this.radar.width || y >= this.radar.height) continue;
+      const p = this.worldToRadar(entity.transform.x, entity.transform.z);
+      if (p.x < 0 || p.y < 0 || p.x >= this.radar.width || p.y >= this.radar.height) continue;
       const isBuilding = !!entity.building;
       this.radarCtx.fillStyle = entity.team?.id === 2 ? '#df5742' : entity.selectable?.selected ? '#f0d56a' : '#56d184';
-      this.radarCtx.fillRect(Math.round(x) - (isBuilding ? 2 : 1), Math.round(y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
+      this.radarCtx.fillRect(Math.round(p.x) - (isBuilding ? 2 : 1), Math.round(p.y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
     this.drawRadarFog();
     if (this.radarFocus) {
-      const x = ((this.radarFocus.x / this.hf.size) + 0.5) * this.radar.width;
-      const y = ((this.radarFocus.z / this.hf.size) + 0.5) * this.radar.height;
+      const p = this.worldToRadar(this.radarFocus.x, this.radarFocus.z);
       this.radarCtx.strokeStyle = '#f0d56a';
       this.radarCtx.lineWidth = 1;
       this.radarCtx.beginPath();
-      this.radarCtx.moveTo(x - 6, y);
-      this.radarCtx.lineTo(x + 6, y);
-      this.radarCtx.moveTo(x, y - 6);
-      this.radarCtx.lineTo(x, y + 6);
+      this.radarCtx.moveTo(p.x - 6, p.y);
+      this.radarCtx.lineTo(p.x + 6, p.y);
+      this.radarCtx.moveTo(p.x, p.y - 6);
+      this.radarCtx.lineTo(p.x, p.y + 6);
       this.radarCtx.stroke();
     }
     this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
@@ -560,7 +559,7 @@ export class Sidebar {
     }
     ctx.putImageData(image, 0, 0);
     this.radarCtx.imageSmoothingEnabled = true;
-    this.radarCtx.drawImage(this.fogCanvas, 0, 0, this.radar.width, this.radar.height);
+    this.drawOrientedRadarImage(this.fogCanvas);
   }
 
   private onRadarPointerDown(event: PointerEvent): void {
@@ -569,11 +568,44 @@ export class Sidebar {
     const rect = this.radar.getBoundingClientRect();
     const u = (event.clientX - rect.left) / rect.width;
     const v = (event.clientY - rect.top) / rect.height;
-    const x = (u - 0.5) * this.hf.size;
-    const z = (v - 0.5) * this.hf.size;
+    const { x, z } = this.radarToWorld(u, v);
     this.radarFocus = { x, z, ttl: 0.8 };
     this.actions.focusMap(x, z);
     this.drawRadar();
+  }
+
+  private worldToRadar(x: number, z: number): { x: number; y: number } {
+    const yaw = this.actions.radarYaw();
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const rx = cos * x - sin * z;
+    const rz = sin * x + cos * z;
+    return {
+      x: (rx / this.hf.size + 0.5) * this.radar.width,
+      y: (rz / this.hf.size + 0.5) * this.radar.height,
+    };
+  }
+
+  private radarToWorld(u: number, v: number): { x: number; z: number } {
+    const yaw = this.actions.radarYaw();
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const rx = (u - 0.5) * this.hf.size;
+    const rz = (v - 0.5) * this.hf.size;
+    return {
+      x: cos * rx + sin * rz,
+      z: -sin * rx + cos * rz,
+    };
+  }
+
+  private drawOrientedRadarImage(image: HTMLCanvasElement): void {
+    const yaw = this.actions.radarYaw();
+    this.radarCtx.save();
+    this.radarCtx.translate(this.radar.width / 2, this.radar.height / 2);
+    this.radarCtx.rotate(yaw);
+    this.radarCtx.scale(1.42, 1.42);
+    this.radarCtx.drawImage(image, -this.radar.width / 2, -this.radar.height / 2, this.radar.width, this.radar.height);
+    this.radarCtx.restore();
   }
 }
 

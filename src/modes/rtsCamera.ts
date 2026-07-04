@@ -57,6 +57,10 @@ export class RtsCameraRig {
     return MathUtils.radToDeg(this.yaw);
   }
 
+  get yawRadians(): number {
+    return this.yaw;
+  }
+
   get pitchDegrees(): number {
     return MathUtils.radToDeg(this.currentPitch());
   }

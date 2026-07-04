@@ -411,11 +411,16 @@ drafted in `drafts/phase6/` (unwired, see its README).
   Refinery, Barracks, Factory, Helipad, and Guard Tower already placed plus extra credits, so
   infantry/tank/Vulture production and defense builds can be tested immediately. Use
   `?start=normal` to verify the original build-up flow.
+- Fixed radar/minimap orientation so terrain, fog, unit dots, focus marker, and radar clicks
+  all use the current RTS camera yaw; screen-down movement now reads as down on the radar
+  instead of rotating sideways.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
 - Follow-up browser smoke passed after Vulture V-mode wiring: app reloaded, `AIRCRAFT` tab
   opened, and no console errors were reported.
+- Follow-up browser smoke passed after radar orientation fix: radar canvas loaded, radar click
+  navigation executed successfully, and no console errors were reported.
 - `npm test` passes (28 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes

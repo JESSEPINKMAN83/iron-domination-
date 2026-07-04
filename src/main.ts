@@ -190,6 +190,7 @@ async function boot(): Promise<void> {
     focusMap: (x, z) => {
       rig.jumpTo(x, z);
     },
+    radarYaw: () => rig.yawRadians,
   });
   const firstPerson = new FirstPersonController(ctx.renderer.domElement, ctx.camera, input, hf, sim, {
     onEnter: () => {
