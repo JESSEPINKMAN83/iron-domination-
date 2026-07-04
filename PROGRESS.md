@@ -414,6 +414,8 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Fixed radar/minimap orientation so terrain, fog, unit dots, focus marker, and radar clicks
   all use the current RTS camera yaw; screen-down movement now reads as down on the radar
   instead of rotating sideways.
+- Added a live radar viewport marker: the minimap now draws a compact yellow rectangle over
+  the current RTS camera view, updating with pan, zoom, rotation, and radar jumps.
 - Swapped Vulture secondary fire onto the same visible ballistic bomb pipeline as tanks:
   right-click now launches a bomb from aircraft altitude, while rocket pods remain left-click.
 - Smoothed aircraft V-mode chase camera by preserving altitude in transform history, using
@@ -434,6 +436,8 @@ drafted in `drafts/phase6/` (unwired, see its README).
   opened, and no console errors were reported.
 - Follow-up browser smoke passed after radar orientation fix: radar canvas loaded, radar click
   navigation executed successfully, and no console errors were reported.
+- Follow-up browser smoke passed after radar viewport marker: app reloaded, the top-right
+  radar rendered a compact view rectangle over the visible base area, and runtime stayed clean.
 - Follow-up browser smoke passed after aircraft bomb/smoothing work: produced a Vulture from
   the aircraft tab, drag-selected it, entered `CHASE Vulture`, and right-clicked in chase mode.
 - Follow-up browser smoke passed after Vulture steering/drop fix: produced a Vulture,

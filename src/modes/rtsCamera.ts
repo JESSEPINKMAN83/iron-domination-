@@ -65,6 +65,26 @@ export class RtsCameraRig {
     return MathUtils.radToDeg(this.currentPitch());
   }
 
+  getGroundViewportFootprint(): { x: number; z: number }[] {
+    const halfFov = MathUtils.degToRad(this.camera.fov) / 2;
+    const halfWidth = Math.tan(halfFov) * this.dist * this.camera.aspect * 1.05;
+    const halfDepth = Math.tan(halfFov) * this.dist * 1.35;
+    const rightX = Math.cos(this.yaw);
+    const rightZ = -Math.sin(this.yaw);
+    const fwdX = -Math.sin(this.yaw);
+    const fwdZ = -Math.cos(this.yaw);
+    const corner = (rightScale: number, fwdScale: number) => ({
+      x: this.clampToMap(this.target.x + rightX * rightScale + fwdX * fwdScale),
+      z: this.clampToMap(this.target.z + rightZ * rightScale + fwdZ * fwdScale),
+    });
+    return [
+      corner(-halfWidth, -halfDepth),
+      corner(halfWidth, -halfDepth),
+      corner(halfWidth, halfDepth),
+      corner(-halfWidth, halfDepth),
+    ];
+  }
+
   jumpTo(x: number, z: number): void {
     const bound = this.hf.size / 2 - 10;
     const clampedX = MathUtils.clamp(x, -bound, bound);
@@ -150,6 +170,11 @@ export class RtsCameraRig {
   private currentPitch(): number {
     const zoomT = (this.dist - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN);
     return MathUtils.clamp(MathUtils.lerp(PITCH_NEAR, PITCH_FAR, zoomT) + this.pitchOffset, PITCH_MIN, PITCH_MAX);
+  }
+
+  private clampToMap(value: number): number {
+    const bound = this.hf.size / 2;
+    return MathUtils.clamp(value, -bound, bound);
   }
 }
 

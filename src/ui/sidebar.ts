@@ -15,6 +15,7 @@ export interface SidebarActions {
   setPrimaryProducer(producer: Entity): void;
   focusMap(x: number, z: number): void;
   radarYaw(): number;
+  radarViewport(): { x: number; z: number }[];
 }
 
 interface CardState {
@@ -530,6 +531,7 @@ export class Sidebar {
       this.radarCtx.fillRect(Math.round(p.x) - (isBuilding ? 2 : 1), Math.round(p.y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
     this.drawRadarFog();
+    this.drawRadarViewport();
     if (this.radarFocus) {
       const p = this.worldToRadar(this.radarFocus.x, this.radarFocus.z);
       this.radarCtx.strokeStyle = '#f0d56a';
@@ -543,6 +545,26 @@ export class Sidebar {
     }
     this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
+  }
+
+  private drawRadarViewport(): void {
+    const footprint = this.actions.radarViewport();
+    if (footprint.length < 4) return;
+    const points = footprint.map((point) => this.worldToRadar(point.x, point.z));
+    this.radarCtx.save();
+    this.radarCtx.beginPath();
+    this.radarCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) this.radarCtx.lineTo(points[i].x, points[i].y);
+    this.radarCtx.closePath();
+    this.radarCtx.fillStyle = 'rgba(240,213,106,.08)';
+    this.radarCtx.fill();
+    this.radarCtx.strokeStyle = 'rgba(8,12,10,.85)';
+    this.radarCtx.lineWidth = 3;
+    this.radarCtx.stroke();
+    this.radarCtx.strokeStyle = 'rgba(240,213,106,.92)';
+    this.radarCtx.lineWidth = 1.4;
+    this.radarCtx.stroke();
+    this.radarCtx.restore();
   }
 
   private drawRadarFog(): void {

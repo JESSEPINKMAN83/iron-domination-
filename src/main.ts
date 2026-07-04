@@ -191,6 +191,7 @@ async function boot(): Promise<void> {
       rig.jumpTo(x, z);
     },
     radarYaw: () => rig.yawRadians,
+    radarViewport: () => rig.getGroundViewportFootprint(),
   });
   const firstPerson = new FirstPersonController(ctx.renderer.domElement, ctx.camera, input, hf, sim, {
     onEnter: () => {
