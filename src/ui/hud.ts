@@ -44,7 +44,7 @@ export class Hud {
       'Attack    A, then right-click destination',
       'Possess   select tank, press V',
       'Chase     W/S drive, A/D turn, mouse aim',
-      'Fire      left-click, right-click zoom',
+      'Fire      left-click cannon, right-click bomb',
       'Exit      Escape',
       'Cancel    Escape while placing',
       'Overlay   F3 walkability debug',

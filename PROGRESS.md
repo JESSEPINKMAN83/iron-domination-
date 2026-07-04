@@ -188,19 +188,32 @@
   yaw.
 - Added left-click manual cannon fire for possessed tanks using the existing weapon data,
   cooldowns, armor damage, splash, wreck, and combat event/tracer pipeline.
+- Split tank weapons into two slots: left-click now fires a fast light cannon, while
+  right-click launches a slower-reloading heavy siege bomb with larger splash damage.
+- Siege bombs use pitch-to-range aiming in chase mode, so aiming higher sends the shot farther
+  and makes long-distance hits require manual range calculation.
+- AI-controlled tanks now use both weapon slots during combat, firing their quick cannon when
+  available and mixing in the heavier bomb on its longer cooldown.
+- Added arcing bomb tracers and larger blast bursts so the heavy shot reads differently from
+  the normal cannon.
 - Tank turret visuals now follow sim turret yaw, so player aim and combat target tracking are
   visible in RTS.
 - Added a Phase 5 movement test proving a player-controlled tank advances through the normal sim
   step and clears AI flow-field orders.
 - Added a Phase 5 manual-fire test proving player-controlled click fire damages enemies through
   weapon data and records combat events.
+- Added a secondary-fire test proving the heavy bomb respects its longer cooldown and damages
+  multiple enemies through splash.
 - Browser verification passed on Vite dev server: selected tanks, pressed `V`, saw the camera
   enter chase view with `mode CHASE`, the possessed tank visible, reticle visible, sidebar hidden,
   selection overlays suppressed, then left-clicked fire and verified no new runtime errors.
-- `npm test` passes (now 12 Vitest tests). `npm run build` passes.
+- Follow-up browser smoke passed after the weapon split: reloaded the Vite page, entered
+  `CHASE`, left-click fired without leaving chase mode, right-click produced the larger orange
+  bomb blast downrange, and no fresh console errors were reported.
+- `npm test` passes (now 13 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
-- Phase 5 is only a playable MVP. Full Rapier suspension, weapon firing from FPS, reload UI,
+- Phase 5 is only a playable MVP. Full Rapier suspension, reload UI,
   damage indicators, kill feed, death/eject behavior, Tab cycling, audio, and full acceptance
   combat run remain.
 - Pointer lock is requested on entry, but browser automation cannot fully verify native pointer

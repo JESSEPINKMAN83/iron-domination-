@@ -7,8 +7,9 @@ import { createGameSim, hashSim, spawnTankAt } from './world';
 describe('phase 4 combat simulation', () => {
   it('applies weapon damage matrix values', () => {
     expect(damageForArmor('rifle', 'heavy')).toBeCloseTo(2.2);
-    expect(damageForArmor('cannon', 'heavy')).toBeCloseTo(28);
-    expect(damageForArmor('cannon', 'building')).toBeCloseTo(17.36);
+    expect(damageForArmor('cannon', 'heavy')).toBeCloseTo(5.76);
+    expect(damageForArmor('bomb', 'heavy')).toBeCloseTo(64);
+    expect(damageForArmor('bomb', 'building')).toBeCloseTo(57.6);
   });
 
   it('resolves a deterministic tank engagement and records combat events', () => {
@@ -40,8 +41,27 @@ describe('phase 4 combat simulation', () => {
 
     expect(fired).toBe(true);
     expect(target.health?.current).toBeLessThan(100);
-    expect(attacker.weapon?.cooldown).toBeGreaterThan(0);
+    expect(attacker.weapons?.primary.cooldown).toBeGreaterThan(0);
     expect(sim.events).toHaveLength(1);
     expect(sim.events[0].damage).toBeGreaterThan(0);
+  });
+
+  it('lets a player-controlled tank fire a slower heavy bomb with splash', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnTankAt(sim, -20, -20, 'A');
+    const primary = spawnTankAt(sim, 18, -20, 'B', 2);
+    const nearby = spawnTankAt(sim, 22, -20, 'C', 2);
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+
+    const fired = manualFireAt(sim, attacker, primary.transform.x, primary.transform.z, 'secondary');
+    const firedAgain = manualFireAt(sim, attacker, primary.transform.x, primary.transform.z, 'secondary');
+
+    expect(fired).toBe(true);
+    expect(firedAgain).toBe(false);
+    expect(primary.health?.current).toBeLessThan(100);
+    expect(nearby.health?.current).toBeLessThan(100);
+    expect(attacker.weapons?.secondary?.cooldown).toBeGreaterThan(attacker.weapons?.primary.cooldown ?? 0);
+    expect(sim.events.at(-1)?.kind).toBe('bomb');
   });
 });

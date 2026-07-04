@@ -86,6 +86,7 @@ export function spawnEnemyTanks(sim: GameSim, hf: Heightfield, count = 40): Enti
 }
 
 export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
+  const primaryWeapon = { kind: 'cannon', range: 78, cooldown: 0 };
   return sim.world.add({
     id: nextEntityId++,
     name,
@@ -96,7 +97,11 @@ export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, te
     team: { id: team },
     selectable: { selected: false, type: 'tank', radius: 2.4 },
     mover: { speed: 18, radius: 2.2 },
-    weapon: { kind: 'cannon', range: 78, cooldown: 0 },
+    weapon: primaryWeapon,
+    weapons: {
+      primary: primaryWeapon,
+      secondary: { kind: 'bomb', range: 152, cooldown: 0 },
+    },
     turret: { yaw: Math.PI * 0.25, turnRate: 1.4 },
     vision: { radius: 120 },
     possessable: { socketHeight: 2.4 },

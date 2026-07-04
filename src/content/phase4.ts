@@ -1,5 +1,5 @@
 export type ArmorClass = 'infantry' | 'light' | 'heavy' | 'building';
-export type WeaponKind = 'rifle' | 'cannon';
+export type WeaponKind = 'rifle' | 'cannon' | 'bomb';
 
 export interface WeaponDef {
   kind: WeaponKind;
@@ -25,12 +25,22 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
   cannon: {
     kind: 'cannon',
-    label: '90mm Cannon',
-    damage: 28,
-    cooldown: 1.45,
-    range: 86,
-    splashRadius: 4.5,
+    label: 'Light Cannon',
+    damage: 12,
+    cooldown: 0.38,
+    range: 78,
+    splashRadius: 1.5,
     targetTypes: ['light', 'heavy', 'building'],
-    vs: { infantry: 1.25, light: 0.85, heavy: 1, building: 0.62 },
+    vs: { infantry: 0.9, light: 0.75, heavy: 0.48, building: 0.28 },
+  },
+  bomb: {
+    kind: 'bomb',
+    label: 'Siege Bomb',
+    damage: 64,
+    cooldown: 3.8,
+    range: 152,
+    splashRadius: 11,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 1.35, light: 1.15, heavy: 1, building: 0.9 },
   },
 };

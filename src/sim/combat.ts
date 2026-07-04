@@ -1,5 +1,5 @@
 import { WEAPONS, type ArmorClass, type WeaponKind } from '../content/phase4';
-import type { Entity } from './components';
+import type { Entity, Weapon } from './components';
 import { stopEntities, type GameSim } from './world';
 
 export function damageForArmor(kind: WeaponKind, armor: ArmorClass): number {
@@ -8,40 +8,30 @@ export function damageForArmor(kind: WeaponKind, armor: ArmorClass): number {
 }
 
 export function stepCombat(sim: GameSim, dt: number): void {
-  const combatants = Array.from(sim.world.entities).filter((entity) => entity.weapon && entity.health && entity.team && !entity.destroyed);
+  const combatants = Array.from(sim.world.entities).filter((entity) => weaponSlots(entity).length > 0 && entity.health && entity.team && !entity.destroyed);
   for (const attacker of combatants) {
-    if (!attacker.weapon || !attacker.health || !attacker.team) continue;
-    const def = WEAPONS[attacker.weapon.kind as WeaponKind];
-    if (!def) continue;
-    attacker.weapon.cooldown = Math.max(0, attacker.weapon.cooldown - dt);
+    if (!attacker.health || !attacker.team) continue;
+    for (const weapon of weaponSlots(attacker)) weapon.cooldown = Math.max(0, weapon.cooldown - dt);
     if (attacker.playerControlled) continue;
 
-    const target = validTarget(sim, attacker, def.range) ?? acquireTarget(sim, attacker, def.range);
-    attacker.weapon.targetId = target?.id;
-    if (!target?.health || !target.armor) continue;
-    if (attacker.weapon.cooldown > 0) continue;
-
-    const damage = applyDamage(target, damageForArmor(def.kind, target.armor.kind));
-    applySplash(sim, attacker, target, def.splashRadius, def.kind);
-    attacker.weapon.cooldown = def.cooldown;
-    if (attacker.turret) attacker.turret.yaw = Math.atan2(target.transform.x - attacker.transform.x, target.transform.z - attacker.transform.z);
-    sim.events.push({
-      kind: def.kind,
-      fromX: attacker.transform.x,
-      fromZ: attacker.transform.z,
-      toX: target.transform.x,
-      toZ: target.transform.z,
-      damage,
-      killed: target.health.current <= 0,
-    });
+    for (const weapon of weaponSlots(attacker)) {
+      const def = WEAPONS[weapon.kind as WeaponKind];
+      if (!def || weapon.cooldown > 0) continue;
+      const target = validTarget(sim, attacker, weapon, def.range) ?? acquireTarget(sim, attacker, def.range);
+      weapon.targetId = target?.id;
+      if (!target?.health || !target.armor) continue;
+      fireWeaponAtEntity(sim, attacker, weapon, target);
+    }
   }
   tickDestroyed(sim, dt);
 }
 
-export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, targetZ: number): boolean {
-  if (!attacker.weapon || !attacker.team || attacker.destroyed) return false;
-  const def = WEAPONS[attacker.weapon.kind as WeaponKind];
-  if (!def || attacker.weapon.cooldown > 0) return false;
+export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, targetZ: number, slot: 'primary' | 'secondary' = 'primary'): boolean {
+  if (!attacker.team || attacker.destroyed) return false;
+  const weapon = weaponForSlot(attacker, slot);
+  if (!weapon) return false;
+  const def = WEAPONS[weapon.kind as WeaponKind];
+  if (!def || weapon.cooldown > 0) return false;
 
   const dx = targetX - attacker.transform.x;
   const dz = targetZ - attacker.transform.z;
@@ -51,7 +41,7 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
   const range = Math.min(def.range, len);
   const impactX = attacker.transform.x + ux * range;
   const impactZ = attacker.transform.z + uz * range;
-  const target = acquireLineTarget(sim, attacker, ux, uz, range);
+  const target = slot === 'secondary' ? undefined : acquireLineTarget(sim, attacker, ux, uz, range);
   const hitX = target?.transform.x ?? impactX;
   const hitZ = target?.transform.z ?? impactZ;
   let damage = 0;
@@ -59,13 +49,14 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
 
   if (target?.health && target.armor) {
     damage = applyDamage(target, damageForArmor(def.kind, target.armor.kind));
-    applySplash(sim, attacker, target, def.splashRadius, def.kind);
+    applyAreaDamage(sim, attacker, hitX, hitZ, def.splashRadius, def.kind, target);
     killed = target.health.current <= 0;
-    attacker.weapon.targetId = target.id;
+    weapon.targetId = target.id;
   } else {
-    attacker.weapon.targetId = undefined;
+    damage = applyAreaDamage(sim, attacker, hitX, hitZ, def.splashRadius, def.kind);
+    weapon.targetId = undefined;
   }
-  attacker.weapon.cooldown = def.cooldown;
+  weapon.cooldown = def.cooldown;
   if (attacker.turret) attacker.turret.yaw = Math.atan2(ux, uz);
   sim.events.push({
     kind: def.kind,
@@ -79,9 +70,29 @@ export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, ta
   return true;
 }
 
-function validTarget(sim: GameSim, attacker: Entity, range: number): Entity | undefined {
-  if (!attacker.weapon?.targetId) return undefined;
-  const target = Array.from(sim.world.entities).find((entity) => entity.id === attacker.weapon?.targetId);
+function fireWeaponAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, target: Entity): boolean {
+  if (!target.health || !target.armor) return false;
+  const def = WEAPONS[weapon.kind as WeaponKind];
+  if (!def || weapon.cooldown > 0) return false;
+  const damage = applyDamage(target, damageForArmor(def.kind, target.armor.kind));
+  applyAreaDamage(sim, attacker, target.transform.x, target.transform.z, def.splashRadius, def.kind, target);
+  weapon.cooldown = def.cooldown;
+  if (attacker.turret) attacker.turret.yaw = Math.atan2(target.transform.x - attacker.transform.x, target.transform.z - attacker.transform.z);
+  sim.events.push({
+    kind: def.kind,
+    fromX: attacker.transform.x,
+    fromZ: attacker.transform.z,
+    toX: target.transform.x,
+    toZ: target.transform.z,
+    damage,
+    killed: target.health.current <= 0,
+  });
+  return true;
+}
+
+function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
+  if (!weapon.targetId) return undefined;
+  const target = Array.from(sim.world.entities).find((entity) => entity.id === weapon.targetId);
   if (!target || !isTargetable(attacker, target)) return undefined;
   return distance(attacker, target) <= range ? target : undefined;
 }
@@ -137,16 +148,18 @@ function applyDamage(target: Entity, amount: number): number {
   return before - target.health.current;
 }
 
-function applySplash(sim: GameSim, attacker: Entity, primary: Entity, radius: number, kind: WeaponKind): void {
-  if (radius <= 0) return;
+function applyAreaDamage(sim: GameSim, attacker: Entity, x: number, z: number, radius: number, kind: WeaponKind, primary?: Entity): number {
+  if (radius <= 0) return 0;
+  let total = 0;
   for (const target of sim.world.entities) {
     if (target === primary || !isTargetable(attacker, target) || !target.armor) continue;
-    const dx = target.transform.x - primary.transform.x;
-    const dz = target.transform.z - primary.transform.z;
+    const dx = target.transform.x - x;
+    const dz = target.transform.z - z;
     const d = Math.hypot(dx, dz);
     if (d > radius) continue;
-    applyDamage(target, damageForArmor(kind, target.armor.kind) * (1 - d / radius) * 0.55);
+    total += applyDamage(target, damageForArmor(kind, target.armor.kind) * (1 - d / radius) * 0.72);
   }
+  return total;
 }
 
 function tickDestroyed(sim: GameSim, dt: number): void {
@@ -159,4 +172,14 @@ function tickDestroyed(sim: GameSim, dt: number): void {
 
 function distance(a: Entity, b: Entity): number {
   return Math.hypot(a.transform.x - b.transform.x, a.transform.z - b.transform.z);
+}
+
+function weaponSlots(entity: Entity): Weapon[] {
+  if (entity.weapons) return [entity.weapons.primary, entity.weapons.secondary].filter((weapon): weapon is Weapon => weapon !== undefined);
+  return entity.weapon ? [entity.weapon] : [];
+}
+
+function weaponForSlot(entity: Entity, slot: 'primary' | 'secondary'): Weapon | undefined {
+  if (entity.weapons) return slot === 'primary' ? entity.weapons.primary : entity.weapons.secondary;
+  return slot === 'primary' ? entity.weapon : undefined;
 }

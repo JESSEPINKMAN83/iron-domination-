@@ -43,6 +43,11 @@ export interface Weapon {
   targetId?: number;
 }
 
+export interface WeaponRack {
+  primary: Weapon;
+  secondary?: Weapon;
+}
+
 export interface Turret {
   yaw: number;
   turnRate: number;
@@ -118,6 +123,7 @@ export interface Entity {
   selectable?: Selectable;
   mover?: Mover;
   weapon?: Weapon;
+  weapons?: WeaponRack;
   turret?: Turret;
   vision?: Vision;
   cargo?: Cargo;
