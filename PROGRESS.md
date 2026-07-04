@@ -474,7 +474,10 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Follow-up camera UX fix: RTS grab-pan now uses the explicit Space + right-drag gesture, while
   Command/Ctrl + left-drag remains the saved free-look camera angle control and plain
   right-drag stays available for unit-facing orders.
-- `npm test` passes (36 Vitest tests). `npm run build` passes.
+- Follow-up wall-chain fix: wall previews now snap from open wall ends only, not from middle
+  side segments, so extending a wall from its left/right/top/bottom edge no longer latches to
+  the wrong side of an existing run.
+- `npm test` passes (37 Vitest tests). `npm run build` passes.
 
 ### Known issues / notes
 - Vulture V-mode is playable, but ammo/rearm, visible rocket/missile projectile trails,

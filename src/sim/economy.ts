@@ -480,11 +480,30 @@ function bestWallChain(
   let best: { end: { x: number; z: number }; points: Array<{ x: number; z: number }>; score: number } | undefined;
   for (const wall of buildings(sim, team)) {
     if (wall.building?.kind !== 'wall' || !wall.building.complete) continue;
+    if (!isOpenWallEnd(sim, hf, wall.transform.x, wall.transform.z, team)) continue;
     const chain = wallChainFromAnchor(hf, wall.transform.x, wall.transform.z, x, z);
     if (!chain || chain.points.length > WALL_CHAIN_MAX_SEGMENTS || chain.score > g * 1.55) continue;
+    const first = chain.points[0];
+    if (existingWallAt(sim, first.x, first.z, team)) continue;
     if (!best || chain.score < best.score) best = chain;
   }
   return best;
+}
+
+function isOpenWallEnd(sim: GameSim, hf: Heightfield, x: number, z: number, team: number): boolean {
+  return wallNeighborCount(sim, hf, x, z, team) <= 1;
+}
+
+function wallNeighborCount(sim: GameSim, hf: Heightfield, x: number, z: number, team: number): number {
+  const g = hf.cellSize * 2;
+  let count = 0;
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dz === 0) continue;
+      if (existingWallAt(sim, x + dx * g, z + dz * g, team)) count++;
+    }
+  }
+  return count;
 }
 
 function wallChainFromAnchor(

@@ -155,6 +155,33 @@ describe('phase 3 economy and production', () => {
     }
   });
 
+  it('extends wall chains only from open wall ends, not side segments', () => {
+    const hf = generateHeightfield(MAP01);
+    hf.walkable.fill(1);
+    const grid = hf.cellSize * 2;
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 2200);
+    const placeWall = (x: number, z: number) => {
+      economy.readyStructure = 'wall';
+      const wall = placeStructure(sim, hf, economy, { kind: 'wall', x, z, valid: true, reason: '' });
+      expect(wall).toBeDefined();
+      return wall!;
+    };
+
+    placeWall(0, 0);
+    placeWall(0, grid);
+    placeWall(0, grid * 2);
+    placeWall(0, grid * 3);
+
+    const placement = updatePlacement(sim, hf, 'wall', -grid * 2, grid * 2, economy.team, economy);
+
+    expect(placement.valid, placement.reason).toBe(true);
+    expect(placement.wallLine).toEqual([
+      { x: -grid, z: grid },
+      { x: -grid * 2, z: grid * 2 },
+    ]);
+  });
+
   it('refunds structure and unit cancels, and sends produced units to a rally', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
