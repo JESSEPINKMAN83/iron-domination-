@@ -23,6 +23,7 @@ export class FirstPersonController {
   private toPose?: CameraPose;
   private readonly poseCamera = new PerspectiveCamera();
   private readonly tmpForward = new Vector3();
+  private readonly tmpHorizontal = new Vector3();
   private readonly tmpAimTarget = new Vector3();
   private savedCursor = '';
 
@@ -68,7 +69,7 @@ export class FirstPersonController {
     if (!entity) return false;
     this.possessed = entity;
     this.lookYaw = entity.transform.rot;
-    this.lookPitch = MathUtils.degToRad(-6);
+    this.lookPitch = MathUtils.degToRad(-3);
     this.transitionT = 0;
     this.fromPose = this.captureCameraPose();
     this.toPose = this.poseFor(entity, this.lookYaw, this.lookPitch, 62);
@@ -155,16 +156,15 @@ export class FirstPersonController {
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number): CameraPose {
     const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    this.tmpHorizontal.set(Math.sin(yaw), 0, Math.cos(yaw));
     const tankCenter = new Vector3(entity.transform.x, groundY + 2.4, entity.transform.z);
-    const chaseDistance = this.input.isButton(2) ? 14 : 22;
-    const chaseHeight = this.input.isButton(2) ? 6.8 : 10.2;
-    const position = tankCenter.clone().addScaledVector(this.tmpForward, -chaseDistance);
-    position.y += chaseHeight - this.tmpForward.y * 2;
-    const target = tankCenter.clone().addScaledVector(this.tmpForward, 3.8);
-    target.y -= 1.15;
-    this.tmpAimTarget.copy(tankCenter).addScaledVector(this.tmpForward, 96);
-    this.tmpAimTarget.y += Math.sin(pitch) * 36;
-    return this.lookPose(position, target, fov);
+    const chaseDistance = this.input.isButton(2) ? 13 : 20;
+    const chaseHeight = this.input.isButton(2) ? 5.8 : 8.6;
+    const position = tankCenter.clone().addScaledVector(this.tmpHorizontal, -chaseDistance);
+    position.y += chaseHeight;
+    this.tmpAimTarget.copy(tankCenter).addScaledVector(this.tmpForward, this.input.isButton(2) ? 130 : 100);
+    this.tmpAimTarget.y = Math.max(sampleHeight(this.hf, this.tmpAimTarget.x, this.tmpAimTarget.z) + 1.5, this.tmpAimTarget.y);
+    return this.lookPose(position, this.tmpAimTarget, fov);
   }
 
   private fire(): void {

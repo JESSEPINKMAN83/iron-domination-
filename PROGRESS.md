@@ -179,6 +179,8 @@
   possessed.
 - Possession now hides the OS cursor over the canvas and suppresses RTS selection overlays so
   the reticle/target view stays clean.
+- Adjusted chase/gunner camera targeting so the reticle sits downrange on the shot direction
+  instead of over the possessed tank body.
 - Added a renderer-independent `PlayerControlled` sim component. Possessed tanks keep moving
   through the normal fixed-step `stepSim` path, while clearing AI move orders and preserving
   deterministic sim ownership.
