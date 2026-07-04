@@ -251,7 +251,72 @@ Controls (keep the tank grammar):
 
 ---
 
-## Phase 7 — Presentation & Content Pass (now includes aircraft)
+## Phase 6.6 — Real Resource Economy: Oil, Harvesters, and Raids
+
+The current economy is intentionally simplified: completed refineries grant periodic
+flat income. That is not the final game. Before the art/content pass, replace the
+placeholder income with a real contested-resource loop so both armies live on the
+money they actually collect.
+
+### 6.6.1 Resource model
+
+- Add map resource nodes: **Oil Fields / Oil Wells**. They should be visible on terrain,
+  discoverable through fog, and have finite stored value. Use the existing ore-field
+  terrain data as a starting point if useful, but expose it to gameplay as oil.
+- Refineries no longer create money from nothing. A team earns credits only when a
+  collector returns oil to a friendly refinery and deposits it.
+- Keep starting credits as match setup seed money, but all ongoing income must come
+  from collected resources or capturable map objectives added later.
+- Support depletion: oil nodes visually fade/empty and stop producing when exhausted.
+  The sidebar/radar should make low or depleted income legible.
+
+### 6.6.2 Harvester/collector loop
+
+- Add a deterministic `Harvester`/`Collector` unit or refinery-spawned truck with the
+  state machine from the original build plan:
+  `seek oil -> gather -> return -> dock -> deposit -> repeat`.
+- Docking must be real enough to raid: harvesters can be killed while traveling, and a
+  refinery can be blocked/destroyed to interrupt income.
+- Harvesters obey fog, movement, collision, walls, and attack rules like other units.
+  They may path around walls; if trapped, they should fail gracefully and retry.
+- Add player controls: select harvester, right-click oil to gather, right-click refinery
+  to return, and V-mode/manual gathering can remain a later polish item.
+
+### 6.6.3 AI economy integration
+
+- The enemy commander must use the exact same collector/refinery rules as the player.
+  No flat-income fallback on Normal. Difficulty may adjust starting credits or collector
+  efficiency, but the source of money must still be visible and raidable.
+- AI builds/rebuilds harvesters, expands to additional oil nodes, escorts or retreats
+  threatened collectors, and explicitly raids the player's collectors/refineries.
+- Air harassment from Phase 6.5 should prefer exposed harvesters/refineries when they
+  are visible, turning economy raids into a core strategic target.
+
+### 6.6.4 UI and feedback
+
+- Sidebar credits should show recent delivered income and current collection status
+  (`2 collectors active`, `oil low`, `refinery blocked`, etc.).
+- Minimap/radar should mark discovered oil nodes and flash under attack when harvesters
+  or refineries are hit.
+- Add clear denied feedback when the player cannot afford a build because collectors
+  are idle/dead rather than silently doing nothing.
+
+### 6.6.5 Acceptance
+
+1. Build refinery -> harvester begins collecting oil -> credits increase only on
+   successful delivery; ledger records delivered oil, not periodic free income.
+2. Destroy or wall off a harvester route -> income stops until the route/collector is
+   restored; tanks cannot drive through walls to reach it unless they breach or go around.
+3. Deplete an oil node -> harvesters automatically seek another known node or report idle.
+4. Enemy AI expands to oil, rebuilds lost collectors, raids player economy, and can run
+   out of money if its collectors/refineries are destroyed.
+5. Unit tests cover delivery income, depletion, route blocking, harvester death, and
+   AI no-free-income behavior. Browser playtest verifies the player can understand why
+   money is or is not arriving.
+
+---
+
+## Phase 7 — Presentation & Content Pass (now includes aircraft and oil economy)
 
 As specified in `IRON_DOMINION_BUILD_PLAN.md` §Phase 7, plus:
 - GLB art set additions: Vulture gunship (rotor as separate node for spin), helipad,
@@ -259,15 +324,18 @@ As specified in `IRON_DOMINION_BUILD_PLAN.md` §Phase 7, plus:
   crash fireball; engine/rotor loops pitch-shifted by throttle in V mode.
 - Replace the procedural soldier with skeletal GLB (idle/run/aim/die) — the procedural
   rig in `render/soldier.ts` defined the pose/animation targets.
+- Resource art additions: oil wells/fields, refinery dock animation, collector/harvester
+  vehicle, delivery hose/pump VFX, depleted-node state, and raid-readable smoke/fire.
 - Keep placement/scale identical so sim data doesn't change (art-only phase; the
   determinism tests are your regression harness).
 
 ## Phase 8 — Meta, Balance, Polish
 
 Per build plan §Phase 8, with aircraft-aware additions: save/load must serialize
-`Flight`/`Ammo`/projectiles; balance harness runs AI-vs-AI with and without air;
-keybind remapping covers flight controls; graphics tiers scale fog texture res and
-shadow cascades.
+`Flight`/`Ammo`/projectiles and the oil economy (`ResourceNode`, collectors, cargo,
+depletion, refinery dock state); balance harness runs AI-vs-AI with and without air
+and with varied oil-node layouts; keybind remapping covers flight controls; graphics
+tiers scale fog texture res and shadow cascades.
 
 ## Phase 9 (optional) — Multiplayer
 
@@ -285,9 +353,10 @@ possessed flight inputs are just another input stream.
 - `unitView.update(alpha, dt, camera)` — dt drives walk cycles/rotors; entities are
   hidden when fogged (`team !== 1 && !isVisible`). Flyers must use sim `y`, not
   `sampleHeight`, for their mesh (health bar/ring stay at ground height).
-- `economy.ts` is per-team; AI difficulty sets `incomeMultiplier`. New structures need
-  entries in `STRUCTURES`, a material in `buildingView`, and a command icon fallback
-  (icons auto-fallback to initials — fine for now).
+- `economy.ts` is per-team; AI difficulty currently sets `incomeMultiplier`, but Phase
+  6.6 must retire flat refinery income on Normal in favor of visible oil collection.
+  New structures need entries in `STRUCTURES`, a material in `buildingView`, and a
+  command icon fallback (icons auto-fallback to initials — fine for now).
 - Pacing knobs live in `content/phase6.ts` (`attackDelay`, `maxSquads`, caps). The
   headless acceptance test (`src/ai/acceptance.spec.ts`) currently records ~8 min vs a
   passive player — keep it passing; retune if aircraft shift the balance.
