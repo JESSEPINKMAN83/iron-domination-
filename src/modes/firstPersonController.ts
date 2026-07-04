@@ -94,7 +94,9 @@ export class FirstPersonController {
       return;
     }
     const forward = (this.input.isDown('KeyW') ? 1 : 0) - (this.input.isDown('KeyS') ? 1 : 0);
-    const turn = (this.input.isDown('KeyD') ? 1 : 0) - (this.input.isDown('KeyA') ? 1 : 0);
+    // heading uses (sin rot, cos rot): positive turn rotates toward -screen-right,
+    // so D (turn right) must apply negative turn — matches mouse-look direction
+    const turn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
     this.possessed.playerControlled.throttle = forward;
     this.possessed.playerControlled.turn = turn;
     this.possessed.playerControlled.aimYaw = this.lookYaw;

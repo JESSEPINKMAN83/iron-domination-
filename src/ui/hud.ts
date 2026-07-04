@@ -34,7 +34,8 @@ export class Hud {
     this.help = document.createElement('div');
     this.help.style.cssText = PANEL_CSS + 'bottom:12px;left:12px;';
     this.help.textContent = [
-      'IRON DOMINION — Phase 5',
+      'IRON DOMINION — Phase 6',
+      'AI opts   ?ai=easy|normal|hard  ?ai-style=turtle|rusher|balanced',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  right-drag or hold Space + move',
       'Look      Cmd/Ctrl + left-drag free aim',
@@ -45,7 +46,7 @@ export class Hud {
       'Possess   select tank, press V',
       'Chase     W/S drive, A/D turn, mouse aim',
       'Fire      left-click cannon, right-click bomb',
-      'Exit      Escape',
+      'Exit      V again or Escape',
       'Cancel    Escape while placing',
       'Overlay   F3 walkability · F4 fog debug',
       'Help      F1 show/hide',

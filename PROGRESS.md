@@ -289,3 +289,36 @@ drafted in `drafts/phase6/` (unwired, see its README).
 ### Next
 - Phase 6 — Enemy Commander AI: restore `drafts/phase6/` per its README, wire into
   main, small starting armies + victory/defeat, playtest ~12-minute Normal game.
+
+## Phase 6 — Enemy Commander AI ✅ (2026-07-04)
+
+### Done
+- **V-mode fixes**: A/D steering was inverted in chase mode (heading math sign) — D now
+  turns right; V is a toggle (press again to exit, Escape still works).
+- Enemy commander (`src/ai/commander.ts`): scripted build order → dynamic economy
+  (power headroom, refinery expansion, factory count, rebuild of lost structures with
+  `[ai]` console logs), production caps, wave-based attack squads (max concurrent squads
+  per personality), 40%-strength retreats that disband into the defense pool, scouting
+  that holds course to start-location hints + ore fields, and honest targeting — squad
+  target *selection* only uses the AI's own visibility grid; unit weapons can no longer
+  auto-engage beyond their own vision (no shelling into the fog, applies to all teams).
+- Guard behavior for every idle combat unit: visible foe out of weapon range → close in
+  (fixes defenders dying parked under bombardment).
+- Personalities turtle/rusher/balanced (`?ai-style=`), difficulty easy/normal/hard
+  (`?ai=`): income multiplier + reaction delay + army caps + start credits — no map hacks.
+- Real match start: player yard + 8 tanks vs AI yard + 5 tanks; victory/defeat banner on
+  building elimination; `?debug=armies` restores the 120v40 stress sandbox.
+- Entity ids are now sim-scoped (`sim.nextEntityId`) — fixed cross-run nondeterminism
+  from module-level counters.
+- Tests: 19 passing, incl. commander behavior + determinism and a headless acceptance
+  run — Normal/balanced defeats a passive player at ~8 min (plan says ~12; tune pacing
+  via `attackDelay`/`maxSquads`/caps in `src/content/phase6.ts` after playtesting).
+
+### Known issues / notes
+- Passive-player defeat lands ~8 min (single wave can decide it); playtest and retune.
+- AI expansion is extra refineries near base (income is per-refinery flat) — real ore
+  fields/harvesters land with the economy deepening in Phase 7/8 backlog.
+- AI squads path by flow field per order; no kiting/focus-fire micro yet.
+
+### Next
+- Playtest Phase 6, file findings, then Phase 7 — Presentation & Content Pass.

@@ -13,6 +13,8 @@ export interface PersonalityDef {
   homeGuard: number;
   /** seconds before the first attack squad may launch */
   attackDelay: number;
+  /** concurrent attack squads — waves, not a single flood */
+  maxSquads: number;
 }
 
 export interface DifficultyDef {
@@ -33,7 +35,8 @@ export const AI_PERSONALITY: Record<Personality, PersonalityDef> = {
     wantsBarracks: true,
     squadSize: 10,
     homeGuard: 6,
-    attackDelay: 420,
+    attackDelay: 600,
+    maxSquads: 1,
   },
   rusher: {
     buildOrder: ['power-plant', 'refinery', 'factory'],
@@ -43,6 +46,7 @@ export const AI_PERSONALITY: Record<Personality, PersonalityDef> = {
     squadSize: 4,
     homeGuard: 0,
     attackDelay: 60,
+    maxSquads: 2,
   },
   balanced: {
     buildOrder: ['power-plant', 'refinery', 'factory'],
@@ -51,7 +55,8 @@ export const AI_PERSONALITY: Record<Personality, PersonalityDef> = {
     wantsBarracks: true,
     squadSize: 7,
     homeGuard: 3,
-    attackDelay: 150,
+    attackDelay: 420,
+    maxSquads: 1,
   },
 };
 

@@ -39,12 +39,11 @@ export interface GameSim {
   events: CombatEvent[];
   projectiles: Projectile[];
   tick: number;
+  /** monotonically increasing entity id — sim-scoped so runs stay deterministic */
+  nextEntityId: number;
 }
 
-let nextEntityId = 1;
-
 export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = []): GameSim {
-  nextEntityId = 1;
   const world = new World<Entity>();
   return {
     world,
@@ -54,13 +53,15 @@ export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = 
     events: [],
     projectiles: [],
     tick: 0,
+    nextEntityId: 1,
   };
 }
 
 export function spawnDebugTanks(sim: GameSim, hf: Heightfield, count = 120, seed = 0x2a11): Entity[] {
   const rng = mulberry32(seed);
   const spawned: Entity[] = [];
-  const start = sim.nav.nearestWalkableCell(-hf.size * 0.04, -hf.size * 0.04) ?? sim.nav.nearestWalkableCell(0, 0);
+  // muster close to the player base so starting tanks actually defend it
+  const start = sim.nav.nearestWalkableCell(-hf.size * 0.065, -hf.size * 0.055) ?? sim.nav.nearestWalkableCell(0, 0);
   if (!start) throw new Error('no walkable spawn cell');
   const center = sim.nav.cellCenter(start.x, start.y);
   let cursor = 0;
@@ -106,7 +107,7 @@ export function spawnEnemyTanks(sim: GameSim, hf: Heightfield, count = 40): Enti
 export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
   const primaryWeapon = { kind: 'cannon', range: 78, cooldown: 0 };
   return sim.world.add({
-    id: nextEntityId++,
+    id: sim.nextEntityId++,
     name,
     transform: { x, z, rot: Math.PI * 0.25 },
     previousTransform: { x, z, rot: Math.PI * 0.25 },
@@ -218,6 +219,16 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         desiredX = dir.x;
         desiredZ = dir.z;
       }
+    } else if (mover.engage) {
+      // guard response set by combat: advance until back in weapon range
+      const dx = mover.engage.x - transform.x;
+      const dz = mover.engage.z - transform.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 2) {
+        desiredX = dx / d;
+        desiredZ = dz / d;
+      }
+      mover.engage = undefined; // re-issued next combat tick while the foe stays visible
     }
 
     for (let j = 0; j < movers.length; j++) {

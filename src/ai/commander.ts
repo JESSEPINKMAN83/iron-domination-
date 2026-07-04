@@ -33,6 +33,8 @@ export class EnemyCommander {
     private readonly vision: VisibilityGrid,
     personality: Personality = 'balanced',
     difficulty: Difficulty = 'normal',
+    /** map-geography scouting hints (e.g. known start locations) — not unit intel */
+    private readonly scoutHints: { x: number; z: number }[] = [],
   ) {
     this.personality = AI_PERSONALITY[personality];
     this.difficulty = AI_DIFFICULTY[difficulty];
@@ -46,24 +48,28 @@ export class EnemyCommander {
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = this.difficulty.reactionDelay;
-    if (buildings(this.sim, this.economy.team).length === 0) return; // commander eliminated
+    if (this.aliveBuildings().length === 0) return; // commander eliminated
     this.maintainBase();
     this.maintainProduction();
     this.commandSquads();
   }
 
+  private aliveBuildings(): Entity[] {
+    return buildings(this.sim, this.economy.team).filter((entity) => !entity.destroyed);
+  }
+
   private base(): Entity | undefined {
-    const mine = buildings(this.sim, this.economy.team);
+    const mine = this.aliveBuildings();
     return mine.find((entity) => entity.building?.kind === 'command-yard') ?? mine[0];
   }
 
   private count(kind: StructureKind | 'command-yard'): number {
-    return buildings(this.sim, this.economy.team).filter((entity) => entity.building?.kind === kind).length;
+    return this.aliveBuildings().filter((entity) => entity.building?.kind === kind).length;
   }
 
   private maintainBase(): void {
     for (const kind of Object.keys(STRUCTURES) as StructureKind[]) {
-      if (this.count(kind) > 0 && buildings(this.sim, this.economy.team).some((b) => b.building?.kind === kind && b.building.complete)) {
+      if (this.aliveBuildings().some((b) => b.building?.kind === kind && b.building.complete)) {
         this.everCompleted.add(kind);
       }
     }
@@ -88,7 +94,7 @@ export class EnemyCommander {
       this.stats.rebuilds++;
       this.log(`rebuilding lost ${STRUCTURES[next].label}`);
     } else {
-      this.log(`expanding — constructing ${STRUCTURES[next].label} (${this.count(next) + 1} total)`);
+      this.log(`expanding — constructing ${STRUCTURES[next].label} (${this.count(next)} total)`);
     }
   }
 
@@ -144,7 +150,12 @@ export class EnemyCommander {
     const inSquads = new Set(this.squads.flatMap((squad) => squad.units));
     const idle = this.myUnits().filter((unit) => !inSquads.has(unit));
 
-    if (this.elapsed >= this.personality.attackDelay && idle.length - this.personality.homeGuard >= this.personality.squadSize) {
+    const attacking = this.squads.filter((squad) => squad.state === 'attacking').length;
+    if (
+      attacking < this.personality.maxSquads &&
+      this.elapsed >= this.personality.attackDelay &&
+      idle.length - this.personality.homeGuard >= this.personality.squadSize
+    ) {
       const units = idle.slice(0, this.personality.squadSize);
       this.squads.push({ units, state: 'attacking', nextOrderAt: 0 });
       this.stats.attacksLaunched++;
@@ -180,13 +191,13 @@ export class EnemyCommander {
         continue;
       }
 
-      const target = this.pickTarget();
+      const target = this.pickTarget(squad);
       issueMoveOrder(this.sim, squad.units, target.x, target.z, true);
     }
   }
 
   /** Honest targeting: only positions the AI's own vision grid currently sees. */
-  private pickTarget(): { x: number; z: number } {
+  private pickTarget(squad: Squad): { x: number; z: number } {
     let possessed: Entity | undefined;
     let building: Entity | undefined;
     let unit: Entity | undefined;
@@ -214,9 +225,16 @@ export class EnemyCommander {
       if (possessed) this.log('spotted the possessed unit — converging on it');
       return { x: chosen.transform.x, z: chosen.transform.z };
     }
-    // nothing seen: scout ore fields (map geography, not unit intel)
-    const waypoints = this.hf.oreFields.length > 0 ? this.hf.oreFields : [{ x: 0, z: 0, radius: 0 }];
-    const waypoint = waypoints[this.scoutIndex++ % waypoints.length];
+    // nothing seen: scout known start areas first, then ore fields (map geography, not unit intel)
+    const waypoints = [...this.scoutHints, ...this.hf.oreFields];
+    if (waypoints.length === 0) waypoints.push({ x: 0, z: 0 });
+    let waypoint = waypoints[this.scoutIndex % waypoints.length];
+    // hold course until the squad actually arrives, then move to the next waypoint
+    const lead = squad.units[0];
+    if (lead && Math.hypot(lead.transform.x - waypoint.x, lead.transform.z - waypoint.z) < 50) {
+      this.scoutIndex++;
+      waypoint = waypoints[this.scoutIndex % waypoints.length];
+    }
     return { x: waypoint.x, z: waypoint.z };
   }
 

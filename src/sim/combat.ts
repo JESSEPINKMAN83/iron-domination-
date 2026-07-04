@@ -29,7 +29,9 @@ export function stepCombat(sim: GameSim, dt: number): void {
     for (const weapon of weaponSlots(attacker)) {
       const def = WEAPONS[weapon.kind as WeaponKind];
       if (!def) continue;
-      const target = validTarget(sim, attacker, weapon, def.range) ?? acquireTarget(sim, attacker, weapon, def.range);
+      // a unit can only auto-engage what it can see — no shelling into the fog
+      const range = Math.min(def.range, attacker.vision?.radius ?? def.range);
+      const target = validTarget(sim, attacker, weapon, range) ?? acquireTarget(sim, attacker, weapon, range);
       weapon.targetId = target?.id;
       if (!target?.health || !target.armor) continue;
       const bearing = Math.atan2(target.transform.x - attacker.transform.x, target.transform.z - attacker.transform.z);
@@ -48,8 +50,25 @@ export function stepCombat(sim: GameSim, dt: number): void {
     if (attacker.turret) {
       attacker.turret.yaw = slewAngle(attacker.turret.yaw, turretGoalYaw ?? attacker.transform.rot, attacker.turret.turnRate, dt);
     }
+    updateGuardBehavior(sim, attacker);
   }
   tickDestroyed(sim, dt);
+}
+
+/** Idle units don't stand and take bombardment — they close on visible foes. */
+function updateGuardBehavior(sim: GameSim, attacker: Entity): void {
+  if (!attacker.mover || attacker.mover.target || !attacker.vision) return;
+  const slots = weaponSlots(attacker);
+  if (slots.length === 0) return;
+  let weaponRange = 0;
+  for (const weapon of slots) {
+    const def = WEAPONS[weapon.kind as WeaponKind];
+    if (def && def.kind !== 'bomb') weaponRange = Math.max(weaponRange, def.range);
+  }
+  if (weaponRange === 0) weaponRange = WEAPONS[slots[0].kind as WeaponKind]?.range ?? 42;
+  const foe = acquireTarget(sim, attacker, slots[0], attacker.vision.radius);
+  attacker.mover.engage =
+    foe && distance(attacker, foe) > weaponRange * 0.85 ? { x: foe.transform.x, z: foe.transform.z } : undefined;
 }
 
 export function manualFireAt(sim: GameSim, attacker: Entity, targetX: number, targetZ: number, slot: 'primary' | 'secondary' = 'primary'): boolean {

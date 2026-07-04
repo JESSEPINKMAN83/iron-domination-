@@ -1,5 +1,7 @@
 import { Fog, MeshStandardMaterial } from 'three';
+import { EnemyCommander } from './ai/commander';
 import { MAP01 } from './content/map01';
+import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phase6';
 import { Input } from './engine/input';
 import { GameLoop, SIM_HZ } from './engine/loop';
 import { FirstPersonController } from './modes/firstPersonController';
@@ -16,7 +18,7 @@ import { buildScatter } from './render/scatter';
 import { TerrainView } from './render/terrainMesh';
 import { UnitView } from './render/unitView';
 import { WaterView } from './render/water';
-import { createEconomy, createInitialBase, placeStructure, queueUnit, stepEconomy, updatePlacement } from './sim/economy';
+import { buildings, createEconomy, createInitialBase, placeStructure, queueUnit, stepEconomy, updatePlacement } from './sim/economy';
 import { stepCombat } from './sim/combat';
 import { generateHeightfield } from './sim/heightfield';
 import { VisibilityGrid } from './sim/visibility';
@@ -68,16 +70,28 @@ async function boot(): Promise<void> {
   const scatter = buildScatter(hf, registry, scatterMaterial, MAP01.seed ^ 0x5eed);
   ctx.scene.add(scatter.group);
 
+  const params = new URLSearchParams(location.search);
+  const debugArmies = params.get('debug') === 'armies';
+  const aiDifficulty: Difficulty = (['easy', 'normal', 'hard'] as const).find((d) => d === params.get('ai')) ?? 'normal';
+  const aiPersonality: Personality = (['turtle', 'rusher', 'balanced'] as const).find((p) => p === params.get('ai-style')) ?? 'balanced';
+
   const sim = createGameSim(hf);
   const economy = createEconomy(1);
   const playerBase = createInitialBase(sim, hf, economy);
+  const enemyEconomy = createEconomy(2, AI_DIFFICULTY[aiDifficulty].startCredits);
+  createInitialBase(sim, hf, enemyEconomy, hf.size * 0.18, hf.size * 0.08);
 
   const playerVision = new VisibilityGrid(hf, 1);
+  const aiVision = new VisibilityGrid(hf, 2);
   const isVisibleToPlayer = (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
+  const commander = new EnemyCommander(sim, hf, enemyEconomy, aiVision, aiPersonality, aiDifficulty, [
+    { x: playerBase.transform.x, z: playerBase.transform.z },
+  ]);
 
-  const tanks = spawnDebugTanks(sim, hf, 120);
-  const enemyTanks = spawnEnemyTanks(sim, hf, 40);
+  const tanks = spawnDebugTanks(sim, hf, debugArmies ? 120 : 8);
+  const enemyTanks = spawnEnemyTanks(sim, hf, debugArmies ? 40 : 5);
   playerVision.update(sim);
+  aiVision.update(sim);
 
   const unitView = new UnitView([...tanks, ...enemyTanks], hf, ctx, isVisibleToPlayer);
   unitView.attach(ctx.scene);
@@ -155,7 +169,8 @@ async function boot(): Promise<void> {
     },
   });
   input.onKeyDown('KeyV', () => {
-    if (firstPerson.enter(selectedEntities(sim))) return;
+    if (firstPerson.active) firstPerson.exit();
+    else firstPerson.enter(selectedEntities(sim));
   });
   input.onKeyDown('Escape', () => {
     if (firstPerson.active) firstPerson.exit();
@@ -163,6 +178,15 @@ async function boot(): Promise<void> {
   input.onKeyDown('F3', () => water.setDebugOverlay(terrain.toggleWalkOverlay()));
   input.onKeyDown('F4', () => (fogView.group.visible = !fogView.group.visible));
   input.onKeyDown('F1', () => hud.toggleHelp());
+
+  let outcome: 'victory' | 'defeat' | undefined;
+  const checkOutcome = (): void => {
+    if (outcome || sim.tick < 60) return;
+    const alive = (team: number) => buildings(sim, team).filter((entity) => !entity.destroyed).length;
+    if (alive(2) === 0) outcome = 'victory';
+    else if (alive(1) === 0) outcome = 'defeat';
+    if (outcome) showOutcomeBanner(outcome, commander.stats);
+  };
 
   let fps = 60;
   let simTicks = 0;
@@ -172,7 +196,8 @@ async function boot(): Promise<void> {
   const loop = new GameLoop({
     simTick: () => {
       firstPerson.simTick();
-      const spawned = stepEconomy(sim, hf, economy, 1 / SIM_HZ);
+      commander.step(1 / SIM_HZ);
+      const spawned = [...stepEconomy(sim, hf, economy, 1 / SIM_HZ), ...stepEconomy(sim, hf, enemyEconomy, 1 / SIM_HZ)];
       for (const entity of spawned) {
         if (entity.selectable?.type === 'tank' && entity.team?.id === 1) tanks.push(entity);
         unitView.addEntity(entity);
@@ -183,8 +208,10 @@ async function boot(): Promise<void> {
       }
       stepCombat(sim, 1 / SIM_HZ);
       playerVision.update(sim);
+      aiVision.update(sim);
       fogView.refresh();
       combatView.push(sim.events.splice(0));
+      checkOutcome();
       simTicks++;
     },
     render: (alpha, dt, time) => {
@@ -224,6 +251,19 @@ async function boot(): Promise<void> {
 
   overlay.remove();
   loop.start();
+}
+
+function showOutcomeBanner(outcome: 'victory' | 'defeat', aiStats: { attacksLaunched: number; rebuilds: number }): void {
+  const el = document.createElement('div');
+  const win = outcome === 'victory';
+  el.style.cssText =
+    'position:fixed;left:50%;top:34%;transform:translate(-50%,-50%);z-index:60;padding:26px 48px;text-align:center;' +
+    'font:15px ui-monospace,Menlo,monospace;letter-spacing:.3em;color:#f0f3e8;pointer-events:none;' +
+    `background:rgba(8,12,14,.88);border:2px solid ${win ? '#d2b15f' : '#d65b46'};border-radius:4px;box-shadow:0 18px 60px rgba(0,0,0,.55);`;
+  el.innerHTML =
+    `<div style="font-size:34px;color:${win ? '#f0d56a' : '#ff6a54'}">${win ? 'VICTORY' : 'DEFEAT'}</div>` +
+    `<div style="margin-top:10px;font-size:11px;letter-spacing:.14em;color:#aebbc4">enemy commander launched ${aiStats.attacksLaunched} assaults · rebuilt ${aiStats.rebuilds} structures</div>`;
+  document.body.appendChild(el);
 }
 
 void boot();

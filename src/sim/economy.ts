@@ -34,8 +34,6 @@ export interface PlacementState {
   reason: string;
 }
 
-let nextBuildingId = 10000;
-
 export function createEconomy(team = 1, initialCredits = 4600): EconomyState {
   return {
     team,
@@ -55,7 +53,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
   if (!cell) throw new Error('no walkable base cell');
   const p = sim.nav.cellCenter(cell.x, cell.y);
   const conyard = sim.world.add({
-    id: nextBuildingId++,
+    id: sim.nextEntityId++,
     name: 'Command Yard',
     transform: { x: p.x, z: p.z, rot: 0 },
     previousTransform: { x: p.x, z: p.z, rot: 0 },
@@ -119,7 +117,7 @@ export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomySt
   if (!placement.valid || !affordable.ok) return undefined;
   spend(economy, sim.tick, def.label, def.cost);
   const entity = sim.world.add({
-    id: nextBuildingId++,
+    id: sim.nextEntityId++,
     name: def.label,
     transform: { x: placement.x, z: placement.z, rot: 0 },
     previousTransform: { x: placement.x, z: placement.z, rot: 0 },
@@ -233,7 +231,7 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
   const designation = team === 2 ? 'Ash' : 'M-17';
   if (kind === 'tank') return spawnTankAt(sim, pos.x, pos.z, `${designation} ${sim.world.entities.length + 1}`, team);
   const entity = sim.world.add({
-    id: 20000 + sim.world.entities.length,
+    id: sim.nextEntityId++,
     name: team === 2 ? 'Ash Rifles' : 'Rifle Team',
     transform: { x: pos.x, z: pos.z, rot: Math.PI * 0.25 },
     previousTransform: { x: pos.x, z: pos.z, rot: Math.PI * 0.25 },
