@@ -321,4 +321,4 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - AI squads path by flow field per order; no kiting/focus-fire micro yet.
 
 ### Next
-- Playtest Phase 6, file findings, then Phase 7 — Presentation & Content Pass.
+- Playtest Phase 6, file findings, then follow CODEX_PHASES_PLAN.md — next up is Phase 6.5 (combat aircraft + aerial possession), then 7–9.
