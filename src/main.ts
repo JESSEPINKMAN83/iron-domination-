@@ -1,6 +1,7 @@
 import { Fog, MeshStandardMaterial } from 'three';
 import { EnemyCommander } from './ai/commander';
 import { MAP01 } from './content/map01';
+import type { StructureKind } from './content/phase3';
 import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phase6';
 import { Input } from './engine/input';
 import { GameLoop, SIM_HZ } from './engine/loop';
@@ -86,12 +87,14 @@ async function boot(): Promise<void> {
 
   const params = new URLSearchParams(location.search);
   const debugArmies = params.get('debug') === 'armies';
+  const testStart = params.get('start') !== 'normal';
   const aiDifficulty: Difficulty = (['easy', 'normal', 'hard'] as const).find((d) => d === params.get('ai')) ?? 'normal';
   const aiPersonality: Personality = (['turtle', 'rusher', 'balanced'] as const).find((p) => p === params.get('ai-style')) ?? 'balanced';
 
   const sim = createGameSim(hf);
-  const economy = createEconomy(1);
+  const economy = createEconomy(1, testStart ? 15000 : 4600);
   const playerBase = createInitialBase(sim, hf, economy);
+  if (testStart) seedTestStartBase(sim, hf, economy, playerBase);
   const enemyEconomy = createEconomy(2, AI_DIFFICULTY[aiDifficulty].startCredits);
   createInitialBase(sim, hf, enemyEconomy, hf.size * 0.18, hf.size * 0.08);
 
@@ -304,6 +307,56 @@ function showOutcomeBanner(outcome: 'victory' | 'defeat', aiStats: { attacksLaun
     `<div style="font-size:34px;color:${win ? '#f0d56a' : '#ff6a54'}">${win ? 'VICTORY' : 'DEFEAT'}</div>` +
     `<div style="margin-top:10px;font-size:11px;letter-spacing:.14em;color:#aebbc4">enemy commander launched ${aiStats.attacksLaunched} assaults · rebuilt ${aiStats.rebuilds} structures</div>`;
   document.body.appendChild(el);
+}
+
+function seedTestStartBase(sim: ReturnType<typeof createGameSim>, hf: ReturnType<typeof generateHeightfield>, economy: ReturnType<typeof createEconomy>, base: ReturnType<typeof createInitialBase>): void {
+  const placements: Array<{ kind: StructureKind; offsets: Array<{ x: number; z: number }> }> = [
+    { kind: 'power-plant', offsets: [{ x: -30, z: -10 }, { x: -34, z: 18 }, { x: 22, z: -30 }] },
+    { kind: 'refinery', offsets: [{ x: 30, z: -6 }, { x: 38, z: 24 }, { x: -44, z: -28 }] },
+    { kind: 'barracks', offsets: [{ x: -28, z: 28 }, { x: -52, z: 16 }, { x: 18, z: 34 }] },
+    { kind: 'factory', offsets: [{ x: 34, z: 32 }, { x: 56, z: 4 }, { x: -20, z: 52 }] },
+    { kind: 'helipad', offsets: [{ x: -38, z: 58 }, { x: 10, z: 62 }, { x: 64, z: 38 }] },
+    { kind: 'guard-tower', offsets: [{ x: 52, z: -32 }, { x: -56, z: -8 }, { x: 58, z: 58 }] },
+  ];
+  for (const item of placements) {
+    economy.readyStructure = item.kind;
+    const placement = findValidTestPlacement(sim, hf, economy, base.transform.x, base.transform.z, item.kind, item.offsets);
+    if (!placement) {
+      console.warn(`[test-start] could not place ${item.kind}`);
+      economy.readyStructure = undefined;
+      continue;
+    }
+    const placed = placeStructure(sim, hf, economy, placement);
+    if (placed?.building) placed.building.buildProgress = 1;
+  }
+  economy.readyStructure = undefined;
+  economy.selectedStructure = undefined;
+  economy.placement = undefined;
+}
+
+function findValidTestPlacement(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  economy: ReturnType<typeof createEconomy>,
+  baseX: number,
+  baseZ: number,
+  kind: StructureKind,
+  offsets: Array<{ x: number; z: number }>,
+): ReturnType<typeof updatePlacement> | undefined {
+  const probes = [
+    ...offsets,
+    ...offsets.flatMap((offset) => [
+      { x: offset.x + 12, z: offset.z },
+      { x: offset.x - 12, z: offset.z },
+      { x: offset.x, z: offset.z + 12 },
+      { x: offset.x, z: offset.z - 12 },
+    ]),
+  ];
+  for (const offset of probes) {
+    const placement = updatePlacement(sim, hf, kind, baseX + offset.x, baseZ + offset.z, economy.team);
+    if (placement.valid) return placement;
+  }
+  return undefined;
 }
 
 void boot();

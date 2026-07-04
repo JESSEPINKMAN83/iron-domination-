@@ -35,6 +35,7 @@ export class Hud {
     this.help.style.cssText = PANEL_CSS + 'bottom:12px;left:12px;';
     this.help.textContent = [
       'IRON DOMINION — Phase 6',
+      'Test start all tech unlocked · ?start=normal for build-up',
       'AI opts   ?ai=easy|normal|hard  ?ai-style=turtle|rusher|balanced',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  right-drag or hold Space + move',

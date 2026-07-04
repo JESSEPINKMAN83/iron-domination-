@@ -407,6 +407,10 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Added hit-confirmation feedback for combat: damage events now carry source-team and target
   health snapshots, player-fired hidden impacts can briefly show `HIT`/`DESTROYED` cards with
   percentage damage and remaining health, and damaged buildings now show health bars like units.
+- Added a temporary test-start mode as the default boot state: player starts with Power Plant,
+  Refinery, Barracks, Factory, Helipad, and Guard Tower already placed plus extra credits, so
+  infantry/tank/Vulture production and defense builds can be tested immediately. Use
+  `?start=normal` to verify the original build-up flow.
 - Updated F1 help with Vulture controls.
 - Browser smoke passed on Vite dev server: `AIRCRAFT` tab rendered, `HELIPAD REQUIRED` empty
   state appeared, Helipad content was present, and no console errors were reported.
