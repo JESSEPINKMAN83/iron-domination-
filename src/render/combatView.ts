@@ -11,6 +11,7 @@ import {
   LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
+  PlaneGeometry,
   Quaternion,
   RingGeometry,
   SphereGeometry,
@@ -66,15 +67,26 @@ interface SmokePuff {
   spin: number;
 }
 
+interface GroundScorch {
+  mesh: Mesh<PlaneGeometry, MeshBasicMaterial>;
+  texture: CanvasTexture;
+  material: MeshBasicMaterial;
+  ttl: number;
+  total: number;
+  baseOpacity: number;
+}
+
 export class CombatView {
   readonly group = new Group();
   private readonly cannonMaterial = new LineBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.92 });
   private readonly rifleMaterial = new LineBasicMaterial({ color: 0xff8f62, transparent: true, opacity: 0.8 });
+  private readonly sniperMaterial = new LineBasicMaterial({ color: 0xd8ffd0, transparent: true, opacity: 0.96 });
   private readonly tracers: Tracer[] = [];
   private readonly bursts: Burst[] = [];
   private readonly bombProjectiles: BombProjectile[] = [];
   private readonly hitIndicators: HitIndicator[] = [];
   private readonly smokePuffs: SmokePuff[] = [];
+  private readonly groundScorches: GroundScorch[] = [];
   private readonly up = new Vector3(0, 1, 0);
 
   constructor(
@@ -84,12 +96,13 @@ export class CombatView {
 
   push(events: CombatEvent[]): void {
     for (const event of events) {
+      if (event.kind === 'ore-delivery') continue;
       const sourceVisible = this.isVisible(event.fromX, event.fromZ);
       const impactVisible = this.isVisible(event.toX, event.toZ);
       const playerHiddenHit = event.sourceTeamId === 1 && event.damage > 0;
       // fights entirely inside the fog stay hidden, except brief player-fired hit confirmations
       if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
-      const muzzleHeight = event.kind === 'bomb' ? 3.1 : event.kind === 'rifle' ? 1.35 : 2.2;
+      const muzzleHeight = event.kind === 'bomb' ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : 2.2;
       const fromY = event.fromY ?? sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
       const toY = event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
       if (event.kind === 'crash') {
@@ -101,6 +114,7 @@ export class CombatView {
         continue;
       }
       if (isProjectileImpact(event.kind)) {
+        if (shouldPaintGroundScorch(this.hf, event)) this.spawnGroundScorch(event);
         if (event.kind === 'bomb-impact' || event.kind === 'grenade-impact' || event.kind === 'agMissile-impact') {
           this.spawnBombBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.4, event.toZ, event.killed);
         } else {
@@ -112,9 +126,9 @@ export class CombatView {
 
       const geometry = new BufferGeometry();
       geometry.setAttribute('position', new Float32BufferAttribute([event.fromX, fromY, event.fromZ, event.toX, toY, event.toZ], 3));
-      const line = new Line(geometry, event.kind === 'rifle' ? this.rifleMaterial : this.cannonMaterial);
+      const line = new Line(geometry, event.kind === 'sniperRifle' ? this.sniperMaterial : event.kind === 'rifle' ? this.rifleMaterial : this.cannonMaterial);
       line.renderOrder = 50;
-      const tracerTtl = event.kind === 'rifle' ? 0.08 : 0.16;
+      const tracerTtl = event.kind === 'sniperRifle' ? 0.34 : event.kind === 'rifle' ? 0.08 : 0.16;
       this.tracers.push({ line, ttl: tracerTtl, total: tracerTtl });
       this.group.add(line);
 
@@ -126,6 +140,7 @@ export class CombatView {
   update(dt: number): void {
     this.updateBombProjectiles(dt);
     this.updateSmokePuffs(dt);
+    this.updateGroundScorches(dt);
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tracer = this.tracers[i];
       tracer.ttl -= dt;
@@ -315,6 +330,51 @@ export class CombatView {
     this.group.remove(puff.mesh);
     puff.mesh.geometry.dispose();
     puff.material.dispose();
+  }
+
+  private spawnGroundScorch(event: CombatEvent): void {
+    const profile = scorchProfile(event.kind, event.killed);
+    const texture = makeScorchTexture(event.kind, event.toX, event.toZ);
+    const material = new MeshBasicMaterial({
+      map: texture,
+      color: 0xffffff,
+      transparent: true,
+      opacity: profile.opacity,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const mesh = new Mesh(new PlaneGeometry(profile.size, profile.size), material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.rotation.z = deterministicAngle(event.toX, event.toZ, event.kind);
+    mesh.position.set(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.045, event.toZ);
+    mesh.renderOrder = 24;
+    this.group.add(mesh);
+    this.groundScorches.push({ mesh, texture, material, ttl: profile.ttl, total: profile.ttl, baseOpacity: profile.opacity });
+    while (this.groundScorches.length > 90) this.disposeGroundScorch(this.groundScorches.shift());
+  }
+
+  private updateGroundScorches(dt: number): void {
+    for (let i = this.groundScorches.length - 1; i >= 0; i--) {
+      const scorch = this.groundScorches[i];
+      scorch.ttl -= dt;
+      const life = Math.max(0, scorch.ttl / scorch.total);
+      scorch.material.opacity = scorch.baseOpacity * Math.min(1, life * 2.2);
+      scorch.mesh.scale.setScalar(1 + (1 - life) * 0.08);
+      if (scorch.ttl <= 0) {
+        this.disposeGroundScorch(scorch);
+        this.groundScorches.splice(i, 1);
+      }
+    }
+  }
+
+  private disposeGroundScorch(scorch?: GroundScorch): void {
+    if (!scorch) return;
+    this.group.remove(scorch.mesh);
+    scorch.mesh.geometry.dispose();
+    scorch.texture.dispose();
+    scorch.material.dispose();
   }
 
   private makeProjectileMesh(kind: string): Group {
@@ -523,6 +583,117 @@ function isProjectileLaunch(kind: string): boolean {
 
 function isProjectileImpact(kind: string): boolean {
   return kind === 'bomb-impact' || kind === 'grenade-impact' || kind === 'atRocket-impact' || kind === 'agMissile-impact' || kind === 'aaMissile-impact';
+}
+
+function shouldPaintGroundScorch(hf: Heightfield, event: CombatEvent): boolean {
+  if (!isProjectileImpact(event.kind)) return false;
+  const groundY = sampleHeight(hf, event.toX, event.toZ);
+  const impactY = event.toY ?? groundY;
+  return impactY <= groundY + 4.5;
+}
+
+function scorchProfile(kind: string, killed: boolean): { size: number; opacity: number; ttl: number } {
+  if (kind === 'bomb-impact') return { size: killed ? 13.5 : 10.5, opacity: 0.62, ttl: killed ? 54 : 42 };
+  if (kind === 'agMissile-impact') return { size: killed ? 11.5 : 8.6, opacity: 0.58, ttl: killed ? 48 : 38 };
+  if (kind === 'grenade-impact') return { size: killed ? 7.4 : 5.8, opacity: 0.5, ttl: 30 };
+  if (kind === 'atRocket-impact') return { size: killed ? 6.9 : 5.2, opacity: 0.48, ttl: 28 };
+  if (kind === 'aaMissile-impact') return { size: killed ? 7.2 : 5.4, opacity: 0.44, ttl: 28 };
+  return { size: 5.5, opacity: 0.46, ttl: 28 };
+}
+
+function makeScorchTexture(kind: string, x: number, z: number): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
+  const rng = mulberry32(hashScorchSeed(kind, x, z));
+  ctx.clearRect(0, 0, 256, 256);
+
+  const centerX = 128 + (rng() - 0.5) * 10;
+  const centerY = 128 + (rng() - 0.5) * 10;
+  const radius = kind === 'bomb-impact' || kind === 'agMissile-impact' ? 92 : kind === 'grenade-impact' ? 70 : 62;
+  const edge = 28 + rng() * 16;
+
+  const gradient = ctx.createRadialGradient(centerX, centerY, radius * 0.08, centerX, centerY, radius);
+  gradient.addColorStop(0, 'rgba(0,0,0,0.86)');
+  gradient.addColorStop(0.2, 'rgba(18,12,8,0.78)');
+  gradient.addColorStop(0.52, 'rgba(34,25,18,0.48)');
+  gradient.addColorStop(0.78, 'rgba(76,61,44,0.22)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  for (let i = 0; i <= 64; i++) {
+    const angle = (i / 64) * Math.PI * 2;
+    const wobble = 1 + Math.sin(angle * 3.7 + rng() * 0.8) * 0.08 + (rng() - 0.5) * 0.16;
+    const r = radius * wobble;
+    const px = centerX + Math.cos(angle) * r;
+    const py = centerY + Math.sin(angle) * r * (0.88 + rng() * 0.1);
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 32; i++) {
+    const angle = rng() * Math.PI * 2;
+    const dist = radius * (0.22 + rng() * 0.62);
+    const dotR = 2 + rng() * (kind === 'bomb-impact' ? 7 : 4);
+    ctx.fillStyle = `rgba(${22 + rng() * 30},${17 + rng() * 20},${11 + rng() * 12},${0.14 + rng() * 0.22})`;
+    ctx.beginPath();
+    ctx.ellipse(centerX + Math.cos(angle) * dist, centerY + Math.sin(angle) * dist, dotR * (1.2 + rng()), dotR, angle, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = 'rgba(15, 11, 8, 0.34)';
+  ctx.lineWidth = kind === 'bomb-impact' || kind === 'agMissile-impact' ? 2.2 : 1.4;
+  const cracks = kind === 'bomb-impact' || kind === 'agMissile-impact' ? 9 : 5;
+  for (let i = 0; i < cracks; i++) {
+    const angle = rng() * Math.PI * 2;
+    const start = radius * (0.16 + rng() * 0.18);
+    const length = radius * (0.28 + rng() * 0.32);
+    ctx.beginPath();
+    ctx.moveTo(centerX + Math.cos(angle) * start, centerY + Math.sin(angle) * start);
+    const midA = angle + (rng() - 0.5) * 0.35;
+    ctx.lineTo(centerX + Math.cos(midA) * (start + length * 0.52), centerY + Math.sin(midA) * (start + length * 0.52));
+    const endA = angle + (rng() - 0.5) * 0.45;
+    ctx.lineTo(centerX + Math.cos(endA) * (start + length), centerY + Math.sin(endA) * (start + length));
+    ctx.stroke();
+  }
+
+  const rim = ctx.createRadialGradient(centerX, centerY, radius - edge, centerX, centerY, radius + edge * 0.5);
+  rim.addColorStop(0, 'rgba(0,0,0,0)');
+  rim.addColorStop(0.55, 'rgba(103,85,58,0.18)');
+  rim.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = rim;
+  ctx.fillRect(0, 0, 256, 256);
+
+  const texture = new CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function deterministicAngle(x: number, z: number, kind: string): number {
+  return mulberry32(hashScorchSeed(kind, x, z))() * Math.PI * 2;
+}
+
+function hashScorchSeed(kind: string, x: number, z: number): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < kind.length; i++) h = Math.imul(h ^ kind.charCodeAt(i), 0x01000193);
+  h = Math.imul(h ^ Math.round(x * 31), 0x01000193);
+  h = Math.imul(h ^ Math.round(z * 37), 0x01000193);
+  return h >>> 0;
+}
+
+function mulberry32(seed: number): () => number {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 function trailColor(kind: string): number {

@@ -92,6 +92,10 @@ describe('phase 3 economy and production', () => {
     expect(afterOre).toBeLessThan(beforeOre);
     expect(economy.credits).toBeGreaterThan(beforeCredits);
     expect(economy.ledger.some((entry) => entry.type === 'income' && entry.label === 'Ore delivered' && entry.amount > 0)).toBe(true);
+    const delivery = sim.events.find((event) => event.kind === 'ore-delivery');
+    const income = economy.ledger.find((entry) => entry.type === 'income' && entry.label === 'Ore delivered');
+    expect(delivery?.damage).toBe(income?.amount);
+    expect(delivery?.targetId).toBe(refinery!.id);
   });
 
   it('lets selected harvesters be manually ordered back to an ore field or refinery', () => {
@@ -303,6 +307,7 @@ describe('phase 3 economy and production', () => {
 
     const units = Array.from(sim.world.entities).filter((entity) => entity.mover && !entity.building);
     expect(units.some((entity) => entity.name === 'Rifle Team' && entity.weapon?.kind === 'rifle')).toBe(true);
+    expect(units.some((entity) => entity.name === 'Sniper' && entity.weapon?.kind === 'sniperRifle' && entity.weapon.range === 320 && entity.vision?.radius === 360)).toBe(true);
     expect(units.some((entity) => entity.name === 'Grenadier' && entity.weapon?.kind === 'grenade')).toBe(true);
     expect(units.some((entity) => entity.name === 'Rocket Team' && entity.weapon?.kind === 'rocketLauncher')).toBe(true);
     expect(units.some((entity) => entity.name?.includes('Jackal') && entity.weapon?.kind === 'autocannon' && entity.weapons?.secondary?.salvoCount === 1)).toBe(true);

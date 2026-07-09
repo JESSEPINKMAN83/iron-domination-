@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MAP01 } from '../content/map01';
+import { AI_DIFFICULTY } from '../content/phase6';
 import { startPosition } from '../content/startPositions';
 import { stepCombat } from '../sim/combat';
 import { createEconomy, createInitialBase, buildings, placeStructure, stepEconomy, updatePlacement, type PlacementState } from '../sim/economy';
@@ -114,6 +115,27 @@ describe('phase 6 enemy commander', () => {
     expect(Math.hypot((spot?.x ?? 0) - sim.resourceNodes[0].x, (spot?.z ?? 0) - sim.resourceNodes[0].z)).toBeLessThan(
       Math.hypot(enemyBase.transform.x - sim.resourceNodes[0].x, enemyBase.transform.z - sim.resourceNodes[0].z),
     );
+    vi.restoreAllMocks();
+  });
+
+  it('applies easy-mode combat handicaps to enemy units', () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const enemyEconomy = createEconomy(2, 2600);
+    createInitialBase(sim, hf, enemyEconomy, 20, 20);
+    const tank = spawnTankAt(sim, 30, 32, 'Easy Tank', 2);
+    const commander = new EnemyCommander(sim, hf, enemyEconomy, new VisibilityGrid(hf, 2), 'balanced', 'easy');
+
+    commander.step(DT);
+
+    expect(tank.aiCombat).toMatchObject({
+      accuracy: AI_DIFFICULTY.easy.combatAccuracy,
+      cooldownMultiplier: AI_DIFFICULTY.easy.combatCooldownMultiplier,
+      projectileScatter: AI_DIFFICULTY.easy.projectileScatter,
+      targetAcquireDelayTicks: AI_DIFFICULTY.easy.targetAcquireDelayTicks,
+      possessedTargetPriority: AI_DIFFICULTY.easy.possessedTargetPriority,
+    });
     vi.restoreAllMocks();
   });
 });

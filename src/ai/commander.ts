@@ -7,7 +7,7 @@ import type { Entity } from '../sim/components';
 import { buildings, canBuildStructure, placeStructure, queueUnit, startStructureBuild, updatePlacement, type EconomyState } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
-import { issueMoveOrder, type GameSim } from '../sim/world';
+import { areTeamsHostile, issueMoveOrder, type GameSim } from '../sim/world';
 
 interface Squad {
   units: Entity[];
@@ -46,6 +46,7 @@ export class EnemyCommander {
   step(dt: number): void {
     this.elapsed += dt;
     this.timer -= dt;
+    this.applyCombatProfile();
     if (this.timer > 0) return;
     this.timer = this.difficulty.reactionDelay;
     if (this.aliveBuildings().length === 0) return; // commander eliminated
@@ -184,7 +185,7 @@ export class EnemyCommander {
   }
 
   private nextInfantryKind(count: number): UnitKind {
-    return (['infantry', 'grenadier', 'rocket-infantry', 'infantry', 'rocket-infantry'] as UnitKind[])[count % 5];
+    return (['infantry', 'grenadier', 'sniper', 'rocket-infantry', 'infantry', 'rocket-infantry'] as UnitKind[])[count % 6];
   }
 
   private nextAircraftKind(count: number): UnitKind {
@@ -198,6 +199,20 @@ export class EnemyCommander {
       out.push(entity);
     }
     return out.sort((a, b) => a.id - b.id);
+  }
+
+  private applyCombatProfile(): void {
+    for (const entity of this.sim.world.entities) {
+      if (entity.team?.id !== this.economy.team || entity.destroyed || (!entity.weapon && !entity.weapons)) continue;
+      entity.aiCombat = {
+        accuracy: this.difficulty.combatAccuracy,
+        cooldownMultiplier: this.difficulty.combatCooldownMultiplier,
+        projectileScatter: this.difficulty.projectileScatter,
+        targetAcquireDelayTicks: this.difficulty.targetAcquireDelayTicks,
+        possessedTargetPriority: this.difficulty.possessedTargetPriority,
+        nextAcquireTick: entity.aiCombat?.nextAcquireTick,
+      };
+    }
   }
 
   private commandSquads(): void {
@@ -215,7 +230,7 @@ export class EnemyCommander {
     const attacking = this.squads.filter((squad) => squad.state === 'attacking').length;
     if (
       attacking < this.personality.maxSquads &&
-      this.elapsed >= this.personality.attackDelay &&
+      this.elapsed >= this.personality.attackDelay * this.difficulty.attackDelayMultiplier &&
       idle.length - this.personality.homeGuard >= this.personality.squadSize
     ) {
       const units = idle.slice(0, this.personality.squadSize);
@@ -274,7 +289,7 @@ export class EnemyCommander {
     const sx = lead?.transform.x ?? bx;
     const sz = lead?.transform.z ?? bz;
     for (const entity of this.sim.world.entities) {
-      if (entity.team?.id === this.economy.team || !entity.team || entity.destroyed) continue;
+      if (!entity.team || !areTeamsHostile(this.sim, this.economy.team, entity.team.id) || entity.destroyed) continue;
       if (!this.vision.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
       const d = Math.hypot(entity.transform.x - bx, entity.transform.z - bz);
       const squadD = Math.hypot(entity.transform.x - sx, entity.transform.z - sz);

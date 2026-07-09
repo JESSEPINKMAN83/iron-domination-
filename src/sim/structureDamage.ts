@@ -1,7 +1,7 @@
 import type { Entity, StructureDamage } from './components';
 
 const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
-const FIRST_HIT_VISIBLE_FLOOR = 28;
+const FIRST_HIT_VISIBLE_FLOOR = 42;
 
 export function createStructureDamage(entity: Entity): StructureDamage {
   const footprint = entity.building?.footprint ?? { w: 4, h: 4 };

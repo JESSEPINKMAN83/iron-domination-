@@ -3,6 +3,7 @@ import {
   BoxGeometry,
   CanvasTexture,
   CircleGeometry,
+  ConeGeometry,
   CylinderGeometry,
   DoubleSide,
   Group,
@@ -25,6 +26,7 @@ import { buildings, type PlacementState } from '../sim/economy';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { hash2i } from '../sim/noise';
 import type { GameSim } from '../sim/world';
+import { factionId, FACTION, type FactionId } from './palette';
 import type { RenderContext } from './renderer';
 
 const DEFAULT_BUILDING_HEIGHT = 5.4;
@@ -50,12 +52,13 @@ export class BuildingView {
   private readonly rubbleMaterial: Material;
   private readonly interiorMaterial: Material;
   private readonly emberMaterial: Material;
+  private readonly scarMaterial: MeshBasicMaterial;
+  private readonly emberSpotMaterial: MeshBasicMaterial;
   private readonly smokeMaterial: MeshBasicMaterial;
   private readonly fireMaterial: MeshBasicMaterial;
   private readonly healthBackMaterial = new MeshBasicMaterial({ color: 0x050806, transparent: true, opacity: 0.84, depthWrite: false, side: DoubleSide });
 
-  private readonly playerAccent: Material;
-  private readonly enemyAccent: Material;
+  private readonly accentMaterials: Record<FactionId, Material>;
 
   constructor(
     private readonly sim: GameSim,
@@ -63,13 +66,26 @@ export class BuildingView {
     ctx: RenderContext,
     private readonly isVisible: (x: number, z: number) => boolean = () => true,
   ) {
-    this.playerAccent = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0xf0c85a, emissive: 0x2b1d00, roughness: 0.7 }));
-    this.enemyAccent = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0xd65b46, emissive: 0x2a0600, roughness: 0.72 }));
+    this.accentMaterials = {
+      1: this.createAccentMaterial(ctx, 1),
+      2: this.createAccentMaterial(ctx, 2),
+      3: this.createAccentMaterial(ctx, 3),
+      4: this.createAccentMaterial(ctx, 4),
+    };
     this.scorchMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x313638, roughness: 0.96, metalness: 0.04 }));
     this.crackMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x24282a, roughness: 1, metalness: 0.02 }));
     this.rubbleMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1c1a17, roughness: 1, metalness: 0.04 }));
     this.interiorMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x050403, roughness: 1, metalness: 0 }));
     this.emberMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x22100a, emissive: 0xff5a1f, emissiveIntensity: 0.75, roughness: 0.9 }));
+    this.scarMaterial = new MeshBasicMaterial({ color: 0x070605, transparent: true, opacity: 0.5, depthWrite: false, side: DoubleSide });
+    this.emberSpotMaterial = new MeshBasicMaterial({
+      color: 0xff5a1f,
+      transparent: true,
+      opacity: 0.58,
+      depthWrite: false,
+      side: DoubleSide,
+      blending: AdditiveBlending,
+    });
     this.smokeMaterial = new MeshBasicMaterial({ color: 0x282827, transparent: true, opacity: 0.28, depthWrite: false, side: DoubleSide });
     this.fireMaterial = new MeshBasicMaterial({
       color: 0xff7b24,
@@ -91,6 +107,11 @@ export class BuildingView {
       'aa-tower': ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x4b5f6d, roughness: 0.74, metalness: 0.18 })),
     };
     this.ensureGhostCount(1);
+  }
+
+  private createAccentMaterial(ctx: RenderContext, id: FactionId): Material {
+    const team = FACTION[id];
+    return ctx.setupLitMaterial(new MeshStandardMaterial({ color: team.accent, emissive: team.accentEmissive, roughness: 0.7 }));
   }
 
   update(economy: EconomyState, camera: Camera): void {
@@ -227,7 +248,7 @@ export class BuildingView {
 
     const accent = new Mesh(
       new BoxGeometry(fullW * 0.5, 0.22, Math.max(0.5, fullD * 0.12)),
-      entity.team?.id === 2 ? this.enemyAccent : this.playerAccent,
+      this.accentMaterials[factionId(entity.team?.id)],
     );
     accent.position.set(0, buildingHeight + 0.16, fullD * 0.18);
     accent.castShadow = true;
@@ -236,6 +257,8 @@ export class BuildingView {
     label.position.y += 0.13;
     label.position.z += 0.01;
     root.add(accent, label);
+    const details = createBuildingDetails(entity, fullW, fullD, buildingHeight, this.accentMaterials[factionId(entity.team?.id)]);
+    root.add(details);
     const refineryDock = entity.building?.kind === 'refinery' ? createRefineryDock(fullW, fullD, buildingHeight) : undefined;
     if (refineryDock) root.add(refineryDock.root);
 
@@ -243,6 +266,7 @@ export class BuildingView {
       root,
       blocks,
       accents: [accent, label],
+      details,
       refineryDock,
       effects: [],
       appliedVersion: -1,
@@ -268,7 +292,7 @@ export class BuildingView {
     object.collapsed = Boolean(entity.destroyed);
     this.clearEffects(object);
 
-    const worst = worstCells(damage, 4);
+    const worst = worstBlocks(object.blocks, damage, 6);
     const lean = damageVector(damage);
     if (level >= 8) {
       object.leanX = lean.z * 0.035;
@@ -282,11 +306,11 @@ export class BuildingView {
         dressCollapsedBlock(entity, block, this.rubbleMaterial, destroyedRemaining ?? 0);
         continue;
       }
-      if (level >= 9 && block.tier === damage.tiers - 1 && value > 70) dressRemovedBlock(block, this.interiorMaterial);
-      else if (value >= 190) dressRemovedBlock(block, this.interiorMaterial);
-      else if (value >= 155 || (level >= 8 && isCornerCell(damage, block) && value >= 105)) dressRubbleBlock(entity, block, this.rubbleMaterial);
-      else if (value >= 85) dressShrunkBlock(entity, block, this.crackMaterial);
-      else if (value >= 24 || (level >= 2 && value > 0)) dressCrackedBlock(entity, block, this.crackMaterial);
+      if (level >= 9 && block.tier === damage.tiers - 1 && value > 62) dressRemovedBlock(block, this.interiorMaterial);
+      else if (value >= 182) dressRemovedBlock(block, this.interiorMaterial);
+      else if (value >= 128 || (level >= 8 && isCornerCell(damage, block) && value >= 86)) dressRubbleBlock(entity, block, this.rubbleMaterial);
+      else if (value >= 58) dressShrunkBlock(entity, block, this.crackMaterial);
+      else if (value >= 12 || (level >= 1 && value > 0)) dressCrackedBlock(entity, block, this.crackMaterial);
       else if (value > 0) dressScorchedBlock(entity, block, this.scorchMaterial);
       else if (level >= 1) block.mesh.material = block.baseMaterial;
       if (level >= 7 && block.tier > 0 && supportCellBroken(damage, block)) {
@@ -297,22 +321,33 @@ export class BuildingView {
     }
 
     for (const accent of object.accents) accent.visible = level < 4 && !entity.destroyed;
+    updateBuildingDetails(object.details, level, Boolean(entity.destroyed));
 
     const hasLocalizedDamage = worst.some((cell) => cell.value > 0);
-    const smokeCount = !hasLocalizedDamage ? 0 : level >= 9 ? 4 : level >= 7 ? 3 : level >= 5 ? 2 : 1;
-    const fireCount = level >= 9 ? 3 : level >= 7 ? 2 : 0;
+    const scarCount = Math.min(worst.length, level >= 7 ? 6 : level >= 3 ? 5 : 3);
+    const smokeCount = !hasLocalizedDamage ? 0 : level >= 9 ? 4 : level >= 7 ? 3 : level >= 4 ? 2 : 1;
+    const fireCount = level >= 9 ? 3 : level >= 7 ? 2 : level >= 5 ? 1 : 0;
+    const emberCount = level >= 8 ? 3 : level >= 5 ? 2 : level >= 2 ? 1 : 0;
+    for (let i = 0; i < scarCount; i++) this.addEffect(entity, object, worst[i], 'scar', level);
     for (let i = 0; i < Math.min(smokeCount, worst.length); i++) this.addEffect(entity, object, worst[i], 'smoke', level);
     for (let i = 0; i < Math.min(fireCount, worst.length); i++) this.addEffect(entity, object, worst[i], 'fire', level);
+    for (let i = 0; i < Math.min(emberCount, worst.length); i++) this.addEffect(entity, object, worst[i], 'ember', level);
   }
 
-  private addEffect(entity: Entity, object: BuildingObject, cell: DamageCell, kind: 'smoke' | 'fire', level: number): void {
-    const mesh = new Mesh(sharedPlaneGeometry, kind === 'smoke' ? this.smokeMaterial.clone() : this.fireMaterial.clone());
-    const size = kind === 'smoke' ? 1.55 + level * 0.18 : 1.35 + level * 0.08;
+  private addEffect(entity: Entity, object: BuildingObject, cell: DamageCell, kind: DamageEffectKind, level: number): void {
+    const material =
+      kind === 'smoke' ? this.smokeMaterial.clone() : kind === 'fire' ? this.fireMaterial.clone() : kind === 'ember' ? this.emberSpotMaterial.clone() : this.scarMaterial.clone();
+    const mesh = new Mesh(sharedPlaneGeometry, material);
+    const severity = Math.max(0.2, Math.min(1, cell.value / 180));
+    const size =
+      kind === 'smoke' ? 1.45 + level * 0.18 : kind === 'fire' ? 1.2 + level * 0.08 : kind === 'ember' ? 0.52 + severity * 0.7 : 1.15 + severity * 1.45;
     mesh.scale.set(size, size, size);
-    mesh.position.set(cell.position.x, cell.position.y + (kind === 'smoke' ? 1.4 : 0.75), cell.position.z);
-    mesh.renderOrder = kind === 'smoke' ? 26 : 27;
+    mesh.position.set(cell.position.x, cell.position.y + (kind === 'smoke' ? 1.4 : kind === 'fire' ? 0.75 : 0.08), cell.position.z);
+    mesh.rotation.x = kind === 'scar' || kind === 'ember' ? -Math.PI / 2 : 0;
+    mesh.rotation.z = kind === 'scar' || kind === 'ember' ? hash2i(cell.index, entity.id, kind === 'scar' ? 0x5ca9 : 0xe9) * Math.PI : 0;
+    mesh.renderOrder = kind === 'smoke' ? 26 : kind === 'fire' ? 27 : 28;
     object.root.add(mesh);
-    object.effects.push({ mesh, kind, basePosition: mesh.position.clone(), phase: hash2i(cell.index, entity.id, kind === 'smoke' ? 0x5a10 : 0xf117) * Math.PI * 2 });
+    object.effects.push({ mesh, kind, basePosition: mesh.position.clone(), baseScale: size, phase: hash2i(cell.index, entity.id, kind === 'smoke' ? 0x5a10 : 0xf117) * Math.PI * 2 });
   }
 
   private clearEffects(object: BuildingObject): void {
@@ -329,8 +364,7 @@ export class BuildingView {
   // canvas texture, glow/dock/health geometries and their materials) is per-building.
   private isSharedMaterial(m: Material): boolean {
     return (
-      m === this.playerAccent ||
-      m === this.enemyAccent ||
+      Object.values(this.accentMaterials).includes(m) ||
       m === this.healthBackMaterial ||
       m === this.ghostMaterial ||
       m === this.scorchMaterial ||
@@ -338,6 +372,8 @@ export class BuildingView {
       m === this.rubbleMaterial ||
       m === this.interiorMaterial ||
       m === this.emberMaterial ||
+      m === this.scarMaterial ||
+      m === this.emberSpotMaterial ||
       m === this.smokeMaterial ||
       m === this.fireMaterial ||
       Object.values(this.materials).includes(m)
@@ -366,13 +402,20 @@ export class BuildingView {
         effect.mesh.position.y += 0.45 + wave * 0.16;
         const material = effect.mesh.material as MeshBasicMaterial;
         material.opacity = entity.destroyed ? 0.38 : 0.18 + 0.08 * (wave + 1);
-        effect.mesh.scale.x = Math.max(effect.mesh.scale.x, 1) * (1 + wave * 0.01);
-      } else {
+        effect.mesh.scale.set(effect.baseScale * (1 + wave * 0.01), effect.baseScale * (1 + wave * 0.01), effect.baseScale);
+      } else if (effect.kind === 'fire') {
         effect.mesh.position.y += wave * 0.08;
         const material = effect.mesh.material as MeshBasicMaterial;
         material.opacity = 0.48 + 0.2 * (wave + 1);
+      } else if (effect.kind === 'ember') {
+        const material = effect.mesh.material as MeshBasicMaterial;
+        material.opacity = 0.28 + 0.24 * (wave + 1);
+        effect.mesh.scale.setScalar(effect.baseScale * (1 + wave * 0.025));
+      } else {
+        const material = effect.mesh.material as MeshBasicMaterial;
+        material.opacity = entity.destroyed ? 0.62 : 0.42 + 0.05 * (wave + 1);
       }
-      effect.mesh.lookAt(camera.position);
+      if (effect.kind === 'smoke' || effect.kind === 'fire') effect.mesh.lookAt(camera.position);
     }
   }
 
@@ -457,11 +500,11 @@ export class BuildingView {
     const pulse = 0.5 + 0.5 * Math.sin(this.sim.tick * 0.16 + entity.id * 0.7);
     const lift = 0.08;
     glow.root.position.set(entity.transform.x, groundY + lift, entity.transform.z);
-    glow.fillMaterial.opacity = 0.18 + pulse * 0.12;
-    glow.ringMaterial.opacity = 0.48 + pulse * 0.22;
-    const scale = 1 + pulse * 0.035;
+    glow.fillMaterial.opacity = 0.24 + pulse * 0.16;
+    glow.ringMaterial.opacity = 0.68 + pulse * 0.24;
+    const scale = 1 + pulse * 0.055;
     glow.fill.scale.set(scale, scale, 1);
-    glow.ring.scale.set(1 + pulse * 0.025, 1 + pulse * 0.025, 1);
+    glow.ring.scale.set(1 + pulse * 0.04, 1 + pulse * 0.04, 1);
   }
 
   private updateProducerGlow(entity: Entity, groundY: number): void {
@@ -495,6 +538,7 @@ interface BuildingObject {
   root: Group;
   blocks: DamageBlock[];
   accents: Mesh[];
+  details: Group;
   refineryDock?: RefineryDock;
   effects: DamageEffect[];
   appliedVersion: number;
@@ -515,10 +559,13 @@ interface RefineryDock {
 
 interface DamageEffect {
   mesh: Mesh;
-  kind: 'smoke' | 'fire';
+  kind: DamageEffectKind;
   basePosition: Vector3;
+  baseScale: number;
   phase: number;
 }
+
+type DamageEffectKind = 'scar' | 'ember' | 'smoke' | 'fire';
 
 interface DamageCell {
   index: number;
@@ -557,25 +604,27 @@ function resetBlock(block: DamageBlock): void {
 
 function dressScorchedBlock(entity: Entity, block: DamageBlock, material: Material): void {
   block.mesh.material = material;
-  block.mesh.scale.set(block.baseScale.x * 0.97, block.baseScale.y * 0.99, block.baseScale.z * 0.97);
-  block.mesh.position.y -= block.baseScale.y * 0.015;
-  block.mesh.rotation.x = deterministicSigned(block.index, entity.id, 0xb1) * 0.018;
-  block.mesh.rotation.z = deterministicSigned(block.index, entity.id, 0xb2) * 0.018;
+  block.mesh.scale.set(block.baseScale.x * 0.95, block.baseScale.y * 0.985, block.baseScale.z * 0.95);
+  block.mesh.position.y -= block.baseScale.y * 0.025;
+  block.mesh.rotation.x = deterministicSigned(block.index, entity.id, 0xb1) * 0.032;
+  block.mesh.rotation.z = deterministicSigned(block.index, entity.id, 0xb2) * 0.032;
 }
 
 function dressCrackedBlock(entity: Entity, block: DamageBlock, material: Material): void {
   block.mesh.material = material;
-  block.mesh.scale.set(block.baseScale.x * 0.96, block.baseScale.y * 0.98, block.baseScale.z * 0.96);
-  block.mesh.rotation.x = deterministicSigned(block.index, entity.id, 0xc1) * 0.025;
-  block.mesh.rotation.z = deterministicSigned(block.index, entity.id, 0xc2) * 0.025;
+  block.mesh.scale.set(block.baseScale.x * 0.92, block.baseScale.y * 0.95, block.baseScale.z * 0.92);
+  block.mesh.position.y -= block.baseScale.y * 0.04;
+  block.mesh.rotation.x = deterministicSigned(block.index, entity.id, 0xc1) * 0.06;
+  block.mesh.rotation.z = deterministicSigned(block.index, entity.id, 0xc2) * 0.06;
 }
 
 function dressShrunkBlock(entity: Entity, block: DamageBlock, material: Material): void {
   block.mesh.material = material;
-  const shrink = 0.92 + hash2i(block.index, entity.id, 0x120) * 0.03;
-  block.mesh.scale.set(block.baseScale.x * shrink, block.baseScale.y * 0.94, block.baseScale.z * shrink);
-  block.mesh.rotation.x = deterministicSigned(block.index, entity.id, 0x121) * 0.06;
-  block.mesh.rotation.z = deterministicSigned(block.index, entity.id, 0x122) * 0.06;
+  const shrink = 0.84 + hash2i(block.index, entity.id, 0x120) * 0.06;
+  block.mesh.scale.set(block.baseScale.x * shrink, block.baseScale.y * 0.78, block.baseScale.z * shrink);
+  block.mesh.position.y -= block.baseScale.y * 0.11;
+  block.mesh.rotation.x = deterministicSigned(block.index, entity.id, 0x121) * 0.14;
+  block.mesh.rotation.z = deterministicSigned(block.index, entity.id, 0x122) * 0.14;
 }
 
 function dressRubbleBlock(entity: Entity, block: DamageBlock, material: Material): void {
@@ -618,22 +667,13 @@ function isCornerCell(damage: StructureDamage, block: DamageBlock): boolean {
   return (block.col === 0 || block.col === damage.cols - 1) && (block.row === 0 || block.row === damage.rows - 1);
 }
 
-function worstCells(damage: StructureDamage, count: number): DamageCell[] {
-  const fullW = damage.cols;
-  const fullD = damage.rows;
-  return Array.from(damage.cells)
-    .map((value, index) => {
-      const plane = damage.cols * damage.rows;
-      const tier = Math.floor(index / plane);
-      const rem = index - tier * plane;
-      const row = Math.floor(rem / damage.cols);
-      const col = rem % damage.cols;
-      return {
-        index,
-        value,
-        position: new Vector3((col + 0.5 - fullW / 2) * 2.2, 1 + tier * 1.6, (row + 0.5 - fullD / 2) * 2.2),
-      };
-    })
+function worstBlocks(blocks: DamageBlock[], damage: StructureDamage, count: number): DamageCell[] {
+  return blocks
+    .map((block) => ({
+      index: block.index,
+      value: damage.cells[block.index] ?? 0,
+      position: block.basePosition.clone(),
+    }))
     .filter((cell) => cell.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, count);
@@ -668,6 +708,225 @@ function heightForStructure(kind?: string): number {
   if (kind === 'refinery' || kind === 'factory') return 6.2;
   if (kind === 'command-yard') return 6.6;
   return DEFAULT_BUILDING_HEIGHT;
+}
+
+interface DetailPart {
+  object: Object3D;
+  y: number;
+  sx: number;
+  sy: number;
+  sz: number;
+  rx: number;
+  ry: number;
+  rz: number;
+  fragility: number;
+}
+
+function createBuildingDetails(entity: Entity, width: number, depth: number, height: number, accentMaterial: Material): Group {
+  const root = new Group();
+  const kind = entity.building?.kind ?? 'command-yard';
+  const concrete = detailMaterial(0x69706f, 0.84, 0.06);
+  const dark = detailMaterial(0x1d2424, 0.78, 0.12);
+  const metal = detailMaterial(0x4e5759, 0.66, 0.28);
+  const roof = detailMaterial(0x303839, 0.82, 0.1);
+  const glass = detailMaterial(0x9fb8bd, 0.42, 0.02, 0.88);
+  const brass = detailMaterial(0xd1aa55, 0.58, 0.16);
+  const warning = detailMaterial(0xe0b95b, 0.64, 0.08);
+  const beam = transparentBasic(0xf3c86b, 0.26);
+  const parts: DetailPart[] = [];
+  const add = <T extends Object3D>(object: T, fragility = 5): T => {
+    root.add(object);
+    parts.push({
+      object,
+      y: object.position.y,
+      sx: object.scale.x,
+      sy: object.scale.y,
+      sz: object.scale.z,
+      rx: object.rotation.x,
+      ry: object.rotation.y,
+      rz: object.rotation.z,
+      fragility,
+    });
+    return object;
+  };
+  const box = (name: string, w: number, h: number, d: number, x: number, y: number, z: number, material: Material, fragility = 5): Mesh => {
+    const mesh = new Mesh(new BoxGeometry(w, h, d), material);
+    mesh.name = name;
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return add(mesh, fragility);
+  };
+  const cyl = (name: string, rTop: number, rBottom: number, h: number, x: number, y: number, z: number, material: Material, fragility = 5, radial = 14): Mesh => {
+    const mesh = new Mesh(new CylinderGeometry(rTop, rBottom, h, radial), material);
+    mesh.name = name;
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return add(mesh, fragility);
+  };
+  const cone = (name: string, r: number, h: number, x: number, y: number, z: number, material: Material, fragility = 5, radial = 14): Mesh => {
+    const mesh = new Mesh(new ConeGeometry(r, h, radial), material);
+    mesh.name = name;
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return add(mesh, fragility);
+  };
+  const stripe = (w: number, d: number, x: number, z: number, fragility = 4): Mesh => box('faction-stripe', w, 0.12, d, x, height + 0.15, z, accentMaterial, fragility);
+  const door = (w: number, h: number, x: number, z: number, fragility = 4): Mesh => {
+    const mesh = box('door', w, h, 0.18, x, h / 2 + 0.1, z, dark, fragility);
+    return mesh;
+  };
+
+  box('foundation', width * 1.05, 0.34, depth * 1.05, 0, 0.16, 0, dark, 10);
+
+  if (kind === 'command-yard') {
+    box('command-main-tower', width * 0.42, height * 0.46, depth * 0.34, -width * 0.16, height + height * 0.23, -depth * 0.06, concrete, 6);
+    box('command-control-room', width * 0.28, height * 0.24, depth * 0.22, -width * 0.16, height + height * 0.61, -depth * 0.06, glass, 4);
+    box('command-garage', width * 0.44, height * 0.22, depth * 0.28, width * 0.2, height + height * 0.11, depth * 0.14, roof, 6);
+    door(width * 0.3, height * 0.32, width * 0.2, depth * 0.51, 5);
+    stripe(width * 0.48, depth * 0.08, width * 0.04, depth * 0.2, 4);
+    const mast = cyl('command-antenna', 0.08, 0.08, height * 0.9, width * 0.16, height + height * 0.82, -depth * 0.24, metal, 3, 8);
+    mast.rotation.z = 0.05;
+    const dish = cyl('command-dish', 0.75, 0.75, 0.14, width * 0.16, height + height * 1.24, -depth * 0.24, metal, 3, 20);
+    dish.rotation.x = Math.PI * 0.5;
+    dish.rotation.z = -0.28;
+    box('command-service-arm', width * 0.42, 0.16, 0.16, width * 0.04, height + height * 0.98, -depth * 0.28, brass, 4);
+  } else if (kind === 'power-plant') {
+    for (const x of [-width * 0.22, width * 0.18]) {
+      cyl('cooling-tower', width * 0.09, width * 0.13, height * 0.82, x, height + height * 0.4, -depth * 0.12, concrete, 5, 18);
+      cyl('cooling-tower-mouth', width * 0.11, width * 0.11, 0.16, x, height + height * 0.82, -depth * 0.12, dark, 4, 18);
+    }
+    for (const x of [width * 0.02, width * 0.32]) {
+      cyl('smokestack', width * 0.045, width * 0.055, height * 0.88, x, height + height * 0.44, depth * 0.2, metal, 4, 14);
+      cyl('stack-cap', width * 0.065, width * 0.065, 0.16, x, height + height * 0.9, depth * 0.2, dark, 4, 14);
+    }
+    box('generator-hall', width * 0.48, height * 0.22, depth * 0.32, -width * 0.04, height + height * 0.11, depth * 0.2, roof, 6);
+    stripe(width * 0.18, depth * 0.08, width * 0.18, depth * 0.03, 4);
+    box('power-bolt-a', width * 0.09, 0.16, depth * 0.34, width * 0.08, height + height * 0.75, 0, warning, 3).rotation.z = -0.45;
+    box('power-bolt-b', width * 0.09, 0.16, depth * 0.34, width * 0.18, height + height * 0.58, 0, warning, 3).rotation.z = 0.45;
+  } else if (kind === 'refinery') {
+    box('refinery-hopper', width * 0.32, height * 0.36, depth * 0.28, -width * 0.2, height + height * 0.18, -depth * 0.08, concrete, 6);
+    cone('ore-hopper-roof', width * 0.22, height * 0.22, -width * 0.2, height + height * 0.47, -depth * 0.08, roof, 5, 4).rotation.y = Math.PI * 0.25;
+    for (const z of [-depth * 0.22, depth * 0.1]) {
+      const tank = cyl('refinery-tank', width * 0.095, width * 0.095, depth * 0.25, width * 0.26, height + 0.8, z, metal, 5, 18);
+      tank.rotation.z = Math.PI * 0.5;
+      box('tank-band', width * 0.02, 0.08, depth * 0.28, width * 0.26, height + 1.08, z, brass, 4);
+    }
+    for (const x of [-width * 0.03, width * 0.11]) {
+      const pipe = cyl('refinery-pipe', 0.11, 0.11, width * 0.52, x, height + 1.6, depth * 0.16, metal, 4, 12);
+      pipe.rotation.z = Math.PI * 0.5;
+    }
+    stripe(width * 0.34, depth * 0.08, -width * 0.12, depth * 0.12, 4);
+  } else if (kind === 'barracks') {
+    box('barracks-roof-left', width * 0.48, height * 0.12, depth * 0.58, -width * 0.13, height + height * 0.18, 0, roof, 5).rotation.z = -0.12;
+    box('barracks-roof-right', width * 0.48, height * 0.12, depth * 0.58, width * 0.13, height + height * 0.18, 0, roof, 5).rotation.z = 0.12;
+    box('barracks-entry', width * 0.2, height * 0.35, depth * 0.12, -width * 0.24, height + height * 0.08, depth * 0.36, concrete, 5);
+    door(width * 0.15, height * 0.3, -width * 0.24, depth * 0.53, 4);
+    for (const x of [-width * 0.02, width * 0.16, width * 0.32]) box('barracks-window', width * 0.07, height * 0.08, 0.16, x, height * 0.78, depth * 0.52, glass, 3);
+    stripe(width * 0.16, depth * 0.1, width * 0.04, 0, 4);
+  } else if (kind === 'factory') {
+    box('factory-high-bay', width * 0.44, height * 0.45, depth * 0.5, -width * 0.12, height + height * 0.22, -depth * 0.02, concrete, 6);
+    box('factory-roof-cap', width * 0.48, height * 0.13, depth * 0.54, -width * 0.12, height + height * 0.5, -depth * 0.02, roof, 5);
+    door(width * 0.34, height * 0.42, -width * 0.12, depth * 0.53, 5);
+    const crane = box('factory-crane-beam', width * 0.58, 0.18, 0.18, width * 0.04, height + height * 0.72, depth * 0.04, warning, 4);
+    crane.rotation.y = -0.18;
+    for (const x of [-width * 0.22, width * 0.3]) cyl('factory-crane-post', 0.1, 0.1, height * 0.58, x, height + height * 0.35, depth * 0.04, metal, 4, 10);
+    box('factory-conveyor', width * 0.42, 0.24, depth * 0.16, width * 0.22, height + 0.26, -depth * 0.36, dark, 5);
+    stripe(width * 0.3, depth * 0.08, width * 0.05, -depth * 0.18, 4);
+  } else if (kind === 'helipad') {
+    box('helipad-deck', width * 0.92, 0.38, depth * 0.92, 0, height + 0.16, 0, roof, 6);
+    box('helipad-h-cross-a', width * 0.14, 0.08, depth * 0.62, 0, height + 0.42, 0, warning, 3);
+    box('helipad-h-cross-b', width * 0.52, 0.08, depth * 0.12, 0, height + 0.44, 0, warning, 3);
+    box('helipad-control-hut', width * 0.2, height * 0.32, depth * 0.18, -width * 0.34, height + height * 0.18, -depth * 0.28, concrete, 5);
+    box('helipad-glass', width * 0.16, height * 0.08, 0.14, -width * 0.34, height + height * 0.37, -depth * 0.38, glass, 3);
+    const windsock = cyl('windsock-pole', 0.05, 0.05, height * 0.78, width * 0.34, height + height * 0.38, depth * 0.32, metal, 3, 8);
+    windsock.rotation.z = -0.04;
+    box('windsock', width * 0.16, 0.1, 0.1, width * 0.4, height + height * 0.78, depth * 0.32, accentMaterial, 3);
+  } else if (kind === 'wall') {
+    for (const x of [-width * 0.28, 0, width * 0.28]) box('wall-buttress', width * 0.18, height * 0.38, depth * 0.82, x, height + height * 0.08, 0, roof, 7);
+    box('wall-cap', width * 0.92, 0.22, depth * 0.26, 0, height + height * 0.22, 0, warning, 5);
+  } else if (kind === 'guard-tower') {
+    cyl('guard-tower-column', width * 0.1, width * 0.16, height * 0.86, 0, height + height * 0.42, 0, concrete, 6, 14);
+    box('guard-cabin', width * 0.5, height * 0.28, depth * 0.5, 0, height + height * 0.9, 0, concrete, 5);
+    box('guard-window', width * 0.36, height * 0.08, 0.12, 0, height + height * 0.94, depth * 0.26, glass, 3);
+    cone('guard-roof', width * 0.36, height * 0.24, 0, height + height * 1.16, 0, roof, 4, 4).rotation.y = Math.PI * 0.25;
+    const spotlight = new Mesh(new ConeGeometry(width * 0.28, depth * 0.78, 24, 1, true), beam);
+    spotlight.position.set(0, height + height * 0.9, depth * 0.5);
+    spotlight.rotation.x = Math.PI * 0.5;
+    spotlight.renderOrder = 18;
+    add(spotlight, 3);
+    stripe(width * 0.26, depth * 0.08, 0, 0, 4);
+  } else if (kind === 'aa-tower') {
+    box('aa-platform', width * 0.64, height * 0.18, depth * 0.64, 0, height + height * 0.62, 0, metal, 6);
+    cyl('aa-mast', width * 0.1, width * 0.15, height * 0.72, 0, height + height * 0.35, 0, concrete, 6, 12);
+    const launcher = new Group();
+    launcher.position.set(0, height + height * 0.82, 0);
+    launcher.rotation.y = -0.5;
+    for (const z of [-depth * 0.09, depth * 0.09]) {
+      const rail = new Mesh(new CylinderGeometry(width * 0.035, width * 0.035, width * 0.62, 12), metal);
+      rail.rotation.z = Math.PI * 0.5;
+      rail.position.set(0, 0, z);
+      rail.castShadow = true;
+      launcher.add(rail);
+      const nose = new Mesh(new ConeGeometry(width * 0.055, width * 0.16, 12), warning);
+      nose.rotation.z = -Math.PI * 0.5;
+      nose.position.set(width * 0.36, 0, z);
+      nose.castShadow = true;
+      launcher.add(nose);
+    }
+    add(launcher, 4);
+    const dish = cyl('aa-radar-dish', width * 0.16, width * 0.16, 0.12, -width * 0.28, height + height * 0.94, -depth * 0.2, metal, 3, 20);
+    dish.rotation.x = Math.PI * 0.5;
+    dish.rotation.z = 0.38;
+    stripe(width * 0.24, depth * 0.08, 0, 0, 4);
+  } else {
+    stripe(width * 0.4, depth * 0.08, 0, depth * 0.12, 4);
+  }
+
+  syncDetailPartBases(parts);
+  root.userData.detailParts = parts;
+  return root;
+}
+
+function syncDetailPartBases(parts: DetailPart[]): void {
+  for (const part of parts) {
+    part.y = part.object.position.y;
+    part.sx = part.object.scale.x;
+    part.sy = part.object.scale.y;
+    part.sz = part.object.scale.z;
+    part.rx = part.object.rotation.x;
+    part.ry = part.object.rotation.y;
+    part.rz = part.object.rotation.z;
+  }
+}
+
+function updateBuildingDetails(root: Group, level: number, destroyed: boolean): void {
+  const parts = (root.userData.detailParts ?? []) as DetailPart[];
+  for (const part of parts) {
+    const t = destroyed ? 1 : Math.max(0, Math.min(1, (level - part.fragility) / 5));
+    part.object.visible = !destroyed || part.fragility >= 7 || t < 0.96;
+    part.object.position.y = part.y - t * (0.55 + part.y * 0.34);
+    part.object.scale.set(part.sx * (1 - t * 0.22), part.sy * (1 - t * 0.44), part.sz * (1 - t * 0.22));
+    part.object.rotation.set(part.rx + t * 0.12, part.ry + t * 0.18, part.rz + t * 0.2);
+  }
+}
+
+function detailMaterial(color: number, roughness: number, metalness: number, opacity = 1): MeshStandardMaterial {
+  return new MeshStandardMaterial({ color, roughness, metalness, transparent: opacity < 1, opacity });
+}
+
+function transparentBasic(color: number, opacity: number): MeshBasicMaterial {
+  return new MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    side: DoubleSide,
+    blending: AdditiveBlending,
+    toneMapped: false,
+  });
 }
 
 function createBuildingLabel(text: string, width: number, depth: number, buildingHeight: number): Mesh {
@@ -778,13 +1037,15 @@ function createSelectionGlow(
   root.visible = false;
   root.rotation.x = -Math.PI / 2;
   root.renderOrder = options.renderOrder ?? 34;
-  const accent = options.color ?? (entity.team?.id === 2 ? 0xff6048 : 0xf0d56a);
+  const team = FACTION[factionId(entity.team?.id)];
+  const accent = options.color ?? team.lightBar;
   const radius = Math.hypot(entity.building!.footprint.w * cellSize, entity.building!.footprint.h * cellSize) * (options.radiusScale ?? 1);
   const fillMaterial = new MeshBasicMaterial({
     color: accent,
     transparent: true,
     opacity: 0.24,
     depthWrite: false,
+    depthTest: false,
     side: DoubleSide,
     blending: AdditiveBlending,
   });
@@ -793,6 +1054,7 @@ function createSelectionGlow(
     transparent: true,
     opacity: 0.58,
     depthWrite: false,
+    depthTest: false,
     side: DoubleSide,
     blending: AdditiveBlending,
   });

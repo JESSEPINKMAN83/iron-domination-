@@ -2,8 +2,11 @@
 // Fully deterministic from the map seed. No rendering dependencies.
 import { fbm2, mulberry32, smoothstep } from './noise';
 
+export type MapKind = 'highlands' | 'crater-oasis' | 'frostbite-pass';
+
 export interface MapConfig {
   seed: number;
+  kind?: MapKind;
   /** cells per side of the walkability grid (heights have cells+1 samples per side) */
   cells: number;
   /** world meters per cell */
@@ -19,6 +22,7 @@ export interface OreField {
 }
 
 export interface Heightfield {
+  kind: MapKind;
   cells: number;
   cellSize: number;
   /** world size in meters per side */
@@ -31,7 +35,7 @@ export interface Heightfield {
   heights: Float32Array;
   /** cells×cells, 1 = walkable */
   walkable: Uint8Array;
-  /** samples×samples RGBA: R=grass G=dirt B=rock A=ore */
+  /** samples×samples RGBA terrain weights. R=base biome, G=loose ground, B=rock/ice, A=ore */
   splat: Uint8Array;
   oreFields: OreField[];
 }
@@ -65,6 +69,7 @@ export function sampleHeight(hf: Heightfield, x: number, z: number): number {
 
 export function generateHeightfield(cfg: MapConfig): Heightfield {
   const { seed, cells, cellSize, waterLevel } = cfg;
+  const kind = cfg.kind ?? 'highlands';
   const samples = cells + 1;
   const size = cells * cellSize;
   const half = size / 2;
@@ -85,13 +90,31 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
       const basinA = smoothstep(size * 0.16, size * 0.07, Math.hypot(wx + size * 0.24, wz - size * 0.16));
       const basinB = smoothstep(size * 0.12, size * 0.05, Math.hypot(wx - size * 0.18, wz + size * 0.22));
       const lakePocket = Math.max(noisyLake, basinA, basinB);
-      const h =
+      let h =
         4.0 +
         continent * 8.0 +
         terrace(plate, 4, 0.02) * 34.0 * mask +
         rolling -
         basin * 18.0 -
         lakePocket * 9.0;
+      if (kind === 'crater-oasis') {
+        const r = Math.hypot(wx, wz);
+        const angle = Math.atan2(wz, wx);
+        const crater = smoothstep(size * 0.19, size * 0.045, r);
+        const innerRim = smoothstep(size * 0.12, size * 0.2, r);
+        const outerRim = smoothstep(size * 0.34, size * 0.25, r);
+        const diagonalGates = smoothstep(0.2, 0.035, Math.abs(Math.cos(angle * 2)));
+        const brokenRim = innerRim * outerRim * (1 - diagonalGates * 0.72);
+        const outerPlateau = smoothstep(size * 0.42, size * 0.22, r);
+        h += brokenRim * 23.0 - crater * 24.0 + outerPlateau * 4.0;
+      } else if (kind === 'frostbite-pass') {
+        const ridgeA = smoothstep(90, 10, Math.abs(wx + size * 0.23 + Math.sin(wz * 0.009) * 42));
+        const ridgeB = smoothstep(82, 12, Math.abs(wx - size * 0.25 + Math.sin(wz * 0.008 + 1.7) * 38));
+        const pass = smoothstep(size * 0.11, size * 0.028, Math.abs(wz + Math.sin(wx * 0.006) * 38));
+        const frozenBasin = smoothstep(size * 0.19, size * 0.05, Math.hypot(wx, wz - size * 0.04));
+        const northShelf = smoothstep(size * 0.46, size * 0.18, Math.abs(wz - size * 0.3));
+        h += ridgeA * 26.0 + ridgeB * 24.0 + northShelf * 6.0 - pass * 16.0 - frozenBasin * 18.0;
+      }
       heights[gy * samples + gx] = h;
       if (h > maxHeight) maxHeight = h;
     }
@@ -100,7 +123,40 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
   // --- ore fields: flat, dry, mutually spaced spots ---
   const rng = mulberry32(seed ^ 0x0be5);
   const oreFields: OreField[] = [];
-  const minSpacing = Math.min(150, size * 0.3);
+  const minSpacing =
+    kind === 'crater-oasis' ? Math.min(116, size * 0.22) : kind === 'frostbite-pass' ? Math.min(108, size * 0.2) : Math.min(150, size * 0.3);
+  if (kind === 'crater-oasis') {
+    const anchors = [
+      [-0.28, -0.3],
+      [0.28, 0.3],
+      [0.3, -0.28],
+      [-0.3, 0.28],
+      [0, -0.34],
+      [0, 0.34],
+      [-0.34, 0],
+      [0.34, 0],
+    ];
+    for (const [ax, az] of anchors) {
+      const found = findOreSpotNear(heights, samples, cellSize, size, waterLevel, ax * size, az * size, rng, oreFields, minSpacing * 0.74, kind);
+      if (found) oreFields.push(found);
+      if (oreFields.length >= cfg.oreFieldCount) break;
+    }
+  } else if (kind === 'frostbite-pass') {
+    const anchors = [
+      [-0.36, -0.34],
+      [0.36, 0.34],
+      [-0.34, 0.28],
+      [0.34, -0.28],
+      [0, -0.36],
+      [0, 0.36],
+      [0, 0],
+    ];
+    for (const [ax, az] of anchors) {
+      const found = findOreSpotNear(heights, samples, cellSize, size, waterLevel, ax * size, az * size, rng, oreFields, minSpacing * 0.68, kind);
+      if (found) oreFields.push(found);
+      if (oreFields.length >= cfg.oreFieldCount) break;
+    }
+  }
   let guard = 0;
   while (oreFields.length < cfg.oreFieldCount && guard++ < 6000) {
     const x = (rng() * 1.4 - 0.7) * half;
@@ -111,7 +167,7 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
     const sz = Math.abs(sampleHeightData(heights, samples, cellSize, x, z + 3) - sampleHeightData(heights, samples, cellSize, x, z - 3)) / 6;
     if (Math.max(sx, sz) > 0.22) continue;
     if (oreFields.some((f) => (f.x - x) ** 2 + (f.z - z) ** 2 < minSpacing ** 2)) continue;
-    oreFields.push({ x, z, radius: 26 + rng() * 14 });
+    oreFields.push({ x, z, radius: oreRadius(kind, rng) });
   }
 
   // --- splat weights: rock on steep slopes, dirt near shores/patches, ore stains, grass elsewhere ---
@@ -132,18 +188,35 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
       const shore = smoothstep(waterLevel + 2.2, waterLevel + 0.4, hC);
       const patch = smoothstep(0.56, 0.72, fbm2(wx * 0.011 + 91.4, wz * 0.011 + 13.2, seed ^ 0x1234, 3));
       let dirtW = Math.max(shore, patch * 0.85) * (1 - rockW);
+      let adjustedRockW = rockW;
+      if (kind === 'crater-oasis') {
+        const r = Math.hypot(wx, wz);
+        const angle = Math.atan2(wz, wx);
+        const craterDust = smoothstep(size * 0.42, size * 0.12, r);
+        const rim = smoothstep(size * 0.14, size * 0.22, r) * smoothstep(size * 0.36, size * 0.27, r);
+        const diagonalScars = smoothstep(0.16, 0.025, Math.abs(Math.cos(angle * 2))) * smoothstep(size * 0.46, size * 0.08, r);
+        adjustedRockW = Math.max(adjustedRockW, rim * 0.62);
+        dirtW = Math.max(dirtW, craterDust * 0.42, diagonalScars * 0.72);
+      } else if (kind === 'frostbite-pass') {
+        const ridgeIce = smoothstep(0.34, 0.72, slope);
+        const windScrape = smoothstep(0.58, 0.74, fbm2(wx * 0.018 - 28.4, wz * 0.018 + 44.9, seed ^ 0xf051, 3));
+        const passIce = smoothstep(size * 0.15, size * 0.035, Math.abs(wz + Math.sin(wx * 0.006) * 38));
+        adjustedRockW = Math.max(adjustedRockW, ridgeIce * 0.72);
+        dirtW = Math.max(dirtW, windScrape * 0.34, passIce * 0.58);
+      }
+      dirtW *= 1 - adjustedRockW;
       let oreW = 0;
       for (const f of oreFields) {
         const d = Math.hypot(wx - f.x, wz - f.z);
         oreW = Math.max(oreW, smoothstep(f.radius, f.radius * 0.5, d));
       }
-      oreW *= 1 - rockW;
+      oreW *= 1 - adjustedRockW;
       dirtW *= 1 - oreW;
-      const grassW = Math.max(0, 1 - rockW - dirtW - oreW);
-      const sum = grassW + dirtW + rockW + oreW;
+      const grassW = Math.max(0, 1 - adjustedRockW - dirtW - oreW);
+      const sum = grassW + dirtW + adjustedRockW + oreW;
       splat[i * 4] = Math.round((grassW / sum) * 255);
       splat[i * 4 + 1] = Math.round((dirtW / sum) * 255);
-      splat[i * 4 + 2] = Math.round((rockW / sum) * 255);
+      splat[i * 4 + 2] = Math.round((adjustedRockW / sum) * 255);
       splat[i * 4 + 3] = Math.round((oreW / sum) * 255);
     }
   }
@@ -165,7 +238,42 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
     }
   }
 
-  return { cells, cellSize, size, samples, waterLevel, maxHeight, heights, walkable, splat, oreFields };
+  return { kind, cells, cellSize, size, samples, waterLevel, maxHeight, heights, walkable, splat, oreFields };
+}
+
+function oreRadius(kind: MapConfig['kind'], rng: () => number): number {
+  if (kind === 'crater-oasis') return 30 + rng() * 18;
+  if (kind === 'frostbite-pass') return 28 + rng() * 16;
+  return 26 + rng() * 14;
+}
+
+function findOreSpotNear(
+  heights: Float32Array,
+  samples: number,
+  cellSize: number,
+  size: number,
+  waterLevel: number,
+  anchorX: number,
+  anchorZ: number,
+  rng: () => number,
+  existing: OreField[],
+  minSpacing: number,
+  kind: MapKind,
+): OreField | undefined {
+  for (let attempt = 0; attempt < 44; attempt++) {
+    const radius = (rng() ** 0.7) * size * 0.075;
+    const angle = rng() * Math.PI * 2;
+    const x = Math.max(-size * 0.44, Math.min(size * 0.44, anchorX + Math.cos(angle) * radius));
+    const z = Math.max(-size * 0.44, Math.min(size * 0.44, anchorZ + Math.sin(angle) * radius));
+    const h = sampleHeightData(heights, samples, cellSize, x, z);
+    if (h < waterLevel + 1.4) continue;
+    const sx = Math.abs(sampleHeightData(heights, samples, cellSize, x + 4, z) - sampleHeightData(heights, samples, cellSize, x - 4, z)) / 8;
+    const sz = Math.abs(sampleHeightData(heights, samples, cellSize, x, z + 4) - sampleHeightData(heights, samples, cellSize, x, z - 4)) / 8;
+    if (Math.max(sx, sz) > 0.38) continue;
+    if (existing.some((field) => (field.x - x) ** 2 + (field.z - z) ** 2 < minSpacing ** 2)) continue;
+    return { x, z, radius: oreRadius(kind, rng) };
+  }
+  return undefined;
 }
 
 /** FNV-1a over all generated data — used by determinism tests. */

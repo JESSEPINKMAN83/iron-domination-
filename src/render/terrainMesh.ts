@@ -19,7 +19,7 @@ import {
 } from 'three';
 import type { CSM } from 'three/addons/csm/CSM.js';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
-import { createDirtTexture, createGrassTexture, createOreTexture, createRockTexture } from './textures';
+import { createDirtTexture, createGrassTexture, createOreTexture, createRockTexture, type TerrainTextureStyle } from './textures';
 import type { ResourceNode } from '../sim/world';
 
 const CHUNKS = 4;
@@ -326,9 +326,10 @@ function hashAngle(x: number, z: number): number {
 }
 
 function createSplatMaterial(hf: Heightfield, csm: CSM, maxAnisotropy: number): MeshStandardMaterial {
-  const grass = createGrassTexture();
-  const dirt = createDirtTexture();
-  const rock = createRockTexture();
+  const style = terrainTextureStyle(hf);
+  const grass = createGrassTexture(style);
+  const dirt = createDirtTexture(style);
+  const rock = createRockTexture(style);
   const ore = createOreTexture();
   const aniso = Math.min(8, maxAnisotropy);
   for (const t of [grass, dirt, rock, ore]) t.anisotropy = aniso;
@@ -381,6 +382,12 @@ function createSplatMaterial(hf: Heightfield, csm: CSM, maxAnisotropy: number): 
       );
   };
   return material;
+}
+
+function terrainTextureStyle(hf: Heightfield): TerrainTextureStyle {
+  if (hf.kind === 'crater-oasis') return 'desert';
+  if (hf.kind === 'frostbite-pass') return 'snow';
+  return 'temperate';
 }
 
 function createWalkOverlayMaterial(hf: Heightfield): MeshBasicMaterial {

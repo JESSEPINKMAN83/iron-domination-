@@ -33,6 +33,7 @@ export class RenderContext {
   readonly renderer: WebGLRenderer;
   readonly scene: Scene;
   readonly camera: PerspectiveCamera;
+  readonly hemisphere: HemisphereLight;
   readonly csm: CSM;
   /** direction light travels (from sun toward ground), normalized */
   readonly sunDirection = new Vector3(-0.5, -0.85, -0.32).normalize();
@@ -58,7 +59,8 @@ export class RenderContext {
 
     this.camera = new PerspectiveCamera(50, window.innerWidth / window.innerHeight, 2, 3000);
 
-    this.scene.add(new HemisphereLight(0xcfe0f2, 0x8a795d, 0.75));
+    this.hemisphere = new HemisphereLight(0xcfe0f2, 0x8a795d, 0.75);
+    this.scene.add(this.hemisphere);
 
     this.csm = new CSM({
       camera: this.camera,

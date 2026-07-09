@@ -1,4 +1,4 @@
-// Phase 6 acceptance: a passive player must fall to the Normal AI in single-digit minutes.
+// Phase 6 acceptance: a passive player must fall to the Normal AI on the larger corner-spawn map.
 import { describe, expect, it, vi } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { startPosition } from '../content/startPositions';
@@ -12,7 +12,7 @@ import { EnemyCommander } from './commander';
 const DT = 1 / 30;
 
 describe('phase 6 acceptance', () => {
-  it('normal/balanced AI defeats a passive player within ~14 sim-minutes', () => {
+  it('normal/balanced AI defeats a passive player within ~24 sim-minutes', () => {
     const logs: string[] = [];
     vi.spyOn(console, 'info').mockImplementation((msg: string) => logs.push(String(msg)));
     const hf = generateHeightfield(MAP01);
@@ -30,7 +30,7 @@ describe('phase 6 acceptance', () => {
     spawnDebugTanks(sim, hf, 8);
 
     let defeatTick = -1;
-    const maxTicks = 30 * 60 * 14;
+    const maxTicks = 30 * 60 * 24;
     for (let i = 0; i < maxTicks; i++) {
       commander.step(DT);
       stepEconomy(sim, hf, playerEconomy, DT);

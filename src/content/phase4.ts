@@ -1,6 +1,7 @@
 export type ArmorClass = 'infantry' | 'light' | 'heavy' | 'building' | 'air';
 export type WeaponKind =
   | 'rifle'
+  | 'sniperRifle'
   | 'grenade'
   | 'rocketLauncher'
   | 'autocannon'
@@ -45,6 +46,16 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     splashRadius: 0,
     targetTypes: ['infantry', 'light', 'heavy'],
     vs: { infantry: 1, light: 0.45, heavy: 0.2, building: 0.12, air: 0 },
+  },
+  sniperRifle: {
+    kind: 'sniperRifle',
+    label: 'Scoped Rifle',
+    damage: 64,
+    cooldown: 1.35,
+    range: 320,
+    splashRadius: 0,
+    targetTypes: ['infantry'],
+    vs: { infantry: 1.35, light: 0.12, heavy: 0.03, building: 0.02, air: 0 },
   },
   grenade: {
     kind: 'grenade',

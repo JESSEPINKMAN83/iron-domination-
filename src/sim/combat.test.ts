@@ -4,7 +4,7 @@ import { damageForArmor, manualFireAt, stepCombat } from './combat';
 import { createEconomy, createInitialBase, placeStructure, spawnInfantryAt, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
-import { createGameSim, hashSim, spawnTankAt, spawnVultureAt, stepSim } from './world';
+import { createGameSim, hashSim, issueMoveOrder, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, stepSim } from './world';
 
 const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
   for (let i = 0; i < Math.round(seconds * 30); i++) stepCombat(sim, 1 / 30);
@@ -13,9 +13,43 @@ const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
 describe('phase 4 combat simulation', () => {
   it('applies weapon damage matrix values', () => {
     expect(damageForArmor('rifle', 'heavy')).toBeCloseTo(2.2);
+    expect(damageForArmor('sniperRifle', 'infantry')).toBeCloseTo(86.4);
     expect(damageForArmor('cannon', 'heavy')).toBeCloseTo(5.76);
     expect(damageForArmor('bomb', 'heavy')).toBeCloseTo(15.08);
     expect(damageForArmor('bomb', 'building')).toBeCloseTo(7.8);
+  });
+
+  it('lets a sniper manually pick infantry from long range', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const sniper = spawnInfantryAt(sim, -160, 0, 1, 'sniper');
+    const target = spawnInfantryAt(sim, 150, 0, 2, 'infantry');
+    sniper.turret!.yaw = Math.PI / 2;
+
+    expect(manualFireAt(sim, sniper, target.transform.x, target.transform.z, 'primary')).toBe(true);
+
+    expect(sniper.weapon?.kind).toBe('sniperRifle');
+    expect(sniper.weapon?.range).toBe(320);
+    expect(target.health?.current).toBe(0);
+    expect(sim.events[sim.events.length - 1]?.kind).toBe('sniperRifle');
+  });
+
+  it('lets a player-controlled sniper fire again after reload', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const sniper = spawnInfantryAt(sim, -160, 0, 1, 'sniper');
+    const first = spawnInfantryAt(sim, 140, 0, 2, 'infantry');
+    const second = spawnInfantryAt(sim, 145, 8, 2, 'infantry');
+    sniper.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    sniper.turret!.yaw = Math.PI / 2;
+
+    expect(manualFireAt(sim, sniper, first.transform.x, first.transform.z, 'primary')).toBe(true);
+    expect(manualFireAt(sim, sniper, second.transform.x, second.transform.z, 'primary')).toBe(false);
+    settle(sim, 1.4);
+    sniper.turret!.yaw = Math.PI / 2;
+
+    expect(manualFireAt(sim, sniper, second.transform.x, second.transform.z, 'primary')).toBe(true);
+    expect(second.health?.current).toBe(0);
   });
 
   it('resolves a deterministic tank engagement and records combat events', () => {
@@ -57,6 +91,52 @@ describe('phase 4 combat simulation', () => {
     expect(event?.targetHealth).toBe(target.health?.current);
     expect(event?.targetMaxHealth).toBe(100);
     expect(attacker.weapons?.primary.cooldown).toBeGreaterThan(0);
+  });
+
+  it('lets low-accuracy AI direct fire miss instead of always landing perfect hits', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnTankAt(sim, -20, -20, 'Easy AI', 2);
+    const target = spawnTankAt(sim, 20, -20, 'Player', 1);
+    target.weapon = undefined;
+    target.weapons = undefined;
+    attacker.turret!.yaw = Math.PI / 2;
+    attacker.weapons!.secondary = undefined;
+    attacker.aiCombat = {
+      accuracy: 0,
+      cooldownMultiplier: 2,
+      projectileScatter: 12,
+      targetAcquireDelayTicks: 0,
+      possessedTargetPriority: 1,
+    };
+
+    stepCombat(sim, 1 / 30);
+
+    const event = sim.events.at(-1);
+    expect(event?.kind).toBe('cannon');
+    expect(event?.damage).toBe(0);
+    expect(target.health?.current).toBe(100);
+    expect(attacker.weapons?.primary.cooldown).toBeCloseTo(0.76);
+    expect(Math.hypot((event?.toX ?? 0) - target.transform.x, (event?.toZ ?? 0) - target.transform.z)).toBeGreaterThan(1.5);
+  });
+
+  it('manual combat mode prevents idle auto-fire until the player issues attack-move', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const attacker = spawnTankAt(sim, -20, -20, 'Manual Tank');
+    const target = spawnTankAt(sim, 18, -20, 'Target', 2);
+    attacker.turret!.yaw = Math.PI / 2;
+
+    settle(sim, 2);
+    expect(sim.events.some((event) => event.kind === 'cannon')).toBe(false);
+    expect(target.health?.current).toBe(100);
+
+    expect(issueMoveOrder(sim, [attacker], 42, -20, true)).toBe(true);
+    stepCombat(sim, 1 / 30);
+
+    expect(sim.events.some((event) => event.kind === 'cannon')).toBe(true);
+    expect(target.health?.current).toBeLessThan(100);
   });
 
   it('preserves manual direct-fire aim height when shooting above the ground', () => {
@@ -137,6 +217,25 @@ describe('phase 4 combat simulation', () => {
     expect(attacker.health?.current).toBe(100); // own splash never hurts own team
   });
 
+  it('lets possessed aircraft drop bombs almost directly below themselves', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -14, -20, 'Vulture 1');
+    vulture.playerControlled = { throttle: 0, turn: 0, aimYaw: 0, climb: 0 };
+
+    const fired = manualFireAt(sim, vulture, vulture.transform.x, vulture.transform.z, 'secondary');
+
+    expect(fired).toBe(true);
+    expect(sim.projectiles).toHaveLength(2);
+    expect(sim.events[0]?.trajectory).toBe('drop');
+    const bombs = sim.events.filter((event) => event.kind === 'bomb');
+    const centerX = bombs.reduce((sum, event) => sum + event.toX, 0) / bombs.length;
+    const centerZ = bombs.reduce((sum, event) => sum + event.toZ, 0) / bombs.length;
+    expect(Math.hypot(centerX - vulture.transform.x, centerZ - vulture.transform.z)).toBeLessThan(0.1);
+    expect(Math.max(...bombs.map((event) => Math.hypot(event.toX - vulture.transform.x, event.toZ - vulture.transform.z)))).toBeLessThan(2.5);
+    expect(sim.events[0]?.fromY).toBeGreaterThan(sampleHeight(hf, vulture.transform.x, vulture.transform.z) + 20);
+  });
+
   it('lets a moving possessed tank dodge enemy bombs — and punishes standing still', () => {
     const run = (dodge: boolean) => {
       const hf = generateHeightfield(MAP01);
@@ -198,6 +297,59 @@ describe('phase 4 combat simulation', () => {
     expect(enemy.health?.current).toBeLessThan(100);
     expect(sim.events.filter((event) => event.kind === 'bomb-impact')).toHaveLength(2);
     expect(vulture.weapons?.secondary?.cooldown).toBeGreaterThan(0);
+  });
+
+  it('reloads possessed aircraft weapons in passive lineup combat mode', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -14, -20, 'Vulture 1');
+    const enemy = spawnTankAt(sim, 24, 18, 'Target', 2);
+    vulture.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.atan2(enemy.transform.x - vulture.transform.x, enemy.transform.z - vulture.transform.z), climb: 0 };
+    if (vulture.turret) vulture.turret.yaw = vulture.playerControlled.aimYaw;
+
+    expect(manualFireAt(sim, vulture, enemy.transform.x, enemy.transform.z, 'primary')).toBe(true);
+    expect(manualFireAt(sim, vulture, enemy.transform.x, enemy.transform.z, 'secondary')).toBe(true);
+    expect(manualFireAt(sim, vulture, enemy.transform.x, enemy.transform.z, 'primary')).toBe(false);
+    expect(manualFireAt(sim, vulture, enemy.transform.x, enemy.transform.z, 'secondary')).toBe(false);
+
+    for (let i = 0; i < Math.round(4.2 * 30); i++) stepCombat(sim, 1 / 30, { autoFire: false });
+    if (vulture.turret) vulture.turret.yaw = vulture.playerControlled.aimYaw;
+
+    expect(vulture.weapons?.primary.cooldown).toBe(0);
+    expect(vulture.weapons?.secondary?.cooldown).toBe(0);
+    expect(manualFireAt(sim, vulture, enemy.transform.x, enemy.transform.z, 'primary')).toBe(true);
+    expect(manualFireAt(sim, vulture, enemy.transform.x, enemy.transform.z, 'secondary')).toBe(true);
+  });
+
+  it('reloads possessed ground vehicle weapons in passive lineup combat mode', () => {
+    const variants = [
+      { name: 'Jackal', spawn: spawnScoutTankAt },
+      { name: 'M-17', spawn: spawnTankAt },
+      { name: 'Mauler', spawn: spawnSiegeTankAt },
+    ];
+
+    for (const variant of variants) {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const vehicle = variant.spawn(sim, -20, -20, variant.name);
+      const enemy = spawnTankAt(sim, 40, -20, 'Target', 2);
+      const aimYaw = Math.atan2(enemy.transform.x - vehicle.transform.x, enemy.transform.z - vehicle.transform.z);
+      vehicle.playerControlled = { throttle: 0, turn: 0, aimYaw };
+      if (vehicle.turret) vehicle.turret.yaw = aimYaw;
+
+      expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'primary')).toBe(true);
+      expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'secondary')).toBe(true);
+      expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'primary')).toBe(false);
+      expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'secondary')).toBe(false);
+
+      for (let i = 0; i < Math.round(4.2 * 30); i++) stepCombat(sim, 1 / 30, { autoFire: false });
+      if (vehicle.turret) vehicle.turret.yaw = aimYaw;
+
+      expect(vehicle.weapons?.primary.cooldown).toBe(0);
+      expect(vehicle.weapons?.secondary?.cooldown).toBe(0);
+      expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'primary')).toBe(true);
+      expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'secondary')).toBe(true);
+    }
   });
 
   it('prevents ordinary tank cannon fire from targeting airborne Vultures', () => {
@@ -329,6 +481,26 @@ describe('phase 4 combat simulation', () => {
     expect(defender.transform.x).toBeGreaterThan(before);
   });
 
+  it('manual defense mode does not auto-rally defenders after a base hit', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    sim.rules.autoDefense = false;
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+    const defender = spawnTankAt(sim, base.transform.x + 28, base.transform.z, 'Home Guard');
+    const attacker = spawnTankAt(sim, base.transform.x + 190, base.transform.z, 'Raider', 2);
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: -Math.PI / 2 };
+
+    expect(manualFireAt(sim, attacker, base.transform.x, base.transform.z, 'secondary')).toBe(true);
+    settle(sim, 3);
+
+    expect(base.health?.current).toBeLessThan(base.health!.max);
+    expect(defender.mover?.defenseAlert).toBeUndefined();
+    expect(defender.mover?.engage).toBeUndefined();
+    expect(defender.weapon?.targetId).toBeUndefined();
+  });
+
   it('alerts nearby defenders when a friendly harvester is hit', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -401,7 +573,7 @@ describe('phase 4 combat simulation', () => {
       trajectory: 'flat',
     });
 
-    expect(Math.max(...base.structureDamage!.cells)).toBeGreaterThanOrEqual(24);
+    expect(Math.max(...base.structureDamage!.cells)).toBeGreaterThanOrEqual(42);
   });
 
   it('biases arcing structure damage upward and splashes to neighbors with support bleed', () => {

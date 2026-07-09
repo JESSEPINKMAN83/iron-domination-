@@ -20,8 +20,20 @@ export interface PersonalityDef {
 export interface DifficultyDef {
   /** seconds between AI decisions — its "reaction time" */
   reactionDelay: number;
+  /** first attack timing modifier; Normal is exactly 1 */
+  attackDelayMultiplier: number;
   /** resource handicap; Normal is exactly 1 — never map hacks, only economics */
   incomeMultiplier: number;
+  /** auto-combat hit quality; Normal is exactly 1 */
+  combatAccuracy: number;
+  /** auto-combat reload handicap; Normal is exactly 1 */
+  combatCooldownMultiplier: number;
+  /** deterministic projectile aim scatter in map units */
+  projectileScatter: number;
+  /** ticks before a unit may acquire a fresh target after losing/finishing one */
+  targetAcquireDelayTicks: number;
+  /** lower values make the AI less eager to dogpile the player-possessed unit */
+  possessedTargetPriority: number;
   tankCap: number;
   infantryCap: number;
   startCredits: number;
@@ -61,7 +73,43 @@ export const AI_PERSONALITY: Record<Personality, PersonalityDef> = {
 };
 
 export const AI_DIFFICULTY: Record<Difficulty, DifficultyDef> = {
-  easy: { reactionDelay: 2.4, incomeMultiplier: 0.7, tankCap: 10, infantryCap: 4, startCredits: 3000 },
-  normal: { reactionDelay: 1.1, incomeMultiplier: 1.0, tankCap: 22, infantryCap: 8, startCredits: 4600 },
-  hard: { reactionDelay: 0.55, incomeMultiplier: 1.35, tankCap: 34, infantryCap: 12, startCredits: 6500 },
+  easy: {
+    reactionDelay: 3.2,
+    attackDelayMultiplier: 1.75,
+    incomeMultiplier: 0.62,
+    combatAccuracy: 0.58,
+    combatCooldownMultiplier: 1.55,
+    projectileScatter: 8.5,
+    targetAcquireDelayTicks: 42,
+    possessedTargetPriority: 0.92,
+    tankCap: 8,
+    infantryCap: 4,
+    startCredits: 2600,
+  },
+  normal: {
+    reactionDelay: 1.1,
+    attackDelayMultiplier: 1.0,
+    incomeMultiplier: 1.0,
+    combatAccuracy: 0.97,
+    combatCooldownMultiplier: 1.0,
+    projectileScatter: 0.8,
+    targetAcquireDelayTicks: 4,
+    possessedTargetPriority: 0.55,
+    tankCap: 22,
+    infantryCap: 8,
+    startCredits: 4600,
+  },
+  hard: {
+    reactionDelay: 0.55,
+    attackDelayMultiplier: 0.72,
+    incomeMultiplier: 1.35,
+    combatAccuracy: 1.0,
+    combatCooldownMultiplier: 0.9,
+    projectileScatter: 0.5,
+    targetAcquireDelayTicks: 0,
+    possessedTargetPriority: 0.45,
+    tankCap: 34,
+    infantryCap: 12,
+    startCredits: 6500,
+  },
 };

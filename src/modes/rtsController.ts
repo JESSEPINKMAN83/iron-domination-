@@ -1,6 +1,6 @@
 import { Raycaster, Vector2, Vector3, type PerspectiveCamera } from 'three';
 import type { GameSim } from '../sim/world';
-import { issueMoveOrder, selectedEntities, setSelected, stopEntities } from '../sim/world';
+import { areTeamsHostile, attackStandoffPoint, issueMoveOrder, selectedEntities, setSelected, stopEntities } from '../sim/world';
 import { issueHarvesterReturnOrder, issueHarvestOrder } from '../sim/economy';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
@@ -21,10 +21,20 @@ export interface BuildingPicker {
 
 export interface OrderFeedback {
   showOrder(x: number, z: number, kind: OrderMarkerKind): void;
-  showFacingOrder?(x: number, z: number, yaw: number, kind: OrderMarkerKind, length?: number): void;
-  showFacingPreview?(fromX: number, fromZ: number, toX: number, toZ: number, kind: OrderMarkerKind): void;
+  showFacingOrder?(x: number, z: number, yaw: number, kind: OrderMarkerKind, length?: number, count?: number): void;
+  showFacingPreview?(fromX: number, fromZ: number, toX: number, toZ: number, kind: OrderMarkerKind, count?: number): void;
   clearFacingPreview?(): void;
+  showTargetHover?(target: Entity): void;
+  clearTargetHover?(): void;
   tryRally?(x: number, z: number): boolean;
+}
+
+export interface RtsCommandSink {
+  move?(entityIds: number[], x: number, z: number, attackMove: boolean, faceYaw?: number, formationSpread?: number): boolean;
+  harvest?(entityIds: number[], x: number, z: number): boolean;
+  returnHarvesters?(entityIds: number[], x: number, z: number): boolean;
+  stop?(entityIds: number[]): boolean;
+  rally?(producerId: number, x: number, z: number): boolean;
 }
 
 interface PointerState {
@@ -61,6 +71,8 @@ export class RtsController {
     private readonly placement?: PlacementControls,
     private readonly buildings?: BuildingPicker,
     private readonly orderFeedback?: OrderFeedback,
+    private readonly localTeam = 1,
+    private readonly commandSink?: RtsCommandSink,
   ) {
     this.selectionBox = document.createElement('div');
     this.selectionBox.style.cssText =
@@ -74,7 +86,7 @@ export class RtsController {
   }
 
   selectedCount(): number {
-    return selectedEntities(this.sim).length;
+    return selectedEntities(this.sim, this.localTeam).length;
   }
 
   isRightOrderGestureActive(): boolean {
@@ -94,12 +106,14 @@ export class RtsController {
       this.rightCameraLookActive = false;
       this.selectionBox.style.display = 'none';
       this.orderFeedback?.clearFacingPreview?.();
+      this.orderFeedback?.clearTargetHover?.();
       this.attackMoveQueued = false;
     }
   }
 
   private onPointerDown(e: PointerEvent): void {
     if (!this.enabled) return;
+    this.orderFeedback?.clearTargetHover?.();
     if (e.metaKey && e.button === 0) return;
     if ((e.button === 0 || e.button === 2) && this.input.isDown('Space')) {
       this.pointerDown = undefined;
@@ -121,7 +135,7 @@ export class RtsController {
     this.rightCameraLookCandidate = false;
     this.rightCameraLookActive = false;
     if (e.button === 2) {
-      const hasSelectedMovers = selectedEntities(this.sim).some((entity) => entity.mover);
+      const hasSelectedMovers = selectedEntities(this.sim, this.localTeam).some((entity) => entity.mover);
       if (hasSelectedMovers) this.rightOrderStart = this.terrainPoint(e.clientX, e.clientY);
       else this.rightCameraLookCandidate = true;
     }
@@ -136,9 +150,14 @@ export class RtsController {
     if (this.placement?.isPlacing()) {
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (p) this.placement.preview(p.x, p.z);
+      this.orderFeedback?.clearTargetHover?.();
       return;
     }
-    if (!this.pointerDown) return;
+    if (!this.pointerDown) {
+      this.updateTargetHover(e);
+      return;
+    }
+    this.orderFeedback?.clearTargetHover?.();
     if (this.pointerDown.button === 2 && this.rightCameraLookCandidate) {
       const dx = e.clientX - this.pointerDown.x;
       const dy = e.clientY - this.pointerDown.y;
@@ -153,7 +172,10 @@ export class RtsController {
         return;
       }
       const p = this.terrainPoint(e.clientX, e.clientY);
-      if (p) this.orderFeedback?.showFacingPreview?.(this.rightOrderStart.x, this.rightOrderStart.z, p.x, p.z, this.isAttackMoveQueued() ? 'attack' : 'move');
+      if (p) {
+        const count = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover).length;
+        this.orderFeedback?.showFacingPreview?.(this.rightOrderStart.x, this.rightOrderStart.z, p.x, p.z, this.isAttackMoveQueued() ? 'attack' : 'move', count);
+      }
       return;
     }
     if (this.pointerDown.button !== 0 || e.metaKey) return;
@@ -178,6 +200,7 @@ export class RtsController {
     this.pointerDown = undefined;
     this.selectionBox.style.display = 'none';
     this.orderFeedback?.clearFacingPreview?.();
+    this.orderFeedback?.clearTargetHover?.();
 
     const dx = e.clientX - down.x;
     const dy = e.clientY - down.y;
@@ -203,23 +226,30 @@ export class RtsController {
         const maxX = Math.max(down.x, e.clientX);
         const maxY = Math.max(down.y, e.clientY);
         const hits = this.units.entitiesInScreenRect(this.camera, minX, minY, maxX, maxY, window.innerWidth, window.innerHeight);
-        setSelected(this.sim, hits, e.shiftKey);
+        setSelected(this.sim, hits, e.shiftKey, this.localTeam);
       } else {
         this.selectClick(e);
       }
     }
 
     if (down.button === 2) {
-      const destinationPoint = dragged ? this.rightOrderStart : this.terrainPoint(e.clientX, e.clientY) ?? this.terrainPoint(down.x, down.y);
+      const attackTarget = !dragged && this.selectedAttackers().length > 0 ? this.enemyTargetAt(e.clientX, e.clientY) : undefined;
+      const selectedMovers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover);
+      const destinationPoint = attackTarget
+        ? attackStandoffPoint(this.sim, selectedMovers, attackTarget)
+        : dragged
+          ? this.rightOrderStart
+          : this.terrainPoint(e.clientX, e.clientY) ?? this.terrainPoint(down.x, down.y);
       const facingPoint = dragged ? this.terrainPoint(e.clientX, e.clientY) : undefined;
       this.rightOrderStart = undefined;
       if (destinationPoint) {
-        if (!dragged && this.orderFeedback?.tryRally?.(destinationPoint.x, destinationPoint.z)) {
+        const rallyProducer = !dragged ? this.singleSelectedProducer() : undefined;
+        if (rallyProducer && (this.commandSink?.rally?.(rallyProducer.id, destinationPoint.x, destinationPoint.z) ?? this.orderFeedback?.tryRally?.(destinationPoint.x, destinationPoint.z))) {
           this.attackMoveQueued = false;
           return;
         }
-        const attackMove = this.isAttackMoveQueued();
-        const selected = selectedEntities(this.sim).filter((entity) => entity.mover);
+        const attackMove = this.isAttackMoveQueued() || attackTarget !== undefined;
+        const selected = selectedMovers;
         const destination = destinationPoint;
         let faceYaw: number | undefined;
         let formationSpread: number | undefined;
@@ -234,15 +264,26 @@ export class RtsController {
         }
         if (selected.length > 0) {
           const harvesters = !dragged ? selected.filter((entity) => entity.harvester) : [];
-          const harvestIssued = harvesters.length > 0 && issueHarvestOrder(this.sim, harvesters, destination.x, destination.z);
-          const returnIssued = !harvestIssued && harvesters.length > 0 && issueHarvesterReturnOrder(this.sim, harvesters, destination.x, destination.z);
+          const harvesterIds = harvesters.map((entity) => entity.id).filter((id): id is number => id !== undefined);
+          const harvestIssued =
+            harvesters.length > 0 &&
+            (this.commandSink?.harvest?.(harvesterIds, destination.x, destination.z) ?? issueHarvestOrder(this.sim, harvesters, destination.x, destination.z));
+          const returnIssued =
+            !harvestIssued &&
+            harvesters.length > 0 &&
+            (this.commandSink?.returnHarvesters?.(harvesterIds, destination.x, destination.z) ?? issueHarvesterReturnOrder(this.sim, harvesters, destination.x, destination.z));
           const specialIssued = harvestIssued || returnIssued;
           const movers = specialIssued ? selected.filter((entity) => !entity.harvester) : selected;
           if (specialIssued) this.orderFeedback?.showOrder(destination.x, destination.z, 'move');
-          if (movers.length > 0 && issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, faceYaw, formationSpread)) {
-            this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack' : 'move');
+          const moverIds = movers.map((entity) => entity.id).filter((id): id is number => id !== undefined);
+          if (
+            movers.length > 0 &&
+            (this.commandSink?.move?.(moverIds, destination.x, destination.z, attackMove, faceYaw, formationSpread) ??
+              issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, faceYaw, formationSpread))
+          ) {
+            this.orderFeedback?.showOrder(attackTarget?.transform.x ?? destination.x, attackTarget?.transform.z ?? destination.z, attackMove ? 'attack' : 'move');
             if (faceYaw !== undefined) {
-              this.orderFeedback?.showFacingOrder?.(destination.x, destination.z, faceYaw, attackMove ? 'attack' : 'move', formationSpread);
+              this.orderFeedback?.showFacingOrder?.(destination.x, destination.z, faceYaw, attackMove ? 'attack' : 'move', formationSpread, movers.length);
             }
           }
         }
@@ -256,14 +297,14 @@ export class RtsController {
     const screenHit = this.units.pickAtScreen(this.camera, e.clientX, e.clientY, window.innerWidth, window.innerHeight);
     const hit = screenHit ?? (p ? this.buildings?.pickAt(p.x, p.z) ?? this.units.pickAt(p.x, p.z) : undefined);
     if (!hit) {
-      if (!e.shiftKey) setSelected(this.sim, []);
+      if (!e.shiftKey) setSelected(this.sim, [], false, this.localTeam);
       return;
     }
     const now = performance.now();
     if (this.lastClick.entity === hit && now - this.lastClick.time < 320 && hit.selectable) {
-      setSelected(this.sim, this.units.visibleOfType(this.camera, hit.selectable.type, window.innerWidth, window.innerHeight), e.shiftKey);
+      setSelected(this.sim, this.units.visibleOfType(this.camera, hit.selectable.type, window.innerWidth, window.innerHeight), e.shiftKey, this.localTeam);
     } else {
-      setSelected(this.sim, [hit], e.shiftKey);
+      setSelected(this.sim, [hit], e.shiftKey, this.localTeam);
     }
     this.lastClick = { time: now, entity: hit };
   }
@@ -275,11 +316,13 @@ export class RtsController {
       e.preventDefault();
       return;
     }
-    if (e.code === 'KeyS' && selectedEntities(this.sim).length > 0) {
-      stopEntities(selectedEntities(this.sim));
+    if (e.code === 'KeyS' && selectedEntities(this.sim, this.localTeam).length > 0) {
+      const selected = selectedEntities(this.sim, this.localTeam);
+      const ids = selected.map((entity) => entity.id).filter((id): id is number => id !== undefined);
+      if (!(this.commandSink?.stop?.(ids) ?? false)) stopEntities(selected);
       e.preventDefault();
     }
-    if (e.code === 'KeyA' && selectedEntities(this.sim).some((entity) => entity.weapon)) {
+    if (e.code === 'KeyA' && selectedEntities(this.sim, this.localTeam).some((entity) => entity.weapon)) {
       this.attackMoveQueued = true;
       e.preventDefault();
       return;
@@ -288,12 +331,12 @@ export class RtsController {
     const n = Number(e.code.slice(5));
     if (n < 1 || n > 9) return;
     if (e.ctrlKey || e.metaKey) {
-      this.controlGroups.set(n, selectedEntities(this.sim));
+      this.controlGroups.set(n, selectedEntities(this.sim, this.localTeam));
       e.preventDefault();
     } else {
       const group = this.controlGroups.get(n);
       if (group) {
-        setSelected(this.sim, group.filter((entity) => this.sim.world.has(entity)));
+        setSelected(this.sim, group.filter((entity) => this.sim.world.has(entity)), false, this.localTeam);
         e.preventDefault();
       }
     }
@@ -333,5 +376,40 @@ export class RtsController {
 
   private isAttackMoveQueued(): boolean {
     return this.attackMoveQueued;
+  }
+
+  private updateTargetHover(e: PointerEvent): void {
+    if (this.selectedAttackers().length === 0) {
+      this.orderFeedback?.clearTargetHover?.();
+      return;
+    }
+    const target = this.enemyTargetAt(e.clientX, e.clientY);
+    if (target) this.orderFeedback?.showTargetHover?.(target);
+    else this.orderFeedback?.clearTargetHover?.();
+  }
+
+  private enemyTargetAt(clientX: number, clientY: number): Entity | undefined {
+    const p = this.terrainPoint(clientX, clientY);
+    const screenHit = this.units.pickAtScreen(this.camera, clientX, clientY, window.innerWidth, window.innerHeight);
+    const candidates = [
+      screenHit,
+      p ? this.buildings?.pickAt(p.x, p.z) : undefined,
+      p ? this.units.pickAt(p.x, p.z) : undefined,
+    ];
+    return candidates.find((entity): entity is Entity => this.isEnemyTarget(entity));
+  }
+
+  private isEnemyTarget(entity: Entity | undefined): entity is Entity {
+    if (!entity || entity.destroyed || !entity.health || !entity.team) return false;
+    return areTeamsHostile(this.sim, this.localTeam, entity.team.id);
+  }
+
+  private selectedAttackers(): Entity[] {
+    return selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover && (entity.weapon || entity.weapons));
+  }
+
+  private singleSelectedProducer(): Entity | undefined {
+    const selected = selectedEntities(this.sim, this.localTeam);
+    return selected.length === 1 && selected[0].producer ? selected[0] : undefined;
   }
 }

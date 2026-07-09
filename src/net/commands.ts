@@ -1,0 +1,275 @@
+import type { StructureKind, UnitKind } from '../content/phase3';
+import type { Entity } from '../sim/components';
+import {
+  cancelStructureBuild,
+  cancelUnitQueue,
+  enterReadyStructurePlacement,
+  issueHarvesterReturnOrder,
+  issueHarvestOrder,
+  placeStructure,
+  queueUnit,
+  setPrimaryProducer,
+  setProducerRally,
+  startStructureBuild,
+  updatePlacement,
+  type EconomyState,
+} from '../sim/economy';
+import type { Heightfield } from '../sim/heightfield';
+import { manualFireAt } from '../sim/combat';
+import { entityById, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
+import { hashSim } from '../sim/world';
+import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession } from './multiplayer';
+
+export type NetCommand =
+  | { type: 'move'; ids: number[]; x: number; z: number; attackMove: boolean; faceYaw?: number; formationSpread?: number }
+  | { type: 'harvest'; ids: number[]; x: number; z: number }
+  | { type: 'return-harvesters'; ids: number[]; x: number; z: number }
+  | { type: 'stop'; ids: number[] }
+  | { type: 'start-structure'; kind: StructureKind }
+  | { type: 'cancel-structure' }
+  | { type: 'place-structure'; kind: StructureKind; x: number; z: number }
+  | { type: 'queue-unit'; kind: UnitKind; producerId?: number }
+  | { type: 'cancel-unit'; kind: UnitKind; producerId?: number }
+  | { type: 'primary-producer'; producerId: number }
+  | { type: 'rally'; producerId: number; x: number; z: number }
+  | {
+      type: 'possess-control';
+      id: number;
+      throttle: number;
+      turn: number;
+      aimYaw: number;
+      climb?: number;
+      strafe?: number;
+      boost?: boolean;
+      x: number;
+      z: number;
+      y?: number;
+      rot: number;
+      vx?: number;
+      vz?: number;
+    }
+  | { type: 'possess-fire'; id: number; slot: 'primary' | 'secondary'; x: number; z: number; y?: number; aimYaw: number }
+  | { type: 'possess-release'; id: number }
+  | { type: 'sim-hash'; hash: number };
+
+interface QueuedCommand {
+  tick: number;
+  playerIndex: number;
+  command: NetCommand;
+}
+
+export interface LockstepRuntimeOptions {
+  sim: GameSim;
+  hf: Heightfield;
+  economies: Record<number, EconomyState>;
+  client: MultiplayerClient;
+  session: MultiplayerSession;
+  onStatus?: (message: string, bad?: boolean) => void;
+}
+
+const INPUT_DELAY_TICKS = 8;
+const HASH_INTERVAL_TICKS = 30 * 5;
+
+export class LockstepRuntime {
+  private readonly queue: QueuedCommand[] = [];
+  private readonly seen = new Set<string>();
+  private connected = false;
+  private roomPaused = false;
+  private lastHashSent = 0;
+
+  constructor(private readonly options: LockstepRuntimeOptions) {}
+
+  get localTeam(): number {
+    return this.options.session.player.index;
+  }
+
+  connect(): void {
+    this.connected = true;
+    this.options.onStatus?.('Multiplayer connected');
+    this.options.client.connect(
+      this.options.session.room.code,
+      this.options.session.player.id,
+      (event) => this.handleEvent(event),
+      () => {
+        this.connected = false;
+        this.options.onStatus?.('Multiplayer connection interrupted', true);
+      },
+      () => {
+        this.connected = true;
+        this.options.onStatus?.('Multiplayer connected');
+      },
+    );
+  }
+
+  disconnect(): void {
+    this.options.client.disconnect();
+    this.connected = false;
+  }
+
+  canAdvance(): boolean {
+    return this.connected && !this.roomPaused;
+  }
+
+  tick(): void {
+    const tick = this.options.sim.tick;
+    for (let i = 0; i < this.queue.length; ) {
+      const queued = this.queue[i];
+      if (queued.tick > tick) {
+        i++;
+        continue;
+      }
+      this.apply(queued.playerIndex, queued.command);
+      this.queue.splice(i, 1);
+    }
+    if (this.connected && tick - this.lastHashSent >= HASH_INTERVAL_TICKS) {
+      this.lastHashSent = tick;
+      void this.send({ type: 'sim-hash', hash: hashSim(this.options.sim) }, tick);
+    }
+  }
+
+  issue(command: NetCommand): boolean {
+    const tick = this.options.sim.tick + INPUT_DELAY_TICKS;
+    this.queue.push({ tick, playerIndex: this.localTeam, command });
+    this.queue.sort((a, b) => a.tick - b.tick);
+    void this.send(command, tick);
+    return true;
+  }
+
+  issueRealtime(command: NetCommand): boolean {
+    void this.send(command, this.options.sim.tick);
+    return true;
+  }
+
+  private async send(command: NetCommand, tick = this.options.sim.tick + INPUT_DELAY_TICKS): Promise<void> {
+    try {
+      await this.options.client.sendCommand(this.options.session.room.code, this.options.session.player.id, tick, command);
+    } catch (err) {
+      this.options.onStatus?.(`Command send failed: ${String((err as Error).message ?? err)}`, true);
+    }
+  }
+
+  private handleEvent(event: MultiplayerEvent): void {
+    if (!this.connected) this.options.onStatus?.('Multiplayer connected');
+    this.connected = true;
+    if (event.type === 'heartbeat') return;
+    if (event.type === 'room-state' || event.type === 'match-start') {
+      const missing = event.room.players.some((player) => player.index !== this.localTeam && !player.connected);
+      const connected = event.room.players.filter((player) => player.connected).length;
+      this.roomPaused = missing;
+      if (missing) this.options.onStatus?.('Opponent disconnected — match paused', true);
+      else if (connected >= event.room.armyCount) this.options.onStatus?.('All commanders connected');
+      return;
+    }
+    if (event.type === 'room-closed') {
+      this.connected = false;
+      this.roomPaused = true;
+      this.options.onStatus?.(`Room closed: ${event.reason}`, true);
+      return;
+    }
+    if (event.type !== 'command') return;
+    const command = event.command as NetCommand;
+    if (!isNetCommand(command)) return;
+    if (event.playerId === this.options.session.player.id) return;
+    const key = `${event.playerId}:${event.tick}:${JSON.stringify(command)}`;
+    if (this.seen.has(key)) return;
+    this.seen.add(key);
+    this.queue.push({ tick: event.tick, playerIndex: event.playerIndex, command });
+    this.queue.sort((a, b) => a.tick - b.tick);
+  }
+
+  private apply(playerIndex: number, command: NetCommand): void {
+    const economy = this.options.economies[playerIndex];
+    if (!economy) return;
+    if (command.type === 'sim-hash') {
+      const localHash = hashSim(this.options.sim);
+      if (localHash !== command.hash) this.options.onStatus?.(`Desync check mismatch: ${localHash} vs ${command.hash}`, true);
+      return;
+    }
+    if (command.type === 'move') {
+      issueMoveOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), command.x, command.z, command.attackMove, command.faceYaw, command.formationSpread);
+    } else if (command.type === 'harvest') {
+      issueHarvestOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), command.x, command.z);
+    } else if (command.type === 'return-harvesters') {
+      issueHarvesterReturnOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), command.x, command.z);
+    } else if (command.type === 'stop') {
+      stopEntities(ownedEntities(this.options.sim, command.ids, playerIndex));
+    } else if (command.type === 'start-structure') {
+      startStructureBuild(this.options.sim, economy, command.kind);
+    } else if (command.type === 'cancel-structure') {
+      cancelStructureBuild(this.options.sim, economy);
+    } else if (command.type === 'place-structure') {
+      economy.selectedStructure = command.kind;
+      economy.readyStructure = command.kind;
+      const placement = updatePlacement(this.options.sim, this.options.hf, command.kind, command.x, command.z, economy.team, economy);
+      placeStructure(this.options.sim, this.options.hf, economy, placement);
+      economy.selectedStructure = undefined;
+      economy.placement = undefined;
+    } else if (command.type === 'queue-unit') {
+      queueUnit(this.options.sim, economy, command.kind, command.producerId ? entityById(this.options.sim, command.producerId) : undefined);
+    } else if (command.type === 'cancel-unit') {
+      cancelUnitQueue(this.options.sim, economy, command.kind, command.producerId ? entityById(this.options.sim, command.producerId) : undefined);
+    } else if (command.type === 'primary-producer') {
+      const producer = entityById(this.options.sim, command.producerId);
+      if (producer) setPrimaryProducer(economy, producer);
+    } else if (command.type === 'rally') {
+      const producer = entityById(this.options.sim, command.producerId);
+      if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
+    } else if (command.type === 'possess-control') {
+      const entity = ownedEntity(this.options.sim, command.id, playerIndex);
+      if (!entity?.possessable || !entity.mover) return;
+      entity.previousTransform = { ...entity.transform };
+      entity.transform.x = command.x;
+      entity.transform.z = command.z;
+      entity.transform.y = command.y;
+      entity.transform.rot = command.rot;
+      if (entity.velocity && command.vx !== undefined && command.vz !== undefined) {
+        entity.velocity.x = command.vx;
+        entity.velocity.z = command.vz;
+      }
+      entity.playerControlled = {
+        throttle: clampUnit(command.throttle),
+        turn: clampUnit(command.turn),
+        aimYaw: command.aimYaw,
+        climb: clampUnit(command.climb ?? 0),
+        strafe: clampUnit(command.strafe ?? 0),
+        boost: Boolean(command.boost),
+      };
+      if (entity.turret) entity.turret.yaw = command.aimYaw;
+    } else if (command.type === 'possess-fire') {
+      const entity = ownedEntity(this.options.sim, command.id, playerIndex);
+      if (!entity?.possessable) return;
+      entity.playerControlled = {
+        throttle: entity.playerControlled?.throttle ?? 0,
+        turn: entity.playerControlled?.turn ?? 0,
+        aimYaw: command.aimYaw,
+        climb: entity.playerControlled?.climb ?? 0,
+        strafe: entity.playerControlled?.strafe ?? 0,
+        boost: entity.playerControlled?.boost ?? false,
+      };
+      if (entity.turret) entity.turret.yaw = Math.atan2(command.x - entity.transform.x, command.z - entity.transform.z);
+      manualFireAt(this.options.sim, entity, command.x, command.z, command.slot, command.y);
+    } else if (command.type === 'possess-release') {
+      const entity = ownedEntity(this.options.sim, command.id, playerIndex);
+      if (entity) delete entity.playerControlled;
+    }
+  }
+}
+
+function ownedEntity(sim: GameSim, id: number, team: number): Entity | undefined {
+  const entity = entityById(sim, id);
+  return entity && !entity.destroyed && entity.team?.id === team ? entity : undefined;
+}
+
+function ownedEntities(sim: GameSim, ids: number[], team: number): Entity[] {
+  return ids
+    .map((id) => entityById(sim, id))
+    .filter((entity): entity is Entity => !!entity && !entity.destroyed && entity.team?.id === team);
+}
+
+function clampUnit(value: number): number {
+  return Math.max(-1, Math.min(1, value));
+}
+
+function isNetCommand(value: unknown): value is NetCommand {
+  return !!value && typeof value === 'object' && 'type' in value && typeof (value as { type: unknown }).type === 'string';
+}

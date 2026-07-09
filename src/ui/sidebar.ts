@@ -76,12 +76,13 @@ export class Sidebar {
 
     const radarWrap = document.createElement('div');
     radarWrap.style.cssText =
-      'position:relative;height:170px;background:#060908;border:2px solid #151817;border-top-color:#66706a;border-left-color:#66706a;' +
-      'box-shadow:inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75);overflow:hidden;';
+      'position:relative;display:grid;grid-template-rows:18px auto;gap:6px;padding:7px;background:#060908;border:2px solid #151817;' +
+      'border-top-color:#66706a;border-left-color:#66706a;box-shadow:inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75);overflow:hidden;';
     this.radar = document.createElement('canvas');
+    this.radar.dataset.role = 'radar-map';
     this.radar.width = 298;
-    this.radar.height = 148;
-    this.radar.style.cssText = 'position:absolute;left:8px;right:8px;bottom:8px;width:298px;height:148px;image-rendering:pixelated;background:#07100c;';
+    this.radar.height = 298;
+    this.radar.style.cssText = 'display:block;width:100%;aspect-ratio:1 / 1;height:auto;image-rendering:pixelated;background:#07100c;';
     this.radar.addEventListener('pointerdown', (event) => this.onRadarPointerDown(event));
     const radarCtx = this.radar.getContext('2d');
     if (!radarCtx) throw new Error('radar canvas unavailable');
@@ -90,9 +91,9 @@ export class Sidebar {
 
     this.status = document.createElement('div');
     this.status.style.cssText =
-      'position:absolute;left:8px;right:8px;top:7px;height:16px;padding:0 6px;background:#101514;border:1px solid #424a47;' +
+      'height:18px;padding:0 6px;background:#101514;border:1px solid #424a47;box-sizing:border-box;' +
       'box-shadow:inset 0 0 12px rgba(0,0,0,.55);color:#d2b15f;font-size:10px;line-height:16px;white-space:pre;overflow:hidden;';
-    radarWrap.append(this.radar, this.status);
+    radarWrap.append(this.status, this.radar);
 
     this.tabs = document.createElement('div');
     this.tabs.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:4px;';
@@ -119,7 +120,8 @@ export class Sidebar {
 
     const powerDelta = this.economy.powerProduced - this.economy.powerUsed;
     if (this.notice && this.sim.tick >= this.notice.untilTick) this.notice = undefined;
-    const latest = this.notice?.text ?? this.economy.ledger.slice(-1)[0]?.label ?? 'ready';
+    const placing = this.economy.selectedStructure ? `placing ${STRUCTURES[this.economy.selectedStructure].label}` : undefined;
+    const latest = placing ?? this.notice?.text ?? this.economy.ledger.slice(-1)[0]?.label ?? 'ready';
     const statusText = [
       `$${Math.floor(this.economy.credits)}`,
       `PWR ${powerDelta >= 0 ? '+' : ''}${powerDelta}${powerDelta < 0 ? ' LOW POWER' : ''}`,
@@ -145,6 +147,7 @@ export class Sidebar {
         this.renderBody();
       }
     }
+    this.updateLivePanel();
   }
 
   setVisible(visible: boolean): void {
@@ -252,6 +255,8 @@ export class Sidebar {
     cancel: () => void,
   ): HTMLButtonElement {
     const button = document.createElement('button');
+    button.dataset.commandKind = kind;
+    button.dataset.commandType = eyebrow;
     button.title = state.enabled ? `${label} $${cost}` : state.reason;
     button.setAttribute('aria-label', state.enabled ? `${label} $${cost}` : `${label} ${state.reason}`);
     button.setAttribute('aria-disabled', state.enabled ? 'false' : 'true');
@@ -277,13 +282,10 @@ export class Sidebar {
 
     const icon = document.createElement('div');
     icon.style.cssText = commandIconCss(state.enabled || !!state.active || !!state.ready);
-    if (state.progress > 0 && !state.ready) {
-      const sweep = document.createElement('div');
-      const pct = Math.max(0, Math.min(100, state.progress * 100));
-      sweep.style.cssText =
-        `position:absolute;inset:0;background:conic-gradient(rgba(210,177,95,.48) ${pct}%, transparent 0);mix-blend-mode:screen;z-index:3;`;
-      icon.appendChild(sweep);
-    }
+    const progress = document.createElement('div');
+    progress.dataset.progressKind = kind;
+    progress.style.cssText = progressBarCss(state.progress, !!state.active && !state.ready);
+    icon.appendChild(progress);
     const fallback = document.createElement('div');
     fallback.style.cssText =
       'position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#252b2d,#0d1112);' +
@@ -295,7 +297,10 @@ export class Sidebar {
     img.style.cssText = 'position:relative;z-index:2;width:100%;height:100%;object-fit:cover;display:block;';
     img.onerror = () => img.remove();
     icon.append(fallback, img);
-    if (state.count > 0) icon.appendChild(badge(state.ready ? 'READY' : `×${state.count}`, !!state.ready));
+    const countBadge = badge(state.ready ? 'READY' : state.count > 0 ? `×${state.count}` : '', !!state.ready);
+    countBadge.dataset.badgeKind = kind;
+    countBadge.style.display = state.count > 0 || state.ready ? 'block' : 'none';
+    icon.appendChild(countBadge);
 
     const content = document.createElement('div');
     content.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:3px 4px;align-items:end;min-width:0;';
@@ -303,8 +308,9 @@ export class Sidebar {
     name.style.cssText = 'font-size:10px;color:inherit;white-space:nowrap;line-height:1.1;overflow:hidden;text-overflow:ellipsis;';
     name.textContent = label;
     const meta = document.createElement('div');
+    meta.dataset.metaKind = kind;
     meta.style.cssText = `font-size:10px;color:${state.unaffordable ? '#ff7666' : state.enabled || state.ready ? '#d2b15f' : '#d17a65'};text-align:right;max-width:50px;overflow:hidden;text-overflow:ellipsis;`;
-    meta.textContent = state.enabled || state.ready ? `$${cost}` : state.reason;
+    meta.textContent = cardMetaText(state, cost);
     content.append(name, meta);
     const unitDetail = unitCardDetail(kind);
     if (unitDetail) {
@@ -464,9 +470,11 @@ export class Sidebar {
     title.style.cssText = 'font-size:10px;color:#d2b15f;';
     title.textContent = 'ECONOMY';
     const value = document.createElement('div');
+    value.dataset.economyStatus = 'true';
     value.style.cssText = 'font-size:10px;color:#f0d56a;text-align:right;';
     value.textContent = status;
     const detail = document.createElement('div');
+    detail.dataset.economyDetail = 'true';
     detail.style.cssText = 'grid-column:1/-1;font-size:10px;color:#aebbc4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
     detail.textContent = `refineries ${refineries} · collectors ${harvesters.length} · cargo ${Math.round(cargo)}/${capacity} · ore ${Math.round(remainingOre)}`;
     el.append(title, value, detail);
@@ -524,6 +532,7 @@ export class Sidebar {
       const primary = this.economy.primaryProducerIds[tab] === producer.id ? ' ★' : '';
       const rally = producer.producer?.rally ? ' ⚑' : '';
       const row = document.createElement('div');
+      row.dataset.producerRowId = String(producer.id);
       row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${queueDepth(producer)}/${MAX_PRODUCER_JOBS}`;
       el.appendChild(row);
     }
@@ -550,13 +559,93 @@ export class Sidebar {
     this.lastStatusText = '';
   }
 
+  private updateLivePanel(): void {
+    this.updateLiveEconomy();
+    this.updateLiveProductionRows();
+    this.updateLiveCards();
+  }
+
+  private updateLiveEconomy(): void {
+    const status = this.body.querySelector<HTMLElement>('[data-economy-status="true"]');
+    const detail = this.body.querySelector<HTMLElement>('[data-economy-detail="true"]');
+    if (!status || !detail) return;
+    const refineries = buildings(this.sim, this.economy.team).filter(
+      (entity) => entity.building?.kind === 'refinery' && entity.building.complete && !entity.destroyed,
+    ).length;
+    const harvesters = Array.from(this.sim.world.entities).filter((entity) => entity.team?.id === this.economy.team && entity.harvester && !entity.destroyed);
+    const cargo = harvesters.reduce((sum, entity) => sum + (entity.cargo?.amount ?? 0), 0);
+    const capacity = harvesters.reduce((sum, entity) => sum + (entity.cargo?.capacity ?? 0), 0);
+    const remainingOre = this.sim.resourceNodes.reduce((sum, node) => sum + Math.max(0, node.remaining), 0);
+    const active = harvesters.filter((entity) => entity.harvester?.state === 'gathering' || entity.harvester?.state === 'to-node').length;
+    const returning = harvesters.filter((entity) => entity.harvester?.state === 'to-refinery' || entity.harvester?.state === 'depositing').length;
+    const label =
+      refineries === 0
+        ? 'NO REFINERY'
+        : harvesters.length === 0
+          ? 'NO COLLECTOR'
+          : remainingOre <= 0
+            ? 'ORE EMPTY'
+            : `${active} COLLECTING · ${returning} RETURNING`;
+    status.textContent = label;
+    detail.textContent = `refineries ${refineries} · collectors ${harvesters.length} · cargo ${Math.round(cargo)}/${capacity} · ore ${Math.round(remainingOre)}`;
+  }
+
+  private updateLiveProductionRows(): void {
+    for (const row of Array.from(this.body.querySelectorAll<HTMLElement>('[data-producer-row-id]'))) {
+      const id = Number(row.dataset.producerRowId);
+      const producer = buildings(this.sim, this.economy.team).find((entity) => entity.id === id);
+      if (!producer?.producer) continue;
+      const tab = producer.building?.kind ? STRUCTURES[producer.building.kind as StructureKind]?.producer : undefined;
+      const unitTab = tab === 'infantry' || tab === 'vehicles' || tab === 'aircraft' ? tab : undefined;
+      const primary = unitTab && this.economy.primaryProducerIds[unitTab] === producer.id ? ' ★' : '';
+      const rally = producer.producer.rally ? ' ⚑' : '';
+      const active = producer.producer.active;
+      row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${queueDepth(producer)}/${MAX_PRODUCER_JOBS}`;
+    }
+  }
+
+  private updateLiveCards(): void {
+    const selected = this.selectedBuilding();
+    const selectedProducer = selected && this.contextTab(selected) === this.activeTab ? selected : undefined;
+    for (const button of Array.from(this.body.querySelectorAll<HTMLButtonElement>('[data-command-kind]'))) {
+      const kind = button.dataset.commandKind;
+      if (!kind) continue;
+      const state = STRUCTURES[kind as StructureKind]
+        ? this.structureCardState(kind as StructureKind)
+        : UNITS[kind as UnitKind]
+          ? this.unitCardState(kind as UnitKind, selectedProducer)
+          : undefined;
+      if (!state) continue;
+      const progress = button.querySelector<HTMLElement>('[data-progress-kind]');
+      if (progress) progress.style.cssText = progressBarCss(state.progress, !!state.active && !state.ready);
+      const badgeEl = button.querySelector<HTMLElement>('[data-badge-kind]');
+      if (badgeEl) {
+        badgeEl.textContent = state.ready ? 'READY' : state.count > 0 ? `×${state.count}` : '';
+        badgeEl.style.display = state.count > 0 || state.ready ? 'block' : 'none';
+        badgeEl.style.background = state.ready ? '#d2b15f' : '#111615';
+        badgeEl.style.color = state.ready ? '#151715' : '#f0d56a';
+      }
+      const meta = button.querySelector<HTMLElement>('[data-meta-kind]');
+      if (meta) {
+        const cost = STRUCTURES[kind as StructureKind]?.cost ?? UNITS[kind as UnitKind]?.cost ?? 0;
+        meta.textContent = cardMetaText(state, cost);
+        meta.style.color = state.unaffordable ? '#ff7666' : state.enabled || state.ready ? '#d2b15f' : '#d17a65';
+      }
+      const label = STRUCTURES[kind as StructureKind]?.label ?? UNITS[kind as UnitKind]?.label ?? kind;
+      const cost = STRUCTURES[kind as StructureKind]?.cost ?? UNITS[kind as UnitKind]?.cost ?? 0;
+      button.title = state.enabled ? `${label} $${cost}` : state.reason;
+      button.setAttribute('aria-label', state.enabled ? `${label} $${cost}` : `${label} ${state.reason}`);
+      button.setAttribute('aria-disabled', state.enabled ? 'false' : 'true');
+    }
+  }
+
   private selectedBuilding(): Entity | undefined {
-    const selected = selectedEntities(this.sim).filter((entity) => entity.building);
+    const selected = selectedEntities(this.sim, this.economy.team).filter((entity) => entity.building);
     return selected.length === 1 ? selected[0] : undefined;
   }
 
   private selectedHarvester(): Entity | undefined {
-    const selected = selectedEntities(this.sim).filter((entity) => entity.harvester);
+    const selected = selectedEntities(this.sim, this.economy.team).filter((entity) => entity.harvester);
     return selected.length === 1 ? selected[0] : undefined;
   }
 
@@ -590,10 +679,10 @@ export class Sidebar {
   }
 
   private bodyKey(): string {
-    const selected = selectedEntities(this.sim)
+    const selected = selectedEntities(this.sim, this.economy.team)
       .map(
         (entity) =>
-          `${entity.id}:${entity.health?.current ?? 0}:${entity.building?.kind ?? entity.selectable?.type}:${entity.selectable?.selected}:${entity.harvester?.state ?? ''}:${Math.round(entity.cargo?.amount ?? 0)}`,
+          `${entity.id}:${healthBucket(entity)}:${entity.building?.kind ?? entity.selectable?.type}:${entity.selectable?.selected}:${entity.harvester?.state ?? ''}`,
       )
       .join('|');
     const completedBuildings = buildings(this.sim, this.economy.team)
@@ -609,24 +698,32 @@ export class Sidebar {
       .join('|');
     const harvesters = Array.from(this.sim.world.entities)
       .filter((entity) => entity.team?.id === this.economy.team && entity.harvester && !entity.destroyed)
-      .map((entity) => `${entity.id}:${entity.harvester?.state}:${Math.round(entity.cargo?.amount ?? 0)}:${entity.harvester?.nodeId ?? ''}:${entity.harvester?.refineryId ?? ''}`)
+      .map((entity) => `${entity.id}:${entity.harvester?.state}:${entity.harvester?.nodeId ?? ''}:${entity.harvester?.refineryId ?? ''}`)
       .join('|');
-    const ore = this.sim.resourceNodes.map((node) => `${node.id}:${Math.round(node.remaining)}`).join('|');
     const line = this.economy.structureLine;
+    const visibleCosts =
+      this.activeTab === 'buildings' || this.activeTab === 'defense'
+        ? Object.values(STRUCTURES)
+            .filter((structure) => structure.tab === (this.activeTab === 'buildings' ? 'structures' : 'defense'))
+            .map((structure) => `${structure.kind}:${this.economy.credits >= structure.cost}`)
+            .join('|')
+        : Object.values(UNITS)
+            .filter((unit) => unit.tab === this.activeTab)
+            .map((unit) => `${unit.kind}:${this.economy.credits >= unit.cost}`)
+            .join('|');
     return [
       this.activeTab,
-      Math.floor(this.economy.credits),
       this.economy.powerProduced,
       this.economy.powerUsed,
-      `${line?.kind ?? ''}:${line ? Math.round((1 - line.remaining / line.total) * 100) : 0}`,
+      `${line?.kind ?? ''}`,
       this.economy.readyStructure ?? '',
       this.economy.selectedStructure ?? '',
       JSON.stringify(this.economy.primaryProducerIds),
+      visibleCosts,
       selected,
       completedBuildings,
       producers,
       harvesters,
-      ore,
     ].join('~');
   }
 
@@ -651,10 +748,29 @@ export class Sidebar {
         let r = 38 + dirt * 36 + ore * 48 + rock * 28;
         let g = 72 + dirt * 8 + ore * 28 + rock * 8;
         let b = 38 + dirt * 4 + ore * 12 + rock * 24;
+        if (this.hf.kind === 'crater-oasis') {
+          r = 132 + dirt * 34 + ore * 52 + rock * 24;
+          g = 96 + dirt * 18 + ore * 30 + rock * 10;
+          b = 54 + dirt * 4 + ore * 8 + rock * 8;
+        } else if (this.hf.kind === 'frostbite-pass') {
+          r = 154 + dirt * 8 + ore * 46 + rock * 22;
+          g = 174 + dirt * 6 + ore * 28 + rock * 14;
+          b = 184 + dirt * 20 + ore * 12 + rock * 18;
+        }
         if (height < this.hf.waterLevel + 0.35) {
-          r = 28;
-          g = 64;
-          b = 86;
+          if (this.hf.kind === 'crater-oasis') {
+            r = 18;
+            g = 104;
+            b = 112;
+          } else if (this.hf.kind === 'frostbite-pass') {
+            r = 128;
+            g = 178;
+            b = 196;
+          } else {
+            r = 28;
+            g = 64;
+            b = 86;
+          }
         } else if (!walkable) {
           r *= 0.62;
           g *= 0.62;
@@ -682,11 +798,11 @@ export class Sidebar {
     this.drawRadarResources();
     for (const entity of this.sim.world.entities) {
       if (!entity.transform || entity.destroyed) continue;
-      if (entity.team?.id !== 1 && !this.fog.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
+      if (entity.team?.id !== this.economy.team && !this.fog.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
       const p = this.worldToRadar(entity.transform.x, entity.transform.z);
       if (p.x < 0 || p.y < 0 || p.x >= this.radar.width || p.y >= this.radar.height) continue;
       const isBuilding = !!entity.building;
-      this.radarCtx.fillStyle = entity.team?.id === 2 ? '#df5742' : entity.selectable?.selected ? '#f0d56a' : '#56d184';
+      this.radarCtx.fillStyle = entity.team?.id !== this.economy.team ? '#df5742' : entity.selectable?.selected ? '#f0d56a' : '#56d184';
       this.radarCtx.fillRect(Math.round(p.x) - (isBuilding ? 2 : 1), Math.round(p.y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
     this.drawRadarFog();
@@ -776,36 +892,24 @@ export class Sidebar {
   }
 
   private worldToRadar(x: number, z: number): { x: number; y: number } {
-    const yaw = this.actions.radarYaw();
-    const cos = Math.cos(yaw);
-    const sin = Math.sin(yaw);
-    const rx = cos * x - sin * z;
-    const rz = sin * x + cos * z;
     return {
-      x: (rx / this.hf.size + 0.5) * this.radar.width,
-      y: (rz / this.hf.size + 0.5) * this.radar.height,
+      x: (x / this.hf.size + 0.5) * this.radar.width,
+      y: (0.5 - z / this.hf.size) * this.radar.height,
     };
   }
 
   private radarToWorld(u: number, v: number): { x: number; z: number } {
-    const yaw = this.actions.radarYaw();
-    const cos = Math.cos(yaw);
-    const sin = Math.sin(yaw);
-    const rx = (u - 0.5) * this.hf.size;
-    const rz = (v - 0.5) * this.hf.size;
     return {
-      x: cos * rx + sin * rz,
-      z: -sin * rx + cos * rz,
+      x: (u - 0.5) * this.hf.size,
+      z: (0.5 - v) * this.hf.size,
     };
   }
 
   private drawOrientedRadarImage(image: HTMLCanvasElement): void {
-    const yaw = this.actions.radarYaw();
     this.radarCtx.save();
-    this.radarCtx.translate(this.radar.width / 2, this.radar.height / 2);
-    this.radarCtx.rotate(yaw);
-    this.radarCtx.scale(1.42, 1.42);
-    this.radarCtx.drawImage(image, -this.radar.width / 2, -this.radar.height / 2, this.radar.width, this.radar.height);
+    this.radarCtx.translate(0, this.radar.height);
+    this.radarCtx.scale(1, -1);
+    this.radarCtx.drawImage(image, 0, 0, this.radar.width, this.radar.height);
     this.radarCtx.restore();
   }
 }
@@ -841,6 +945,22 @@ function commandIconCss(enabled: boolean): string {
     'box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),inset 0 -18px 18px rgba(0,0,0,.35);' +
     (enabled ? '' : 'filter:grayscale(1) brightness(.62);')
   );
+}
+
+function progressBarCss(progress: number, active: boolean): string {
+  const pct = Math.max(0, Math.min(100, progress * 100));
+  return (
+    'position:absolute;left:0;right:0;top:0;height:5px;z-index:3;pointer-events:none;background:rgba(0,0,0,.55);' +
+    `opacity:${active ? '1' : '0'};transition:opacity 120ms ease;` +
+    `--progress:${pct}%;` +
+    `box-shadow:${active ? '0 0 8px rgba(240,213,106,.2)' : 'none'};` +
+    `background:linear-gradient(90deg,#f0d56a 0 var(--progress),rgba(0,0,0,.58) var(--progress) 100%);`
+  );
+}
+
+function cardMetaText(state: CardState, cost: number): string {
+  if (state.enabled || state.ready || state.unaffordable) return `$${cost}`;
+  return state.reason;
 }
 
 function badge(text: string, ready: boolean): HTMLDivElement {
@@ -880,6 +1000,11 @@ function harvesterStateLabel(entity: Entity): string {
   }
 }
 
+function healthBucket(entity: Entity): number {
+  if (!entity.health || entity.health.max <= 0) return 0;
+  return Math.round((Math.max(0, entity.health.current) / entity.health.max) * 20);
+}
+
 function commandIconPath(kind: string): string {
   return `/assets/ui/command-icons/${kind}.png`;
 }
@@ -902,6 +1027,7 @@ function unitCardDetail(kind: string): { role: string; pips: number[] } | undefi
 
 function primaryWeaponForUnit(kind: UnitKind): WeaponKind {
   if (kind === 'infantry') return 'rifle';
+  if (kind === 'sniper') return 'sniperRifle';
   if (kind === 'grenadier') return 'grenade';
   if (kind === 'rocket-infantry') return 'rocketLauncher';
   if (kind === 'scout-tank') return 'autocannon';
@@ -930,6 +1056,7 @@ function bombSalvoForUnit(kind: UnitKind): number {
 function speedScoreForUnit(kind: UnitKind): number {
   const scores: Record<UnitKind, number> = {
     infantry: 0.22,
+    sniper: 0.19,
     grenadier: 0.2,
     'rocket-infantry': 0.18,
     'scout-tank': 0.48,

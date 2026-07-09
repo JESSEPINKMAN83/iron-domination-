@@ -1,7 +1,7 @@
 // Per-team fog-of-war grid. Deterministic: derived purely from sim state each
 // tick. 0 = never seen (shroud), 1 = explored (dim), 2 = currently visible.
 import type { Heightfield } from './heightfield';
-import type { GameSim } from './world';
+import { allianceSide, type GameSim } from './world';
 
 export const FOG_RES = 128;
 
@@ -20,8 +20,9 @@ export class VisibilityGrid {
   update(sim: GameSim): void {
     const { state } = this;
     for (let i = 0; i < state.length; i++) if (state[i] === 2) state[i] = 1;
+    const viewerSide = allianceSide(sim, this.teamId);
     for (const entity of sim.world.entities) {
-      if (entity.team?.id !== this.teamId || entity.destroyed) continue;
+      if (allianceSide(sim, entity.team?.id) !== viewerSide || entity.destroyed) continue;
       const radius = entity.vision?.radius;
       if (!radius) continue;
       this.stampDisc(entity.transform.x, entity.transform.z, radius);

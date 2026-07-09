@@ -736,6 +736,127 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Latest verification after flight U-turn fix: `npm test` passes (56 Vitest tests).
   `npm run build` passes. Browser smoke loaded `http://127.0.0.1:5173/?start=test`, confirmed
   active game canvases/sidebar rendered, and reported no console errors.
+- Follow-up control/content polish: Space grab-pan now only moves while Space plus a held mouse
+  button is active, so holding Space alone no longer makes bare mouse movement shake the map.
+- Added a buildable Sniper infantry unit with a long-range scoped rifle, a distinct longer
+  rifle/scope silhouette, light AI usage, a starting test-map sniper, and V-mode scoped controls:
+  right-click toggles scoped aim, mouse wheel zooms the scope, and left-click fires.
+- Added regression coverage for sniper production and long-range manual anti-infantry fire.
+- Latest verification after sniper/control polish: `npm test` passes (63 Vitest tests).
+  `npm run build` passes. Browser smoke loaded `http://127.0.0.1:5173/?start=test`, confirmed
+  active game canvases/sidebar rendered, confirmed the scope overlay exists, and reported no
+  console errors.
+- Sniper scope alignment fix: entering scope now preserves the world point already under the
+  reticle, the scoped camera sits on the rifle line, and scoped shots use the scoped camera
+  direction plus sniper muzzle height so the tracer and impact line match the zoomed reticle.
+- Sniper lethality/reach pass: scoped rifle range increased from medium skirmish distance to
+  320 map units, sniper vision increased to match, anti-infantry damage raised well above
+  rifle fire, and the sniper tracer lingers longer for readability.
+- Sniper V-mode repeat-fire fix: reload is now a playable 1.35s, scope UI shows READY or
+  remaining reload time, premature clicks flash RELOADING, and combat coverage proves a
+  player-controlled sniper can fire again after the reload.
+- Sidebar selection roster: the right command panel now shows a grouped grid of the current
+  selection below the selected building/collector strip. Each bucket shows the unit/building
+  type, count, and average health, and clicking a bucket narrows the live game selection to
+  only those entities.
+- Selection safety/readability fix: player selection is now team-gated in the sim, so lasso,
+  click, control groups, and sidebar filtering cannot select or command enemy units even if
+  an enemy is inside the gesture. Unit selection rings are brighter/thicker with a subtle
+  pulse, and building selection glows are stronger.
+- V-mode HUD cue: entering first-person now slides in a top command banner that says
+  FIRST-PERSON VIEW and shows the V/Escape exit hint, then animates away when returning to
+  command view.
+- Facing-order formation preview: right-click hold/drag no longer draws a terrain-clipped
+  ground arrow. It now shows elevated formation slots spread perpendicular to the facing
+  direction, using the selected mover count and the drag length so the preview matches the
+  line the units will form when the order is released.
+- Sniper scope toggle stability correction: sniper regular aim and scoped aim now share the
+  same rifle/eye camera origin and aim vector. Right-click scope toggling only changes the
+  overlay/FOV, avoiding the terrain-anchor/parallax drift that moved the target between
+  normal and scoped views.
+- V-mode exit polish: leaving first-person now eases to a nearby command-view camera from
+  the current viewing side, instead of forcing a fixed RTS pose that could spin through a
+  large rotation. The transition is a gentler zoom/tilt back to command view.
+- Unit visual polish pass per `UNIT_VISUAL_POLISH_SPEC.md`: added a shared faction palette
+  with different friendly/enemy hull tones plus bright accent/light-bar materials, and a
+  render-only `unitVisualKind` mapper so silhouettes derive from existing weapon/loadout data.
+- Infantry now uses one soldier rig with readable gear kits: rifle baseline, stockier
+  grenadier with drum launcher/armor, tall rocket team with backpack rockets/antenna, and a
+  longer scoped sniper rifle kit.
+- Vehicles now have distinct procedural silhouettes: Jackal scout has a lighter six-wheel
+  body and twin autocannons, M-17 keeps the baseline tank shape with track skirts/chevrons,
+  Mauler is longer/lower with a braced siege barrel, and harvesters keep a clear industrial
+  scoop/cargo-bed profile.
+- Aircraft now have differentiated airframes: Wasp is a small scout gunship, Vulture is the
+  baseline rotor gunship with pods/tail cues, and Hammerhead is a heavy twin-rotor platform
+  with visible missile racks.
+- Unit render updates now store cached refs for turrets, barrels, rotors, racks, cargo,
+  scoops, and antennas instead of per-frame `getObjectByName` lookups. Box/cylinder/ring
+  primitives are shared through module-level geometry caches for the new unit visuals.
+- Added `?start=lineup` QA mode, which spawns one of every combat unit plus harvester for
+  both teams in two facing rows, disables AI/combat, reveals the scene, and jumps the camera
+  to the lineup for visual review.
+- Latest verification after unit visual polish: `npm test` passes (65 Vitest tests).
+  `npm run build` passes. `git diff --check` is clean. Browser smoke loaded
+  `http://127.0.0.1:5173/?start=lineup`, confirmed game canvases rendered, and reported no
+  console errors.
+- Follow-up V-mode vehicle firing fix: lineup mode now runs combat in passive mode, so manual
+  vehicle/aircraft shots, projectile flight, and weapon cooldowns keep ticking while
+  auto-targeting stays disabled. This fixes possessed vehicles getting stuck after one
+  left-click and one right-click shot in `?start=lineup`.
+- Latest verification after vehicle firing fix: `npm test` passes (67 Vitest tests).
+  `npm run build` passes. Browser smoke reloaded `http://127.0.0.1:5173/?start=lineup`,
+  confirmed canvases rendered, and reported no console errors.
+- Follow-up V-mode 360-degree turn fix: first-person look yaw now accumulates continuously
+  instead of wrapping at `-180/180`, so soldiers, ground vehicles, and aircraft can keep
+  spinning toward enemies without hitting a yaw seam. V-mode clicks also re-request pointer
+  lock, so a lost mouse capture does not make turning stop at the screen edge.
+- Latest verification after continuous-turn fix: `npm test` passes (68 Vitest tests).
+  `npm run build` passes.
+- Follow-up aircraft aim-down fix: flying units can now pitch V-mode aim much farther downward
+  and steep aircraft shots raycast from the aircraft toward terrain, so helicopters/gunships can
+  aim and fire at targets nearly directly below. Aircraft bombs can drop straight underneath,
+  while tanks keep their minimum safe bomb throw distance.
+- Latest verification after aircraft aim-down fix: `npm test` passes (69 Vitest tests).
+  `npm run build` passes.
+- Follow-up aircraft hard-turn controls: possessed aircraft now use `Q/E` for stronger left/right
+  yaw turns while `A/D` remain the normal steering trim, making tight U-turns and quick attack
+  re-approaches much easier in V-mode.
+- Latest verification after aircraft hard-turn controls: `npm test` passes (70 Vitest tests).
+  `npm run build` passes. `git diff --check` is clean. Browser smoke reloaded
+  `http://127.0.0.1:5173/?start=lineup`, confirmed canvases rendered, and reported no console
+  errors.
+
+## Phase 7.5 — Public Playtest / Netlify Readiness ✅ (2026-07-05)
+
+- Added `netlify.toml` so Git-based Netlify deploys run `npm run build`, publish `dist`,
+  and route all paths back to `index.html`.
+- Added `NETLIFY_DEPLOY.md` with the practical split: manual Netlify Drop should upload
+  `dist/`, while connected Netlify projects should use the repo root.
+- Updated the default setup screen from a pre-Netlify/dev label to public playtest framing:
+  the default `/` route opens skirmish setup, debug/test modes remain hidden behind URL params,
+  and the setup copy explains seed sharing.
+- Reworked the in-game bottom-right chrome into public `HELP` and `MENU` actions. `HELP`
+  opens a field guide, `MENU` pauses simulation while open and exposes Resume, Help, Copy
+  Match Link, Restart Match, and Back to Setup. The old debug stats remain available on `F2`;
+  `F1` now opens the player guide.
+- Added command-panel unit thumbnails cropped from the provided low-poly unit sheet for
+  infantry, sniper, grenadier, rocket infantry, scout/tank/siege vehicles, Wasp, Vulture,
+  Hammerhead, and the harvester placeholder.
+- Added command-panel building/defense thumbnails cropped from the provided structure sheet
+  for Power Plant, Refinery, Barracks, Factory, Helipad, Wall, Guard Tower, and AA Missile
+  Tower. Command Yard temporarily reuses the Factory thumbnail until a dedicated base icon
+  is designed.
+- Stabilized the command panel rendering: production progress, economy status, and producer
+  summary rows now update live in place instead of forcing full card rebuilds every time ore,
+  cargo, credits, or progress numbers change. This removes the thumbnail/card shake and gives
+  active build progress a smoother top progress bar.
+- Moved the selected-force summary out of the right command panel into a separate bottom-center
+  selection bar. Economy now stays directly under the command tabs, while selected groups spread
+  horizontally at the bottom of the screen and still support click-to-filter by unit type.
+- Latest verification after Phase 7.5: `npm test` passes (70 Vitest tests). `npm run build`
+  passes. `git diff --check` is clean. Browser smoke confirmed `/` setup, START SKIRMISH,
+  HELP/MENU dialogs, and hidden `?start=lineup` QA mode all render with no console errors.
 
 ### Known issues / notes
 - This is still procedural art, not final GLB content. It establishes the gameplay-readable
@@ -743,7 +864,179 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - The first Phase 7 passes focused on economy/resource presentation and combat/air feedback.
   Richer soldier/vehicle GLB-style art, audio, rotor loop sound, and hand-authored explosion
   assets remain pending.
+- Netlify readiness here means public single-player skirmish against AI. Live multiplayer is
+  still Phase 9 and would require a server/lobby/input-sync layer beyond static Netlify hosting.
 
 ### Next
-- Continue Phase 7 with broader unit/building art polish: stronger vehicle silhouettes,
-  infantry readability, aircraft detail, and eventually audio/asset replacement.
+- Deploy `dist/` to Netlify for a real public playtest, then either continue Phase 7 asset/audio
+  polish or move into Phase 8 balance/settings based on what breaks first in play.
+
+## Phase 8A — Balance & Public Match Polish 🚧 (2026-07-05, started)
+
+- Added explicit difficulty-facing setup copy for Easy/Normal/Hard and enemy commander
+  personalities, so public players understand the pacing tradeoffs before starting a match.
+- Added difficulty-specific first-attack timing. Normal remains the baseline, Easy delays the
+  first attack longer, and Hard pressures earlier while keeping the existing honest economy and
+  visibility rules.
+- Added a short in-match mission briefing toast after skirmish start with the objective and
+  selected AI profile, without leaving another permanent HUD card on the screen.
+- Expanded the match menu into a useful pause/status screen: elapsed time, current credits,
+  player/enemy buildings and units, collector counts, AI pressure summary, Resume, Help, Copy
+  Match Link, Restart, and Back to Setup.
+- Expanded victory/defeat recap with match time, remaining forces, credits, collector count,
+  AI attacks launched, and AI rebuild count.
+- Latest verification after this Phase 8A slice: `npm test` passes (70 Vitest tests), including
+  the Normal/balanced passive-player acceptance at 13.2 sim-minutes. `npm run build` passes.
+  Browser smoke confirmed setup copy, START SKIRMISH, mission briefing, match-menu live stats,
+  and no console errors.
+
+### Next
+- Continue Phase 8 with playtest balance passes: unit cost/time tuning, AI wave composition by
+  difficulty, clearer power/low-credit failure states, and optional lightweight graphics/audio
+  toggles for public machines.
+
+## Phase 9A — Multiplayer Foundation 🚧 (2026-07-06, started)
+
+- Added a dependency-free Node multiplayer relay at `server/multiplayer-server.mjs`. It exposes
+  room creation, join, leave, event stream, health, and future command relay endpoints.
+- Added `npm run multiplayer` for the relay alone and `npm run dev:multiplayer` to run the
+  relay and Vite app together for local two-window/two-machine testing.
+- Added a typed browser multiplayer client in `src/net/multiplayer.ts` using `fetch` plus
+  `EventSource`, so the static Vite client can connect to a separately hosted relay.
+- Added Multiplayer controls to the setup screen: server URL, room code, Host Room, Join Room,
+  room status, player assignment, and synchronized match start when a second player joins.
+- Added `MULTIPLAYER.md` with local/LAN/public-hosting instructions, and updated
+  `NETLIFY_DEPLOY.md` to clarify that Netlify can host the client but not the live relay.
+- Server smoke verified: `/health`, room host, second-player join, player indexes 1/2, and
+  automatic transition to `in-game`.
+
+### Known issues / notes
+- This is a networking foundation slice, not finished gameplay multiplayer. Both clients can
+  join and boot the same room settings, but live RTS orders and V-mode inputs are not synced yet.
+- Selection and command ownership still assume local team 1 in several paths. Phase 9B should
+  make local player team configurable before enabling real 1v1 command sync.
+
+### Next
+- Phase 9B: local-team ownership, AI-off 1v1 room mode, deterministic command messages with
+  target ticks, command replay on both clients, and periodic sim-hash desync checks.
+
+## Phase 9B — 1v1 Command Sync MVP 🚧 (2026-07-06)
+
+- Added local-team ownership through the RTS selection path, selection bar, sidebar, radar, and
+  V-mode entry. Host remains green/team 1; guest controls red/team 2.
+- Multiplayer rooms now disable the enemy commander and keep both economies fair at normal
+  starting credits instead of giving the red side AI difficulty income/start bonuses.
+- Added a lockstep command runtime in `src/net/commands.ts`. It schedules commands with a small
+  input delay, applies them by entity id, and ignores commands for units not owned by the
+  issuing player.
+- Routed core multiplayer actions through the command relay: move, attack-move, stop,
+  harvester collect/return, producer rally, structure build/place/cancel, unit queue/cancel,
+  and primary producer selection.
+- Added periodic sim-hash messages for desync detection. The current slice reports mismatches;
+  it does not yet repair them.
+- Relaxed relay room cleanup so rooms survive temporary EventSource/browser disconnects until
+  the normal room TTL instead of closing immediately.
+- Added regression coverage proving a delayed team-2 lockstep move command controls only
+  team-2 units even if a team-1 id is included.
+- Fixed a multiplayer command-freeze bug where a temporary EventSource interruption could stop
+  the lockstep queue from applying already issued local movement orders. Local queued commands
+  now continue to resolve while the stream reconnects, and the runtime marks itself connected
+  again when command events resume.
+- Added regression coverage proving local queued commands still apply even when the stream is
+  currently interrupted.
+- Updated `MULTIPLAYER.md` to describe the Phase 9B flow and remaining limitations.
+- Latest verification after Phase 9B: `npm test` passes (72 tests). `npm run build` passes.
+  `git diff --check` is clean. Relay smoke verified host/join, delayed reconnect-tolerant join,
+  and `/command` acceptance. Browser smoke confirmed the setup screen renders Phase 9B controls
+  with no console errors.
+
+### Known issues / notes
+- V-mode possession inputs are not yet network-synced. Players should use RTS orders for the
+  first multiplayer tests.
+- The MVP reports sim-hash mismatches but does not pause, snapshot, or recover the match.
+- The Codex in-app browser exposed only one usable tab during this run, so full two-window
+  browser gameplay was not automated here. Relay endpoint tests and setup UI smoke both passed.
+
+### Next
+- Phase 9C: V-mode input sync, visible multiplayer connection/status overlay, pause-on-disconnect,
+  desync diagnostics UI, and public Node relay deployment instructions.
+
+## Phase 9C — Multiplayer Hardening 🚧 (2026-07-06)
+
+- Added a short relay-side `starting` countdown before match start. Rooms now broadcast a
+  countdown state when the second player joins, then send `match-start` after the countdown.
+- Added in-match multiplayer status UI. Multiplayer games show an online/warning strip at the
+  top with connection, opponent, pause, and desync messages instead of relying only on console
+  logs.
+- Added pause-on-disconnect behavior. If the room closes, the stream interrupts, a command send
+  fails, or the opponent disconnects, multiplayer sim ticks pause until a connected state is
+  observed again.
+- Added realtime V-mode possession mirroring. Drive/fly control state, manual fire targets, and
+  release events are sent through the multiplayer command stream so the opponent can see and
+  resolve possessed unit actions.
+- Added regression coverage proving realtime remote possession commands affect only the owning
+  team, trigger weapon cooldown on fire, and clear control on release.
+- Updated `MULTIPLAYER.md` to mark Phase 9C as the current slice and move the next online work
+  into Phase 9D.
+- Latest verification after Phase 9C: `npm test` passes (73 tests). `npm run build` passes.
+  `git diff --check` is clean. Relay smoke on a temporary port verified host/join, `starting`
+  countdown with `startsAt`, and transition to `in-game`.
+
+### Known issues / notes
+- V-mode sync is realtime mirroring, not rollback netcode. It should make public play feel much
+  better, but high-latency internet play may still need snapshot repair or a stricter
+  server-authoritative model later.
+- Desyncs are surfaced in the multiplayer overlay but are not automatically repaired yet.
+
+### Next
+- Phase 9D: deploy the relay to a public Node host, add reconnect-with-same-player-id after
+  page refresh, add snapshot/desync recovery tooling, and improve the room/lobby UX.
+
+## Phase 9D — Online Deploy Readiness 🚧 (2026-07-06)
+
+- Added `VITE_MULTIPLAYER_SERVER_URL` support so Netlify builds can default the Multiplayer
+  server input to a public relay URL instead of `http://127.0.0.1:8787`.
+- Added `.env.example` documenting the client relay URL and relay-side `ALLOWED_ORIGINS`.
+- Added per relay+room player ID persistence in local storage. Rejoining the same room can now
+  reuse the same player identity while the room is alive, and host identity is remembered for
+  future hosted rooms.
+- Improved setup-screen multiplayer errors for unreachable servers, expired rooms, full rooms,
+  expired player sessions, missing room codes, and relay origin rejection.
+- Added relay CORS hardening. By default local/private tests still allow all origins; deployed
+  relays can set `ALLOWED_ORIGINS=https://your-site.netlify.app` to restrict browser access.
+- Expanded `NETLIFY_DEPLOY.md` and `MULTIPLAYER.md` with the two-host deployment checklist:
+  Netlify for the Vite client, a Node host for the relay, and the env vars that connect them.
+- Added persistent ground impact scorch marks for bombs, grenades, rockets, and missiles. Terrain
+  hits now leave irregular darkened craters with dusty rims and small cracks that fade over time;
+  airborne AA hits are ignored so they do not create fake marks on the ground below.
+- Added the first contextual audio layer with procedural Web Audio SFX: distance-panned rifle,
+  sniper, cannon/autocannon, bomb/rocket/missile launch, explosion, debris, crash, and UI command
+  ticks. Audio unlocks on the first click/key press, stays local-only for multiplayer, and `M`
+  toggles mute.
+- Replaced the generic build beep on final structure placement with a spatial construction cue.
+  Buildings now play a heavier machinery/clank/thud layer, while wall segments use a shorter
+  metal assembly variant from the placement location.
+- Rebalanced Easy AI combat so it is less perfect in actual fights, not just slower in economy:
+  Easy now reacts slower, fires with longer cooldowns, has deterministic aim scatter/misses,
+  and is less eager to dogpile the player-possessed unit. Normal keeps only tiny variance;
+  Hard stays sharp.
+- Added a setup-screen Combat Mode rule for multiplayer/lobbies. `Assisted` keeps the classic
+  auto-acquire and base-defense behavior; `Manual` disables idle auto-attack and automatic
+  defender rallying, while still allowing explicit attack-move and V-mode firing. The selected
+  rule is saved locally, accepted through `?combat=manual`, carried by hosted rooms, and included
+  in the multiplayer desync hash.
+- Added economy feedback effects for the ore loop. Harvesters now emit subtle dust and floating
+  dollar signs while gathering in an ore field, and refinery deposits spawn a clear `+$amount`
+  "ORE DELIVERED" popup with coin particles. Deposit events use the same delivered amount that is
+  added to credits, and combat rendering ignores the economy event so no fake weapon tracers appear.
+- Added enemy hover targeting feedback for command mode. When friendly armed units are selected,
+  hovering an enemy unit or building now shows a prominent red target reticle, and right-clicking
+  that target issues an attack-style order instead of an ambiguous move order.
+- Improved progressive damage visuals. Building hits now force a stronger first visible damage
+  floor, use more gradual local block states, and add scar/ember overlays from the first struck
+  cells. Vehicles, tanks, harvesters, and aircraft now reveal staged scorch, crack, and ember
+  patches as health drops instead of looking clean until they become wrecks.
+
+### Next
+- Public-host the relay, set the Netlify environment variable, run a two-computer online test,
+  then decide whether Phase 9E should focus on desync snapshot recovery or lobby UX.

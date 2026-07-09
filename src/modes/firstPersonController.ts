@@ -11,6 +11,10 @@ const CHASE_ZOOM_MIN = -1;
 const CHASE_ZOOM_MAX = 3.15;
 const ORBIT_PITCH_MIN = MathUtils.degToRad(-18);
 const ORBIT_PITCH_MAX = MathUtils.degToRad(48);
+const FLIGHT_LOOK_DOWN_MIN = MathUtils.degToRad(-86);
+const FLIGHT_LOOK_UP_MAX = MathUtils.degToRad(56);
+const SNIPER_SCOPE_FOV_WIDE = 30;
+const SNIPER_SCOPE_FOV_TIGHT = 11;
 const SQUAD_FOLLOW_REFRESH_TICKS = 12;
 const SQUAD_FOLLOW_MIN_DISTANCE = 14;
 
@@ -18,6 +22,26 @@ interface CameraPose {
   position: Vector3;
   quaternion: Quaternion;
   fov: number;
+}
+
+export interface FirstPersonCommandSink {
+  control(command: {
+    id: number;
+    throttle: number;
+    turn: number;
+    aimYaw: number;
+    climb?: number;
+    strafe?: number;
+    boost?: boolean;
+    x: number;
+    z: number;
+    y?: number;
+    rot: number;
+    vx?: number;
+    vz?: number;
+  }): void;
+  fire(command: { id: number; slot: 'primary' | 'secondary'; x: number; z: number; y?: number; aimYaw: number }): void;
+  release(id: number): void;
 }
 
 export class FirstPersonController {
@@ -41,9 +65,16 @@ export class FirstPersonController {
   private readonly smoothFlightCenter = new Vector3();
   private hasSmoothFlightCenter = false;
   private chaseZoom = 0;
+  private sniperScopeZoom = 0.35;
+  private sniperScopeActive = false;
   private orbitYaw = 0;
   private orbitPitch = 0;
   private savedCursor = '';
+  private readonly scopeOverlay: HTMLDivElement;
+  private readonly scopeStatus: HTMLDivElement;
+  private sniperReloadFlash = 0;
+  private lastControlSentTick = -999;
+  private lastControlSignature = '';
 
   constructor(
     private readonly dom: HTMLElement,
@@ -52,14 +83,38 @@ export class FirstPersonController {
     private readonly hf: Heightfield,
     private readonly sim: GameSim,
     private readonly callbacks: { onEnter?: () => void; onExit?: (entity?: Entity) => void } = {},
+    private readonly localTeam = 1,
+    private readonly commandSink?: FirstPersonCommandSink,
   ) {
+    this.scopeOverlay = document.createElement('div');
+    this.scopeOverlay.style.cssText =
+      'position:fixed;inset:0;display:none;pointer-events:none;z-index:12;' +
+      'background:radial-gradient(circle at center, transparent 0 16%, rgba(0,0,0,.16) 17%, rgba(0,0,0,.72) 43%, rgba(0,0,0,.92) 100%);';
+    this.scopeOverlay.innerHTML =
+      '<div style="position:absolute;left:50%;top:50%;width:min(54vw,54vh);height:min(54vw,54vh);transform:translate(-50%,-50%);border:2px solid rgba(185,230,190,.72);border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.9),inset 0 0 34px rgba(90,255,130,.08)"></div>' +
+      '<div style="position:absolute;left:50%;top:12%;bottom:12%;width:1px;background:rgba(198,244,204,.58);transform:translateX(-50%)"></div>' +
+      '<div style="position:absolute;top:50%;left:12%;right:12%;height:1px;background:rgba(198,244,204,.58);transform:translateY(-50%)"></div>' +
+      '<div style="position:absolute;left:50%;top:50%;width:8px;height:8px;border:1px solid rgba(240,248,230,.9);border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 14px rgba(125,242,125,.35)"></div>';
+    document.body.appendChild(this.scopeOverlay);
+    this.scopeStatus = document.createElement('div');
+    this.scopeStatus.style.cssText =
+      'position:fixed;left:50%;bottom:18%;transform:translateX(-50%);display:none;pointer-events:none;z-index:13;' +
+      'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.18em;color:rgba(216,255,208,.9);text-shadow:0 1px 2px #000;';
+    document.body.appendChild(this.scopeStatus);
+
     dom.addEventListener(
       'pointerdown',
       (event) => {
         if (this.mode !== 'fps' || (event.button !== 0 && event.button !== 2)) return;
         event.preventDefault();
         event.stopPropagation();
+        this.ensurePointerLock();
         if (event.button === 0 && (event.metaKey || this.input.isMetaDown())) return;
+        if (event.button === 2 && this.isSniper(this.possessed)) {
+          this.sniperScopeActive = !this.sniperScopeActive;
+          this.updateScopeOverlay(this.sniperScopeActive);
+          return;
+        }
         this.fire(event.button === 2 ? 'secondary' : 'primary');
       },
       { capture: true },
@@ -91,7 +146,7 @@ export class FirstPersonController {
     this.squad = squad;
     this.squadIndex = squad.indexOf(entity);
     this.nextSquadFollowTick = this.sim.tick;
-    setSelected(this.sim, this.squad);
+    setSelected(this.sim, this.squad, false, this.localTeam);
     this.takeControl(entity);
     this.transitionT = 0;
     this.fromPose = this.captureCameraPose();
@@ -103,7 +158,7 @@ export class FirstPersonController {
     this.savedCursor = this.dom.style.cursor;
     this.dom.style.cursor = 'none';
     this.callbacks.onEnter?.();
-    void this.dom.requestPointerLock?.();
+    this.ensurePointerLock();
     return true;
   }
 
@@ -126,7 +181,7 @@ export class FirstPersonController {
     this.hasSmoothFlightCenter = false;
     this.nextSquadFollowTick = this.sim.tick;
     this.toPose = this.poseFor(next, this.lookYaw, this.lookPitch, this.zoomedFov(62), 1, 1 / 60);
-    setSelected(this.sim, this.squad);
+    setSelected(this.sim, this.squad, false, this.localTeam);
     return true;
   }
 
@@ -139,31 +194,42 @@ export class FirstPersonController {
     const forward = (this.input.isDown('KeyW') ? 1 : 0) - (this.input.isDown('KeyS') ? 1 : 0);
     // heading uses (sin rot, cos rot): positive turn rotates toward -screen-right,
     // so D (turn right) must apply negative turn — matches mouse-look direction
-    const turn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
-    const strafe = this.possessed.flight ? (this.input.isDown('KeyE') ? 1 : 0) - (this.input.isDown('KeyQ') ? 1 : 0) : 0;
+    const baseTurn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
+    const hardTurn = this.possessed.flight ? (this.input.isDown('KeyQ') ? 1 : 0) - (this.input.isDown('KeyE') ? 1 : 0) : 0;
+    const turn = baseTurn + hardTurn * 1.55;
+    const strafe = 0;
     const climb = (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('ControlLeft') || this.input.isDown('ControlRight') ? 1 : 0);
+    const boost = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
     this.possessed.playerControlled.throttle = forward;
     this.possessed.playerControlled.turn = turn;
     this.possessed.playerControlled.aimYaw = this.lookYaw;
     this.possessed.playerControlled.climb = climb;
     this.possessed.playerControlled.strafe = strafe;
+    this.possessed.playerControlled.boost = boost;
+    this.publishControlState();
     this.updateSquadFollowers();
   }
 
   update(dt: number, alpha = 1): void {
     if (!this.active || !this.possessed) return;
+    const sniperScoped = this.isSniperScoped();
+    this.sniperReloadFlash = Math.max(0, this.sniperReloadFlash - dt);
     const wheel = this.input.consumeWheel();
-    if (wheel !== 0) this.chaseZoom = MathUtils.clamp(this.chaseZoom + wheel * 0.0014, CHASE_ZOOM_MIN, CHASE_ZOOM_MAX);
+    if (wheel !== 0) {
+      if (sniperScoped) this.sniperScopeZoom = MathUtils.clamp(this.sniperScopeZoom - wheel * 0.0018, 0, 1);
+      else this.chaseZoom = MathUtils.clamp(this.chaseZoom + wheel * 0.0014, CHASE_ZOOM_MIN, CHASE_ZOOM_MAX);
+    }
+    this.updateScopeOverlay(sniperScoped);
     const delta = this.input.consumeMouseDelta();
     const orbitAdjusting = this.mode === 'fps' && this.input.isMetaDown() && this.input.isButton(0);
     if (this.mode === 'fps' && (delta.dx !== 0 || delta.dy !== 0)) {
       if (orbitAdjusting) {
-        this.orbitYaw = normalizeAngle(this.orbitYaw - delta.dx * 0.004);
+        this.orbitYaw -= delta.dx * 0.004;
         this.orbitPitch = MathUtils.clamp(this.orbitPitch - delta.dy * 0.003, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
       } else {
-        this.lookYaw = normalizeAngle(this.lookYaw - delta.dx * 0.0024);
-        const minPitch = this.possessed.flight ? MathUtils.degToRad(-42) : MathUtils.degToRad(-18);
-        const maxPitch = this.possessed.flight ? MathUtils.degToRad(38) : MathUtils.degToRad(52);
+        this.lookYaw -= delta.dx * 0.0024;
+        const minPitch = this.possessed.flight ? FLIGHT_LOOK_DOWN_MIN : MathUtils.degToRad(-18);
+        const maxPitch = this.possessed.flight ? FLIGHT_LOOK_UP_MAX : MathUtils.degToRad(52);
         this.lookPitch = MathUtils.clamp(this.lookPitch - delta.dy * 0.0018, minPitch, maxPitch);
       }
     }
@@ -177,8 +243,9 @@ export class FirstPersonController {
     }
 
     if (this.mode === 'exiting') {
-      this.transitionT = Math.min(1, this.transitionT + dt / 0.42);
-      this.applyPose(lerpPose(this.fromPose, this.toPose, ease(this.transitionT)));
+      this.updateScopeOverlay(false);
+      this.transitionT = Math.min(1, this.transitionT + dt / 0.58);
+      this.applyPose(lerpPose(this.fromPose, this.toPose, easeOutCubic(this.transitionT)));
       if (this.transitionT >= 1) this.finishExit();
       return;
     }
@@ -203,6 +270,7 @@ export class FirstPersonController {
     const entity = this.possessed;
     if (entity) {
       delete entity.playerControlled;
+      this.commandSink?.release(entity.id);
       if (entity.velocity && !entity.flight) {
         entity.velocity.x = 0;
         entity.velocity.z = 0;
@@ -212,6 +280,9 @@ export class FirstPersonController {
     this.squad = [];
     this.squadIndex = 0;
     this.hasSmoothFlightCenter = false;
+    this.sniperScopeActive = false;
+    this.sniperReloadFlash = 0;
+    this.updateScopeOverlay(false);
     this.mode = 'rts';
     this.camera.fov = 50;
     this.camera.updateProjectionMatrix();
@@ -221,6 +292,7 @@ export class FirstPersonController {
 
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
     if (entity.flight) return this.flightPoseFor(entity, yaw, pitch, fov, alpha, dt);
+    if (this.isSniper(entity)) return this.sniperPoseFor(entity, yaw, pitch, this.isSniperScoped(entity) ? undefined : this.zoomedFov(54));
     const center = this.interpolatedCenter(entity, alpha);
     const groundY = sampleHeight(this.hf, center.x, center.z);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
@@ -236,6 +308,16 @@ export class FirstPersonController {
     position.y += chaseHeight;
     this.tmpAimTarget.copy(tankCenter).addScaledVector(this.tmpForward, 100);
     this.tmpAimTarget.y = Math.max(sampleHeight(this.hf, this.tmpAimTarget.x, this.tmpAimTarget.z) + 1.5, this.tmpAimTarget.y);
+    return this.lookPose(position, this.tmpAimTarget, fov);
+  }
+
+  private sniperPoseFor(entity: Entity, yaw: number, pitch: number, regularFov?: number): CameraPose {
+    const center = this.interpolatedCenter(entity, 1);
+    const groundY = sampleHeight(this.hf, center.x, center.z);
+    this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    const position = new Vector3(center.x, groundY + 1.72, center.z).addScaledVector(this.tmpForward, 0.2);
+    this.tmpAimTarget.copy(position).addScaledVector(this.tmpForward, 230);
+    const fov = regularFov ?? MathUtils.lerp(SNIPER_SCOPE_FOV_WIDE, SNIPER_SCOPE_FOV_TIGHT, this.sniperScopeZoom);
     return this.lookPose(position, this.tmpAimTarget, fov);
   }
 
@@ -276,8 +358,25 @@ export class FirstPersonController {
 
   private fire(slot: 'primary' | 'secondary'): void {
     if (!this.possessed) return;
-    const target = this.possessed.flight ? this.flightTarget(this.possessed, slot) : slot === 'secondary' ? this.bombTarget(this.possessed) : this.tmpAimTarget;
-    manualFireAt(this.sim, this.possessed, target.x, target.z, slot, target.y);
+    if (this.isSniperScoped(this.possessed) && slot === 'primary') {
+      const weapon = this.possessed.weapons?.primary ?? this.possessed.weapon;
+      if ((weapon?.cooldown ?? 0) > 0) {
+        this.sniperReloadFlash = 0.25;
+        this.updateScopeOverlay(true);
+        return;
+      }
+      this.possessed.playerControlled!.aimYaw = this.lookYaw;
+      if (this.possessed.turret) this.possessed.turret.yaw = this.lookYaw;
+    }
+    const target = this.possessed.flight
+      ? this.flightTarget(this.possessed, slot)
+      : this.isSniperScoped(this.possessed) && slot === 'primary'
+        ? this.sniperScopeShotTarget(this.possessed)
+        : slot === 'secondary'
+          ? this.bombTarget(this.possessed)
+          : this.tmpAimTarget;
+    const fired = manualFireAt(this.sim, this.possessed, target.x, target.z, slot, target.y);
+    if (fired) this.commandSink?.fire({ id: this.possessed.id, slot, x: target.x, z: target.z, y: target.y, aimYaw: this.lookYaw });
     for (const wingman of this.squadFollowers()) {
       if (wingman.turret) wingman.turret.yaw = Math.atan2(target.x - wingman.transform.x, target.z - wingman.transform.z);
       manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y);
@@ -285,11 +384,48 @@ export class FirstPersonController {
     }
   }
 
+  private publishControlState(force = false): void {
+    if (!this.commandSink || !this.possessed?.playerControlled) return;
+    const controlled = this.possessed.playerControlled;
+    const signature = [
+      this.possessed.id,
+      controlled.throttle.toFixed(2),
+      controlled.turn.toFixed(2),
+      controlled.climb?.toFixed(2) ?? '0',
+      controlled.strafe?.toFixed(2) ?? '0',
+      controlled.boost ? '1' : '0',
+      this.lookYaw.toFixed(3),
+      this.possessed.transform.x.toFixed(1),
+      this.possessed.transform.z.toFixed(1),
+      (this.possessed.transform.y ?? 0).toFixed(1),
+    ].join(':');
+    if (!force && this.sim.tick - this.lastControlSentTick < 3 && signature === this.lastControlSignature) return;
+    this.lastControlSentTick = this.sim.tick;
+    this.lastControlSignature = signature;
+    this.commandSink.control({
+      id: this.possessed.id,
+      throttle: controlled.throttle,
+      turn: controlled.turn,
+      aimYaw: controlled.aimYaw,
+      climb: controlled.climb,
+      strafe: controlled.strafe,
+      boost: controlled.boost,
+      x: this.possessed.transform.x,
+      z: this.possessed.transform.z,
+      y: this.possessed.transform.y,
+      rot: this.possessed.transform.rot,
+      vx: this.possessed.velocity?.x,
+      vz: this.possessed.velocity?.z,
+    });
+  }
+
   private flightTarget(entity: Entity, slot: 'primary' | 'secondary'): Vector3 {
     this.tmpForward.set(Math.sin(this.lookYaw) * Math.cos(this.lookPitch), Math.sin(this.lookPitch), Math.cos(this.lookYaw) * Math.cos(this.lookPitch));
     if (slot === 'secondary') {
       return this.flightBombTarget(entity);
     }
+    const ground = this.lookPitch < MathUtils.degToRad(-28) ? this.flightTerrainPoint(entity, 720) : undefined;
+    if (ground) return ground;
     const origin = new Vector3(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28, entity.transform.z);
     const range = 112;
     const target = origin.addScaledVector(this.tmpForward, range);
@@ -298,7 +434,7 @@ export class FirstPersonController {
   }
 
   private flightBombTarget(entity: Entity): Vector3 {
-    const ground = this.terrainPoint();
+    const ground = this.flightTerrainPoint(entity, 820) ?? this.terrainPoint(720);
     if (ground) return ground;
     const y = entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28;
     const origin = new Vector3(entity.transform.x, y, entity.transform.z);
@@ -321,16 +457,44 @@ export class FirstPersonController {
     return target;
   }
 
+  private sniperScopeShotTarget(entity: Entity): Vector3 {
+    const dir = new Vector3();
+    this.camera.getWorldDirection(dir);
+    const horizontal = Math.max(0.001, Math.hypot(dir.x, dir.z));
+    const range = entity.weapon?.range ?? 320;
+    const muzzleY = sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 1.72;
+    return new Vector3(
+      entity.transform.x + (dir.x / horizontal) * range,
+      muzzleY + (dir.y / horizontal) * range,
+      entity.transform.z + (dir.z / horizontal) * range,
+    );
+  }
+
   /*
    * Kept for later shell-drop/ground targeting. Manual cannon fire currently uses the turret
    * aim vector so the shot does not snap down to the near ground in chase camera.
    */
-  private terrainPoint(): Vector3 | undefined {
+  private terrainPoint(maxDistance = 260): Vector3 | undefined {
     const origin = this.camera.position;
     const dir = new Vector3();
     this.camera.getWorldDirection(dir);
+    return this.rayTerrainPoint(origin, dir, maxDistance);
+  }
+
+  private flightTerrainPoint(entity: Entity, maxDistance: number): Vector3 | undefined {
+    const y = entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28;
+    const origin = new Vector3(entity.transform.x, y, entity.transform.z);
+    const dir = new Vector3(
+      Math.sin(this.lookYaw) * Math.cos(this.lookPitch),
+      Math.sin(this.lookPitch),
+      Math.cos(this.lookYaw) * Math.cos(this.lookPitch),
+    );
+    return this.rayTerrainPoint(origin, dir, maxDistance);
+  }
+
+  private rayTerrainPoint(origin: Vector3, dir: Vector3, maxDistance: number): Vector3 | undefined {
     let lo = 0;
-    let hi = 260;
+    let hi = maxDistance;
     let hit = false;
     const p = new Vector3();
     for (let i = 1; i <= 96; i++) {
@@ -354,13 +518,21 @@ export class FirstPersonController {
   }
 
   private rtsPoseNear(entity: Entity): CameraPose {
-    const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
-    const target = new Vector3(entity.transform.x, entity.flight ? entity.transform.y ?? groundY + 28 : groundY, entity.transform.z);
-    const yaw = this.lookYaw;
-    const pitch = MathUtils.degToRad(50);
-    const offset = new Vector3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(Math.cos(pitch) * 70);
-    offset.y = Math.sin(pitch) * 70;
-    const position = target.clone().add(offset);
+    const center = this.interpolatedCenter(entity, 1);
+    const groundY = sampleHeight(this.hf, center.x, center.z);
+    const targetY = entity.flight ? center.y : groundY + 1.6;
+    const target = new Vector3(center.x, targetY, center.z);
+    const currentPosition = this.camera.position.clone();
+    const away = currentPosition.clone().sub(target);
+    if (away.lengthSq() < 0.001) away.set(-Math.sin(this.lookYaw), 0.5, -Math.cos(this.lookYaw));
+    away.normalize();
+    const horizontal = new Vector3(away.x, 0, away.z);
+    if (horizontal.lengthSq() < 0.001) horizontal.set(-Math.sin(this.lookYaw), 0, -Math.cos(this.lookYaw));
+    horizontal.normalize();
+    const distance = entity.flight ? 78 : 64;
+    const height = entity.flight ? 46 : 40;
+    const position = target.clone().addScaledVector(horizontal, distance);
+    position.y = Math.max(target.y + 18, groundY + height);
     return this.lookPose(position, target, 50);
   }
 
@@ -373,11 +545,49 @@ export class FirstPersonController {
   }
 
   private takeControl(entity: Entity): void {
-    if (this.possessed && this.possessed !== entity) delete this.possessed.playerControlled;
+    if (this.possessed && this.possessed !== entity) {
+      delete this.possessed.playerControlled;
+      this.commandSink?.release(this.possessed.id);
+    }
     this.possessed = entity;
-    this.lookYaw = entity.transform.rot;
+    this.lookYaw = nearestEquivalentAngle(entity.transform.rot, this.lookYaw);
     this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
-    entity.playerControlled = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0, strafe: 0 };
+    this.sniperScopeZoom = 0.35;
+    this.sniperScopeActive = false;
+    entity.playerControlled = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0, strafe: 0, boost: false };
+    this.lastControlSentTick = -999;
+    this.lastControlSignature = '';
+    this.publishControlState(true);
+  }
+
+  private ensurePointerLock(): void {
+    if (document.pointerLockElement === this.dom) return;
+    void this.dom.requestPointerLock?.();
+  }
+
+  private isSniper(entity: Entity | undefined): boolean {
+    return entity?.weapon?.kind === 'sniperRifle';
+  }
+
+  private isSniperScoped(entity = this.possessed): boolean {
+    return this.mode === 'fps' && this.isSniper(entity) && this.sniperScopeActive;
+  }
+
+  private updateScopeOverlay(visible: boolean): void {
+    this.scopeOverlay.style.display = visible ? 'block' : 'none';
+    this.scopeStatus.style.display = visible ? 'block' : 'none';
+    if (!visible) return;
+    const opacity = MathUtils.lerp(0.74, 0.9, this.sniperScopeZoom);
+    this.scopeOverlay.style.opacity = opacity.toFixed(3);
+    const weapon = this.possessed?.weapons?.primary ?? this.possessed?.weapon;
+    const cooldown = weapon?.kind === 'sniperRifle' ? weapon.cooldown : 0;
+    if (cooldown > 0) {
+      this.scopeStatus.textContent = this.sniperReloadFlash > 0 ? 'RELOADING' : `${cooldown.toFixed(1)}s`;
+      this.scopeStatus.style.color = this.sniperReloadFlash > 0 ? 'rgba(255,198,106,.95)' : 'rgba(216,255,208,.72)';
+    } else {
+      this.scopeStatus.textContent = 'READY';
+      this.scopeStatus.style.color = 'rgba(216,255,208,.9)';
+    }
   }
 
   private liveSquad(): Entity[] {
@@ -448,6 +658,15 @@ function ease(t: number): number {
   return t * t * (3 - 2 * t);
 }
 
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
 function normalizeAngle(angle: number): number {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+function nearestEquivalentAngle(angle: number, near: number): number {
+  const turn = Math.PI * 2;
+  return angle + Math.round((near - angle) / turn) * turn;
 }

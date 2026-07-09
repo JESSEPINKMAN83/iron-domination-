@@ -539,6 +539,21 @@ function stepHarvesters(sim: GameSim, economy: EconomyState, dt: number): void {
       if (delivered > 0) {
         economy.credits += delivered;
         economy.ledger.push({ tick: sim.tick, type: 'income', label: HARVESTER_DELIVERY_LABEL, amount: delivered });
+        sim.events.push({
+          kind: 'ore-delivery',
+          fromX: entity.transform.x,
+          fromY: entity.transform.y,
+          fromZ: entity.transform.z,
+          toX: refinery.transform.x,
+          toY: refinery.transform.y,
+          toZ: refinery.transform.z,
+          sourceTeamId: economy.team,
+          targetId: refinery.id,
+          targetLabel: HARVESTER_DELIVERY_LABEL,
+          targetType: 'economy',
+          damage: delivered,
+          killed: false,
+        });
       }
       entity.cargo.amount = 0;
       harvester.state = 'seeking';
@@ -661,6 +676,8 @@ export function spawnInfantryAt(sim: GameSim, x: number, z: number, team: number
   const config =
     kind === 'grenadier'
       ? { label: 'Grenadier', enemyLabel: 'Ash Grenadier', weapon: 'grenade', range: 48, health: 52, speed: 11, vision: 82 }
+      : kind === 'sniper'
+        ? { label: 'Sniper', enemyLabel: 'Ash Sniper', weapon: 'sniperRifle', range: 320, health: 38, speed: 10.5, vision: 360 }
       : kind === 'rocket-infantry'
         ? { label: 'Rocket Team', enemyLabel: 'Ash Rockets', weapon: 'rocketLauncher', range: 72, health: 50, speed: 10, vision: 94 }
         : { label: 'Rifle Team', enemyLabel: 'Ash Rifles', weapon: 'rifle', range: 42, health: 45, speed: 12, vision: 78 };
@@ -739,7 +756,7 @@ function clampProductionPoint(
 }
 
 function productionUnitRadius(kind: UnitKind): number {
-  if (kind === 'infantry' || kind === 'grenadier' || kind === 'rocket-infantry') return 1.2;
+  if (kind === 'infantry' || kind === 'sniper' || kind === 'grenadier' || kind === 'rocket-infantry') return 1.2;
   if (kind === 'wasp') return 2.5;
   if (kind === 'vulture') return 3;
   if (kind === 'hammerhead') return 3.8;

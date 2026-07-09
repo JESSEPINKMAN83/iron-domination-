@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { FlowField } from './flowfield';
-import { generateHeightfield, sampleHeight } from './heightfield';
-import { createGameSim, hashSim, issueMoveOrder, spawnDebugTanks, spawnVultureAt, stepSim } from './world';
+import { generateHeightfield, sampleHeight, type Heightfield } from './heightfield';
+import { createEconomy, createInitialBase } from './economy';
+import { attackStandoffPoint, createGameSim, hashSim, issueMoveOrder, selectedEntities, setSelected, spawnDebugTanks, spawnTankAt, spawnVultureAt, stepSim } from './world';
 
 describe('phase 2 movement simulation', () => {
   it('builds a flow field between distant walkable cells', () => {
@@ -59,6 +60,73 @@ describe('phase 2 movement simulation', () => {
     expect(tank.mover?.flow).toBeUndefined();
   });
 
+  it('doubles possessed ground unit movement while boost is held', () => {
+    const run = (boost: boolean) => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const [tank] = spawnDebugTanks(sim, hf, 1);
+      const start = { x: tank.transform.x, z: tank.transform.z };
+      tank.playerControlled = { throttle: 1, turn: 0, aimYaw: tank.transform.rot, boost };
+
+      for (let i = 0; i < 60; i++) stepSim(sim, hf, 1 / 30);
+
+      return Math.hypot(tank.transform.x - start.x, tank.transform.z - start.z);
+    };
+
+    const normalDistance = run(false);
+    const boostedDistance = run(true);
+
+    expect(boostedDistance).toBeGreaterThan(normalDistance * 1.7);
+  });
+
+  it('lets boosted V-mode tanks force-climb dry terrain bumps that normal driving cannot pass', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const bump = findBoostableDryBump(hf, sim);
+    expect(bump).toBeDefined();
+
+    const run = (boost: boolean) => {
+      const localSim = createGameSim(hf);
+      const tank = spawnTankAt(localSim, bump!.start.x, bump!.start.z, boost ? 'Boost climber' : 'Normal driver');
+      tank.transform.x = bump!.start.x;
+      tank.transform.z = bump!.start.z;
+      tank.transform.rot = Math.atan2(bump!.target.x - bump!.start.x, bump!.target.z - bump!.start.z);
+      tank.previousTransform = { ...tank.transform };
+      tank.playerControlled = { throttle: 1, turn: 0, aimYaw: tank.transform.rot, boost };
+      let enteredDryBlockedTerrain = false;
+      for (let i = 0; i < 42; i++) {
+        stepSim(localSim, hf, 1 / 30);
+        const cell = localSim.nav.worldToCell(tank.transform.x, tank.transform.z);
+        const idx = localSim.nav.index(cell.x, cell.y);
+        const dry = sampleHeight(hf, tank.transform.x, tank.transform.z) >= hf.waterLevel + 0.55;
+        enteredDryBlockedTerrain ||= hf.walkable[idx] === 0 && dry;
+      }
+      return enteredDryBlockedTerrain;
+    };
+
+    expect(run(false)).toBe(false);
+    expect(run(true)).toBe(true);
+  });
+
+  it('refuses enemy entities in player selection commands', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const [friendly] = spawnDebugTanks(sim, hf, 1);
+    const enemy = spawnTankAt(sim, friendly.transform.x + 10, friendly.transform.z, 'Enemy Tank', 2);
+
+    setSelected(sim, [friendly, enemy]);
+
+    expect(selectedEntities(sim)).toEqual([friendly]);
+    expect(friendly.selectable?.selected).toBe(true);
+    expect(enemy.selectable?.selected).toBe(false);
+
+    enemy.selectable!.selected = true;
+    setSelected(sim, [enemy], true);
+
+    expect(selectedEntities(sim)).toEqual([friendly]);
+    expect(enemy.selectable?.selected).toBe(false);
+  });
+
   it('seeds deterministic finite oil nodes from map ore fields', () => {
     const aHf = generateHeightfield(MAP01);
     const bHf = generateHeightfield(MAP01);
@@ -78,6 +146,7 @@ describe('phase 2 movement simulation', () => {
           node.x === field.x &&
           node.z === field.z &&
           node.radius === field.radius &&
+          node.capacity === Math.round(field.radius * field.radius * 15) &&
           node.capacity > 0 &&
           node.remaining === node.capacity
         );
@@ -142,6 +211,25 @@ describe('phase 2 movement simulation', () => {
     for (let i = 0; i < 30 * 7; i++) stepSim(sim, hf, 1 / 30);
     expect(tank.mover?.target).toBeUndefined();
     expect(Math.hypot(target.x - tank.transform.x, target.z - tank.transform.z)).toBeLessThan(3.2);
+  });
+
+  it('keeps direct attack orders outside a building footprint', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attackers = [
+      spawnTankAt(sim, -78, -20, 'Attacker A', 1),
+      spawnTankAt(sim, -82, -26, 'Attacker B', 1),
+      spawnTankAt(sim, -74, -30, 'Attacker C', 1),
+    ];
+    const target = createInitialBase(sim, hf, createEconomy(2, 4600), 0, -20);
+
+    const point = attackStandoffPoint(sim, attackers, target);
+    expect(issueMoveOrder(sim, attackers, point.x, point.z, true)).toBe(true);
+
+    const distanceToBuildingCenter = Math.hypot(point.x - target.transform.x, point.z - target.transform.z);
+    expect(distanceToBuildingCenter).toBeGreaterThan((target.collider?.radius ?? 0) + 10);
+    expect(distanceToBuildingCenter).toBeLessThan(attackers[0].weapons!.primary.range);
+    expect(attackers.every((tank) => tank.mover?.target && tank.mover.attackMove)).toBe(true);
   });
 
   it('honors right-drag style move orders with a final facing direction and line formation', () => {
@@ -219,6 +307,29 @@ describe('phase 2 movement simulation', () => {
     expect(vulture.mover?.flow).toBeUndefined();
   });
 
+  it('doubles possessed aircraft movement and climb while boost is held', () => {
+    const run = (boost: boolean) => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const vulture = spawnVultureAt(sim, hf, -hf.size * 0.08, -hf.size * 0.08, 'Vulture 1');
+      const start = { x: vulture.transform.x, y: vulture.transform.y ?? 0, z: vulture.transform.z };
+      vulture.playerControlled = { throttle: 1, turn: 0, aimYaw: vulture.transform.rot, climb: 1, strafe: 0, boost };
+
+      for (let i = 0; i < 34; i++) stepSim(sim, hf, 1 / 30);
+
+      return {
+        distance: Math.hypot(vulture.transform.x - start.x, vulture.transform.z - start.z),
+        climb: (vulture.transform.y ?? 0) - start.y,
+      };
+    };
+
+    const normal = run(false);
+    const boosted = run(true);
+
+    expect(boosted.distance).toBeGreaterThan(normal.distance * 1.45);
+    expect(boosted.climb).toBeGreaterThan(normal.climb * 1.35);
+  });
+
   it('keeps a reversing player-controlled flyer facing its aim direction', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -252,6 +363,41 @@ describe('phase 2 movement simulation', () => {
 
     expect(Math.abs(angleDelta(vulture.transform.rot, reverseYaw))).toBeLessThan(0.52);
     expect(vulture.destroyed).toBeUndefined();
+  });
+
+  it('accepts unbounded player aim yaw for continuous 360-degree V-mode turns', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -hf.size * 0.08, -hf.size * 0.08, 'Vulture 1');
+    vulture.playerControlled = { throttle: 0.25, turn: 0, aimYaw: vulture.transform.rot, climb: 0, strafe: 0 };
+
+    for (let i = 0; i < 30 * 7; i++) {
+      vulture.playerControlled.aimYaw += 0.055;
+      stepSim(sim, hf, 1 / 30);
+    }
+
+    expect(vulture.playerControlled.aimYaw).toBeGreaterThan(Math.PI * 2);
+    expect(Number.isFinite(vulture.transform.rot)).toBe(true);
+    expect(Math.abs(vulture.transform.rot)).toBeLessThanOrEqual(Math.PI + 0.001);
+    expect(Math.abs(angleDelta(vulture.transform.rot, vulture.playerControlled.aimYaw))).toBeLessThan(0.75);
+    expect(vulture.destroyed).toBeUndefined();
+  });
+
+  it('honors hard-turn flight input above normal yaw trim', () => {
+    const run = (turn: number) => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const vulture = spawnVultureAt(sim, hf, -hf.size * 0.08, -hf.size * 0.08, 'Vulture 1');
+      const startYaw = vulture.transform.rot;
+      vulture.playerControlled = { throttle: 0, turn, aimYaw: startYaw, climb: 0, strafe: 0 };
+      for (let i = 0; i < 12; i++) stepSim(sim, hf, 1 / 30);
+      return Math.abs(angleDelta(vulture.transform.rot, startYaw));
+    };
+
+    const normalTurn = run(-1);
+    const hardTurn = run(-1.55);
+
+    expect(hardTurn).toBeGreaterThan(normalTurn * 1.35);
   });
 
   it('integrates possessed gunship flight deterministically with strafe and attitude', () => {
@@ -288,6 +434,46 @@ describe('phase 2 movement simulation', () => {
     expect(Math.abs(a.roll)).toBeGreaterThan(0.01);
   });
 });
+
+function findBoostableDryBump(
+  hf: Heightfield,
+  sim: ReturnType<typeof createGameSim>,
+): { start: { x: number; z: number }; target: { x: number; z: number } } | undefined {
+  const dirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const;
+  for (let cy = 2; cy < hf.cells - 2; cy++) {
+    for (let cx = 2; cx < hf.cells - 2; cx++) {
+      const idx = sim.nav.index(cx, cy);
+      if (hf.walkable[idx] !== 0) continue;
+      const target = sim.nav.cellCenter(cx, cy);
+      const targetH = sampleHeight(hf, target.x, target.z);
+      if (targetH < hf.waterLevel + 1.0) continue;
+      if (cellHeightRange(hf, cx, cy) > 7.5) continue;
+      for (const [dx, dy] of dirs) {
+        const sx = cx + dx;
+        const sy = cy + dy;
+        if (!sim.nav.isWalkableCell(sx, sy)) continue;
+        const start = sim.nav.cellCenter(sx, sy);
+        if (Math.abs(targetH - sampleHeight(hf, start.x, start.z)) > 5.8) continue;
+        return { start, target };
+      }
+    }
+  }
+  return undefined;
+}
+
+function cellHeightRange(hf: Heightfield, cx: number, cy: number): number {
+  const i00 = cy * hf.samples + cx;
+  const h00 = hf.heights[i00];
+  const h10 = hf.heights[i00 + 1];
+  const h01 = hf.heights[i00 + hf.samples];
+  const h11 = hf.heights[i00 + hf.samples + 1];
+  return Math.max(h00, h10, h01, h11) - Math.min(h00, h10, h01, h11);
+}
 
 function angleDelta(a: number, b: number): number {
   return Math.atan2(Math.sin(a - b), Math.cos(a - b));

@@ -67,6 +67,15 @@ export interface Weapon {
   targetId?: number;
 }
 
+export interface AiCombat {
+  accuracy: number;
+  cooldownMultiplier: number;
+  projectileScatter: number;
+  targetAcquireDelayTicks: number;
+  possessedTargetPriority: number;
+  nextAcquireTick?: number;
+}
+
 export interface WeaponRack {
   primary: Weapon;
   secondary?: Weapon;
@@ -111,6 +120,7 @@ export interface PlayerControlled {
   aimYaw: number;
   climb?: number;
   strafe?: number;
+  boost?: boolean;
 }
 
 export interface Collider {
@@ -170,6 +180,7 @@ export interface Entity {
   flight?: Flight;
   weapon?: Weapon;
   weapons?: WeaponRack;
+  aiCombat?: AiCombat;
   turret?: Turret;
   vision?: Vision;
   cargo?: Cargo;

@@ -33,16 +33,21 @@ function paint(geom: BufferGeometry, color: Color): BufferGeometry {
   return out;
 }
 
-function pineGeometry(): BufferGeometry {
+function pineGeometry(style: Heightfield['kind'] = 'highlands'): BufferGeometry {
   const trunk = paint(new CylinderGeometry(0.16, 0.24, 1.6, 6).translate(0, 0.8, 0), new Color('#6b4a2f'));
-  const c1 = paint(new ConeGeometry(1.5, 2.4, 7).translate(0, 2.4, 0), new Color('#2f5c33'));
-  const c2 = paint(new ConeGeometry(1.1, 2.0, 7).translate(0, 3.8, 0), new Color('#356839'));
-  const c3 = paint(new ConeGeometry(0.7, 1.6, 7).translate(0, 5.0, 0), new Color('#3c7440'));
+  const c1Color = style === 'frostbite-pass' ? '#7f9490' : style === 'crater-oasis' ? '#50683c' : '#2f5c33';
+  const c2Color = style === 'frostbite-pass' ? '#b7c9c5' : style === 'crater-oasis' ? '#617747' : '#356839';
+  const c3Color = style === 'frostbite-pass' ? '#d8e6e3' : style === 'crater-oasis' ? '#748457' : '#3c7440';
+  const c1 = paint(new ConeGeometry(1.5, 2.4, 7).translate(0, 2.4, 0), new Color(c1Color));
+  const c2 = paint(new ConeGeometry(1.1, 2.0, 7).translate(0, 3.8, 0), new Color(c2Color));
+  const c3 = paint(new ConeGeometry(0.7, 1.6, 7).translate(0, 5.0, 0), new Color(c3Color));
   return mergeGeometries([trunk, c1, c2, c3]);
 }
 
-function broadleafGeometry(rng: () => number): BufferGeometry {
-  const trunk = paint(new CylinderGeometry(0.18, 0.28, 2.2, 6).translate(0, 1.1, 0), new Color('#71513a'));
+function broadleafGeometry(rng: () => number, style: Heightfield['kind'] = 'highlands'): BufferGeometry {
+  const trunkColor = style === 'crater-oasis' ? '#7a5d35' : style === 'frostbite-pass' ? '#6e5c55' : '#71513a';
+  const canopyColor = style === 'crater-oasis' ? '#8a8147' : style === 'frostbite-pass' ? '#c5d4cf' : '#3f7a37';
+  const trunk = paint(new CylinderGeometry(0.18, 0.28, 2.2, 6).translate(0, 1.1, 0), new Color(trunkColor));
   const canopy = new IcosahedronGeometry(1.7, 1);
   const pos = canopy.getAttribute('position');
   for (let i = 0; i < pos.count; i++) {
@@ -51,11 +56,11 @@ function broadleafGeometry(rng: () => number): BufferGeometry {
   }
   canopy.scale(1, 0.85, 1);
   canopy.translate(0, 3.0, 0);
-  paint(canopy, new Color('#3f7a37'));
+  paint(canopy, new Color(canopyColor));
   return mergeGeometries([trunk, canopy]);
 }
 
-function rockGeometry(rng: () => number, flatten: number): BufferGeometry {
+function rockGeometry(rng: () => number, flatten: number, style: Heightfield['kind'] = 'highlands'): BufferGeometry {
   const rock = new IcosahedronGeometry(1, 1);
   const pos = rock.getAttribute('position');
   for (let i = 0; i < pos.count; i++) {
@@ -63,7 +68,8 @@ function rockGeometry(rng: () => number, flatten: number): BufferGeometry {
     pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * flatten, pos.getZ(i) * k);
   }
   rock.computeVertexNormals();
-  return paint(rock, new Color('#8a8d90'));
+  const color = style === 'crater-oasis' ? '#9c805b' : style === 'frostbite-pass' ? '#b6c0c6' : '#8a8d90';
+  return paint(rock, new Color(color));
 }
 
 interface ScatterDef {
@@ -158,11 +164,14 @@ export function buildScatter(
   seed: number,
 ): ScatterView {
   const rng = mulberry32(seed);
+  const kind = hf.kind;
+  const treeFactor = kind === 'crater-oasis' ? 0.2 : kind === 'frostbite-pass' ? 0.48 : 1;
+  const rockFactor = kind === 'crater-oasis' ? 1.45 : kind === 'frostbite-pass' ? 1.25 : 1;
   const defs: ScatterDef[] = [
-    { name: 'pine', geometry: pineGeometry(), count: 2200, scaleMin: 0.7, scaleMax: 1.5, maxSlope: 0.5, isTree: true },
-    { name: 'broadleaf', geometry: broadleafGeometry(rng), count: 1300, scaleMin: 0.7, scaleMax: 1.4, maxSlope: 0.5, isTree: true },
-    { name: 'rock-a', geometry: rockGeometry(rng, 0.72), count: 800, scaleMin: 0.5, scaleMax: 1.9, maxSlope: 0.9, isTree: false },
-    { name: 'rock-b', geometry: rockGeometry(rng, 0.45), count: 700, scaleMin: 0.4, scaleMax: 1.5, maxSlope: 0.9, isTree: false },
+    { name: 'pine', geometry: pineGeometry(kind), count: Math.round(2200 * treeFactor), scaleMin: 0.7, scaleMax: 1.5, maxSlope: 0.5, isTree: true },
+    { name: 'broadleaf', geometry: broadleafGeometry(rng, kind), count: Math.round(1300 * treeFactor), scaleMin: 0.7, scaleMax: 1.4, maxSlope: 0.5, isTree: true },
+    { name: 'rock-a', geometry: rockGeometry(rng, 0.72, kind), count: Math.round(800 * rockFactor), scaleMin: 0.5, scaleMax: 1.9, maxSlope: 0.9, isTree: false },
+    { name: 'rock-b', geometry: rockGeometry(rng, 0.45, kind), count: Math.round(700 * rockFactor), scaleMin: 0.4, scaleMax: 1.5, maxSlope: 0.9, isTree: false },
   ];
 
   const view = new ScatterView();
@@ -181,7 +190,14 @@ export function buildScatter(
       if (hf.oreFields.some((f) => (x - f.x) ** 2 + (z - f.z) ** 2 < (f.radius + 6) ** 2)) continue;
 
       const v = 0.78 + rng() * 0.4;
-      const tint = def.isTree ? new Color(v * (0.92 + rng() * 0.12), v, v * (0.9 + rng() * 0.1)) : new Color(v, v, v);
+      const tint =
+        def.isTree && kind === 'frostbite-pass'
+          ? new Color(v * 0.92, v, v * 1.06)
+          : def.isTree && kind === 'crater-oasis'
+            ? new Color(v * 1.08, v * 0.94, v * 0.72)
+            : def.isTree
+              ? new Color(v * (0.92 + rng() * 0.12), v, v * (0.9 + rng() * 0.1))
+              : new Color(v, v, v);
       list.push({
         x,
         y: h - 0.15,

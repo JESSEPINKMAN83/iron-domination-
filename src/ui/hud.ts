@@ -24,6 +24,9 @@ export class Hud {
   private readonly stats: HTMLDivElement;
   private readonly help: HTMLDivElement;
   private readonly reticle: HTMLDivElement;
+  private readonly modeBanner: HTMLDivElement;
+  private readonly multiplayer: HTMLDivElement;
+  private readonly multiplayerDetail: HTMLDivElement;
   private infoVisible = false;
   private lastUpdate = 0;
 
@@ -49,11 +52,13 @@ export class Hud {
       'Attack    A, then right-click destination',
       'Face      right-click hold + drag: facing line, length sets spread',
       'Possess   select unit, press V',
-      'Chase     W/S drive, A/D turn, mouse aim',
+      'Chase     W/S drive, A/D turn, Shift boost, mouse aim',
       'V camera  wheel zoom, Cmd + left-drag orbit',
+      'Sniper V  right-click scope toggle, wheel zoom, left-click fire',
       'Squad V   select group, V controls one, Tab swaps leader',
-      'Vulture   W/S thrust, A/D yaw, Space/Ctrl altitude',
+      'Vulture   W/S thrust, Shift boost, A/D yaw, Q/E hard turn, Space/Ctrl altitude',
       'Fire      left-click primary, right-click secondary',
+      'Audio     M mute/unmute',
       'Counters  Rifles infantry · Grenades buildings · Rockets armor/air',
       'Air       Wasp intercepts · Vulture/Hammerhead hit ground',
       'Exit      V again or Escape',
@@ -72,6 +77,29 @@ export class Hud {
       '<span style="position:absolute;top:50%;left:-9px;width:7px;height:1px;background:rgba(210,230,210,.7)"></span>' +
       '<span style="position:absolute;top:50%;right:-9px;width:7px;height:1px;background:rgba(210,230,210,.7)"></span>';
     container.appendChild(this.reticle);
+
+    this.modeBanner = document.createElement('div');
+    this.modeBanner.style.cssText =
+      'position:fixed;left:50%;top:12px;transform:translate(-50%,-135%);opacity:0;z-index:13;pointer-events:none;' +
+      'min-width:260px;padding:10px 18px;text-align:center;font:12px/1.25 ui-monospace,Menlo,monospace;color:#f0f3e8;' +
+      'background:linear-gradient(180deg,rgba(30,40,40,.94),rgba(8,12,13,.88));border:1px solid rgba(240,213,106,.58);border-radius:3px;' +
+      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 10px 28px rgba(0,0,0,.42),0 0 18px rgba(240,213,106,.16);' +
+      'transition:transform 260ms cubic-bezier(.2,.8,.2,1),opacity 180ms ease;';
+    this.modeBanner.innerHTML =
+      '<div style="font-size:13px;color:#f0d56a;letter-spacing:.08em;">FIRST-PERSON VIEW</div>' +
+      '<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">Press V or Escape to return to command view</div>';
+    container.appendChild(this.modeBanner);
+
+    this.multiplayer = document.createElement('div');
+    this.multiplayer.style.cssText =
+      'position:fixed;left:50%;top:62px;transform:translateX(-50%);z-index:14;display:none;pointer-events:none;' +
+      'min-width:300px;max-width:min(520px,calc(100vw - 32px));padding:8px 14px;text-align:center;' +
+      'font:11px/1.35 ui-monospace,Menlo,monospace;color:#dce8df;background:linear-gradient(180deg,rgba(22,30,30,.9),rgba(8,12,13,.82));' +
+      'border:1px solid rgba(93,220,147,.48);box-shadow:inset 0 0 0 1px rgba(255,255,255,.05),0 10px 24px rgba(0,0,0,.35);';
+    this.multiplayerDetail = document.createElement('div');
+    this.multiplayerDetail.style.cssText = 'margin-top:2px;color:#aebbc4;font-size:10px;';
+    this.multiplayer.append(document.createElement('div'), this.multiplayerDetail);
+    container.appendChild(this.multiplayer);
   }
 
   toggleInfo(): void {
@@ -90,6 +118,25 @@ export class Hud {
 
   setFirstPerson(active: boolean): void {
     this.reticle.style.display = active ? 'block' : 'none';
+    this.modeBanner.style.opacity = active ? '1' : '0';
+    this.modeBanner.style.transform = active ? 'translate(-50%,0)' : 'translate(-50%,-135%)';
+  }
+
+  setMultiplayerStatus(message: string, bad = false, paused = false): void {
+    const title = this.multiplayer.firstElementChild as HTMLDivElement | null;
+    if (!title) return;
+    this.multiplayer.style.display = 'block';
+    this.multiplayer.style.borderColor = bad ? 'rgba(255,118,102,.68)' : 'rgba(93,220,147,.48)';
+    this.multiplayer.style.boxShadow = bad
+      ? 'inset 0 0 0 1px rgba(255,255,255,.05),0 10px 24px rgba(0,0,0,.35),0 0 20px rgba(255,118,102,.2)'
+      : 'inset 0 0 0 1px rgba(255,255,255,.05),0 10px 24px rgba(0,0,0,.35)';
+    title.textContent = bad ? 'MULTIPLAYER WARNING' : 'MULTIPLAYER ONLINE';
+    title.style.color = bad ? '#ff8a72' : '#7df27d';
+    this.multiplayerDetail.textContent = paused ? `${message} · simulation paused` : message;
+  }
+
+  hideMultiplayerStatus(): void {
+    this.multiplayer.style.display = 'none';
   }
 
   update(nowMs: number, s: HudStats): void {

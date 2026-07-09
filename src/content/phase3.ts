@@ -1,7 +1,17 @@
 import type { WeaponKind } from './phase4';
 
 export type StructureKind = 'power-plant' | 'refinery' | 'barracks' | 'factory' | 'helipad' | 'wall' | 'guard-tower' | 'aa-tower';
-export type UnitKind = 'infantry' | 'grenadier' | 'rocket-infantry' | 'scout-tank' | 'tank' | 'siege-tank' | 'wasp' | 'vulture' | 'hammerhead';
+export type UnitKind =
+  | 'infantry'
+  | 'sniper'
+  | 'grenadier'
+  | 'rocket-infantry'
+  | 'scout-tank'
+  | 'tank'
+  | 'siege-tank'
+  | 'wasp'
+  | 'vulture'
+  | 'hammerhead';
 
 export interface StructureDef {
   kind: StructureKind;
@@ -146,6 +156,16 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     tab: 'infantry',
     cost: 100,
     buildTime: 4,
+    requires: 'barracks',
+    producer: 'infantry',
+  },
+  sniper: {
+    kind: 'sniper',
+    label: 'Sniper',
+    role: 'Long-range infantry hunter with scoped V-mode',
+    tab: 'infantry',
+    cost: 220,
+    buildTime: 7,
     requires: 'barracks',
     producer: 'infantry',
   },

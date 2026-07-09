@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAP_PRESETS } from '../content/maps';
 import { generateHeightfield, hashHeightfield, type MapConfig } from './heightfield';
 
 const cfg: MapConfig = { seed: 1337, cells: 128, cellSize: 2, waterLevel: 2, oreFieldCount: 3 };
@@ -51,5 +52,35 @@ describe('heightfield generation', () => {
       expect(Number.isFinite(hf.heights[i])).toBe(true);
     }
     expect(hf.oreFields.length).toBeGreaterThan(0);
+  });
+
+  it('generates a distinct crater oasis map with central water and contested oil', () => {
+    const seed = 240771;
+    const highlands = generateHeightfield({ ...MAP_PRESETS.highlands.config, seed });
+    const crater = generateHeightfield({ ...MAP_PRESETS['crater-oasis'].config, seed });
+
+    expect(hashHeightfield(crater)).not.toBe(hashHeightfield(highlands));
+    expect(crater.oreFields.length).toBe(8);
+    expect(crater.oreFields.length).toBeGreaterThan(highlands.oreFields.length);
+    expect(crater.heights[Math.floor(crater.samples / 2) * crater.samples + Math.floor(crater.samples / 2)]).toBeLessThan(crater.waterLevel);
+
+    const rimSamples = crater.oreFields.filter((field) => Math.hypot(field.x, field.z) < crater.size * 0.42);
+    expect(rimSamples.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('generates a distinct frostbite pass map with icy choke routes and exposed ore', () => {
+    const seed = 771204;
+    const highlands = generateHeightfield({ ...MAP_PRESETS.highlands.config, seed });
+    const frost = generateHeightfield({ ...MAP_PRESETS['frostbite-pass'].config, seed });
+
+    expect(hashHeightfield(frost)).not.toBe(hashHeightfield(highlands));
+    expect(frost.kind).toBe('frostbite-pass');
+    expect(frost.oreFields.length).toBe(7);
+
+    const center = frost.heights[Math.floor(frost.samples / 2) * frost.samples + Math.floor(frost.samples / 2)];
+    expect(center).toBeLessThan(frost.waterLevel + 2.5);
+
+    const passOre = frost.oreFields.filter((field) => Math.abs(field.z) < frost.size * 0.38);
+    expect(passOre.length).toBeGreaterThanOrEqual(4);
   });
 });

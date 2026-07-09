@@ -3,7 +3,7 @@ import { angleDelta, slewAngle } from './angles';
 import type { Entity, Weapon } from './components';
 import { hash2i, smoothstep } from './noise';
 import { applyStructureDamage } from './structureDamage';
-import { entityById, stopEntities, type GameSim } from './world';
+import { areTeamsHostile, entityById, stopEntities, type GameSim } from './world';
 
 /** Cannons may only fire once the turret has traversed onto the bearing. */
 const AIM_TOLERANCE = 0.12;
@@ -21,21 +21,32 @@ interface HitSummary {
   damage: number;
 }
 
+export interface CombatStepOptions {
+  /** False for visual/QA scenes: projectiles and cooldowns tick, units do not auto-acquire/fire. */
+  autoFire?: boolean;
+}
+
 export function damageForArmor(kind: WeaponKind, armor: ArmorClass): number {
   const def = WEAPONS[kind];
   return def.damage * def.vs[armor];
 }
 
-export function stepCombat(sim: GameSim, dt: number): void {
+export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions = {}): void {
   stepProjectiles(sim, dt);
+  tickWeaponCooldowns(sim, dt);
+  if (options.autoFire === false) {
+    tickDestroyed(sim, dt);
+    return;
+  }
 
   const combatants = Array.from(sim.world.entities).filter(
     (entity) => weaponSlots(entity).length > 0 && entity.health && entity.team && !entity.destroyed,
   );
   for (const attacker of combatants) {
     if (!attacker.health || !attacker.team) continue;
-    for (const weapon of weaponSlots(attacker)) weapon.cooldown = Math.max(0, weapon.cooldown - dt);
     if (attacker.playerControlled) continue; // brain bypassed; stepSim slews the turret to the crosshair
+    const commandDrivenCombat = !sim.rules.autoCombat;
+    if (commandDrivenCombat && !attacker.mover?.attackMove && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined)) continue;
 
     let turretGoalYaw: number | undefined;
     for (const weapon of weaponSlots(attacker)) {
@@ -44,7 +55,16 @@ export function stepCombat(sim: GameSim, dt: number): void {
       // a unit can only auto-engage what it can see — no shelling into the fog
       const weaponRange = weapon.range || def.range;
       const range = Math.min(weaponRange, attacker.vision?.radius ?? weaponRange);
-      const target = validTarget(sim, attacker, weapon, range) ?? acquireTarget(sim, attacker, weapon, range);
+      let target = validTarget(sim, attacker, weapon, range);
+      if (!target) {
+        if (commandDrivenCombat && !attacker.mover?.attackMove) {
+          weapon.targetId = undefined;
+          continue;
+        }
+        if (attacker.aiCombat && (attacker.aiCombat.nextAcquireTick ?? 0) > sim.tick) continue;
+        target = acquireTarget(sim, attacker, weapon, range);
+        if (attacker.aiCombat) attacker.aiCombat.nextAcquireTick = sim.tick + attacker.aiCombat.targetAcquireDelayTicks;
+      }
       weapon.targetId = target?.id;
       if (!target?.health || !target.armor) continue;
       const bearing = Math.atan2(target.transform.x - attacker.transform.x, target.transform.z - attacker.transform.z);
@@ -55,7 +75,8 @@ export function stepCombat(sim: GameSim, dt: number): void {
       }
       if (weapon.cooldown > 0) continue;
       if (def.kind === 'bomb') {
-        launchBomb(sim, attacker, weapon, target.transform.x, target.transform.z, def.range);
+        const aim = autoAimPoint(sim, attacker, weapon, target, target.transform.x, target.transform.z, 'bomb');
+        launchBomb(sim, attacker, weapon, aim.x, aim.z, def.range);
       } else if (def.projectile) {
         launchWeaponProjectileAtEntity(sim, attacker, weapon, target);
       } else {
@@ -68,6 +89,12 @@ export function stepCombat(sim: GameSim, dt: number): void {
     updateGuardBehavior(sim, attacker, dt);
   }
   tickDestroyed(sim, dt);
+}
+
+function tickWeaponCooldowns(sim: GameSim, dt: number): void {
+  for (const entity of sim.world.entities) {
+    for (const weapon of weaponSlots(entity)) weapon.cooldown = Math.max(0, weapon.cooldown - dt);
+  }
 }
 
 /** Idle units don't stand and take bombardment — they close on visible foes. */
@@ -86,7 +113,7 @@ function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number): void {
     const alert = attacker.mover.defenseAlert;
     alert.ttl -= dt;
     const target = entityById(sim, alert.targetId);
-    if (alert.ttl <= 0 || !target || !isWeaponTargetable(attacker, slots[0], target)) {
+    if (alert.ttl <= 0 || !target || !isWeaponTargetable(sim, attacker, slots[0], target)) {
       attacker.mover.defenseAlert = undefined;
     } else {
       alert.x = target.transform.x;
@@ -124,7 +151,7 @@ export function manualFireAt(
 
   if (def.kind === 'bomb') {
     const maxRange = Math.max(def.range, BOMB_MANUAL_MAX_RANGE);
-    const range = len < 8 ? 48 : Math.min(maxRange, len);
+    const range = attacker.flight ? Math.min(maxRange, len) : len < 8 ? 48 : Math.min(maxRange, len);
     launchBomb(sim, attacker, weapon, attacker.transform.x + ux * range, attacker.transform.z + uz * range, maxRange);
     return true;
   }
@@ -225,11 +252,12 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
       trajectory: attacker.flight ? 'drop' : 'arc',
     });
   }
-  weapon.cooldown = def.cooldown;
+  weapon.cooldown = weaponCooldown(def.cooldown, attacker);
 }
 
 function launchWeaponProjectileAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, target: Entity): void {
-  launchWeaponProjectile(sim, attacker, weapon, target, target.transform.x, targetYForEvent(target), target.transform.z);
+  const aim = autoAimPoint(sim, attacker, weapon, target, target.transform.x, target.transform.z, 'projectile');
+  launchWeaponProjectile(sim, attacker, weapon, aim.directTarget, aim.x, targetYForEvent(aim.directTarget, target.transform.y), aim.z);
 }
 
 function launchWeaponProjectile(
@@ -276,7 +304,7 @@ function launchWeaponProjectile(
     teamId: attacker.team.id,
     attackerId: attacker.id,
   });
-  weapon.cooldown = def.cooldown;
+  weapon.cooldown = weaponCooldown(def.cooldown, attacker);
   sim.events.push({
     kind: def.projectile.kind,
     fromX: attacker.transform.x,
@@ -303,6 +331,7 @@ function bombMuzzleY(attacker: Entity): number | undefined {
 function directMuzzleY(attacker: Entity): number | undefined {
   if (attacker.transform.y === undefined) return undefined;
   if (attacker.flight) return attacker.transform.y - 0.15;
+  if (attacker.weapon?.kind === 'sniperRifle' || attacker.weapons?.primary.kind === 'sniperRifle') return attacker.transform.y + 1.72;
   return attacker.transform.y + (attacker.selectable?.type === 'infantry' ? 1.35 : 2.2);
 }
 
@@ -372,7 +401,7 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
   let directDamage = 0;
   let hit: HitSummary | undefined;
   const impactRadius = def.projectile?.impactRadius ?? directTarget?.collider?.radius ?? 1.8;
-  if (directTarget?.health && directTarget.armor && targetableByTeam(projectile.teamId, directTarget)) {
+  if (directTarget?.health && directTarget.armor && targetableByTeam(sim, projectile.teamId, directTarget)) {
     const dx = directTarget.transform.x - x;
     const dz = directTarget.transform.z - z;
     const radius = (directTarget.collider?.radius ?? directTarget.selectable?.radius ?? 1.4) + impactRadius;
@@ -413,37 +442,81 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
   if (!target.health || !target.armor || !attacker.team) return;
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def) return;
-  const directDamage = applyDamage(sim, target, directDamageForTarget(def.kind, target), {
-    hitX: target.transform.x,
-    hitZ: target.transform.z,
-    hitY: structureHitY(target, attacker),
-    fromX: attacker.transform.x,
-    fromZ: attacker.transform.z,
-    splashRadius: 0,
-    trajectory: attacker.flight ? 'flat' : 'flat',
-  });
-  if (directDamage > 0) alertEconomyDefenders(sim, target, attacker);
-  const hit = directDamage > 0 ? summarizeHit(target, directDamage) : undefined;
-  const area = applyAreaDamage(sim, attacker.team.id, target.transform.x, target.transform.z, def.splashRadius, def.kind, target, attacker);
-  weapon.cooldown = def.cooldown;
+  const aim = autoAimPoint(sim, attacker, weapon, target, target.transform.x, target.transform.z, 'direct');
+  let directDamage = 0;
+  let hit: HitSummary | undefined;
+  if (aim.directTarget) {
+    directDamage = applyDamage(sim, target, directDamageForTarget(def.kind, target), {
+      hitX: target.transform.x,
+      hitZ: target.transform.z,
+      hitY: structureHitY(target, attacker),
+      fromX: attacker.transform.x,
+      fromZ: attacker.transform.z,
+      splashRadius: 0,
+      trajectory: attacker.flight ? 'flat' : 'flat',
+    });
+    if (directDamage > 0) alertEconomyDefenders(sim, target, attacker);
+    hit = directDamage > 0 ? summarizeHit(target, directDamage) : undefined;
+  }
+  const area = applyAreaDamage(sim, attacker.team.id, aim.x, aim.z, def.splashRadius, def.kind, aim.directTarget, attacker);
+  weapon.cooldown = weaponCooldown(def.cooldown, attacker);
   sim.events.push({
     kind: def.kind,
     fromX: attacker.transform.x,
+    fromY: directMuzzleY(attacker),
     fromZ: attacker.transform.z,
-    toX: target.transform.x,
-    toY: targetYForEvent(target),
-    toZ: target.transform.z,
+    toX: aim.x,
+    toY: targetYForEvent(aim.directTarget),
+    toZ: aim.z,
     sourceTeamId: attacker.team.id,
     damage: directDamage + area.damage,
-    killed: target.health.current <= 0 || area.killed,
+    killed: (aim.directTarget?.health?.current ?? 1) <= 0 || area.killed,
     ...hit,
   });
+}
+
+function weaponCooldown(baseCooldown: number, attacker: Entity): number {
+  return baseCooldown * (attacker.aiCombat?.cooldownMultiplier ?? 1);
+}
+
+function autoAimPoint(
+  sim: GameSim,
+  attacker: Entity,
+  weapon: Weapon,
+  target: Entity,
+  targetX: number,
+  targetZ: number,
+  mode: 'direct' | 'projectile' | 'bomb',
+): { x: number; z: number; directTarget?: Entity } {
+  const ai = attacker.aiCombat;
+  if (!ai) return { x: targetX, z: targetZ, directTarget: target };
+  const salt = weaponKindSalt(weapon.kind) + (mode === 'direct' ? 0x101 : mode === 'projectile' ? 0x202 : 0x303);
+  const hitRoll = hash2i(attacker.id, sim.tick + target.id, salt);
+  const hitsCleanly = hitRoll <= ai.accuracy;
+  if (hitsCleanly && mode === 'direct') return { x: targetX, z: targetZ, directTarget: target };
+
+  const scatterBase = ai.projectileScatter * (mode === 'bomb' ? 1.15 : mode === 'projectile' ? 0.82 : 0.62);
+  if (scatterBase <= 0.01 && hitsCleanly) return { x: targetX, z: targetZ, directTarget: target };
+  const angle = hash2i(target.id, attacker.id, sim.tick + salt) * Math.PI * 2;
+  const missBoost = hitsCleanly ? 0.35 : 1.0;
+  const radius = (0.35 + hash2i(sim.tick, attacker.id + target.id, salt ^ 0x55aa) * 0.9) * scatterBase * missBoost;
+  return {
+    x: targetX + Math.cos(angle) * radius,
+    z: targetZ + Math.sin(angle) * radius,
+    directTarget: hitsCleanly ? target : undefined,
+  };
+}
+
+function weaponKindSalt(kind: string): number {
+  let hash = 0x9e3779b9;
+  for (let i = 0; i < kind.length; i++) hash = Math.imul(hash ^ kind.charCodeAt(i), 0x85ebca6b);
+  return hash >>> 0;
 }
 
 function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
   if (!weapon.targetId) return undefined;
   const target = entityById(sim, weapon.targetId);
-  if (!target || !isWeaponTargetable(attacker, weapon, target)) return undefined;
+  if (!target || !isWeaponTargetable(sim, attacker, weapon, target)) return undefined;
   const visionCap = attacker.vision?.radius ?? range;
   const d = distance(attacker, target);
   return d <= effectiveRangeForTarget(weapon.kind as WeaponKind, target, range, visionCap) && d >= minimumRangeForWeapon(weapon.kind as WeaponKind) ? target : undefined;
@@ -454,12 +527,12 @@ function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: nu
   let bestScore = Number.POSITIVE_INFINITY;
   const visionCap = attacker.vision?.radius ?? range;
   for (const candidate of sim.world.entities) {
-    if (!isWeaponTargetable(attacker, weapon, candidate)) continue;
+    if (!isWeaponTargetable(sim, attacker, weapon, candidate)) continue;
     const d = distance(attacker, candidate);
     if (d > effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range, visionCap)) continue;
     if (d < minimumRangeForWeapon(weapon.kind as WeaponKind)) continue;
     // the player's possessed unit reads as high-value — AI applies pressure to it
-    const score = candidate.playerControlled ? d * 0.55 : d;
+    const score = candidate.playerControlled ? d * (attacker.aiCombat?.possessedTargetPriority ?? 0.55) : d;
     if (score < bestScore) {
       bestScore = score;
       best = candidate;
@@ -473,7 +546,7 @@ function acquireLineTarget(sim: GameSim, attacker: Entity, weapon: Weapon, ux: n
   let bestAlong = range;
   const visionCap = attacker.vision?.radius ?? range;
   for (const candidate of sim.world.entities) {
-    if (!isWeaponTargetable(attacker, weapon, candidate)) continue;
+    if (!isWeaponTargetable(sim, attacker, weapon, candidate)) continue;
     const dx = candidate.transform.x - attacker.transform.x;
     const dz = candidate.transform.z - attacker.transform.z;
     const along = dx * ux + dz * uz;
@@ -489,8 +562,8 @@ function acquireLineTarget(sim: GameSim, attacker: Entity, weapon: Weapon, ux: n
   return best;
 }
 
-function isWeaponTargetable(attacker: Entity, weapon: Weapon, target: Entity): boolean {
-  if (!isTargetable(attacker, target) || !target.armor) return false;
+function isWeaponTargetable(sim: GameSim, attacker: Entity, weapon: Weapon, target: Entity): boolean {
+  if (!isTargetable(sim, attacker, target) || !target.armor) return false;
   const kind = weapon.kind as WeaponKind;
   const def = WEAPONS[kind];
   if (!def || !def.targetTypes.includes(target.armor.kind)) return false;
@@ -498,10 +571,10 @@ function isWeaponTargetable(attacker: Entity, weapon: Weapon, target: Entity): b
   return true;
 }
 
-function isTargetable(attacker: Entity, target: Entity): boolean {
+function isTargetable(sim: GameSim, attacker: Entity, target: Entity): boolean {
   if (attacker === target) return false;
   if (!attacker.team || !target.team) return false;
-  return targetableByTeam(attacker.team.id, target);
+  return targetableByTeam(sim, attacker.team.id, target);
 }
 
 // Intentional design: when a base building/harvester is hit, nearby defenders rally
@@ -510,13 +583,14 @@ function isTargetable(attacker: Entity, target: Entity): boolean {
 // vision-gated in validTarget/acquireTarget, so it is not a fog-honesty violation
 // (defenders that arrive without line of sight simply won't shoot).
 function alertEconomyDefenders(sim: GameSim, damaged: Entity, attacker?: Entity): void {
+  if (!sim.rules.autoDefense) return;
   if (!attacker?.team || (!damaged.building && !damaged.harvester) || !damaged.team || damaged.destroyed) return;
-  if (attacker.team.id === damaged.team.id) return;
+  if (!areTeamsHostile(sim, attacker.team.id, damaged.team.id)) return;
   for (const defender of sim.world.entities) {
     if (defender.team?.id !== damaged.team.id || defender.destroyed || defender.playerControlled) continue;
     if (!defender.mover || !defender.health || defender.building) continue;
     const slots = weaponSlots(defender);
-    if (slots.length === 0 || !slots.some((weapon) => isWeaponTargetable(defender, weapon, attacker))) continue;
+    if (slots.length === 0 || !slots.some((weapon) => isWeaponTargetable(sim, defender, weapon, attacker))) continue;
     const dx = defender.transform.x - damaged.transform.x;
     const dz = defender.transform.z - damaged.transform.z;
     if (Math.hypot(dx, dz) > DEFENSE_ALERT_RADIUS) continue;
@@ -526,8 +600,8 @@ function alertEconomyDefenders(sim: GameSim, damaged: Entity, attacker?: Entity)
   }
 }
 
-function targetableByTeam(teamId: number, target: Entity): boolean {
-  if (!target.team || target.team.id === teamId) return false;
+function targetableByTeam(sim: GameSim, teamId: number, target: Entity): boolean {
+  if (!target.team || !areTeamsHostile(sim, teamId, target.team.id)) return false;
   if (!target.health || target.health.current <= 0 || target.destroyed) return false;
   return true;
 }
@@ -610,7 +684,7 @@ function applyAreaDamage(
   let killed = false;
   let hit: HitSummary | undefined;
   for (const target of sim.world.entities) {
-    if (target === primary || !targetableByTeam(teamId, target) || !target.armor) continue;
+    if (target === primary || !targetableByTeam(sim, teamId, target) || !target.armor) continue;
     const dx = target.transform.x - x;
     const dz = target.transform.z - z;
     const d = Math.hypot(dx, dz);

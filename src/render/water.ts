@@ -14,6 +14,11 @@ import {
 } from 'three';
 import type { Heightfield } from '../sim/heightfield';
 
+export interface WaterStyle {
+  deepColor?: string;
+  shallowColor?: string;
+}
+
 const HEIGHT_SCALE = 80;
 const HEIGHT_OFFSET = -16;
 
@@ -84,7 +89,7 @@ export class WaterView {
   readonly mesh: Mesh;
   private readonly material: ShaderMaterial;
 
-  constructor(hf: Heightfield, sunDirection: Vector3, fog: Fog) {
+  constructor(hf: Heightfield, sunDirection: Vector3, fog: Fog, style: WaterStyle = {}) {
     const heightData = new Uint8Array(hf.samples * hf.samples);
     for (let i = 0; i < hf.heights.length; i++) {
       const h01 = (hf.heights[i] - HEIGHT_OFFSET) / HEIGHT_SCALE;
@@ -109,8 +114,8 @@ export class WaterView {
         uHalf: { value: hf.size / 2 },
         uHeightScale: { value: HEIGHT_SCALE },
         uHeightOffset: { value: HEIGHT_OFFSET },
-        uDeepColor: { value: new Color(0.02, 0.1, 0.14) },
-        uShallowColor: { value: new Color(0.16, 0.42, 0.42) },
+        uDeepColor: { value: new Color(style.deepColor ?? '#061a24') },
+        uShallowColor: { value: new Color(style.shallowColor ?? '#296b6b') },
         uFogColor: { value: fog.color.clone() },
         uFogNear: { value: fog.near },
         uFogFar: { value: fog.far },
