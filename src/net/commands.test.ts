@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { createEconomy, createInitialBase } from '../sim/economy';
 import { generateHeightfield } from '../sim/heightfield';
-import { createGameSim, spawnTankAt } from '../sim/world';
+import { serializeMatchState } from '../sim/serialize';
+import { createGameSim, hashSim, spawnTankAt, type GameSim } from '../sim/world';
 import { LockstepRuntime } from './commands';
 import type { MultiplayerClient, MultiplayerSession } from './multiplayer';
 
@@ -134,4 +135,96 @@ describe('multiplayer lockstep commands', () => {
     lockstep.tick();
     expect(guestTank.playerControlled).toBeUndefined();
   });
+
+  it('host sends a recovery snapshot when a remote hash mismatches', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1);
+    const economy2 = createEconomy(2);
+    createInitialBase(sim, hf, economy1);
+    createInitialBase(sim, hf, economy2);
+    let onEvent: ((event: unknown) => void) | undefined;
+    const sent: unknown[] = [];
+    const client = {
+      connect: (_room: string, _playerId: string, handler: (event: unknown) => void) => {
+        onEvent = handler;
+      },
+      disconnect: () => undefined,
+      sendCommand: async (_room: string, _playerId: string, _tick: number, command: unknown) => {
+        sent.push(command);
+      },
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session: sessionFor(1) });
+    lockstep.connect();
+    onEvent?.({
+      type: 'command',
+      playerId: 'guest',
+      playerIndex: 2,
+      tick: sim.tick,
+      command: { type: 'sim-hash', hash: hashSim(sim) + 1 },
+    });
+    lockstep.tick();
+    expect(sent.some((command) => isCommandType(command, 'match-snapshot'))).toBe(true);
+  });
+
+  it('guest restores a host snapshot and resumes after desync recovery', () => {
+    const hf = generateHeightfield(MAP01);
+    const host = testMatch(hf);
+    const guest = testMatch(hf);
+    const guestTank = spawnTankAt(guest.sim, 42, 42, 'Guest Tank', 2);
+    guestTank.transform.x += 9;
+    expect(hashSim(guest.sim)).not.toBe(hashSim(host.sim));
+
+    let onEvent: ((event: unknown) => void) | undefined;
+    let restored = 0;
+    const client = {
+      connect: (_room: string, _playerId: string, handler: (event: unknown) => void) => {
+        onEvent = handler;
+      },
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({
+      sim: guest.sim,
+      hf,
+      economies: { 1: guest.economy1, 2: guest.economy2 },
+      client,
+      session: sessionFor(2),
+      onSnapshotRestored: () => {
+        restored++;
+      },
+    });
+    lockstep.connect();
+    const snapshot = serializeMatchState(host.sim, [host.economy1, host.economy2]);
+    onEvent?.({
+      type: 'command',
+      playerId: 'host',
+      playerIndex: 1,
+      tick: host.sim.tick,
+      command: { type: 'match-snapshot', state: snapshot, hash: hashSim(host.sim), tick: host.sim.tick },
+    });
+    expect(restored).toBe(1);
+    expect(hashSim(guest.sim)).toBe(hashSim(host.sim));
+    expect(lockstep.canAdvance()).toBe(true);
+  });
 });
+
+function sessionFor(index: 1 | 2): MultiplayerSession {
+  return {
+    player: { id: index === 1 ? 'host' : 'guest', index, name: index === 1 ? 'Host' : 'Guest', connected: true },
+    room: { code: 'ABCD', seed: 1, ai: 'normal', aiStyle: 'balanced', armyCount: 2, armySides: [1, 2, 3, 4], status: 'in-game', players: [] },
+  };
+}
+
+function testMatch(hf: ReturnType<typeof generateHeightfield>): { sim: GameSim; economy1: ReturnType<typeof createEconomy>; economy2: ReturnType<typeof createEconomy> } {
+  const sim = createGameSim(hf);
+  const economy1 = createEconomy(1);
+  const economy2 = createEconomy(2);
+  createInitialBase(sim, hf, economy1);
+  createInitialBase(sim, hf, economy2);
+  return { sim, economy1, economy2 };
+}
+
+function isCommandType(command: unknown, type: string): boolean {
+  return !!command && typeof command === 'object' && (command as { type?: unknown }).type === type;
+}

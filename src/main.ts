@@ -990,6 +990,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         client: multiplayer.client,
         session: multiplayer.session,
         onStatus: setNetworkStatus,
+        onSnapshotRestored: () => {
+          for (const army of armies) {
+            const restoredBase = commandBaseForTeam(sim, army.team);
+            if (restoredBase) army.base = restoredBase;
+            army.vision.update(sim);
+          }
+          localBase = localArmy.base;
+          unitView.syncEntities(sim.world.entities);
+          fogView.refresh();
+          buildingView.update(economy, ctx.camera);
+        },
       })
     : undefined;
   if (multiplayerMode) setNetworkStatus(`Room ${multiplayer.session.room.code} · army ${localTeam} · online`);

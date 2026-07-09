@@ -18,6 +18,7 @@ import type { Heightfield } from '../sim/heightfield';
 import { manualFireAt } from '../sim/combat';
 import { entityById, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
 import { hashSim } from '../sim/world';
+import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from '../sim/serialize';
 import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession } from './multiplayer';
 
 export type NetCommand =
@@ -50,7 +51,9 @@ export type NetCommand =
     }
   | { type: 'possess-fire'; id: number; slot: 'primary' | 'secondary'; x: number; z: number; y?: number; aimYaw: number }
   | { type: 'possess-release'; id: number }
-  | { type: 'sim-hash'; hash: number };
+  | { type: 'sim-hash'; hash: number }
+  | { type: 'snapshot-request'; hash: number; expectedHash: number; tick: number }
+  | { type: 'match-snapshot'; state: SerializedMatchState; hash: number; tick: number };
 
 interface QueuedCommand {
   tick: number;
@@ -65,6 +68,7 @@ export interface LockstepRuntimeOptions {
   client: MultiplayerClient;
   session: MultiplayerSession;
   onStatus?: (message: string, bad?: boolean) => void;
+  onSnapshotRestored?: () => void;
 }
 
 const DEFAULT_INPUT_DELAY_TICKS = 8;
@@ -76,6 +80,7 @@ export class LockstepRuntime {
   private connected = false;
   private roomPaused = false;
   private lastHashSent = 0;
+  private recoveryPending = false;
 
   constructor(private readonly options: LockstepRuntimeOptions) {}
 
@@ -173,6 +178,10 @@ export class LockstepRuntime {
     const key = `${event.playerId}:${event.tick}:${JSON.stringify(command)}`;
     if (this.seen.has(key)) return;
     this.seen.add(key);
+    if (command.type === 'snapshot-request' || command.type === 'match-snapshot') {
+      this.apply(event.playerIndex, command);
+      return;
+    }
     this.queue.push({ tick: event.tick, playerIndex: event.playerIndex, command });
     this.queue.sort((a, b) => a.tick - b.tick);
   }
@@ -182,7 +191,16 @@ export class LockstepRuntime {
     if (!economy) return;
     if (command.type === 'sim-hash') {
       const localHash = hashSim(this.options.sim);
-      if (localHash !== command.hash) this.options.onStatus?.(`Desync check mismatch: ${localHash} vs ${command.hash}`, true);
+      if (localHash !== command.hash) this.handleHashMismatch(localHash, command.hash);
+      return;
+    }
+    if (command.type === 'snapshot-request') {
+      if (this.localTeam === 1) this.sendRecoverySnapshot(`Snapshot requested after desync ${command.hash} vs ${command.expectedHash}`);
+      return;
+    }
+    if (command.type === 'match-snapshot') {
+      if (this.localTeam === 1 || !isSerializedMatchState(command.state)) return;
+      this.restoreSnapshot(command.state, command.hash);
       return;
     }
     if (command.type === 'move') {
@@ -253,6 +271,42 @@ export class LockstepRuntime {
       if (entity) delete entity.playerControlled;
     }
   }
+
+  private handleHashMismatch(localHash: number, expectedHash: number): void {
+    if (this.localTeam === 1) {
+      this.sendRecoverySnapshot(`Desync detected — sent recovery snapshot (${localHash} vs ${expectedHash})`);
+      return;
+    }
+    if (!this.recoveryPending) {
+      this.recoveryPending = true;
+      this.roomPaused = true;
+      void this.send({ type: 'snapshot-request', hash: localHash, expectedHash, tick: this.options.sim.tick }, this.options.sim.tick);
+    }
+    this.options.onStatus?.(`Desync detected — requesting host snapshot (${localHash} vs ${expectedHash})`, true);
+  }
+
+  private sendRecoverySnapshot(message: string): void {
+    const state = serializeMatchState(this.options.sim, Object.values(this.options.economies));
+    void this.send({ type: 'match-snapshot', state, hash: hashSim(this.options.sim), tick: this.options.sim.tick }, this.options.sim.tick);
+    this.options.onStatus?.(message, true);
+  }
+
+  private restoreSnapshot(state: SerializedMatchState, expectedHash: number): void {
+    restoreSerializedSim(this.options.sim, this.options.hf, state.sim);
+    for (const economyState of state.economies) {
+      const economy = this.options.economies[economyState.team];
+      if (economy) restoreEconomyState(economy, this.options.sim, economyState);
+    }
+    this.queue.splice(0, this.queue.length, ...this.queue.filter((queued) => queued.tick > state.sim.tick));
+    this.recoveryPending = false;
+    this.roomPaused = false;
+    this.options.onSnapshotRestored?.();
+    const localHash = hashSim(this.options.sim);
+    this.options.onStatus?.(
+      localHash === expectedHash ? `Recovered from host snapshot at tick ${state.sim.tick}` : `Recovered snapshot hash differs: ${localHash} vs ${expectedHash}`,
+      localHash !== expectedHash,
+    );
+  }
 }
 
 function ownedEntity(sim: GameSim, id: number, team: number): Entity | undefined {
@@ -272,4 +326,10 @@ function clampUnit(value: number): number {
 
 function isNetCommand(value: unknown): value is NetCommand {
   return !!value && typeof value === 'object' && 'type' in value && typeof (value as { type: unknown }).type === 'string';
+}
+
+function isSerializedMatchState(value: unknown): value is SerializedMatchState {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as Partial<SerializedMatchState>;
+  return state.version === 1 && !!state.sim && Array.isArray(state.economies);
 }

@@ -1,6 +1,6 @@
 # Iron Dominion Multiplayer
 
-## Current Slice: Phase M3 Foundation
+## Current Slice: Phase M3 Snapshot Recovery
 
 The friends-link 1v1 multiplayer layer now provides:
 
@@ -18,12 +18,15 @@ The friends-link 1v1 multiplayer layer now provides:
   structure build/place/cancel, unit queue/cancel, and primary producer selection
 - realtime V-mode possession mirroring for drive/fly controls, release, and manual fire
 - periodic sim-hash desync checks
+- host-authored snapshot repair when a sim-hash mismatch is detected
 - visible in-match multiplayer status/warning overlay
 - pause-on-disconnect for interrupted rooms/opponents
 - a short starting countdown/loading state when both players are ready
 
-This is still an MVP. Reconnect resumes the local stream and pauses on interruptions, but full
-snapshot repair/rollback is not finished yet.
+This is still an MVP. Reconnect resumes the local stream and pauses on interruptions. Snapshot
+repair now handles detected host/guest drift, but it is not full rollback netcode: queued commands
+already covered by the restored snapshot are discarded, while future commands continue from the
+host state.
 
 Phase M3 has started with the shared state foundation:
 
@@ -34,6 +37,9 @@ Phase M3 has started with the shared state foundation:
   a load instead of freezing.
 - A round-trip test verifies `serialize -> load -> hashSim` equality, then advances both sims for
   100 more ticks and verifies the hashes still match.
+- `LockstepRuntime` now sends a serialized host snapshot on desync, lets the guest restore the sim
+  and economies, trims stale queued commands, and reconciles unit render objects after recovery.
+- Targeted tests verify both host snapshot emission and guest hash recovery.
 
 Cross-browser play can desync because browser engines are not guaranteed to produce bit-identical
 floating-point results. The lobby warns when engines differ. The planned M5 fix is a deterministic
@@ -93,9 +99,7 @@ For a deploy-ready setup:
 
 ## Next Multiplayer Slice
 
-Phase M3 should continue from serialization into production-grade recovery:
+Phase M3 should continue from snapshot repair into production-grade reconnect/quit behavior:
 
-- host sends a serialized snapshot when a sim-hash mismatch is detected
-- guest restores the snapshot, clears/replays buffered commands, and resumes
 - relay keeps disconnected rooms alive long enough for reconnect
 - explicit quit produces a victory/forfeit message for the opponent

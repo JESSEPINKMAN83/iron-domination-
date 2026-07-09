@@ -1055,7 +1055,7 @@ drafted in `drafts/phase6/` (unwired, see its README).
   bodies under terrain while selection rings/health bars stayed visible.
 - Latest verification after M2: `npm run build` passes. `npm test` passes (83 tests).
 
-## Phase M3 — Match Serialization & Save/Load 🚧 (2026-07-10, started)
+## Phase M3 — Match Serialization, Save/Load & Snapshot Recovery 🚧 (2026-07-10, started)
 
 - Added versioned match-state serialization in `src/sim/serialize.ts` for sim tick/entity ids,
   entities, projectiles, combat events, resource nodes, rules, dynamic navigation blockers, and
@@ -1069,15 +1069,20 @@ drafted in `drafts/phase6/` (unwired, see its README).
   constructed.
 - Added `serialize.test.ts`, which verifies `serialize -> load -> hashSim` equality and then runs
   both original/restored sims for 100 ticks to prove determinism continues.
-- Latest verification after this M3 slice: `npm run build` passes. `npm test` passes (84 tests).
+- Added multiplayer snapshot repair for detected host/guest hash drift. The host emits a serialized
+  match snapshot, the guest restores sim/economy state immediately, stale queued commands are
+  discarded, and unit render objects reconcile against the restored entity list.
+- Added lockstep tests proving the host sends a recovery snapshot on mismatch and the guest restores
+  to the host hash.
+- Latest verification after this M3 recovery slice: `npm run build` passes. `npm test` passes
+  (86 tests).
 
 ### Known issues / notes
-- This is the M3 foundation, not full multiplayer recovery yet. Desync mismatch still reports via
-  the multiplayer overlay; automatic host snapshot transfer/guest repair is next.
+- Snapshot repair is not full rollback netcode. It restores to the host state and keeps future
+  queued commands, but does not replay a detailed historical command buffer across a rollback window.
 - AI commander internal strategy state is not serialized yet. Save/load restores the deterministic
   sim and economies; future desync recovery should add commander-state serialization before claiming
   complete mid-match AI recovery.
 
 ### Next
-- Continue Phase M3 with host snapshot-on-desync, guest restore/resume, reconnect buffering, and
-  explicit quit/forfeit handling.
+- Continue M3 with reconnect buffering and explicit quit/forfeit handling.

@@ -274,6 +274,17 @@ export class UnitView {
     return this.entities.length;
   }
 
+  syncEntities(entities: Iterable<Entity>): void {
+    const next = new Set(Array.from(entities).filter((entity) => entity.selectable && !entity.building));
+    for (let i = this.entities.length - 1; i >= 0; i--) {
+      const entity = this.entities[i];
+      if (next.has(entity)) continue;
+      this.removeEntity(entity);
+      this.entities.splice(i, 1);
+    }
+    for (const entity of next) this.addEntity(entity);
+  }
+
   /**
    * Fully removes a dead entity's render resources — scene objects and per-entity
    * materials — and drops it from every map. Shared unit/overlay geometries and
