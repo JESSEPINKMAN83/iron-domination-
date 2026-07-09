@@ -31,6 +31,7 @@ export type MultiplayerEvent =
   | { type: 'match-start'; room: MultiplayerRoom }
   | { type: 'command'; playerId: string; playerIndex: number; tick: number; command: unknown }
   | { type: 'heartbeat'; now: number }
+  | { type: 'player-forfeit'; playerId: string; playerIndex: number; name: string }
   | { type: 'room-closed'; reason: string };
 
 export interface MultiplayerSession {
@@ -57,6 +58,7 @@ export class MultiplayerClient {
   private onError?: () => void;
   private onOpen?: () => void;
   private lastSession?: MultiplayerSession;
+  private serverClosedRoom = false;
 
   constructor(readonly baseUrl: string) {}
 
@@ -86,6 +88,10 @@ export class MultiplayerClient {
 
   setReady(roomCode: string, playerId: string, ready: boolean): void {
     this.send({ type: 'ready', roomCode: normalizeRoomCode(roomCode), playerId, ready });
+  }
+
+  forfeit(roomCode: string, playerId: string): void {
+    this.send({ type: 'forfeit', roomCode: normalizeRoomCode(roomCode), playerId });
   }
 
   connect(_roomCode: string, _playerId: string, onEvent: (event: MultiplayerEvent) => void, onError: () => void, onOpen?: () => void): void {
@@ -128,9 +134,10 @@ export class MultiplayerClient {
       return;
     }
     this.socket = new WebSocket(webSocketUrl(this.baseUrl));
+    this.serverClosedRoom = false;
     this.socket.onmessage = (event) => this.handleMessage(event.data);
     this.socket.onclose = () => {
-      this.onError?.();
+      if (!this.serverClosedRoom) this.onError?.();
       this.rejectPending('connection-closed');
     };
     this.socket.onerror = () => {
@@ -194,6 +201,7 @@ export class MultiplayerClient {
       }
       return;
     }
+    if (message.type === 'room-closed') this.serverClosedRoom = true;
     this.onEvent?.(message);
   }
 

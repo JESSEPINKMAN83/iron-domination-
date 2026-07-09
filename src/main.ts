@@ -1167,6 +1167,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
             return stored;
           },
     load: multiplayerMode ? undefined : requestLoadStoredMatch,
+    forfeit: multiplayerMode
+      ? () => {
+          multiplayer.client.forfeit(multiplayer.session.room.code, multiplayer.session.player.id);
+          setNetworkStatus('You forfeited the match', true);
+        }
+      : undefined,
   });
   const firstPerson = new FirstPersonController(
     ctx.renderer.domElement,
@@ -1354,6 +1360,7 @@ function createGameMenu(
     snapshot: () => MatchSnapshot;
     save?: () => StoredMatchSave;
     load?: () => boolean;
+    forfeit?: () => void;
   },
 ): void {
   const wrap = document.createElement('div');
@@ -1376,6 +1383,7 @@ function createGameMenu(
       snapshot: options.snapshot,
       save: options.save,
       load: options.load,
+      forfeit: options.forfeit,
       onClose: () => options.setPaused(false),
       onHelp: () => showHelpDialog({ onClose: () => options.setPaused(false) }),
     });
@@ -1406,6 +1414,7 @@ function showMatchMenu(
     snapshot?: () => MatchSnapshot;
     save?: () => StoredMatchSave;
     load?: () => boolean;
+    forfeit?: () => void;
     onClose: () => void;
     onHelp: () => void;
   },
@@ -1476,6 +1485,13 @@ function showMatchMenu(
         if (!options.load?.()) status.textContent = 'no saved game found';
       })
     : undefined;
+  const forfeitButton = options.forfeit
+    ? dialogButton('Forfeit match', () => {
+        if (!window.confirm('Forfeit this multiplayer match?')) return;
+        options.forfeit?.();
+        close();
+      })
+    : undefined;
   const restart = dialogButton('Restart match', () => reloadWithSettings(settings, true));
   const setup = dialogButton('Back to setup', () => reloadWithSettings(settings, false));
   panel.append(title, status);
@@ -1483,6 +1499,7 @@ function showMatchMenu(
   panel.append(resume, help, copy);
   if (saveButton) panel.append(saveButton);
   if (loadButton) panel.append(loadButton);
+  if (forfeitButton) panel.append(forfeitButton);
   panel.append(restart, setup);
   overlay.appendChild(panel);
   document.body.appendChild(overlay);

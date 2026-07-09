@@ -19,6 +19,7 @@ The friends-link 1v1 multiplayer layer now provides:
 - realtime V-mode possession mirroring for drive/fly controls, release, and manual fire
 - periodic sim-hash desync checks
 - host-authored snapshot repair when a sim-hash mismatch is detected
+- explicit multiplayer forfeit from the in-match MENU, with victory messaging for the opponent
 - visible in-match multiplayer status/warning overlay
 - pause-on-disconnect for interrupted rooms/opponents
 - a short starting countdown/loading state when both players are ready
@@ -102,4 +103,5 @@ For a deploy-ready setup:
 Phase M3 should continue from snapshot repair into production-grade reconnect/quit behavior:
 
 - relay keeps disconnected rooms alive long enough for reconnect
-- explicit quit produces a victory/forfeit message for the opponent
+- reconnect polish should make returning players clearly reclaim the same slot after a dropped
+  connection

@@ -1072,10 +1072,13 @@ drafted in `drafts/phase6/` (unwired, see its README).
 - Added multiplayer snapshot repair for detected host/guest hash drift. The host emits a serialized
   match snapshot, the guest restores sim/economy state immediately, stale queued commands are
   discarded, and unit render objects reconcile against the restored entity list.
+- Added explicit multiplayer forfeit. The match menu exposes a guarded Forfeit action, the relay
+  broadcasts `player-forfeit`, the opponent sees a victory message, and server-initiated room
+  closure no longer overwrites that outcome with a generic disconnect warning.
 - Added lockstep tests proving the host sends a recovery snapshot on mismatch and the guest restores
-  to the host hash.
+  to the host hash, plus a forfeit/victory pause test.
 - Latest verification after this M3 recovery slice: `npm run build` passes. `npm test` passes
-  (86 tests).
+  (87 tests).
 
 ### Known issues / notes
 - Snapshot repair is not full rollback netcode. It restores to the host state and keeps future
@@ -1085,4 +1088,4 @@ drafted in `drafts/phase6/` (unwired, see its README).
   complete mid-match AI recovery.
 
 ### Next
-- Continue M3 with reconnect buffering and explicit quit/forfeit handling.
+- Continue M3 with reconnect UX polish and public-relay deployment validation.

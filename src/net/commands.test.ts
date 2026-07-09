@@ -207,6 +207,34 @@ describe('multiplayer lockstep commands', () => {
     expect(hashSim(guest.sim)).toBe(hashSim(host.sim));
     expect(lockstep.canAdvance()).toBe(true);
   });
+
+  it('pauses the match and reports victory when an opponent forfeits', () => {
+    const hf = generateHeightfield(MAP01);
+    const match = testMatch(hf);
+    let onEvent: ((event: unknown) => void) | undefined;
+    let status = '';
+    const client = {
+      connect: (_room: string, _playerId: string, handler: (event: unknown) => void) => {
+        onEvent = handler;
+      },
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({
+      sim: match.sim,
+      hf,
+      economies: { 1: match.economy1, 2: match.economy2 },
+      client,
+      session: sessionFor(1),
+      onStatus: (message) => {
+        status = message;
+      },
+    });
+    lockstep.connect();
+    onEvent?.({ type: 'player-forfeit', playerId: 'guest', playerIndex: 2, name: 'Guest' });
+    expect(lockstep.canAdvance()).toBe(false);
+    expect(status).toBe('Guest forfeited — victory');
+  });
 });
 
 function sessionFor(index: 1 | 2): MultiplayerSession {

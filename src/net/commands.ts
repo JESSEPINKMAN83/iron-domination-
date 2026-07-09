@@ -157,6 +157,14 @@ export class LockstepRuntime {
     if (!this.connected) this.options.onStatus?.('Multiplayer connected');
     this.connected = true;
     if (event.type === 'heartbeat') return;
+    if (event.type === 'player-forfeit') {
+      this.connected = false;
+      this.roomPaused = true;
+      const message =
+        event.playerIndex === this.localTeam ? 'You forfeited the match' : `${event.name || `Commander ${event.playerIndex}`} forfeited — victory`;
+      this.options.onStatus?.(message, true);
+      return;
+    }
     if (event.type === 'room-state' || event.type === 'match-start') {
       const missing = event.room.players.some((player) => player.index !== this.localTeam && !player.connected);
       const connected = event.room.players.filter((player) => player.connected).length;
@@ -168,7 +176,7 @@ export class LockstepRuntime {
     if (event.type === 'room-closed') {
       this.connected = false;
       this.roomPaused = true;
-      this.options.onStatus?.(`Room closed: ${event.reason}`, true);
+      this.options.onStatus?.(roomClosedMessage(event.reason, this.localTeam), true);
       return;
     }
     if (event.type !== 'command') return;
@@ -332,4 +340,13 @@ function isSerializedMatchState(value: unknown): value is SerializedMatchState {
   if (!value || typeof value !== 'object') return false;
   const state = value as Partial<SerializedMatchState>;
   return state.version === 1 && !!state.sim && Array.isArray(state.economies);
+}
+
+function roomClosedMessage(reason: string, localTeam: number): string {
+  const forfeit = /^forfeit:(\d+)$/.exec(reason);
+  if (forfeit) {
+    const team = Number(forfeit[1]);
+    return team === localTeam ? 'You forfeited the match' : `Commander ${team} forfeited — victory`;
+  }
+  return `Room closed: ${reason}`;
 }

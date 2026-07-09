@@ -94,6 +94,7 @@ function routeSocket(socket, body) {
   if (body?.type === 'ready') return handleReady(socket, body);
   if (body?.type === 'settings') return handleSettings(socket, body);
   if (body?.type === 'command') return handleCommand(socket, body);
+  if (body?.type === 'forfeit') return handleForfeit(socket, body);
   if (body?.type === 'pong') return handlePong(socket, body);
   send(socket, { type: 'error', requestId: body?.requestId, error: 'unknown-message' });
 }
@@ -155,6 +156,15 @@ function handleCommand(_socket, body) {
     tick: Math.max(0, Math.floor(Number(body.tick) || 0)),
     command: body.command ?? {},
   });
+}
+
+function handleForfeit(_socket, body) {
+  const { room, player } = roomAndPlayer(body);
+  if (!room || !player) return;
+  room.updatedAt = Date.now();
+  broadcast(room, { type: 'player-forfeit', playerId: player.id, playerIndex: player.index, name: player.name });
+  broadcast(room, { type: 'room-closed', reason: `forfeit:${player.index}` });
+  setTimeout(() => closeRoom(room.code), 250).unref();
 }
 
 function handlePong(socket, body) {
