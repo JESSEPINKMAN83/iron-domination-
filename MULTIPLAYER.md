@@ -1,8 +1,8 @@
 # Iron Dominion Multiplayer
 
-## Current Slice: Phase M2
+## Current Slice: Phase M3 Foundation
 
-This is the first friends-link 1v1 multiplayer layer. It provides:
+The friends-link 1v1 multiplayer layer now provides:
 
 - a lightweight WebSocket room relay server
 - host/join room codes
@@ -24,6 +24,16 @@ This is the first friends-link 1v1 multiplayer layer. It provides:
 
 This is still an MVP. Reconnect resumes the local stream and pauses on interruptions, but full
 snapshot repair/rollback is not finished yet.
+
+Phase M3 has started with the shared state foundation:
+
+- `src/sim/serialize.ts` serializes sim entities, projectiles, resources, rules, dynamic navigation
+  blockers, and per-team economies with a versioned payload.
+- Save/load uses that same serializer for single-player games through the in-match MENU.
+- Restore rebuilds derived flow fields from saved movement targets so units can keep moving after
+  a load instead of freezing.
+- A round-trip test verifies `serialize -> load -> hashSim` equality, then advances both sims for
+  100 more ticks and verifies the hashes still match.
 
 Cross-browser play can desync because browser engines are not guaranteed to produce bit-identical
 floating-point results. The lobby warns when engines differ. The planned M5 fix is a deterministic
@@ -83,10 +93,9 @@ For a deploy-ready setup:
 
 ## Next Multiplayer Slice
 
-Phase 9D should move from MVP relay play to production-grade online play:
+Phase M3 should continue from serialization into production-grade recovery:
 
-- deploy the relay to a public Node host
-- add desync snapshot capture and optional state recovery
-- add lobby list/private room UX
-- start separating realtime possession state from authoritative gameplay state if public latency
-  proves too high
+- host sends a serialized snapshot when a sim-hash mismatch is detected
+- guest restores the snapshot, clears/replays buffered commands, and resumes
+- relay keeps disconnected rooms alive long enough for reconnect
+- explicit quit produces a victory/forfeit message for the opponent

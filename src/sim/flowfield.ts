@@ -15,6 +15,10 @@ interface DynamicBlocker extends BlockedFootprint {
   id: number;
 }
 
+export interface DynamicBlockerSnapshot extends BlockedFootprint {
+  id: number;
+}
+
 export class NavigationGrid {
   readonly cells: number;
   readonly cellSize: number;
@@ -107,6 +111,16 @@ export class NavigationGrid {
 
   removeDynamicBlocker(id: number): void {
     if (!this.dynamicBlockers.delete(id)) return;
+    this.rebuildBlocked();
+  }
+
+  snapshotDynamicBlockers(): DynamicBlockerSnapshot[] {
+    return Array.from(this.dynamicBlockers.values()).map((blocker) => ({ ...blocker }));
+  }
+
+  restoreDynamicBlockers(blockers: DynamicBlockerSnapshot[]): void {
+    this.dynamicBlockers.clear();
+    for (const blocker of blockers) this.dynamicBlockers.set(blocker.id, { ...blocker });
     this.rebuildBlocked();
   }
 

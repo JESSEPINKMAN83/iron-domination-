@@ -1040,3 +1040,44 @@ drafted in `drafts/phase6/` (unwired, see its README).
 ### Next
 - Public-host the relay, set the Netlify environment variable, run a two-computer online test,
   then decide whether Phase 9E should focus on desync snapshot recovery or lobby UX.
+
+## Phase M2 — Friends-Link Lobby Relay ✅ (2026-07-10)
+
+- Reworked the multiplayer relay around WebSockets (`ws`) with room host/join, player reconnect
+  identity, lobby room-state broadcasts, ping measurement, ready/unready state, and a 3-second
+  countdown before `match-start`.
+- Updated the setup multiplayer panel with copied `?room=ABC123` links, room-code prefill,
+  ready/unready controls, live settings sync from host to guest, ping/input-delay display, and
+  browser-engine mismatch warnings.
+- Documented the Netlify/static-client plus separate Node relay deployment split in
+  `NETLIFY_DEPLOY.md` and `MULTIPLAYER.md`.
+- Fixed the infantry visual regression where soldier animation overwrote world height and buried
+  bodies under terrain while selection rings/health bars stayed visible.
+- Latest verification after M2: `npm run build` passes. `npm test` passes (83 tests).
+
+## Phase M3 — Match Serialization & Save/Load 🚧 (2026-07-10, started)
+
+- Added versioned match-state serialization in `src/sim/serialize.ts` for sim tick/entity ids,
+  entities, projectiles, combat events, resource nodes, rules, dynamic navigation blockers, and
+  per-team economy state.
+- Added navigation-grid snapshot/restore for dynamic blockers so saved wall/building blockers are
+  preserved instead of silently changing pathfinding after load.
+- Restored derived movement flow fields from saved mover targets, keeping units in transit after a
+  load.
+- Added single-player Save Game / Load Saved Game actions to the in-match MENU. Saves are stored in
+  localStorage and loaded by rebooting into the saved state before Three.js render views are
+  constructed.
+- Added `serialize.test.ts`, which verifies `serialize -> load -> hashSim` equality and then runs
+  both original/restored sims for 100 ticks to prove determinism continues.
+- Latest verification after this M3 slice: `npm run build` passes. `npm test` passes (84 tests).
+
+### Known issues / notes
+- This is the M3 foundation, not full multiplayer recovery yet. Desync mismatch still reports via
+  the multiplayer overlay; automatic host snapshot transfer/guest repair is next.
+- AI commander internal strategy state is not serialized yet. Save/load restores the deterministic
+  sim and economies; future desync recovery should add commander-state serialization before claiming
+  complete mid-match AI recovery.
+
+### Next
+- Continue Phase M3 with host snapshot-on-desync, guest restore/resume, reconnect buffering, and
+  explicit quit/forfeit handling.

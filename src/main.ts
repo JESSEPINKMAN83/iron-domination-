@@ -44,6 +44,7 @@ import {
   updatePlacement,
 } from './sim/economy';
 import { generateHeightfield } from './sim/heightfield';
+import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from './sim/serialize';
 import { VisibilityGrid } from './sim/visibility';
 import {
   createGameSim,
@@ -64,6 +65,8 @@ import { Sidebar } from './ui/sidebar';
 const nextFrame = (): Promise<number> => new Promise((resolve) => requestAnimationFrame(resolve));
 const SKIRMISH_STORAGE_KEY = 'iron-dominion.skirmish.v1';
 const AUTOSTART_STORAGE_KEY = 'iron-dominion.autostart.v1';
+const SAVE_STORAGE_KEY = 'iron-dominion.save.v1';
+const LOAD_SAVE_STORAGE_KEY = 'iron-dominion.load-save.v1';
 const MULTIPLAYER_SERVER_STORAGE_KEY = 'iron-dominion.multiplayer.server.v1';
 const MULTIPLAYER_PLAYER_STORAGE_KEY = 'iron-dominion.multiplayer.players.v1';
 
@@ -119,6 +122,12 @@ interface MatchSnapshot {
   enemyUnits: number;
   playerCollectors: number;
   enemyCollectors: number;
+}
+
+interface StoredMatchSave {
+  savedAt: number;
+  settings: SkirmishSettings;
+  state: SerializedMatchState;
 }
 
 let pendingMultiplayer: { client: MultiplayerClient; session: MultiplayerSession } | undefined;
@@ -214,6 +223,34 @@ function reloadWithSettings(settings: SkirmishSettings, autostart: boolean): voi
   if (autostart) window.sessionStorage.setItem(AUTOSTART_STORAGE_KEY, '1');
   else window.sessionStorage.removeItem(AUTOSTART_STORAGE_KEY);
   window.location.reload();
+}
+
+function readStoredMatchSave(): StoredMatchSave | undefined {
+  try {
+    const raw = window.localStorage.getItem(SAVE_STORAGE_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as StoredMatchSave;
+    if (!parsed?.state || !parsed.settings) return undefined;
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function requestLoadStoredMatch(): boolean {
+  const save = readStoredMatchSave();
+  if (!save) return false;
+  saveSkirmishSettings(save.settings);
+  window.sessionStorage.setItem(AUTOSTART_STORAGE_KEY, '1');
+  window.sessionStorage.setItem(LOAD_SAVE_STORAGE_KEY, '1');
+  window.location.reload();
+  return true;
+}
+
+function consumeLoadStoredMatch(): StoredMatchSave | undefined {
+  if (window.sessionStorage.getItem(LOAD_SAVE_STORAGE_KEY) !== '1') return undefined;
+  window.sessionStorage.removeItem(LOAD_SAVE_STORAGE_KEY);
+  return readStoredMatchSave();
 }
 
 function showLoadingOverlay(): HTMLDivElement {
@@ -829,6 +866,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const aiDifficulty: Difficulty = settings.ai;
   const aiPersonality: Personality = settings.aiStyle;
+  const savedMatch = multiplayerMode ? undefined : consumeLoadStoredMatch();
 
   const sim = createGameSim(hf);
   sim.rules.autoCombat = settings.combatMode !== 'manual';
@@ -846,9 +884,29 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   });
   const localArmy = armies.find((army) => army.team === localTeam) ?? armies[0];
   const economy = localArmy.economy;
-  const localBase = localArmy.base;
+  let localBase = localArmy.base;
   const playerVision = localArmy.vision;
-  if (testStart && !multiplayerMode) seedTestStartBase(sim, hf, economy, localBase);
+  let loadedFromSave = false;
+  if (savedMatch) {
+    try {
+      restoreSerializedSim(sim, hf, savedMatch.state.sim);
+      for (const state of savedMatch.state.economies) {
+        const army = armies.find((candidate) => candidate.team === state.team);
+        if (army) restoreEconomyState(army.economy, sim, state);
+      }
+      for (const army of armies) {
+        const restoredBase = commandBaseForTeam(sim, army.team);
+        if (restoredBase) army.base = restoredBase;
+        army.vision.update(sim);
+      }
+      localBase = localArmy.base;
+      loadedFromSave = true;
+      console.info(`[save] loaded match from ${new Date(savedMatch.savedAt).toLocaleString()}`);
+    } catch (err) {
+      console.warn('[save] failed to load saved match', err);
+    }
+  }
+  if (testStart && !multiplayerMode && !loadedFromSave) seedTestStartBase(sim, hf, economy, localBase);
   const isVisibleToPlayer = lineupStart ? () => true : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   if (!multiplayerMode) {
     for (const army of armies) {
@@ -880,10 +938,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     };
   };
 
-  const lineupUnits = lineupStart ? spawnLineupUnits(sim, hf, economy, localBase.transform.x, localBase.transform.z) : [];
+  const loadedUnits = loadedFromSave ? Array.from(sim.world.entities).filter((entity) => entity.selectable && !entity.building) : [];
+  const lineupUnits = !loadedFromSave && lineupStart ? spawnLineupUnits(sim, hf, economy, localBase.transform.x, localBase.transform.z) : [];
   const startingUnits = lineupStart
     ? []
-    : armies.flatMap((army) => [
+    : loadedFromSave
+      ? loadedUnits
+      : armies.flatMap((army) => [
         ...spawnStartingTanks(sim, hf, army.team, army.team === localTeam && debugArmies ? 120 : debugArmies ? 40 : 2),
         ...(debugArmies ? [] : spawnStartingInfantry(sim, hf, army.base.transform.x, army.base.transform.z, army.team)),
       ]);
@@ -1077,6 +1138,19 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   createGameMenu(settings, {
     setPaused: setUiPaused,
     snapshot: matchSnapshot,
+    save:
+      multiplayerMode
+        ? undefined
+        : () => {
+            const stored: StoredMatchSave = {
+              savedAt: Date.now(),
+              settings,
+              state: serializeMatchState(sim, armies.map((army) => army.economy)),
+            };
+            window.localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(stored));
+            return stored;
+          },
+    load: multiplayerMode ? undefined : requestLoadStoredMatch,
   });
   const firstPerson = new FirstPersonController(
     ctx.renderer.domElement,
@@ -1257,7 +1331,15 @@ function showMissionBriefing(settings: SkirmishSettings): void {
   }, 6500);
 }
 
-function createGameMenu(settings: SkirmishSettings, options: { setPaused: (paused: boolean) => void; snapshot: () => MatchSnapshot }): void {
+function createGameMenu(
+  settings: SkirmishSettings,
+  options: {
+    setPaused: (paused: boolean) => void;
+    snapshot: () => MatchSnapshot;
+    save?: () => StoredMatchSave;
+    load?: () => boolean;
+  },
+): void {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:30;display:flex;gap:6px;align-items:center;';
   const help = gameChromeButton('HELP', 'Open controls and objective');
@@ -1276,6 +1358,8 @@ function createGameMenu(settings: SkirmishSettings, options: { setPaused: (pause
     options.setPaused(true);
     showMatchMenu(settings, {
       snapshot: options.snapshot,
+      save: options.save,
+      load: options.load,
       onClose: () => options.setPaused(false),
       onHelp: () => showHelpDialog({ onClose: () => options.setPaused(false) }),
     });
@@ -1300,7 +1384,16 @@ function gameChromeButton(text: string, title: string): HTMLButtonElement {
   return button;
 }
 
-function showMatchMenu(settings: SkirmishSettings, options: { snapshot?: () => MatchSnapshot; onClose: () => void; onHelp: () => void }): void {
+function showMatchMenu(
+  settings: SkirmishSettings,
+  options: {
+    snapshot?: () => MatchSnapshot;
+    save?: () => StoredMatchSave;
+    load?: () => boolean;
+    onClose: () => void;
+    onHelp: () => void;
+  },
+): void {
   const existing = document.getElementById('skirmish-restart-dialog');
   if (existing) existing.remove();
   const overlay = document.createElement('div');
@@ -1356,11 +1449,25 @@ function showMatchMenu(settings: SkirmishSettings, options: { snapshot?: () => M
     options.onHelp();
   });
   const copy = dialogButton('Copy match link', () => copyMatchLink(settings, status));
+  const saveButton = options.save
+    ? dialogButton('Save game', () => {
+        const saved = options.save?.();
+        status.textContent = saved ? `saved ${new Date(saved.savedAt).toLocaleTimeString()}` : 'save failed';
+      })
+    : undefined;
+  const loadButton = options.load
+    ? dialogButton('Load saved game', () => {
+        if (!options.load?.()) status.textContent = 'no saved game found';
+      })
+    : undefined;
   const restart = dialogButton('Restart match', () => reloadWithSettings(settings, true));
   const setup = dialogButton('Back to setup', () => reloadWithSettings(settings, false));
   panel.append(title, status);
   if (snapshot) panel.append(details);
-  panel.append(resume, help, copy, restart, setup);
+  panel.append(resume, help, copy);
+  if (saveButton) panel.append(saveButton);
+  if (loadButton) panel.append(loadButton);
+  panel.append(restart, setup);
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
 }
@@ -1448,6 +1555,14 @@ function copyMatchLink(settings: SkirmishSettings, status: HTMLElement): void {
     .catch(() => {
       status.textContent = url.toString();
   });
+}
+
+function commandBaseForTeam(sim: ReturnType<typeof createGameSim>, team: number): ReturnType<typeof createInitialBase> | undefined {
+  const teamBuildings = buildings(sim, team).filter((entity) => !entity.destroyed);
+  return (
+    teamBuildings.find((entity) => entity.building?.kind === 'command-yard') ??
+    teamBuildings[0]
+  );
 }
 
 function combinedCommanderStats(commanders: EnemyCommander[]): { attacksLaunched: number; rebuilds: number } {
