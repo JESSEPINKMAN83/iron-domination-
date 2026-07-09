@@ -5,7 +5,7 @@ import { DEFAULT_MAP_ID, MAP_IDS, MAP_PRESETS, mapConfig, sanitizeMapId, type Ma
 import type { StructureKind } from './content/phase3';
 import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phase6';
 import { COMBAT_MODE_DESCRIPTIONS, COMBAT_MODES, type CombatMode } from './content/rules';
-import { startMusterPosition, startPosition } from './content/startPositions';
+import { startPosition } from './content/startPositions';
 import { Input } from './engine/input';
 import { GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
 import { advanceTick } from './match/advanceTick';
@@ -272,7 +272,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     const panel = document.createElement('div');
     panel.style.cssText =
       'width:min(1120px,calc(100vw - 28px));max-height:calc(100vh - 28px);display:grid;grid-template-rows:auto minmax(0,1fr);gap:16px;' +
-      'padding:22px 24px;background:linear-gradient(180deg,#151b1d,#070909);border:2px solid #596260;border-radius:4px;overflow:auto;' +
+      'box-sizing:border-box;padding:22px 24px;background:linear-gradient(180deg,#151b1d,#070909);border:2px solid #596260;border-radius:4px;overflow:auto;overflow-x:hidden;' +
       'box-shadow:inset 0 0 0 1px rgba(210,177,95,.22),0 22px 80px rgba(0,0,0,.62);';
 
     const title = document.createElement('div');
@@ -283,12 +283,12 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
 
     const layout = document.createElement('div');
     layout.style.cssText =
-      'display:grid;grid-template-columns:minmax(260px,1fr) minmax(380px,505px);gap:16px;align-items:stretch;min-height:0;';
+      'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start;min-width:0;min-height:0;';
     const leftColumn = document.createElement('div');
     leftColumn.style.cssText = 'display:grid;gap:12px;align-content:start;min-width:0;';
     const rightColumn = document.createElement('div');
     rightColumn.style.cssText =
-      'display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto;gap:12px;min-width:0;min-height:0;';
+      'display:grid;gap:12px;min-width:0;min-height:0;';
 
     const form = document.createElement('div');
     form.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;';
@@ -315,7 +315,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     seedInput.step = '1';
     seedInput.value = String(defaults.seed);
     seedInput.style.cssText =
-      'height:38px;background:#090d0d;color:#f0f3e8;border:1px solid #46504d;padding:0 10px;font:16px ui-monospace,Menlo,monospace;letter-spacing:.08em;';
+      'width:100%;min-width:0;box-sizing:border-box;height:38px;background:#090d0d;color:#f0f3e8;border:1px solid #46504d;padding:0 10px;font:16px ui-monospace,Menlo,monospace;letter-spacing:.08em;';
     seedWrap.append('Map seed', seedInput);
     const randomize = document.createElement('button');
     randomize.type = 'button';
@@ -410,14 +410,14 @@ function createSegmentedControl<T extends string>(
 ): { root: HTMLDivElement; value: () => T } {
   let current = initial;
   const root = document.createElement('div');
-  root.style.cssText = 'display:grid;gap:7px;';
+  root.style.cssText = 'display:grid;gap:7px;min-width:0;';
   const title = document.createElement('div');
   title.textContent = label.toUpperCase();
   title.style.cssText = 'color:#d2b15f;';
   const buttons = document.createElement('div');
-  buttons.style.cssText = `display:grid;grid-template-columns:repeat(${values.length},1fr);gap:5px;`;
+  buttons.style.cssText = `display:grid;grid-template-columns:repeat(${values.length},minmax(0,1fr));gap:5px;min-width:0;`;
   const description = document.createElement('div');
-  description.style.cssText = 'min-height:42px;color:#8d9a96;font-size:10px;line-height:1.45;letter-spacing:.04em;';
+  description.style.cssText = 'min-height:42px;color:#8d9a96;font-size:10px;line-height:1.45;letter-spacing:.04em;overflow-wrap:anywhere;';
   const render = (): void => {
     for (const button of Array.from(buttons.children) as HTMLButtonElement[]) {
       const active = button.dataset.value === current;
@@ -516,7 +516,7 @@ function createMultiplayerSetupPanel(
   currentSession: () => MultiplayerSession | undefined,
 ): HTMLDivElement {
   const root = document.createElement('div');
-  root.style.cssText = 'display:grid;gap:10px;padding:12px;border:1px solid #303936;background:#0f1414;';
+  root.style.cssText = 'display:grid;gap:10px;padding:12px;border:1px solid #303936;background:#0f1414;min-width:0;overflow:hidden;';
 
   const header = document.createElement('div');
   header.style.cssText = 'display:flex;justify-content:space-between;gap:12px;align-items:baseline;';
@@ -525,7 +525,10 @@ function createMultiplayerSetupPanel(
     '<div style="color:#6f7b78;font-size:10px;">M2 · friends-link 1v1</div>';
 
   const row = document.createElement('div');
-  row.style.cssText = 'display:grid;grid-template-columns:minmax(170px,1fr) 92px repeat(4,92px);gap:7px;align-items:end;';
+  row.style.cssText =
+    'display:grid;grid-template-columns:minmax(0,1fr) minmax(92px,.28fr);gap:7px;align-items:end;min-width:0;';
+  const actionRow = document.createElement('div');
+  actionRow.style.cssText = 'grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;min-width:0;';
 
   const serverLabel = setupTextInput('Server', storedMultiplayerServer());
   const codeLabel = setupTextInput('Room', normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? ''));
@@ -557,7 +560,7 @@ function createMultiplayerSetupPanel(
   copy.style.opacity = '.45';
 
   const status = document.createElement('div');
-  status.style.cssText = 'min-height:18px;color:#8d9a96;font-size:10px;line-height:1.4;letter-spacing:.05em;';
+  status.style.cssText = 'min-height:18px;color:#8d9a96;font-size:10px;line-height:1.4;letter-spacing:.05em;overflow-wrap:anywhere;';
   status.textContent = defaultMultiplayerServer() === 'http://127.0.0.1:8787'
     ? 'Run `npm run dev:multiplayer`, then host here and share the room code.'
     : 'Use the public relay URL below, then host here and share the room code.';
@@ -674,7 +677,8 @@ function createMultiplayerSetupPanel(
     copy.blur();
   };
 
-  row.append(serverLabel.root, codeLabel.root, host, join, ready, copy);
+  actionRow.append(host, join, ready, copy);
+  row.append(serverLabel.root, codeLabel.root, actionRow);
   root.append(header, row, status);
   return root;
 }
@@ -779,18 +783,18 @@ function friendlyMultiplayerError(err: unknown): string {
 
 function setupTextInput(label: string, value: string): { root: HTMLLabelElement; input: HTMLInputElement } {
   const root = document.createElement('label');
-  root.style.cssText = 'display:grid;gap:5px;color:#d2b15f;text-transform:uppercase;font-size:10px;';
+  root.style.cssText = 'display:grid;gap:5px;color:#d2b15f;text-transform:uppercase;font-size:10px;min-width:0;';
   const input = document.createElement('input');
   input.value = value;
   input.style.cssText =
-    'height:38px;background:#090d0d;color:#f0f3e8;border:1px solid #46504d;padding:0 9px;font:12px ui-monospace,Menlo,monospace;letter-spacing:.04em;';
+    'width:100%;min-width:0;box-sizing:border-box;height:38px;background:#090d0d;color:#f0f3e8;border:1px solid #46504d;padding:0 9px;font:12px ui-monospace,Menlo,monospace;letter-spacing:.04em;';
   root.append(label, input);
   return { root, input };
 }
 
 function setupChoiceButtonCss(active: boolean): string {
   return (
-    'height:38px;border-radius:2px;border:1px solid #4b5552;font:11px ui-monospace,Menlo,monospace;letter-spacing:.05em;cursor:pointer;' +
+    'min-width:0;height:38px;border-radius:2px;border:1px solid #4b5552;font:11px ui-monospace,Menlo,monospace;letter-spacing:.05em;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
     `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
     `color:${active ? '#141614' : '#d7e0e7'};`
   );
@@ -798,7 +802,7 @@ function setupChoiceButtonCss(active: boolean): string {
 
 function smallSetupButtonCss(): string {
   return (
-    'height:40px;border-radius:2px;border:1px solid #4b5552;font:11px ui-monospace,Menlo,monospace;letter-spacing:.06em;padding:0 12px;' +
+    'width:100%;min-width:0;height:40px;border-radius:2px;border:1px solid #4b5552;font:11px ui-monospace,Menlo,monospace;letter-spacing:.04em;padding:0 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
     'background:linear-gradient(180deg,#26302f,#111615);color:#d7e0e7;cursor:pointer;'
   );
 }
@@ -945,7 +949,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     : loadedFromSave
       ? loadedUnits
       : armies.flatMap((army) => [
-        ...spawnStartingTanks(sim, hf, army.team, army.team === localTeam && debugArmies ? 120 : debugArmies ? 40 : 2),
+        ...spawnStartingTanks(sim, hf, army.base.transform.x, army.base.transform.z, army.team, army.team === localTeam && debugArmies ? 120 : debugArmies ? 40 : 2),
         ...(debugArmies ? [] : spawnStartingInfantry(sim, hf, army.base.transform.x, army.base.transform.z, army.team)),
       ]);
   for (const army of armies) army.vision.update(sim);
@@ -991,7 +995,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (multiplayerMode) setNetworkStatus(`Room ${multiplayer.session.room.code} · army ${localTeam} · online`);
 
   const rig = new RtsCameraRig(ctx.camera, input, hf);
-  rig.jumpTo(lineupStart ? localBase.transform.x + 26 : localBase.transform.x, lineupStart ? localBase.transform.z + 12 : localBase.transform.z);
+  if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
+  else rig.jumpToOpeningView(localBase.transform.x, localBase.transform.z, localTeam);
   const controller = new RtsController(
     ctx.renderer.domElement,
     input,
@@ -1666,55 +1671,100 @@ function outcomeButton(label: string, action: () => void): HTMLButtonElement {
 
 function spawnStartingInfantry(
   sim: ReturnType<typeof createGameSim>,
-  _hf: ReturnType<typeof generateHeightfield>,
+  hf: ReturnType<typeof generateHeightfield>,
   baseX: number,
   baseZ: number,
   team: number,
 ) {
   const plan = [
-    { kind: 'infantry' as const, x: -10, z: 16 },
-    { kind: 'infantry' as const, x: -6, z: 22 },
-    { kind: 'infantry' as const, x: 0, z: 18 },
-    { kind: 'infantry' as const, x: 6, z: 24 },
-    { kind: 'sniper' as const, x: 9, z: 21 },
-    { kind: 'rocket-infantry' as const, x: 12, z: 16 },
+    { kind: 'infantry' as const, side: -15, depth: 39 },
+    { kind: 'infantry' as const, side: -9, depth: 45 },
+    { kind: 'infantry' as const, side: -3, depth: 41 },
+    { kind: 'infantry' as const, side: 3, depth: 47 },
+    { kind: 'sniper' as const, side: 10, depth: 43 },
+    { kind: 'rocket-infantry' as const, side: 17, depth: 38 },
   ];
   const spawned = [];
+  const basis = openingFormationBasis(team);
   for (const item of plan) {
-    const mirror = team === 2 ? -1 : 1;
-    const cell = sim.nav.nearestWalkableCell(baseX + item.x * mirror, baseZ + item.z * mirror, 18);
+    const target = openingFormationPoint(baseX, baseZ, basis, item.side, item.depth);
+    const cell = sim.nav.nearestWalkableCell(target.x, target.z, 26) ?? sim.nav.nearestWalkableCellGlobal(target.x, target.z);
     if (!cell) continue;
     const p = sim.nav.cellCenter(cell.x, cell.y);
-    spawned.push(spawnInfantryAt(sim, p.x, p.z, team, item.kind));
+    const unit = spawnInfantryAt(sim, p.x, p.z, team, item.kind);
+    orientOpeningUnit(unit, basis);
+    spawned.push(unit);
   }
+  void hf;
   return spawned;
 }
 
 function spawnStartingTanks(
   sim: ReturnType<typeof createGameSim>,
   hf: ReturnType<typeof generateHeightfield>,
+  baseX: number,
+  baseZ: number,
   team: number,
   count: number,
 ): Array<ReturnType<typeof spawnTankAt>> {
   const spawned: Array<ReturnType<typeof spawnTankAt>> = [];
-  const anchor = startMusterPosition(hf.size, team);
-  const start = sim.nav.nearestWalkableCell(anchor.x, anchor.z, 96) ?? sim.nav.nearestWalkableCell(0, 0);
-  if (!start) return spawned;
-  const center = sim.nav.cellCenter(start.x, start.y);
+  const basis = openingFormationBasis(team);
+  const columns = Math.max(2, Math.min(10, Math.ceil(Math.sqrt(count))));
   let cursor = 0;
   let guard = 0;
   while (spawned.length < count && guard++ < count * 80) {
-    const col = cursor % 10;
-    const row = Math.floor(cursor / 10);
+    const col = cursor % columns;
+    const row = Math.floor(cursor / columns);
     cursor++;
-    const x = center.x + (col - 4.5) * 5.2;
-    const z = center.z + row * 5.2;
-    const cell = sim.nav.nearestWalkableCell(x, z, 4);
+    const side = (col - (columns - 1) / 2) * 7.1;
+    const depth = 29 + row * 7.3;
+    const target = openingFormationPoint(baseX, baseZ, basis, side, depth);
+    const cell = sim.nav.nearestWalkableCell(target.x, target.z, 18) ?? sim.nav.nearestWalkableCellGlobal(target.x, target.z);
     if (!cell) continue;
     const p = sim.nav.cellCenter(cell.x, cell.y);
-    spawned.push(spawnTankAt(sim, p.x, p.z, `Army ${team} M-17 ${spawned.length + 1}`, team));
+    const tank = spawnTankAt(sim, p.x, p.z, `Army ${team} M-17 ${spawned.length + 1}`, team);
+    orientOpeningUnit(tank, basis);
+    spawned.push(tank);
   }
+  void hf;
   return spawned;
+}
+
+function openingFormationBasis(team: number): { forwardX: number; forwardZ: number; rightX: number; rightZ: number } {
+  const sx = team === 2 || team === 3 ? -1 : 1;
+  const sz = team === 2 || team === 4 ? -1 : 1;
+  const len = Math.hypot(sx, sz);
+  const forwardX = sx / len;
+  const forwardZ = sz / len;
+  return {
+    forwardX,
+    forwardZ,
+    rightX: forwardZ,
+    rightZ: -forwardX,
+  };
+}
+
+function openingFormationPoint(
+  baseX: number,
+  baseZ: number,
+  basis: { forwardX: number; forwardZ: number; rightX: number; rightZ: number },
+  side: number,
+  depth: number,
+): { x: number; z: number } {
+  return {
+    x: baseX + basis.forwardX * depth + basis.rightX * side,
+    z: baseZ + basis.forwardZ * depth + basis.rightZ * side,
+  };
+}
+
+function orientOpeningUnit(
+  entity: ReturnType<typeof spawnTankAt> | ReturnType<typeof spawnInfantryAt>,
+  basis: { forwardX: number; forwardZ: number },
+): void {
+  const yaw = Math.atan2(basis.forwardX, basis.forwardZ);
+  entity.transform.rot = yaw;
+  entity.previousTransform.rot = yaw;
+  if (entity.turret) entity.turret.yaw = yaw;
 }
 
 function spawnLineupUnits(

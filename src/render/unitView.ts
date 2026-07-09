@@ -510,6 +510,8 @@ export class UnitView {
     }
 
     if (!isInfantry) {
+      obj.rotation.x = 0;
+      obj.rotation.z = 0;
       if (refs?.antenna) refs.antenna.rotation.z = Math.sin(performance.now() * 0.007 + entity.id) * 0.06;
       if (refs?.barrelPivot && entity.weapons?.secondary?.cooldown && entity.weapons.secondary.cooldown > 0) {
         refs.barrelPivot.rotation.x = -0.16;
@@ -591,10 +593,6 @@ export class UnitView {
       patch.mesh.visible = damage >= patch.threshold;
       if (!patch.mesh.visible) continue;
       if (patch.kind === 'ember') patch.mesh.scale.setScalar(0.78 + pulse * 0.22 + damage * 0.35);
-    }
-    if (!entity.flight && !entity.destroyed && damage > 0.45) {
-      obj.rotation.z += deterministicUnitSigned(entity.id, 0xd46) * Math.min(0.12, (damage - 0.45) * 0.22);
-      obj.position.y -= Math.min(0.16, (damage - 0.45) * 0.22);
     }
   }
 

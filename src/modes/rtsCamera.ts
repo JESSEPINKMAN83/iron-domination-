@@ -95,6 +95,19 @@ export class RtsCameraRig {
     this.target.copy(this.goal);
   }
 
+  jumpToOpeningView(baseX: number, baseZ: number, team: number): void {
+    const inward = this.openingInwardDirection(team);
+    const focusX = baseX + inward.x * 52;
+    const focusZ = baseZ + inward.z * 52;
+    this.yawGoal = Math.atan2(-inward.x, -inward.z);
+    this.yaw = this.yawGoal;
+    this.distGoal = MathUtils.clamp(172, ZOOM_MIN, ZOOM_MAX);
+    this.dist = this.distGoal;
+    this.pitchOffsetGoal = MathUtils.degToRad(-7);
+    this.pitchOffset = this.pitchOffsetGoal;
+    this.jumpTo(focusX, focusZ);
+  }
+
   setGrabSuppressed(suppressed: boolean): void {
     this.grabSuppressed = suppressed;
   }
@@ -183,6 +196,13 @@ export class RtsCameraRig {
   private clampToMap(value: number): number {
     const bound = this.hf.size / 2;
     return MathUtils.clamp(value, -bound, bound);
+  }
+
+  private openingInwardDirection(team: number): { x: number; z: number } {
+    const sx = team === 2 || team === 3 ? -1 : 1;
+    const sz = team === 2 || team === 4 ? -1 : 1;
+    const len = Math.hypot(sx, sz);
+    return { x: sx / len, z: sz / len };
   }
 }
 
