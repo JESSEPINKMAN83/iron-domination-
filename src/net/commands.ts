@@ -67,7 +67,7 @@ export interface LockstepRuntimeOptions {
   onStatus?: (message: string, bad?: boolean) => void;
 }
 
-const INPUT_DELAY_TICKS = 8;
+const DEFAULT_INPUT_DELAY_TICKS = 8;
 const HASH_INTERVAL_TICKS = 30 * 5;
 
 export class LockstepRuntime {
@@ -128,7 +128,7 @@ export class LockstepRuntime {
   }
 
   issue(command: NetCommand): boolean {
-    const tick = this.options.sim.tick + INPUT_DELAY_TICKS;
+    const tick = this.options.sim.tick + (this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS);
     this.queue.push({ tick, playerIndex: this.localTeam, command });
     this.queue.sort((a, b) => a.tick - b.tick);
     void this.send(command, tick);
@@ -140,7 +140,7 @@ export class LockstepRuntime {
     return true;
   }
 
-  private async send(command: NetCommand, tick = this.options.sim.tick + INPUT_DELAY_TICKS): Promise<void> {
+  private async send(command: NetCommand, tick = this.options.sim.tick + (this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS)): Promise<void> {
     try {
       await this.options.client.sendCommand(this.options.session.room.code, this.options.session.player.id, tick, command);
     } catch (err) {

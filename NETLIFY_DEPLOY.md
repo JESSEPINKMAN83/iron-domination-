@@ -19,7 +19,7 @@ params such as `?start=lineup` and `?start=test`.
 ## Multiplayer
 
 The Netlify build can host the browser client, including the Multiplayer setup UI. The live
-room relay is a separate Node process and cannot run on plain Netlify static hosting.
+WebSocket room relay is a separate Node process and cannot run on plain Netlify static hosting.
 
 For local multiplayer testing, run:
 
@@ -58,7 +58,12 @@ VITE_MULTIPLAYER_SERVER_URL=https://YOUR_RELAY_HOST
 
 4. Redeploy Netlify. The Multiplayer server input will now default to the public relay URL.
 
-5. Open the Netlify link in two browsers or two computers, host a room, and join using the code.
+5. Open the Netlify link in two browsers or two computers, host a room, share the copied room
+   link/code, join, then have both players click `READY`.
+
+The relay serves WebSocket traffic at `/ws`; make sure the host you choose supports WebSocket
+upgrades. The client can accept either `https://YOUR_RELAY_HOST` or `http://HOST:PORT` in the setup
+screen and will derive the matching `wss://`/`ws://` endpoint automatically.
 
 If the relay URL changes later, either update `VITE_MULTIPLAYER_SERVER_URL` and redeploy, or paste
 the new relay URL into the Multiplayer server input. The input is stored locally per browser.

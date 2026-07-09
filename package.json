@@ -16,7 +16,8 @@
     "miniplex": "^2.0.0",
     "n8ao": "^1.9.4",
     "postprocessing": "^6.36.4",
-    "three": "^0.170.0"
+    "three": "^0.170.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/three": "^0.170.0",

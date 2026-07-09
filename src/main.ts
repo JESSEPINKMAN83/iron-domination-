@@ -485,13 +485,13 @@ function createMultiplayerSetupPanel(
   header.style.cssText = 'display:flex;justify-content:space-between;gap:12px;align-items:baseline;';
   header.innerHTML =
     '<div style="color:#d2b15f;">MULTIPLAYER</div>' +
-    '<div style="color:#6f7b78;font-size:10px;">Phase 9D · online deploy ready</div>';
+    '<div style="color:#6f7b78;font-size:10px;">M2 · friends-link 1v1</div>';
 
   const row = document.createElement('div');
-  row.style.cssText = 'display:grid;grid-template-columns:minmax(180px,1fr) 92px 106px 106px;gap:7px;align-items:end;';
+  row.style.cssText = 'display:grid;grid-template-columns:minmax(170px,1fr) 92px repeat(4,92px);gap:7px;align-items:end;';
 
   const serverLabel = setupTextInput('Server', storedMultiplayerServer());
-  const codeLabel = setupTextInput('Room', '');
+  const codeLabel = setupTextInput('Room', normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? ''));
   codeLabel.input.placeholder = 'ABCD';
   codeLabel.input.maxLength = 8;
 
@@ -505,6 +505,20 @@ function createMultiplayerSetupPanel(
   join.textContent = 'JOIN ROOM';
   join.style.cssText = smallSetupButtonCss();
 
+  const ready = document.createElement('button');
+  ready.type = 'button';
+  ready.textContent = 'READY';
+  ready.disabled = true;
+  ready.style.cssText = smallSetupButtonCss();
+  ready.style.opacity = '.45';
+
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.textContent = 'COPY LINK';
+  copy.disabled = true;
+  copy.style.cssText = smallSetupButtonCss();
+  copy.style.opacity = '.45';
+
   const status = document.createElement('div');
   status.style.cssText = 'min-height:18px;color:#8d9a96;font-size:10px;line-height:1.4;letter-spacing:.05em;';
   status.textContent = defaultMultiplayerServer() === 'http://127.0.0.1:8787'
@@ -514,25 +528,59 @@ function createMultiplayerSetupPanel(
   const setBusy = (busy: boolean): void => {
     host.disabled = busy;
     join.disabled = busy;
+    if (!currentSession()) ready.disabled = true;
     host.style.opacity = busy ? '.55' : '1';
     join.style.opacity = busy ? '.55' : '1';
+    ready.style.opacity = ready.disabled ? '.45' : '1';
+    copy.style.opacity = copy.disabled ? '.45' : '1';
   };
   const setStatus = (message: string, bad = false): void => {
     status.textContent = message;
     status.style.color = bad ? '#ff8a72' : '#8d9a96';
   };
+  let hostSettingsTimer: number | undefined;
+  let lastHostSettings = '';
+  let activeClient: MultiplayerClient | undefined;
+  const stopHostSettingsSync = (): void => {
+    if (hostSettingsTimer !== undefined) window.clearInterval(hostSettingsTimer);
+    hostSettingsTimer = undefined;
+  };
   const connectSession = (client: MultiplayerClient, session: MultiplayerSession): void => {
+    stopHostSettingsSync();
+    activeClient = client;
     rememberPlayerId(client.baseUrl, session.room.code, session.player.id);
     if (session.player.index === 1) rememberPlayerId(client.baseUrl, 'HOST', session.player.id);
     rememberSession(client, session);
     codeLabel.input.value = session.room.code;
+    ready.disabled = false;
+    ready.style.opacity = '1';
+    copy.disabled = false;
+    copy.style.opacity = '1';
     renderRoomStatus(session.room, session.player.index, setStatus);
     client.connect(
       session.room.code,
       session.player.id,
-      (event) => handleMultiplayerEvent(event, session.player.index, setStatus, startMatch),
+      (event) => {
+        if (event.type === 'room-state' || event.type === 'match-start') {
+          session.room = event.room;
+          const latest = event.room.players.find((player) => player.id === session.player.id);
+          if (latest) session.player = latest;
+          ready.textContent = session.player.ready ? 'UNREADY' : 'READY';
+        }
+        handleMultiplayerEvent(event, session.player.index, setStatus, startMatch);
+      },
       () => setStatus('Connection interrupted. Check the multiplayer server is still running.', true),
     );
+    if (session.player.index === 1) {
+      hostSettingsTimer = window.setInterval(() => {
+        if (session.room.status !== 'waiting') return;
+        const next = settings();
+        const key = JSON.stringify({ mapId: next.mapId, seed: next.seed, ai: next.ai, aiStyle: next.aiStyle, combatMode: next.combatMode, armySides: next.armySides });
+        if (key === lastHostSettings) return;
+        lastHostSettings = key;
+        client.updateSettings(session.room.code, session.player.id, next);
+      }, 750);
+    }
   };
 
   host.onclick = async () => {
@@ -570,7 +618,26 @@ function createMultiplayerSetupPanel(
     }
   };
 
-  row.append(serverLabel.root, codeLabel.root, host, join);
+  ready.onclick = () => {
+    const session = currentSession();
+    if (!session || !activeClient) return;
+    const nextReady = !session.player.ready;
+    activeClient.setReady(session.room.code, session.player.id, nextReady);
+    ready.textContent = nextReady ? 'UNREADY' : 'READY';
+    ready.blur();
+  };
+
+  copy.onclick = async () => {
+    const code = normalizeRoomCode(codeLabel.input.value);
+    if (!code) return;
+    const url = new URL(location.href);
+    url.searchParams.set('room', code);
+    await navigator.clipboard?.writeText(url.toString());
+    setStatus(`Copied room link ${code}. Guest opens it, clicks JOIN ROOM, then READY.`);
+    copy.blur();
+  };
+
+  row.append(serverLabel.root, codeLabel.root, host, join, ready, copy);
   root.append(header, row, status);
   return root;
 }
@@ -594,13 +661,21 @@ function handleMultiplayerEvent(
 
 function renderRoomStatus(room: MultiplayerRoom, playerIndex: number, setStatus: (message: string, bad?: boolean) => void): void {
   const connected = room.players.filter((player) => player.connected).length;
+  const ready = room.players.filter((player) => player.ready).length;
   const team = `army ${playerIndex} / side ${room.armySides[playerIndex - 1] ?? playerIndex}`;
   const map = MAP_PRESETS[sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID].shortLabel;
   const countdown =
     room.status === 'starting' && room.startsAt ? `starting in ${Math.max(1, Math.ceil((room.startsAt - Date.now()) / 1000))}s` : undefined;
-  const waiting = countdown ?? (connected < room.armyCount ? 'waiting for commanders' : room.status === 'waiting' ? 'commanders ready' : room.status);
+  const waiting = countdown ?? (connected < 2 ? 'waiting for commander' : ready < 2 ? `${ready}/2 ready` : room.status === 'waiting' ? 'ready to launch' : room.status);
   const combat = room.combatMode === 'manual' ? 'manual combat' : 'assisted combat';
-  setStatus(`Room ${room.code} · ${map} · you are ${team} · ${connected}/${room.armyCount} connected · ${combat} · ${waiting}`);
+  const pings = room.players.map((player) => player.pingMs).filter((ping): ping is number => Number.isFinite(ping));
+  const ping = pings.length ? `${Math.max(...pings)}ms` : 'measuring ping';
+  const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
+  const engineWarning = engines.size > 1 ? ' · different browsers — desync likely, best played on the same browser' : '';
+  setStatus(
+    `Room ${room.code} · ${map} · you are ${team} · ${connected}/2 connected · ${combat} · ${waiting} · ping ${ping} · delay ${room.inputDelay ?? 8}t${engineWarning}`,
+    engines.size > 1,
+  );
 }
 
 function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {

@@ -1,13 +1,17 @@
 # Iron Dominion Multiplayer
 
-## Current Slice: Phase 9C
+## Current Slice: Phase M2
 
-This is the hardened playable multiplayer MVP layer. It provides:
+This is the first friends-link 1v1 multiplayer layer. It provides:
 
-- a lightweight room relay server
+- a lightweight WebSocket room relay server
 - host/join room codes
+- copyable room links with `?room=ABC123`
 - player assignment: host is player 1, guest is player 2
-- synchronized seed/difficulty/AI profile handoff
+- synchronized seed/map/difficulty/AI profile/combat-mode handoff
+- lobby READY/UNREADY flow and a 3-second countdown
+- lobby ping measurement and fixed match input delay selection: 4, 8, or 12 ticks
+- browser-engine exchange with a warning when players use different engines
 - guest-side local ownership of team 2
 - AI disabled in multiplayer rooms
 - deterministic command relay for RTS move/attack-move, stop, harvester orders, rally,
@@ -16,10 +20,15 @@ This is the hardened playable multiplayer MVP layer. It provides:
 - periodic sim-hash desync checks
 - visible in-match multiplayer status/warning overlay
 - pause-on-disconnect for interrupted rooms/opponents
-- a short starting countdown/loading state when the second player joins
+- a short starting countdown/loading state when both players are ready
 
 This is still an MVP. Reconnect resumes the local stream and pauses on interruptions, but full
 snapshot repair/rollback is not finished yet.
+
+Cross-browser play can desync because browser engines are not guaranteed to produce bit-identical
+floating-point results. The lobby warns when engines differ. The planned M5 fix is a deterministic
+math layer in `src/sim/math.ts` for table/fixed-point sin/cos/atan2/sqrt before claiming reliable
+Chrome-to-Safari/Firefox play.
 
 ## Run Locally
 
@@ -35,12 +44,13 @@ This starts:
 Open two browser windows:
 
 1. In window A, use the setup screen Multiplayer section and click `HOST ROOM`.
-2. Copy the room code.
-3. In window B, enter the same server URL and room code, then click `JOIN ROOM`.
-4. When the second player joins, the room enters a short starting countdown, then both clients
+2. Copy the room link or room code.
+3. In window B, open the link or enter the same server URL and room code, then click `JOIN ROOM`.
+4. Both players click `READY`.
+5. The room enters a short starting countdown, then both clients
    receive the same start payload and boot.
-5. Host controls the green army; guest controls the red army.
-6. In-match V-mode controls are mirrored to the opponent as realtime possession commands.
+6. Host controls the green army; guest controls the red army.
+7. In-match V-mode controls are mirrored to the opponent as realtime possession commands.
 
 ## Same Network Test
 
@@ -77,6 +87,6 @@ Phase 9D should move from MVP relay play to production-grade online play:
 
 - deploy the relay to a public Node host
 - add desync snapshot capture and optional state recovery
-- add lobby list/private room UX and match-ready confirmation
+- add lobby list/private room UX
 - start separating realtime possession state from authoritative gameplay state if public latency
   proves too high
