@@ -14,6 +14,35 @@ afterEach(() => {
 });
 
 describe('multiplayer relay', () => {
+  it('accepts an allowed browser origin when the configured URL has a trailing slash', async () => {
+    const port = await availablePort();
+    const allowedOrigin = 'https://euphonious-manatee-c00a85.netlify.app';
+    const child = spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PORT: String(port),
+        ALLOWED_ORIGINS: `${allowedOrigin}/`,
+      },
+      stdio: 'ignore',
+    });
+    children.push(child);
+    await waitForHealth(port);
+
+    const response = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: { Origin: allowedOrigin },
+    });
+    expect(response.ok).toBe(true);
+    expect(response.headers.get('access-control-allow-origin')).toBe(allowedOrigin);
+
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin: allowedOrigin });
+    sockets.push(socket);
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve);
+      socket.once('error', reject);
+    });
+  });
+
   it('starts a match, rejects player spoofing, and preserves a reconnecting slot', async () => {
     const port = await availablePort();
     const child = spawn(process.execPath, ['server/multiplayer-server.mjs'], {

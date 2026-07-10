@@ -12,7 +12,7 @@ const EXPOSE_ROOMS = process.env.EXPOSE_ROOMS === 'true';
 const ALLOWED_ORIGINS = new Set(
   String(process.env.ALLOWED_ORIGINS ?? '')
     .split(',')
-    .map((origin) => origin.trim())
+    .map(normalizeOrigin)
     .filter(Boolean),
 );
 
@@ -55,7 +55,7 @@ const wss = new WebSocketServer({
   verifyClient(info, done) {
     if (ALLOWED_ORIGINS.size === 0) return done(true);
     const origin = info.origin;
-    return done(Boolean(origin) && ALLOWED_ORIGINS.has(origin), 403, 'origin-not-allowed');
+    return done(Boolean(origin) && ALLOWED_ORIGINS.has(normalizeOrigin(origin)), 403, 'origin-not-allowed');
   },
 });
 
@@ -412,17 +412,29 @@ function sendJson(req, res, status, payload) {
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
-  if (ALLOWED_ORIGINS.size > 0 && origin && !ALLOWED_ORIGINS.has(origin)) return false;
+  if (ALLOWED_ORIGINS.size > 0 && origin && !ALLOWED_ORIGINS.has(normalizeOrigin(origin))) return false;
   for (const [key, value] of Object.entries(corsHeaders(origin))) res.setHeader(key, value);
   return true;
 }
 
 function corsHeaders(origin) {
-  const allowOrigin = ALLOWED_ORIGINS.size === 0 ? '*' : origin && ALLOWED_ORIGINS.has(origin) ? origin : 'null';
+  const allowOrigin = ALLOWED_ORIGINS.size === 0
+    ? '*'
+    : origin && ALLOWED_ORIGINS.has(normalizeOrigin(origin)) ? origin : 'null';
   return {
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     Vary: 'Origin',
   };
+}
+
+function normalizeOrigin(value) {
+  const origin = String(value ?? '').trim();
+  if (!origin) return '';
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return origin.replace(/\/+$/, '');
+  }
 }
