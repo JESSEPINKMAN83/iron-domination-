@@ -39,6 +39,14 @@ export class RenderContext {
   readonly sunDirection = new Vector3(-0.5, -0.85, -0.32).normalize();
 
   private readonly composer: EffectComposer;
+  private readonly n8ao: N8AOPostPass;
+  private readonly maxPixelRatio: number;
+  private pixelRatio: number;
+  private qualitySampleSeconds = 0;
+  private qualityFrameSeconds = 0;
+  // Map construction and the first shader compilation can briefly spike frame time.
+  // Give those one-off costs time to settle before adapting persistent quality.
+  private qualityCooldownSeconds = 3;
 
   constructor(container: HTMLElement) {
     this.renderer = new WebGLRenderer({ antialias: false, stencil: false, powerPreference: 'high-performance' });
@@ -47,7 +55,9 @@ export class RenderContext {
     this.renderer.toneMappingExposure = 1.08;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFSoftShadowMap;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
+    this.maxPixelRatio = Math.min(window.devicePixelRatio, 1.25);
+    this.pixelRatio = this.maxPixelRatio;
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
@@ -78,12 +88,12 @@ export class RenderContext {
     this.composer = new EffectComposer(this.renderer, { frameBufferType: HalfFloatType });
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
-    const n8ao = new N8AOPostPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
-    n8ao.configuration.aoRadius = 2.2;
-    n8ao.configuration.intensity = 2.4;
-    n8ao.configuration.distanceFalloff = 4;
-    n8ao.setQualityMode('Low');
-    this.composer.addPass(n8ao);
+    this.n8ao = new N8AOPostPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+    this.n8ao.configuration.aoRadius = 2.2;
+    this.n8ao.configuration.intensity = 2.4;
+    this.n8ao.configuration.distanceFalloff = 4;
+    this.n8ao.setQualityMode('Low');
+    this.composer.addPass(this.n8ao);
 
     const lut = LookupTexture.createNeutral(32);
     gradeLut(lut);
@@ -110,7 +120,12 @@ export class RenderContext {
     return this.renderer.capabilities.getMaxAnisotropy();
   }
 
+  get renderScale(): number {
+    return this.pixelRatio;
+  }
+
   render(dt: number): void {
+    this.updateAdaptiveQuality(dt);
     this.renderer.info.reset();
     this.csm.update();
     this.composer.render(dt);
@@ -123,6 +138,43 @@ export class RenderContext {
     this.camera.updateProjectionMatrix();
     this.csm.updateFrustums();
     this.composer.setSize(w, h);
+  }
+
+  /** Keep the full visual stack while it fits, then reduce GPU fill-rate only under sustained pressure. */
+  private updateAdaptiveQuality(dt: number): void {
+    if (!Number.isFinite(dt) || dt <= 0 || dt > 0.1) return;
+    if (this.qualityCooldownSeconds > 0) {
+      this.qualityCooldownSeconds = Math.max(0, this.qualityCooldownSeconds - dt);
+      this.qualitySampleSeconds = 0;
+      this.qualityFrameSeconds = 0;
+      return;
+    }
+    this.qualitySampleSeconds += dt;
+    this.qualityFrameSeconds += dt;
+    if (this.qualitySampleSeconds < 1) return;
+
+    const averageFrameSeconds = this.qualityFrameSeconds / this.qualitySampleSeconds;
+    this.qualitySampleSeconds = 0;
+    this.qualityFrameSeconds = 0;
+    if (averageFrameSeconds > 0.025) {
+      if (this.pixelRatio > 0.76) this.setPixelRatio(Math.max(0.75, this.pixelRatio - 0.15));
+      else if (this.n8ao.enabled) this.n8ao.enabled = false;
+      else return;
+      this.qualityCooldownSeconds = 2.5;
+      return;
+    }
+    if (averageFrameSeconds < 0.019) {
+      if (!this.n8ao.enabled) this.n8ao.enabled = true;
+      else if (this.pixelRatio < this.maxPixelRatio - 0.01) this.setPixelRatio(Math.min(this.maxPixelRatio, this.pixelRatio + 0.1));
+      else return;
+      this.qualityCooldownSeconds = 4;
+    }
+  }
+
+  private setPixelRatio(value: number): void {
+    this.pixelRatio = value;
+    this.renderer.setPixelRatio(value);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
   }
 }
 

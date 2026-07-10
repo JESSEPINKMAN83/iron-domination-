@@ -1156,6 +1156,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   ctx.scene.add(orderMarkers.group);
   const fogView = new FogView(playerVision, terrain.chunkGeometries);
   ctx.scene.add(fogView.group);
+  let lastFogTextureTick = -2;
+  let lastResourceVisualTick = -1;
   const hud = new Hud(document.body);
   let networkPaused = false;
   const setNetworkStatus = (message: string, bad = false): void => {
@@ -1457,7 +1459,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       for (const entity of sim.world.entities) {
         if (entity.selectable?.type === 'tank' && !entity.destroyed) scatter.crushNear(entity.transform.x, entity.transform.z, 3.6);
       }
-      fogView.refresh();
+      if (sim.tick - lastFogTextureTick >= 2) {
+        lastFogTextureTick = sim.tick;
+        fogView.refresh();
+      }
       const events = tickResult.events;
       audio.handleCombatEvents(events);
       economyFx.push(events);
@@ -1478,7 +1483,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       combatView.update(dt);
       economyFx.update(dt);
       orderMarkers.update(dt);
-      terrain.updateResources(sim.resourceNodes);
+      if (sim.tick !== lastResourceVisualTick) {
+        lastResourceVisualTick = sim.tick;
+        terrain.updateResources(sim.resourceNodes);
+      }
       selectionBar.update();
       water.update(time);
       snowfall?.update(dt, time);
@@ -1497,6 +1505,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         frameMs: dt * 1000,
         drawCalls: ctx.renderer.info.render.calls,
         triangles: ctx.renderer.info.render.triangles,
+        renderScale: ctx.renderScale,
         simHz,
         instances: registry.totalInstances,
         zoom: rig.distance,

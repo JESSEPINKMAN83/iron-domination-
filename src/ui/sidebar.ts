@@ -49,7 +49,8 @@ export class Sidebar {
   private lastStatusText = '';
   private lastBodyKey = '';
   private lastBodyTick = -1;
-  private lastRadarTick = -1;
+  private lastRadarTick = -3;
+  private lastLiveTick = -2;
   private fogImage?: ImageData;
   private lastSelectedBuildingId?: number;
   private radarFocus?: { x: number; z: number; ttl: number };
@@ -132,7 +133,7 @@ export class Sidebar {
       this.status.style.color = powerDelta < 0 ? '#ff7666' : '#d2b15f';
       this.lastStatusText = statusText;
     }
-    if (this.sim.tick !== this.lastRadarTick) {
+    if (this.sim.tick - this.lastRadarTick >= 3) {
       this.lastRadarTick = this.sim.tick;
       this.drawRadar();
     }
@@ -147,7 +148,10 @@ export class Sidebar {
         this.renderBody();
       }
     }
-    this.updateLivePanel();
+    if (this.sim.tick - this.lastLiveTick >= 2) {
+      this.lastLiveTick = this.sim.tick;
+      this.updateLivePanel();
+    }
   }
 
   setVisible(visible: boolean): void {
