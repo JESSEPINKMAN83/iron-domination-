@@ -1,4 +1,13 @@
-export const FACTION = {
+export interface FactionPalette {
+  accent: number;
+  accentEmissive: number;
+  hull: number;
+  hullDark: number;
+  canvas: number;
+  lightBar: number;
+}
+
+export const FACTION: Record<1 | 2 | 3 | 4, FactionPalette> = {
   1: {
     accent: 0xf0c85a,
     accentEmissive: 0x2b1d00,
@@ -31,9 +40,30 @@ export const FACTION = {
     canvas: 0x4e5a3d,
     lightBar: 0xd7f2a0,
   },
+};
+
+export type FactionId = 1 | 2 | 3 | 4;
+
+const DEFAULT_FACTIONS: Record<FactionId, FactionPalette> = Object.fromEntries(
+  Object.entries(FACTION).map(([id, palette]) => [id, { ...palette }]),
+) as Record<FactionId, FactionPalette>;
+
+const PLAYER_COLORS = {
+  jade: { accent: 0x67d59b, accentEmissive: 0x063020, lightBar: 0xb6ffd4 },
+  crimson: { accent: 0xed6a5c, accentEmissive: 0x340806, lightBar: 0xffb1a6 },
+  azure: { accent: 0x67b8ef, accentEmissive: 0x061d38, lightBar: 0xb9e4ff },
+  amber: { accent: 0xe8b854, accentEmissive: 0x382405, lightBar: 0xffe7a4 },
 } as const;
 
-export type FactionId = keyof typeof FACTION;
+/** Applies lobby colour choices before world views create their faction materials. */
+export function applyMultiplayerFactionColors(colors: Partial<Record<number, keyof typeof PLAYER_COLORS>> = {}): void {
+  for (const id of [1, 2, 3, 4] as FactionId[]) Object.assign(FACTION[id], DEFAULT_FACTIONS[id]);
+  for (const [team, color] of Object.entries(colors)) {
+    const id = Number(team) as FactionId;
+    if (!FACTION[id] || !color || !PLAYER_COLORS[color]) continue;
+    Object.assign(FACTION[id], PLAYER_COLORS[color]);
+  }
+}
 
 export function factionId(teamId: number | undefined): FactionId {
   return teamId === 2 || teamId === 3 || teamId === 4 ? teamId : 1;

@@ -22,6 +22,7 @@ import { EconomyFxView } from './render/economyFxView';
 import { FogView } from './render/fogView';
 import { InstancedMeshRegistry } from './render/instancing';
 import { OrderMarkerView } from './render/orderMarkerView';
+import { applyMultiplayerFactionColors } from './render/palette';
 import { RenderContext } from './render/renderer';
 import { buildScatter } from './render/scatter';
 import { TerrainView } from './render/terrainMesh';
@@ -1119,6 +1120,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   pendingMultiplayer = undefined;
   const multiplayerMode = multiplayer !== undefined;
   if (multiplayer) settings = settingsFromRoom(multiplayer.session.room);
+  applyMultiplayerFactionColors(
+    multiplayer
+      ? Object.fromEntries(multiplayer.session.room.players.map((player) => [player.index, player.color]))
+      : {},
+  );
   const localTeam = multiplayer?.session.player.index ?? 1;
   const app = document.getElementById('app');
   if (!app) throw new Error('#app missing');
