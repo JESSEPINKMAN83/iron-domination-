@@ -5,8 +5,8 @@ const FIRST_HIT_VISIBLE_FLOOR = 42;
 
 export function createStructureDamage(entity: Entity): StructureDamage {
   const footprint = entity.building?.footprint ?? { w: 4, h: 4 };
-  const cols = clamp(Math.round(footprint.w / 2), 3, 6);
-  const rows = clamp(Math.round(footprint.h / 2), 3, 6);
+  const cols = clamp(Math.round(footprint.w / 2), 3, 4);
+  const rows = clamp(Math.round(footprint.h / 2), 3, 4);
   const tiers = Math.max(2, footprint.w >= 8 || footprint.h >= 8 ? 2 : 2);
   return { cols, rows, tiers, cells: new Uint8Array(cols * rows * tiers), version: 0 };
 }

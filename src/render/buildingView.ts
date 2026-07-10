@@ -238,7 +238,7 @@ export class BuildingView {
           const scale = new Vector3(blockW, blockH, blockD);
           mesh.position.copy(position);
           mesh.scale.copy(scale);
-          mesh.castShadow = true;
+          mesh.castShadow = false;
           mesh.receiveShadow = true;
           root.add(mesh);
           blocks.push({ mesh, index, col, row, tier, basePosition: position, baseScale: scale, baseMaterial });

@@ -236,9 +236,9 @@ export class UnitView {
     const unit = built.root;
     const scale = visualScaleForEntity(entity);
     unit.scale.set(scale.x, scale.y, scale.z);
-    unit.castShadow = true;
+    unit.castShadow = false;
     unit.traverse((obj) => {
-      obj.castShadow = true;
+      obj.castShadow = false;
       obj.receiveShadow = true;
     });
     this.objects.set(entity, unit);

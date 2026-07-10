@@ -47,7 +47,7 @@ export class RenderContext {
     this.renderer.toneMappingExposure = 1.08;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFSoftShadowMap;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
@@ -65,10 +65,10 @@ export class RenderContext {
     this.csm = new CSM({
       camera: this.camera,
       parent: this.scene,
-      cascades: 3,
-      maxFar: 700,
+      cascades: 2,
+      maxFar: 620,
       mode: 'practical',
-      shadowMapSize: 2048,
+      shadowMapSize: 1024,
       shadowBias: -0.0002,
       lightDirection: this.sunDirection.clone(),
       lightIntensity: 2.4,
@@ -82,7 +82,7 @@ export class RenderContext {
     n8ao.configuration.aoRadius = 2.2;
     n8ao.configuration.intensity = 2.4;
     n8ao.configuration.distanceFalloff = 4;
-    n8ao.setQualityMode('Medium');
+    n8ao.setQualityMode('Low');
     this.composer.addPass(n8ao);
 
     const lut = LookupTexture.createNeutral(32);
@@ -90,7 +90,7 @@ export class RenderContext {
     this.composer.addPass(
       new EffectPass(
         this.camera,
-        new SMAAEffect({ preset: SMAAPreset.HIGH }),
+        new SMAAEffect({ preset: SMAAPreset.MEDIUM }),
         new BloomEffect({ mipmapBlur: true, intensity: 0.4, luminanceThreshold: 0.8, luminanceSmoothing: 0.25 }),
         new LUT3DEffect(lut),
         new VignetteEffect({ offset: 0.26, darkness: 0.55 }),
