@@ -1111,3 +1111,20 @@ drafted in `drafts/phase6/` (unwired, see its README).
 ### Next
 - Deploy the relay and static client, run a two-computer same-browser recovery test, then continue
   with M4 multiplayer victory/spectator/chat polish or M5 cross-browser deterministic math.
+
+## Multiplayer Map Synchronization Fix ✅ (2026-07-10)
+
+- Fixed a release-blocking lobby path where either player could press the ordinary single-player
+  start button after joining a room and boot with that browser's local map selection.
+- Multiplayer boot now always derives map, seed, rules, and sides from the relay room payload.
+- Guests visibly mirror the host settings, with map/rule controls locked read-only while connected.
+- The normal Start Skirmish action is disabled after hosting/joining, and the old two-sided READY
+  protocol has been replaced with a relay-enforced host-only `start-match` command.
+- Added a dedicated room lobby with synchronized map/seed/rule summary, two player slots, ping and
+  connection states, copied invite links, host launch controls, and a guest waiting state.
+- The relay ignores guest launch attempts and starts only when player 1 requests launch with both
+  player slots connected.
+- Browser QA joined a CRATER room from a browser with different saved settings, confirmed seed
+  synchronization and locked controls, then launched the crater terrain with no console warnings.
+- Added `.env.production` for the deployed Render relay so rebuilt `dist/` output targets the public
+  multiplayer service automatically.

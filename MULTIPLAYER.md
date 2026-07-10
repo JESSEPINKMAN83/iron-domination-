@@ -9,7 +9,9 @@ The friends-link 1v1 multiplayer layer now provides:
 - copyable room links with `?room=ABC123`
 - player assignment: host is player 1, guest is player 2
 - synchronized seed/map/difficulty/AI profile/combat-mode handoff
-- lobby READY/UNREADY flow and a 3-second countdown
+- host-authoritative lobby controls: guests mirror the host map, seed, and rules and cannot
+  independently launch with local settings
+- dedicated room lobby with player slots, authoritative settings, and a host-only start command
 - lobby ping measurement and fixed match input delay selection: 4, 8, or 12 ticks
 - browser-engine exchange with a warning when players use different engines
 - guest-side local ownership of team 2
@@ -25,7 +27,7 @@ The friends-link 1v1 multiplayer layer now provides:
 - explicit multiplayer forfeit from the in-match MENU, with victory messaging for the opponent
 - visible in-match multiplayer status/warning overlay
 - pause-on-disconnect for interrupted rooms/opponents
-- a short starting countdown/loading state when both players are ready
+- a short synchronized countdown after the host starts the match
 
 This is a friends-match release rather than competitive server-authoritative netcode. Reconnect
 resumes the same player slot and repairs both peers to the host state before simulation continues.
@@ -69,7 +71,7 @@ Open two browser windows:
 1. In window A, use the setup screen Multiplayer section and click `HOST ROOM`.
 2. Copy the room link or room code.
 3. In window B, open the link or enter the same server URL and room code, then click `JOIN ROOM`.
-4. Both players click `READY`.
+4. The guest waits in the room lobby; only the host can click `START MATCH` once both slots are connected.
 5. The room enters a short starting countdown, then both clients
    receive the same start payload and boot.
 6. Host controls the green army; guest controls the red army.

@@ -41,12 +41,31 @@ describe('multiplayer relay', () => {
     const guestSession = await nextMessage(guest, (message) => message.type === 'session');
     const guestId = guestSession.player.id as string;
 
-    host.send(JSON.stringify({ type: 'ready', roomCode, playerId: hostId, ready: true }));
-    guest.send(JSON.stringify({ type: 'ready', roomCode, playerId: guestId, ready: true }));
-    await Promise.all([
+    const synchronizedSettings = nextMessage(
+      guest,
+      (message) => message.type === 'room-state' && message.room.mapId === 'crater-oasis' && message.room.seed === 246810,
+    );
+    host.send(JSON.stringify({
+      type: 'settings',
+      roomCode,
+      playerId: hostId,
+      settings: { mapId: 'crater-oasis', seed: 246810, combatMode: 'manual', armySides: [1, 2, 3, 4] },
+    }));
+    await synchronizedSettings;
+
+    const guestCannotStart = noMessage(host, (message) => message.type === 'match-start', 80);
+    guest.send(JSON.stringify({ type: 'start-match', roomCode, playerId: guestId }));
+    await expect(guestCannotStart).resolves.toBe(true);
+
+    host.send(JSON.stringify({ type: 'start-match', roomCode, playerId: hostId }));
+    const [hostStart, guestStart] = await Promise.all([
       nextMessage(host, (message) => message.type === 'match-start'),
       nextMessage(guest, (message) => message.type === 'match-start'),
     ]);
+    expect(hostStart.room.mapId).toBe('crater-oasis');
+    expect(guestStart.room.mapId).toBe('crater-oasis');
+    expect(hostStart.room.seed).toBe(246810);
+    expect(guestStart.room.seed).toBe(246810);
 
     const spoofedCommand = noMessage(host, (message) => message.type === 'command', 80);
     guest.send(JSON.stringify({

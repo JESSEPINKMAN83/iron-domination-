@@ -21,7 +21,6 @@ export interface MultiplayerPlayer {
   index: number;
   name: string;
   connected: boolean;
-  ready?: boolean;
   engine?: string;
   pingMs?: number;
 }
@@ -90,8 +89,8 @@ export class MultiplayerClient {
     this.send({ type: 'settings', roomCode: normalizeRoomCode(roomCode), playerId, settings });
   }
 
-  setReady(roomCode: string, playerId: string, ready: boolean): void {
-    this.send({ type: 'ready', roomCode: normalizeRoomCode(roomCode), playerId, ready });
+  startMatch(roomCode: string, playerId: string): void {
+    this.send({ type: 'start-match', roomCode: normalizeRoomCode(roomCode), playerId });
   }
 
   forfeit(roomCode: string, playerId: string): void {

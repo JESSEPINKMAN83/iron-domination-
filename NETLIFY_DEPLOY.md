@@ -61,7 +61,7 @@ VITE_MULTIPLAYER_SERVER_URL=https://YOUR_RELAY_HOST
 4. Redeploy Netlify. The Multiplayer server input will now default to the public relay URL.
 
 5. Open the Netlify link in two browsers or two computers, host a room, share the copied room
-   link/code, join, then have both players click `READY`.
+   link/code, and join. The guest waits in the room lobby; only the host can click `START MATCH`.
 
 6. Test recovery once before publishing: during a match, briefly disable one browser's network.
    Both simulations should pause, the disconnected browser should automatically reconnect within
@@ -73,6 +73,9 @@ screen and will derive the matching `wss://`/`ws://` endpoint automatically.
 
 If the relay URL changes later, either update `VITE_MULTIPLAYER_SERVER_URL` and redeploy, or paste
 the new relay URL into the Multiplayer server input. The input is stored locally per browser.
+
+This repository includes `.env.production` with the current public Render relay, so local
+`npm run build` output is ready for the configured Netlify/Render deployment by default.
 
 ### Relay production settings
 

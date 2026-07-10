@@ -34,7 +34,7 @@ const rooms = new Map();
  *   startsAt?: number;
  *   armyCount: 2;
  *   armySides: number[];
- *   players: Array<{ id: string; index: number; name: string; connected: boolean; ready: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
+ *   players: Array<{ id: string; index: number; name: string; connected: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
  *   clients: Map<string, import('ws').WebSocket>;
  * }} Room
  */
@@ -116,7 +116,7 @@ setInterval(() => {
 function routeSocket(socket, body) {
   if (body?.type === 'host') return handleHost(socket, body);
   if (body?.type === 'join') return handleJoin(socket, body);
-  if (body?.type === 'ready') return handleReady(socket, body);
+  if (body?.type === 'start-match') return handleStartMatch(socket, body);
   if (body?.type === 'settings') return handleSettings(socket, body);
   if (body?.type === 'command') return handleCommand(socket, body);
   if (body?.type === 'forfeit') return handleForfeit(socket, body);
@@ -144,16 +144,14 @@ function handleJoin(socket, body) {
   attachSocket(room, player, socket);
   send(socket, { type: 'session', requestId: body.requestId, room: publicRoom(room), player: publicPlayer(player) });
   broadcast(room, roomState(room));
-  maybeStart(room);
 }
 
-function handleReady(socket, body) {
+function handleStartMatch(socket, body) {
   const { room, player } = roomAndPlayer(body, socket);
-  if (!room || !player) return;
-  player.ready = body.ready === true;
-  room.updatedAt = Date.now();
-  broadcast(room, roomState(room));
-  maybeStart(room);
+  if (!room || !player || player.index !== 1 || room.status !== 'waiting') return;
+  const connected = room.players.filter((candidate) => candidate.connected);
+  if (connected.length !== 2) return;
+  startRoom(room);
 }
 
 function handleSettings(socket, body) {
@@ -166,7 +164,6 @@ function handleSettings(socket, body) {
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
   room.armySides = normalizeArmySides(next.armySides, 2);
-  for (const candidate of room.players) candidate.ready = false;
   room.updatedAt = Date.now();
   broadcast(room, roomState(room));
 }
@@ -243,7 +240,6 @@ function addPlayer(room, name, requestedId, engine) {
     index: openIndex,
     name: String(name).slice(0, 28),
     connected: true,
-    ready: false,
     engine: normalizeEngine(engine),
     joinedAt: Date.now(),
   };
@@ -272,7 +268,6 @@ function detachSocket(socket) {
   if (player) {
     player.connected = false;
     player.disconnectedAt = Date.now();
-    if (room.status !== 'in-game') player.ready = false;
   }
   if (room.status === 'starting') {
     room.status = 'waiting';
@@ -282,10 +277,8 @@ function detachSocket(socket) {
   broadcast(room, roomState(room));
 }
 
-function maybeStart(room) {
+function startRoom(room) {
   if (room.status !== 'waiting') return;
-  const connected = room.players.filter((player) => player.connected);
-  if (connected.length !== 2 || connected.some((player) => !player.ready)) return;
   room.inputDelay = inputDelayForRoom(room);
   room.status = 'starting';
   room.startsAt = Date.now() + START_COUNTDOWN_MS;
@@ -343,7 +336,6 @@ function publicPlayer(player) {
     index: player.index,
     name: player.name,
     connected: player.connected,
-    ready: player.ready,
     engine: player.engine,
     pingMs: player.pingMs,
   };

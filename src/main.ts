@@ -335,6 +335,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     let multiplayerClient: MultiplayerClient | undefined;
     let multiplayerSession: MultiplayerSession | undefined;
     let multiplayerStarted = false;
+    let startButton: HTMLButtonElement | undefined;
     const currentSettings = (): SkirmishSettings => {
       const seed = Math.max(1, Math.floor(Number(seedInput.value) || randomSeed()));
       return {
@@ -348,8 +349,36 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
         armySides: armies.armySides(),
       };
     };
-    const beginWithSettings = (settings: SkirmishSettings): void => {
+    const setMultiplayerLaunchOnly = (): void => {
+      if (!startButton) return;
+      startButton.disabled = true;
+      startButton.textContent = 'WAITING FOR BOTH PLAYERS';
+      startButton.style.opacity = '.48';
+      startButton.style.cursor = 'not-allowed';
+    };
+    const applyRoomSettings = (room: MultiplayerRoom, playerIndex: number): void => {
+      difficulty.setValue(room.ai);
+      commander.setValue(room.aiStyle);
+      combatMode.setValue(room.combatMode ?? 'assisted');
+      mapChoice.setValue(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID);
+      seedInput.value = String(room.seed);
+      armies.setState(2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
+      const guestLocked = playerIndex !== 1;
+      difficulty.setDisabled(guestLocked);
+      commander.setDisabled(guestLocked);
+      combatMode.setDisabled(guestLocked);
+      mapChoice.setDisabled(guestLocked);
+      armies.setDisabled(guestLocked);
+      seedInput.disabled = guestLocked;
+      randomize.disabled = guestLocked;
+      randomize.style.opacity = guestLocked ? '.45' : '1';
+      caption.textContent = guestLocked
+        ? 'Match settings are controlled by the host and synchronized for both players.'
+        : 'Your map, seed, and rules are synchronized to the guest before the match starts.';
+    };
+    const beginWithSettings = (settings: SkirmishSettings, fromMultiplayerRoom = false): void => {
       if (multiplayerStarted) return;
+      if (multiplayerSession && !fromMultiplayerRoom) return;
       multiplayerStarted = true;
       saveSkirmishSettings(settings);
       if (multiplayerClient && multiplayerSession) pendingMultiplayer = { client: multiplayerClient, session: multiplayerSession };
@@ -360,12 +389,14 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     };
     const multiplayer = createMultiplayerSetupPanel(
       () => currentSettings(),
-      (settings) => beginWithSettings(settings),
+      (settings) => beginWithSettings(settings, true),
       (client, session) => {
         multiplayerClient = client;
         multiplayerSession = session;
+        setMultiplayerLaunchOnly();
       },
       () => multiplayerSession,
+      applyRoomSettings,
     );
 
     const controls = document.createElement('div');
@@ -378,6 +409,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     }
 
     const start = document.createElement('button');
+    startButton = start;
     start.type = 'button';
     start.textContent = 'START SKIRMISH';
     start.style.cssText =
@@ -391,6 +423,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       if (event.key === 'Enter') begin();
     };
     start.onclick = begin;
+    if (multiplayerSession) setMultiplayerLaunchOnly();
     window.addEventListener('keydown', onKeyDown);
 
     leftColumn.append(form);
@@ -408,8 +441,9 @@ function createSegmentedControl<T extends string>(
   initial: T,
   descriptions: Record<T, string>,
   format: (value: T) => string = (value) => value.toUpperCase(),
-): { root: HTMLDivElement; value: () => T } {
+): { root: HTMLDivElement; value: () => T; setValue: (value: T) => void; setDisabled: (disabled: boolean) => void } {
   let current = initial;
+  let disabled = false;
   const root = document.createElement('div');
   root.style.cssText = 'display:grid;gap:7px;min-width:0;';
   const title = document.createElement('div');
@@ -423,6 +457,9 @@ function createSegmentedControl<T extends string>(
     for (const button of Array.from(buttons.children) as HTMLButtonElement[]) {
       const active = button.dataset.value === current;
       button.style.cssText = setupChoiceButtonCss(active);
+      button.disabled = disabled;
+      button.style.opacity = disabled ? '.5' : '1';
+      button.style.cursor = disabled ? 'not-allowed' : 'pointer';
     }
     description.textContent = descriptions[current];
   };
@@ -440,11 +477,30 @@ function createSegmentedControl<T extends string>(
   }
   root.append(title, buttons, description);
   render();
-  return { root, value: () => current };
+  return {
+    root,
+    value: () => current,
+    setValue: (value) => {
+      if (!values.includes(value)) return;
+      current = value;
+      render();
+    },
+    setDisabled: (value) => {
+      disabled = value;
+      render();
+    },
+  };
 }
 
-function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides): { root: HTMLDivElement; armyCount: () => ArmyCount; armySides: () => ArmySides } {
+function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides): {
+  root: HTMLDivElement;
+  armyCount: () => ArmyCount;
+  armySides: () => ArmySides;
+  setState: (count: ArmyCount, sides: ArmySides) => void;
+  setDisabled: (disabled: boolean) => void;
+} {
   let count: ArmyCount = initialCount;
+  let disabled = false;
   const sides: ArmySides = [...initialSides] as ArmySides;
   const root = document.createElement('div');
   root.style.cssText = 'display:grid;gap:9px;padding:11px;border:1px solid #303936;background:rgba(9,13,13,.7);';
@@ -459,12 +515,18 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   const render = (): void => {
     for (const button of Array.from(countButtons.children) as HTMLButtonElement[]) {
       button.style.cssText = setupChoiceButtonCss(Number(button.dataset.count) === count);
+      button.disabled = disabled;
+      button.style.opacity = disabled ? '.5' : '1';
+      button.style.cursor = disabled ? 'not-allowed' : 'pointer';
     }
     for (const row of Array.from(sideRows.children) as HTMLElement[]) {
       const army = Number(row.dataset.army);
       row.style.display = army <= count ? 'grid' : 'none';
       for (const button of Array.from(row.querySelectorAll('button')) as HTMLButtonElement[]) {
         button.style.cssText = setupChoiceButtonCss(Number(button.dataset.side) === sides[army - 1]);
+        button.disabled = disabled;
+        button.style.opacity = disabled ? '.5' : '1';
+        button.style.cursor = disabled ? 'not-allowed' : 'pointer';
       }
     }
   };
@@ -507,7 +569,20 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
 
   root.append(title, countButtons, sideRows);
   render();
-  return { root, armyCount: () => count, armySides: () => [...sides] as ArmySides };
+  return {
+    root,
+    armyCount: () => count,
+    armySides: () => [...sides] as ArmySides,
+    setState: (nextCount, nextSides) => {
+      count = nextCount;
+      for (let index = 0; index < sides.length; index++) sides[index] = nextSides[index];
+      render();
+    },
+    setDisabled: (value) => {
+      disabled = value;
+      render();
+    },
+  };
 }
 
 function createMultiplayerSetupPanel(
@@ -515,6 +590,7 @@ function createMultiplayerSetupPanel(
   startMatch: (settings: SkirmishSettings) => void,
   rememberSession: (client: MultiplayerClient, session: MultiplayerSession) => void,
   currentSession: () => MultiplayerSession | undefined,
+  applyRoomSettings: (room: MultiplayerRoom, playerIndex: number) => void,
 ): HTMLDivElement {
   const root = document.createElement('div');
   root.style.cssText = 'display:grid;gap:10px;padding:12px;border:1px solid #303936;background:#0f1414;min-width:0;overflow:hidden;';
@@ -529,7 +605,7 @@ function createMultiplayerSetupPanel(
   row.style.cssText =
     'display:grid;grid-template-columns:minmax(0,1fr) minmax(92px,.28fr);gap:7px;align-items:end;min-width:0;';
   const actionRow = document.createElement('div');
-  actionRow.style.cssText = 'grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;min-width:0;';
+  actionRow.style.cssText = 'grid-column:1 / -1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;min-width:0;';
 
   const serverLabel = setupTextInput('Server', storedMultiplayerServer());
   const codeLabel = setupTextInput('Room', normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? ''));
@@ -545,13 +621,6 @@ function createMultiplayerSetupPanel(
   join.type = 'button';
   join.textContent = 'JOIN ROOM';
   join.style.cssText = smallSetupButtonCss();
-
-  const ready = document.createElement('button');
-  ready.type = 'button';
-  ready.textContent = 'READY';
-  ready.disabled = true;
-  ready.style.cssText = smallSetupButtonCss();
-  ready.style.opacity = '.45';
 
   const copy = document.createElement('button');
   copy.type = 'button';
@@ -569,32 +638,25 @@ function createMultiplayerSetupPanel(
   const setBusy = (busy: boolean): void => {
     host.disabled = busy;
     join.disabled = busy;
-    if (!currentSession()) ready.disabled = true;
     host.style.opacity = busy ? '.55' : '1';
     join.style.opacity = busy ? '.55' : '1';
-    ready.style.opacity = ready.disabled ? '.45' : '1';
     copy.style.opacity = copy.disabled ? '.45' : '1';
   };
   const setStatus = (message: string, bad = false): void => {
     status.textContent = message;
     status.style.color = bad ? '#ff8a72' : '#8d9a96';
   };
-  let hostSettingsTimer: number | undefined;
-  let lastHostSettings = '';
-  let activeClient: MultiplayerClient | undefined;
-  const stopHostSettingsSync = (): void => {
-    if (hostSettingsTimer !== undefined) window.clearInterval(hostSettingsTimer);
-    hostSettingsTimer = undefined;
-  };
+  let lobbyView: ReturnType<typeof createRoomLobbyView> | undefined;
   const connectSession = (client: MultiplayerClient, session: MultiplayerSession): void => {
-    stopHostSettingsSync();
-    activeClient = client;
     rememberPlayerId(client.baseUrl, session.room.code, session.player.id);
     if (session.player.index === 1) rememberPlayerId(client.baseUrl, 'HOST', session.player.id);
     rememberSession(client, session);
+    applyRoomSettings(session.room, session.player.index);
+    lobbyView?.root.remove();
+    lobbyView = createRoomLobbyView(client, session, settings);
+    root.appendChild(lobbyView.root);
+    lobbyView.update(session.room, session.player.index);
     codeLabel.input.value = session.room.code;
-    ready.disabled = false;
-    ready.style.opacity = '1';
     copy.disabled = false;
     copy.style.opacity = '1';
     renderRoomStatus(session.room, session.player.index, setStatus);
@@ -606,22 +668,13 @@ function createMultiplayerSetupPanel(
           session.room = event.room;
           const latest = event.room.players.find((player) => player.id === session.player.id);
           if (latest) session.player = latest;
-          ready.textContent = session.player.ready ? 'UNREADY' : 'READY';
+          applyRoomSettings(event.room, session.player.index);
+          lobbyView?.update(event.room, session.player.index);
         }
         handleMultiplayerEvent(event, session.player.index, setStatus, startMatch);
       },
       () => setStatus('Connection interrupted. Check the multiplayer server is still running.', true),
     );
-    if (session.player.index === 1) {
-      hostSettingsTimer = window.setInterval(() => {
-        if (session.room.status !== 'waiting') return;
-        const next = settings();
-        const key = JSON.stringify({ mapId: next.mapId, seed: next.seed, ai: next.ai, aiStyle: next.aiStyle, combatMode: next.combatMode, armySides: next.armySides });
-        if (key === lastHostSettings) return;
-        lastHostSettings = key;
-        client.updateSettings(session.room.code, session.player.id, next);
-      }, 750);
-    }
   };
 
   host.onclick = async () => {
@@ -659,29 +712,140 @@ function createMultiplayerSetupPanel(
     }
   };
 
-  ready.onclick = () => {
-    const session = currentSession();
-    if (!session || !activeClient) return;
-    const nextReady = !session.player.ready;
-    activeClient.setReady(session.room.code, session.player.id, nextReady);
-    ready.textContent = nextReady ? 'UNREADY' : 'READY';
-    ready.blur();
-  };
-
   copy.onclick = async () => {
     const code = normalizeRoomCode(codeLabel.input.value);
     if (!code) return;
     const url = new URL(location.href);
     url.searchParams.set('room', code);
     await navigator.clipboard?.writeText(url.toString());
-    setStatus(`Copied room link ${code}. Guest opens it, clicks JOIN ROOM, then READY.`);
+    setStatus(`Copied room link ${code}. Guest opens it and clicks JOIN ROOM; the host starts the match.`);
     copy.blur();
   };
 
-  actionRow.append(host, join, ready, copy);
+  actionRow.append(host, join, copy);
   row.append(serverLabel.root, codeLabel.root, actionRow);
   root.append(header, row, status);
   return root;
+}
+
+function createRoomLobbyView(
+  client: MultiplayerClient,
+  session: MultiplayerSession,
+  settings: () => SkirmishSettings,
+): { root: HTMLDivElement; update: (room: MultiplayerRoom, playerIndex: number) => void } {
+  const root = document.createElement('div');
+  root.style.cssText =
+    'position:fixed;inset:0;z-index:145;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;' +
+    'background:rgba(5,8,9,.94);backdrop-filter:blur(10px);';
+  const panel = document.createElement('div');
+  panel.style.cssText =
+    'width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:24px;box-sizing:border-box;' +
+    'display:grid;gap:18px;background:linear-gradient(180deg,#151b1d,#080b0b);border:2px solid #596260;' +
+    'box-shadow:inset 0 0 0 1px rgba(210,177,95,.2),0 28px 90px rgba(0,0,0,.7);';
+
+  const heading = document.createElement('div');
+  heading.style.cssText = 'display:flex;justify-content:space-between;gap:16px;align-items:flex-start;';
+  const title = document.createElement('div');
+  title.style.cssText = 'color:#f0d56a;font-size:24px;letter-spacing:.16em;';
+  const role = document.createElement('div');
+  role.style.cssText = 'padding:6px 9px;border:1px solid #596260;color:#aebbc4;font-size:10px;letter-spacing:.12em;';
+  heading.append(title, role);
+
+  const summary = document.createElement('div');
+  summary.style.cssText =
+    'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;border:1px solid #303936;background:#303936;';
+  const players = document.createElement('div');
+  players.style.cssText = 'display:grid;gap:8px;';
+  const status = document.createElement('div');
+  status.style.cssText = 'min-height:18px;text-align:center;color:#aebbc4;font-size:11px;letter-spacing:.08em;';
+
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.7fr);gap:10px;';
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.textContent = 'COPY ROOM LINK';
+  copy.style.cssText = smallSetupButtonCss();
+  copy.onclick = async () => {
+    const url = new URL(location.href);
+    url.searchParams.set('room', session.room.code);
+    await navigator.clipboard?.writeText(url.toString());
+    status.textContent = `Room link copied · ${session.room.code}`;
+    copy.blur();
+  };
+  const launch = document.createElement('button');
+  launch.type = 'button';
+  launch.style.cssText =
+    'height:54px;border:1px solid #d2b15f;background:linear-gradient(180deg,#d2b15f,#856c32);color:#121513;' +
+    'font:700 15px ui-monospace,Menlo,monospace;letter-spacing:.15em;cursor:pointer;';
+  launch.onclick = () => {
+    if (session.player.index !== 1) return;
+    client.updateSettings(session.room.code, session.player.id, settings());
+    client.startMatch(session.room.code, session.player.id);
+    launch.disabled = true;
+    launch.textContent = 'STARTING MATCH...';
+    launch.style.opacity = '.55';
+  };
+  actions.append(copy, launch);
+  panel.append(heading, summary, players, status, actions);
+  root.appendChild(panel);
+
+  const update = (room: MultiplayerRoom, playerIndex: number): void => {
+    session.room = room;
+    title.textContent = `ROOM ${room.code}`;
+    role.textContent = playerIndex === 1 ? 'HOST COMMANDER' : 'JOINED COMMANDER';
+    const map = MAP_PRESETS[sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID];
+    const values = [
+      ['MAP', map.label],
+      ['SEED', String(room.seed)],
+      ['COMBAT', room.combatMode === 'manual' ? 'MANUAL' : 'ASSISTED'],
+    ];
+    summary.replaceChildren(...values.map(([label, value]) => {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding:13px;background:#0f1414;display:grid;gap:5px;min-width:0;';
+      const key = document.createElement('div');
+      key.textContent = label;
+      key.style.cssText = 'color:#6f7b78;font-size:9px;letter-spacing:.12em;';
+      const text = document.createElement('div');
+      text.textContent = value;
+      text.style.cssText = 'color:#f0d56a;font-size:12px;overflow-wrap:anywhere;';
+      item.append(key, text);
+      return item;
+    }));
+    const playerSlots = [1, 2].map((index) => {
+      const player = room.players.find((candidate) => candidate.index === index);
+      const row = document.createElement('div');
+      row.style.cssText =
+        'display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 14px;' +
+        'border:1px solid #303936;background:#0f1414;';
+      const number = document.createElement('div');
+      number.textContent = `P${index}`;
+      number.style.cssText = `color:${index === 1 ? '#7df27d' : '#ff8a72'};font-size:12px;`;
+      const name = document.createElement('div');
+      name.textContent = player?.name ?? (index === 1 ? 'Host slot' : 'Waiting for player...');
+      name.style.cssText = 'color:#dce8df;';
+      const connection = document.createElement('div');
+      connection.textContent = player?.connected ? `${player.pingMs ?? '...'} ms · CONNECTED` : 'OPEN SLOT';
+      connection.style.cssText = `color:${player?.connected ? '#7df27d' : '#6f7b78'};font-size:10px;`;
+      row.append(number, name, connection);
+      return row;
+    });
+    players.replaceChildren(...playerSlots);
+    const connected = room.players.filter((player) => player.connected).length;
+    const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
+    if (room.status === 'starting') status.textContent = 'Host launched the match · synchronizing both players...';
+    else if (engines.size > 1) status.textContent = 'Different browsers detected · matching browser engines are recommended.';
+    else if (connected < 2) status.textContent = playerIndex === 1 ? 'Waiting for another commander to join...' : 'Connected · waiting for the host.';
+    else status.textContent = playerIndex === 1 ? 'Opponent connected · you can start the match.' : 'Both players connected · waiting for the host to start.';
+    const canLaunch = playerIndex === 1 && connected === 2 && room.status === 'waiting';
+    launch.disabled = !canLaunch;
+    launch.textContent = playerIndex === 1
+      ? room.status === 'starting' ? 'STARTING MATCH...' : connected === 2 ? 'START MATCH' : 'WAITING FOR PLAYER'
+      : 'WAITING FOR HOST';
+    launch.style.opacity = canLaunch ? '1' : '.45';
+    launch.style.cursor = canLaunch ? 'pointer' : 'not-allowed';
+  };
+
+  return { root, update };
 }
 
 function handleMultiplayerEvent(
@@ -703,12 +867,11 @@ function handleMultiplayerEvent(
 
 function renderRoomStatus(room: MultiplayerRoom, playerIndex: number, setStatus: (message: string, bad?: boolean) => void): void {
   const connected = room.players.filter((player) => player.connected).length;
-  const ready = room.players.filter((player) => player.ready).length;
   const team = `army ${playerIndex} / side ${room.armySides[playerIndex - 1] ?? playerIndex}`;
   const map = MAP_PRESETS[sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID].shortLabel;
   const countdown =
     room.status === 'starting' && room.startsAt ? `starting in ${Math.max(1, Math.ceil((room.startsAt - Date.now()) / 1000))}s` : undefined;
-  const waiting = countdown ?? (connected < 2 ? 'waiting for commander' : ready < 2 ? `${ready}/2 ready` : room.status === 'waiting' ? 'ready to launch' : room.status);
+  const waiting = countdown ?? (connected < 2 ? 'waiting for commander' : room.status === 'waiting' ? playerIndex === 1 ? 'host can launch' : 'waiting for host' : room.status);
   const combat = room.combatMode === 'manual' ? 'manual combat' : 'assisted combat';
   const pings = room.players.map((player) => player.pingMs).filter((ping): ping is number => Number.isFinite(ping));
   const ping = pings.length ? `${Math.max(...pings)}ms` : 'measuring ping';
@@ -827,6 +990,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const multiplayer = pendingMultiplayer;
   pendingMultiplayer = undefined;
   const multiplayerMode = multiplayer !== undefined;
+  if (multiplayer) settings = settingsFromRoom(multiplayer.session.room);
   const localTeam = multiplayer?.session.player.index ?? 1;
   const app = document.getElementById('app');
   if (!app) throw new Error('#app missing');
