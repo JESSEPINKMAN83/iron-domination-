@@ -5,6 +5,7 @@ import { MAX_PRODUCER_JOBS, buildings, canBuildStructure, canQueueUnit, type Eco
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { selectedEntities, type GameSim } from '../sim/world';
+import type { TacticalPing, TacticalPingKind } from '../net/multiplayer';
 
 type Tab = 'buildings' | 'defense' | 'infantry' | 'vehicles' | 'aircraft';
 
@@ -17,6 +18,7 @@ export interface SidebarActions {
   focusMap(x: number, z: number): void;
   radarYaw(): number;
   radarViewport(): { x: number; z: number }[];
+  beginTacticalPing?(kind: TacticalPingKind): void;
 }
 
 interface CardState {
@@ -55,6 +57,9 @@ export class Sidebar {
   private lastSelectedBuildingId?: number;
   private radarFocus?: { x: number; z: number; ttl: number };
   private readonly fogCanvas: HTMLCanvasElement;
+  private readonly tacticalButtons = new Map<TacticalPingKind, HTMLButtonElement>();
+  private tacticalPings: Array<TacticalPing & { expiresAt: number }> = [];
+  private selectedTacticalPing?: TacticalPingKind;
   private notice?: { text: string; untilTick: number };
 
   constructor(
@@ -95,6 +100,7 @@ export class Sidebar {
       'height:18px;padding:0 6px;background:#101514;border:1px solid #424a47;box-sizing:border-box;' +
       'box-shadow:inset 0 0 12px rgba(0,0,0,.55);color:#d2b15f;font-size:10px;line-height:16px;white-space:pre;overflow:hidden;';
     radarWrap.append(this.status, this.radar);
+    if (this.actions.beginTacticalPing) radarWrap.append(this.createTacticalControls());
 
     this.tabs = document.createElement('div');
     this.tabs.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:4px;';
@@ -156,6 +162,17 @@ export class Sidebar {
 
   setVisible(visible: boolean): void {
     this.root.style.display = visible ? 'flex' : 'none';
+  }
+
+  setTacticalPing(kind?: TacticalPingKind): void {
+    this.selectedTacticalPing = kind;
+    for (const [buttonKind, button] of this.tacticalButtons) button.style.cssText = tacticalButtonCss(buttonKind === kind);
+  }
+
+  addTacticalPing(ping: TacticalPing): void {
+    this.tacticalPings = this.tacticalPings.filter((candidate) => candidate.playerId !== ping.playerId || candidate.kind !== ping.kind);
+    this.tacticalPings.push({ ...ping, expiresAt: performance.now() + 9000 });
+    this.drawRadar();
   }
 
   producerHighlightIds(): number[] {
@@ -791,7 +808,34 @@ export class Sidebar {
     return canvas;
   }
 
+  private createTacticalControls(): HTMLDivElement {
+    const root = document.createElement('div');
+    root.style.cssText = 'display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;';
+    const items: Array<[TacticalPingKind, string]> = [
+      ['attack', 'ATTACK'],
+      ['help', 'HELP'],
+      ['defend', 'DEFEND'],
+      ['good-game', 'GG'],
+    ];
+    for (const [kind, label] of items) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.title = `${label}: choose a map location`;
+      button.style.cssText = tacticalButtonCss(false);
+      button.onclick = () => {
+        this.setTacticalPing(kind);
+        this.actions.beginTacticalPing?.(kind);
+      };
+      this.tacticalButtons.set(kind, button);
+      root.appendChild(button);
+    }
+    return root;
+  }
+
   private drawRadar(): void {
+    const now = performance.now();
+    this.tacticalPings = this.tacticalPings.filter((ping) => ping.expiresAt > now);
     if (this.radarFocus) {
       this.radarFocus.ttl -= 1 / 30;
       if (this.radarFocus.ttl <= 0) this.radarFocus = undefined;
@@ -811,6 +855,7 @@ export class Sidebar {
     }
     this.drawRadarFog();
     this.drawRadarViewport();
+    this.drawTacticalPings(now);
     if (this.radarFocus) {
       const p = this.worldToRadar(this.radarFocus.x, this.radarFocus.z);
       this.radarCtx.strokeStyle = '#f0d56a';
@@ -824,6 +869,29 @@ export class Sidebar {
     }
     this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
+  }
+
+  private drawTacticalPings(now: number): void {
+    for (const ping of this.tacticalPings) {
+      const p = this.worldToRadar(ping.x, ping.z);
+      if (p.x < -12 || p.y < -12 || p.x > this.radar.width + 12 || p.y > this.radar.height + 12) continue;
+      const remaining = Math.max(0, Math.min(1, (ping.expiresAt - now) / 9000));
+      const pulse = 0.5 + 0.5 * Math.sin(now * 0.012 + ping.playerIndex * 1.7);
+      const color = ping.kind === 'attack' ? '#ff6d5e' : ping.kind === 'defend' ? '#63c6ff' : ping.kind === 'help' ? '#f0d56a' : '#7df27d';
+      this.radarCtx.save();
+      this.radarCtx.globalAlpha = Math.min(1, remaining * 1.35);
+      this.radarCtx.strokeStyle = color;
+      this.radarCtx.fillStyle = color;
+      this.radarCtx.lineWidth = 1.8;
+      this.radarCtx.beginPath();
+      this.radarCtx.arc(p.x, p.y, 4 + pulse * 7, 0, Math.PI * 2);
+      this.radarCtx.stroke();
+      this.radarCtx.globalAlpha = 0.9;
+      this.radarCtx.beginPath();
+      this.radarCtx.arc(p.x, p.y, 2.3 + pulse * 1.5, 0, Math.PI * 2);
+      this.radarCtx.fill();
+      this.radarCtx.restore();
+    }
   }
 
   private drawRadarResources(): void {
@@ -959,6 +1027,14 @@ function progressBarCss(progress: number, active: boolean): string {
     `--progress:${pct}%;` +
     `box-shadow:${active ? '0 0 8px rgba(240,213,106,.2)' : 'none'};` +
     `background:linear-gradient(90deg,#f0d56a 0 var(--progress),rgba(0,0,0,.58) var(--progress) 100%);`
+  );
+}
+
+function tacticalButtonCss(active: boolean): string {
+  return (
+    'height:22px;border:1px solid #4b5552;border-radius:1px;font:9px ui-monospace,Menlo,monospace;letter-spacing:0;padding:0 3px;' +
+    `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : 'linear-gradient(180deg,#25302e,#111615)'};` +
+    `color:${active ? '#161713' : '#d7e0e7'};cursor:pointer;`
   );
 }
 

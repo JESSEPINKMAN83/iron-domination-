@@ -28,8 +28,10 @@ export class Hud {
   private readonly modeBanner: HTMLDivElement;
   private readonly multiplayer: HTMLDivElement;
   private readonly multiplayerDetail: HTMLDivElement;
+  private readonly tacticalCallout: HTMLDivElement;
   private infoVisible = false;
   private lastUpdate = 0;
+  private tacticalTimer?: number;
 
   constructor(container: HTMLElement) {
     this.stats = document.createElement('div');
@@ -101,6 +103,14 @@ export class Hud {
     this.multiplayerDetail.style.cssText = 'margin-top:2px;color:#aebbc4;font-size:10px;';
     this.multiplayer.append(document.createElement('div'), this.multiplayerDetail);
     container.appendChild(this.multiplayer);
+
+    this.tacticalCallout = document.createElement('div');
+    this.tacticalCallout.style.cssText =
+      'position:fixed;left:50%;top:76px;transform:translate(-50%,-16px);opacity:0;pointer-events:none;z-index:16;' +
+      'min-width:220px;padding:9px 13px;border:1px solid rgba(240,213,106,.72);background:rgba(11,17,17,.9);' +
+      'box-shadow:0 8px 22px rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.06);color:#f0d56a;' +
+      'font:11px/1.35 ui-monospace,Menlo,monospace;letter-spacing:.05em;text-align:center;transition:opacity 160ms ease,transform 160ms ease;';
+    container.appendChild(this.tacticalCallout);
   }
 
   toggleInfo(): void {
@@ -138,6 +148,18 @@ export class Hud {
 
   hideMultiplayerStatus(): void {
     this.multiplayer.style.display = 'none';
+  }
+
+  showTacticalPing(name: string, kind: 'attack' | 'help' | 'defend' | 'good-game'): void {
+    const label = kind === 'good-game' ? 'GOOD GAME' : kind.toUpperCase();
+    this.tacticalCallout.textContent = `${name.toUpperCase()}: ${label} HERE`;
+    this.tacticalCallout.style.opacity = '1';
+    this.tacticalCallout.style.transform = 'translate(-50%,0)';
+    if (this.tacticalTimer !== undefined) window.clearTimeout(this.tacticalTimer);
+    this.tacticalTimer = window.setTimeout(() => {
+      this.tacticalCallout.style.opacity = '0';
+      this.tacticalCallout.style.transform = 'translate(-50%,-16px)';
+    }, 4200);
   }
 
   update(nowMs: number, s: HudStats): void {

@@ -14,7 +14,7 @@ import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
 import { LockstepRuntime } from './net/commands';
-import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession } from './net/multiplayer';
+import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession, type TacticalPingKind } from './net/multiplayer';
 import { AssetPipeline } from './render/assets';
 import { BuildingView } from './render/buildingView';
 import { CombatView } from './render/combatView';
@@ -1159,6 +1159,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastFogTextureTick = -2;
   let lastResourceVisualTick = -1;
   const hud = new Hud(document.body);
+  let sidebar!: Sidebar;
+  let tacticalPingKind: TacticalPingKind | undefined;
   let networkPaused = false;
   const setNetworkStatus = (message: string, bad = false): void => {
     if (multiplayerMode) {
@@ -1190,6 +1192,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           fogView.refresh();
           buildingView.update(economy, ctx.camera);
         },
+        onTacticalPing: (ping) => {
+          sidebar.addTacticalPing(ping);
+          hud.showTacticalPing(ping.name || `Commander ${ping.playerIndex}`, ping.kind);
+        },
       })
     : undefined;
   if (multiplayerMode) setNetworkStatus(`Room ${multiplayer.session.room.code} · army ${localTeam} · online`);
@@ -1197,6 +1203,18 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const rig = new RtsCameraRig(ctx.camera, input, hf);
   if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else rig.jumpToOpeningView(localBase.transform.x, localBase.transform.z, localTeam);
+  const tacticalPing = {
+    isActive: () => tacticalPingKind !== undefined,
+    confirm: (x: number, z: number) => {
+      if (tacticalPingKind && lockstep) lockstep.sendTacticalPing(tacticalPingKind, x, z);
+      tacticalPingKind = undefined;
+      sidebar.setTacticalPing();
+    },
+    cancel: () => {
+      tacticalPingKind = undefined;
+      sidebar.setTacticalPing();
+    },
+  };
   const controller = new RtsController(
     ctx.renderer.domElement,
     input,
@@ -1284,8 +1302,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           },
         }
       : undefined,
+    tacticalPing,
   );
-  const sidebar = new Sidebar(sim, hf, economy, playerVision, {
+  sidebar = new Sidebar(sim, hf, economy, playerVision, {
     buildStructure: (kind) => {
       if (economy.readyStructure === kind) {
         const start = initialPlacementPoint(sim, hf, economy, localBase, kind);
@@ -1317,6 +1336,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       if (lockstep && producer.id !== undefined) lockstep.issue({ type: 'primary-producer', producerId: producer.id });
       else setPrimaryProducer(economy, producer);
     },
+    beginTacticalPing: lockstep
+      ? (kind) => {
+          tacticalPingKind = kind;
+        }
+      : undefined,
     focusMap: (x, z) => {
       rig.jumpTo(x, z);
     },

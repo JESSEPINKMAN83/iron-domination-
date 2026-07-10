@@ -16,10 +16,10 @@ import {
 } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
 import { manualFireAt } from '../sim/combat';
-import { entityById, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
+import { areTeamsHostile, entityById, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
 import { hashSim } from '../sim/world';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from '../sim/serialize';
-import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession } from './multiplayer';
+import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession, type TacticalPing, type TacticalPingKind } from './multiplayer';
 
 export type NetCommand =
   | { type: 'move'; ids: number[]; x: number; z: number; attackMove: boolean; faceYaw?: number; formationSpread?: number }
@@ -70,6 +70,7 @@ export interface LockstepRuntimeOptions {
   session: MultiplayerSession;
   onStatus?: (message: string, bad?: boolean) => void;
   onSnapshotRestored?: () => void;
+  onTacticalPing?: (ping: TacticalPing) => void;
 }
 
 const DEFAULT_INPUT_DELAY_TICKS = 8;
@@ -164,6 +165,14 @@ export class LockstepRuntime {
     return true;
   }
 
+  sendTacticalPing(kind: TacticalPingKind, x: number, z: number): void {
+    try {
+      this.options.client.sendTacticalPing(this.options.session.room.code, this.options.session.player.id, kind, x, z);
+    } catch (err) {
+      this.options.onStatus?.(`Tactical ping failed: ${String((err as Error).message ?? err)}`, true);
+    }
+  }
+
   private async send(command: NetCommand, tick = this.options.sim.tick + (this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS)): Promise<void> {
     try {
       await this.options.client.sendCommand(this.options.session.room.code, this.options.session.player.id, tick, command);
@@ -209,6 +218,10 @@ export class LockstepRuntime {
       this.connected = false;
       this.roomPaused = true;
       this.options.onStatus?.(roomClosedMessage(event.reason, this.localTeam), true);
+      return;
+    }
+    if (event.type === 'tactical-ping') {
+      if (!areTeamsHostile(this.options.sim, this.localTeam, event.playerIndex)) this.options.onTacticalPing?.(event);
       return;
     }
     if (event.type !== 'command') return;

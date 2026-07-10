@@ -37,6 +37,12 @@ export interface RtsCommandSink {
   rally?(producerId: number, x: number, z: number): boolean;
 }
 
+export interface TacticalPingControls {
+  isActive(): boolean;
+  confirm(x: number, z: number): void;
+  cancel(): void;
+}
+
 interface PointerState {
   x: number;
   y: number;
@@ -73,6 +79,7 @@ export class RtsController {
     private readonly orderFeedback?: OrderFeedback,
     private readonly localTeam = 1,
     private readonly commandSink?: RtsCommandSink,
+    private readonly tacticalPing?: TacticalPingControls,
   ) {
     this.selectionBox = document.createElement('div');
     this.selectionBox.style.cssText =
@@ -128,6 +135,13 @@ export class RtsController {
     }
     if (this.placement?.isPlacing()) {
       this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
+      return;
+    }
+    if (this.tacticalPing?.isActive()) {
+      const p = this.terrainPoint(e.clientX, e.clientY);
+      if (e.button === 0 && p) this.tacticalPing.confirm(p.x, p.z);
+      else if (e.button === 2) this.tacticalPing.cancel();
+      e.preventDefault();
       return;
     }
     this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
@@ -313,6 +327,11 @@ export class RtsController {
     if (!this.enabled) return;
     if (e.code === 'Escape' && this.placement?.isPlacing()) {
       this.placement.cancel();
+      e.preventDefault();
+      return;
+    }
+    if (e.code === 'Escape' && this.tacticalPing?.isActive()) {
+      this.tacticalPing.cancel();
       e.preventDefault();
       return;
     }

@@ -119,6 +119,7 @@ function routeSocket(socket, body) {
   if (body?.type === 'start-match') return handleStartMatch(socket, body);
   if (body?.type === 'settings') return handleSettings(socket, body);
   if (body?.type === 'command') return handleCommand(socket, body);
+  if (body?.type === 'tactical-ping') return handleTacticalPing(socket, body);
   if (body?.type === 'forfeit') return handleForfeit(socket, body);
   if (body?.type === 'pong') return handlePong(socket, body);
   send(socket, { type: 'error', requestId: body?.requestId, error: 'unknown-message' });
@@ -178,6 +179,25 @@ function handleCommand(socket, body) {
     playerIndex: player.index,
     tick: Math.max(0, Math.floor(Number(body.tick) || 0)),
     command: body.command ?? {},
+  });
+}
+
+function handleTacticalPing(socket, body) {
+  const { room, player } = roomAndPlayer(body, socket);
+  const kind = normalizeTacticalPingKind(body?.kind);
+  const x = Number(body?.x);
+  const z = Number(body?.z);
+  if (!room || !player || room.status !== 'in-game' || !kind || !Number.isFinite(x) || !Number.isFinite(z)) return;
+  if (Math.abs(x) > 2000 || Math.abs(z) > 2000 || !consumeCommandBudget(socket)) return;
+  room.updatedAt = Date.now();
+  broadcastToAllies(room, player.index, {
+    type: 'tactical-ping',
+    playerId: player.id,
+    playerIndex: player.index,
+    name: player.name,
+    kind,
+    x: Math.round(x * 10) / 10,
+    z: Math.round(z * 10) / 10,
   });
 }
 
@@ -367,6 +387,15 @@ function broadcast(room, message) {
   for (const client of room.clients.values()) send(client, message);
 }
 
+function broadcastToAllies(room, team, message) {
+  const side = room.armySides[team - 1] ?? team;
+  for (const player of room.players) {
+    if ((room.armySides[player.index - 1] ?? player.index) !== side) continue;
+    const client = room.clients.get(player.id);
+    if (client) send(client, message);
+  }
+}
+
 function send(socket, payload) {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(payload));
 }
@@ -381,6 +410,10 @@ function normalizeCombatMode(value) {
 
 function normalizeMapId(value) {
   return value === 'crater-oasis' || value === 'frostbite-pass' ? value : 'highlands';
+}
+
+function normalizeTacticalPingKind(value) {
+  return value === 'attack' || value === 'help' || value === 'defend' || value === 'good-game' ? value : undefined;
 }
 
 function normalizeEngine(value) {

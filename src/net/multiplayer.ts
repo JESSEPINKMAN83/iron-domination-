@@ -25,10 +25,23 @@ export interface MultiplayerPlayer {
   pingMs?: number;
 }
 
+export type TacticalPingKind = 'attack' | 'help' | 'defend' | 'good-game';
+
+export interface TacticalPing {
+  type: 'tactical-ping';
+  playerId: string;
+  playerIndex: number;
+  name: string;
+  kind: TacticalPingKind;
+  x: number;
+  z: number;
+}
+
 export type MultiplayerEvent =
   | { type: 'room-state'; room: MultiplayerRoom }
   | { type: 'match-start'; room: MultiplayerRoom }
   | { type: 'command'; playerId: string; playerIndex: number; tick: number; command: unknown }
+  | TacticalPing
   | { type: 'heartbeat'; now: number }
   | { type: 'player-forfeit'; playerId: string; playerIndex: number; name: string }
   | { type: 'room-closed'; reason: string };
@@ -83,6 +96,10 @@ export class MultiplayerClient {
 
   async sendCommand(roomCode: string, playerId: string, tick: number, command: unknown): Promise<void> {
     this.send({ type: 'command', roomCode: normalizeRoomCode(roomCode), playerId, tick, command });
+  }
+
+  sendTacticalPing(roomCode: string, playerId: string, kind: TacticalPingKind, x: number, z: number): void {
+    this.send({ type: 'tactical-ping', roomCode: normalizeRoomCode(roomCode), playerId, kind, x, z });
   }
 
   updateSettings(roomCode: string, playerId: string, settings: { mapId?: string; seed: number; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armySides?: number[] }): void {

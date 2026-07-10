@@ -78,7 +78,7 @@ describe('multiplayer relay', () => {
       type: 'settings',
       roomCode,
       playerId: hostId,
-      settings: { mapId: 'crater-oasis', seed: 246810, combatMode: 'manual', armySides: [1, 2, 3, 4] },
+      settings: { mapId: 'crater-oasis', seed: 246810, combatMode: 'manual', armySides: [1, 1] },
     }));
     await synchronizedSettings;
 
@@ -95,6 +95,15 @@ describe('multiplayer relay', () => {
     expect(guestStart.room.mapId).toBe('crater-oasis');
     expect(hostStart.room.seed).toBe(246810);
     expect(guestStart.room.seed).toBe(246810);
+
+    const hostPing = nextMessage(host, (message) => message.type === 'tactical-ping');
+    const guestPing = nextMessage(guest, (message) => message.type === 'tactical-ping');
+    host.send(JSON.stringify({ type: 'tactical-ping', roomCode, playerId: hostId, kind: 'attack', x: 96.4, z: -44.2 }));
+    const [hostPingEvent, guestPingEvent] = await Promise.all([hostPing, guestPing]);
+    expect(hostPingEvent.kind).toBe('attack');
+    expect(guestPingEvent.kind).toBe('attack');
+    expect(guestPingEvent.x).toBe(96.4);
+    expect(guestPingEvent.z).toBe(-44.2);
 
     const spoofedCommand = noMessage(host, (message) => message.type === 'command', 80);
     guest.send(JSON.stringify({
