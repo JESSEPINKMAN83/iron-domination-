@@ -70,6 +70,7 @@ const SAVE_STORAGE_KEY = 'iron-dominion.save.v1';
 const LOAD_SAVE_STORAGE_KEY = 'iron-dominion.load-save.v1';
 const MULTIPLAYER_SERVER_STORAGE_KEY = 'iron-dominion.multiplayer.server.v1';
 const MULTIPLAYER_PLAYER_STORAGE_KEY = 'iron-dominion.multiplayer.players.v1';
+const MULTIPLAYER_REMATCH_STORAGE_KEY = 'iron-dominion.multiplayer.rematch.v1';
 
 interface SkirmishSettings {
   mapId: MapId;
@@ -109,9 +110,37 @@ const PERSONALITY_DESCRIPTIONS: Record<Personality, string> = {
 const MAP_DESCRIPTIONS: Record<MapId, string> = Object.fromEntries(
   MAP_IDS.map((id) => [id, MAP_PRESETS[id].description]),
 ) as Record<MapId, string>;
+const LOBBY_COLORS = {
+  jade: '#67d59b',
+  crimson: '#ed6a5c',
+  azure: '#67b8ef',
+  amber: '#e8b854',
+} as const;
 
 function mapChoiceLabel(id: MapId): string {
   return MAP_PRESETS[id].shortLabel;
+}
+
+function renderLobbyMapPreview(root: HTMLDivElement, map: (typeof MAP_PRESETS)[MapId], seed: number): void {
+  root.replaceChildren();
+  const colors =
+    map.biome === 'desert'
+      ? ['#9f7048', '#d3a45d', '#247f84']
+      : map.biome === 'snow'
+        ? ['#8197ae', '#e9f4f7', '#5c9ab7']
+        : ['#365e3a', '#78a259', '#2b6f7d'];
+  root.style.background = `linear-gradient(135deg,${colors[0]},${colors[1]} 52%,${colors[0]})`;
+  const terrain = document.createElement('div');
+  terrain.style.cssText =
+    'position:absolute;inset:-20%;opacity:.75;transform:rotate(-13deg);background:' +
+    `repeating-linear-gradient(27deg,transparent 0 24px,rgba(0,0,0,.15) 25px 28px),radial-gradient(ellipse at 69% 44%,${colors[2]} 0 8%,transparent 8.5%),radial-gradient(ellipse at 30% 68%,rgba(255,240,160,.38) 0 4%,transparent 4.5%);`;
+  const label = document.createElement('div');
+  label.style.cssText = 'position:absolute;left:14px;bottom:12px;color:#f0f3e8;font:700 17px ui-monospace,Menlo,monospace;letter-spacing:.14em;text-shadow:0 2px 8px #000;';
+  label.textContent = map.label.toUpperCase();
+  const details = document.createElement('div');
+  details.style.cssText = 'position:absolute;right:14px;top:12px;color:#f0d56a;font:10px ui-monospace,Menlo,monospace;letter-spacing:.1em;text-shadow:0 1px 4px #000;';
+  details.textContent = `SEED ${seed}`;
+  root.append(terrain, label, details);
 }
 
 interface MatchSnapshot {
@@ -129,6 +158,12 @@ interface StoredMatchSave {
   savedAt: number;
   settings: SkirmishSettings;
   state: SerializedMatchState;
+}
+
+interface StoredMultiplayerRematch {
+  server: string;
+  roomCode: string;
+  playerId: string;
 }
 
 let pendingMultiplayer: { client: MultiplayerClient; session: MultiplayerSession } | undefined;
@@ -224,6 +259,25 @@ function reloadWithSettings(settings: SkirmishSettings, autostart: boolean): voi
   if (autostart) window.sessionStorage.setItem(AUTOSTART_STORAGE_KEY, '1');
   else window.sessionStorage.removeItem(AUTOSTART_STORAGE_KEY);
   window.location.reload();
+}
+
+function restartMultiplayerMatch(client: MultiplayerClient, session: MultiplayerSession): void {
+  const state: StoredMultiplayerRematch = { server: client.baseUrl, roomCode: session.room.code, playerId: session.player.id };
+  window.sessionStorage.setItem(MULTIPLAYER_REMATCH_STORAGE_KEY, JSON.stringify(state));
+  window.location.reload();
+}
+
+function consumeMultiplayerRematch(): StoredMultiplayerRematch | undefined {
+  const raw = window.sessionStorage.getItem(MULTIPLAYER_REMATCH_STORAGE_KEY);
+  window.sessionStorage.removeItem(MULTIPLAYER_REMATCH_STORAGE_KEY);
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredMultiplayerRematch>;
+    if (typeof parsed.server !== 'string' || typeof parsed.roomCode !== 'string' || typeof parsed.playerId !== 'string') return undefined;
+    return { server: normalizedBaseUrl(parsed.server), roomCode: normalizeRoomCode(parsed.roomCode), playerId: parsed.playerId };
+  } catch {
+    return undefined;
+  }
 }
 
 function readStoredMatchSave(): StoredMatchSave | undefined {
@@ -739,7 +793,7 @@ function createRoomLobbyView(
     'background:rgba(5,8,9,.94);backdrop-filter:blur(10px);';
   const panel = document.createElement('div');
   panel.style.cssText =
-    'width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:24px;box-sizing:border-box;' +
+    'width:min(920px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:24px;box-sizing:border-box;' +
     'display:grid;gap:18px;background:linear-gradient(180deg,#151b1d,#080b0b);border:2px solid #596260;' +
     'box-shadow:inset 0 0 0 1px rgba(210,177,95,.2),0 28px 90px rgba(0,0,0,.7);';
 
@@ -754,13 +808,51 @@ function createRoomLobbyView(
   const summary = document.createElement('div');
   summary.style.cssText =
     'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;border:1px solid #303936;background:#303936;';
+  const mapPreview = document.createElement('div');
+  mapPreview.style.cssText =
+    'min-height:156px;position:relative;overflow:hidden;border:1px solid #596260;background:#27472f;box-shadow:inset 0 0 0 1px rgba(210,177,95,.24);';
   const players = document.createElement('div');
   players.style.cssText = 'display:grid;gap:8px;';
   const status = document.createElement('div');
   status.style.cssText = 'min-height:18px;text-align:center;color:#aebbc4;font-size:11px;letter-spacing:.08em;';
 
+  const profile = document.createElement('div');
+  profile.style.cssText = 'display:grid;grid-template-columns:minmax(160px,1fr) auto auto;gap:10px;align-items:end;padding:12px;border:1px solid #303936;background:#0f1414;';
+  const nameLabel = setupTextInput('Commander name', session.player.name);
+  nameLabel.input.maxLength = 28;
+  const sideLabel = document.createElement('label');
+  sideLabel.style.cssText = 'display:grid;gap:5px;color:#d2b15f;font-size:9px;letter-spacing:.1em;text-transform:uppercase;';
+  sideLabel.append('Team side');
+  const side = document.createElement('select');
+  side.style.cssText = 'height:34px;background:#090d0d;color:#f0f3e8;border:1px solid #46504d;padding:0 8px;font:11px ui-monospace,Menlo,monospace;';
+  for (let index = 1; index <= 4; index++) {
+    const option = document.createElement('option');
+    option.value = String(index);
+    option.textContent = `SIDE ${index}`;
+    side.appendChild(option);
+  }
+  sideLabel.append(side);
+  const colors = document.createElement('div');
+  colors.style.cssText = 'display:grid;gap:5px;color:#d2b15f;font-size:9px;letter-spacing:.1em;text-transform:uppercase;';
+  const colorButtons = new Map<string, HTMLButtonElement>();
+  const colorRow = document.createElement('div');
+  colorRow.style.cssText = 'display:flex;gap:5px;height:34px;align-items:center;';
+  for (const [color, value] of Object.entries(LOBBY_COLORS)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.title = color;
+    button.style.cssText = `width:27px;height:27px;border:2px solid #111;background:${value};cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);`;
+    button.onclick = () => client.updatePlayerProfile(session.room.code, session.player.id, { color: color as keyof typeof LOBBY_COLORS });
+    colorButtons.set(color, button);
+    colorRow.appendChild(button);
+  }
+  colors.append('Army colour', colorRow);
+  nameLabel.input.onchange = () => client.updatePlayerProfile(session.room.code, session.player.id, { name: nameLabel.input.value });
+  side.onchange = () => client.updatePlayerProfile(session.room.code, session.player.id, { side: Number(side.value) });
+  profile.append(nameLabel.root, sideLabel, colors);
+
   const actions = document.createElement('div');
-  actions.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.7fr);gap:10px;';
+  actions.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;';
   const copy = document.createElement('button');
   copy.type = 'button';
   copy.textContent = 'COPY ROOM LINK';
@@ -772,6 +864,10 @@ function createRoomLobbyView(
     status.textContent = `Room link copied · ${session.room.code}`;
     copy.blur();
   };
+  const ready = document.createElement('button');
+  ready.type = 'button';
+  ready.style.cssText = smallSetupButtonCss();
+  ready.onclick = () => client.setReady(session.room.code, session.player.id, !session.player.ready);
   const launch = document.createElement('button');
   launch.type = 'button';
   launch.style.cssText =
@@ -779,14 +875,13 @@ function createRoomLobbyView(
     'font:700 15px ui-monospace,Menlo,monospace;letter-spacing:.15em;cursor:pointer;';
   launch.onclick = () => {
     if (session.player.index !== 1) return;
-    client.updateSettings(session.room.code, session.player.id, settings());
     client.startMatch(session.room.code, session.player.id);
     launch.disabled = true;
     launch.textContent = 'STARTING MATCH...';
     launch.style.opacity = '.55';
   };
-  actions.append(copy, launch);
-  panel.append(heading, summary, players, status, actions);
+  actions.append(copy, ready, launch);
+  panel.append(heading, mapPreview, summary, players, profile, status, actions);
   root.appendChild(panel);
 
   const update = (room: MultiplayerRoom, playerIndex: number): void => {
@@ -811,35 +906,48 @@ function createRoomLobbyView(
       item.append(key, text);
       return item;
     }));
+    renderLobbyMapPreview(mapPreview, map, room.seed);
     const playerSlots = [1, 2].map((index) => {
       const player = room.players.find((candidate) => candidate.index === index);
       const row = document.createElement('div');
       row.style.cssText =
-        'display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 14px;' +
+        'display:grid;grid-template-columns:42px 16px minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 14px;' +
         'border:1px solid #303936;background:#0f1414;';
       const number = document.createElement('div');
       number.textContent = `P${index}`;
-      number.style.cssText = `color:${index === 1 ? '#7df27d' : '#ff8a72'};font-size:12px;`;
+      number.style.cssText = `color:${player ? LOBBY_COLORS[player.color ?? (index === 1 ? 'jade' : 'crimson')] : '#6f7b78'};font-size:12px;`;
+      const swatch = document.createElement('div');
+      swatch.style.cssText = `width:12px;height:12px;background:${player ? LOBBY_COLORS[player.color ?? 'jade'] : '#222'};border:1px solid rgba(255,255,255,.45);`;
       const name = document.createElement('div');
-      name.textContent = player?.name ?? (index === 1 ? 'Host slot' : 'Waiting for player...');
+      name.textContent = player ? `${player.name} · SIDE ${room.armySides[index - 1] ?? index}` : index === 1 ? 'Host slot' : 'Waiting for player...';
       name.style.cssText = 'color:#dce8df;';
       const connection = document.createElement('div');
-      connection.textContent = player?.connected ? `${player.pingMs ?? '...'} ms · CONNECTED` : 'OPEN SLOT';
-      connection.style.cssText = `color:${player?.connected ? '#7df27d' : '#6f7b78'};font-size:10px;`;
-      row.append(number, name, connection);
+      connection.textContent = player?.connected ? player.ready ? 'READY' : `${player.pingMs ?? '...'} ms · NOT READY` : 'OPEN SLOT';
+      connection.style.cssText = `color:${player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : '#6f7b78'};font-size:10px;`;
+      row.append(number, swatch, name, connection);
       return row;
     });
     players.replaceChildren(...playerSlots);
+    const localPlayer = room.players.find((player) => player.id === session.player.id) ?? session.player;
+    session.player = localPlayer;
+    if (document.activeElement !== nameLabel.input) nameLabel.input.value = localPlayer.name;
+    side.value = String(room.armySides[playerIndex - 1] ?? playerIndex);
+    for (const [color, button] of colorButtons) button.style.outline = color === (localPlayer.color ?? 'jade') ? '2px solid #f0d56a' : 'none';
     const connected = room.players.filter((player) => player.connected).length;
+    const allReady = connected === 2 && room.players.filter((player) => player.connected).every((player) => player.ready);
     const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
     if (room.status === 'starting') status.textContent = 'Host launched the match · synchronizing both players...';
     else if (engines.size > 1) status.textContent = 'Different browsers detected · matching browser engines are recommended.';
     else if (connected < 2) status.textContent = playerIndex === 1 ? 'Waiting for another commander to join...' : 'Connected · waiting for the host.';
-    else status.textContent = playerIndex === 1 ? 'Opponent connected · you can start the match.' : 'Both players connected · waiting for the host to start.';
-    const canLaunch = playerIndex === 1 && connected === 2 && room.status === 'waiting';
+    else if (!allReady) status.textContent = 'Each commander must choose a team and confirm READY.';
+    else status.textContent = playerIndex === 1 ? 'All commanders ready · host can launch.' : 'All commanders ready · waiting for the host.';
+    ready.disabled = room.status !== 'waiting';
+    ready.textContent = localPlayer.ready ? 'UNREADY' : 'READY';
+    ready.style.opacity = room.status === 'waiting' ? '1' : '.45';
+    const canLaunch = playerIndex === 1 && allReady && room.status === 'waiting';
     launch.disabled = !canLaunch;
     launch.textContent = playerIndex === 1
-      ? room.status === 'starting' ? 'STARTING MATCH...' : connected === 2 ? 'START MATCH' : 'WAITING FOR PLAYER'
+      ? room.status === 'starting' ? 'STARTING MATCH...' : !allReady ? 'WAITING FOR READY' : 'START MATCH'
       : 'WAITING FOR HOST';
     launch.style.opacity = canLaunch ? '1' : '.45';
     launch.style.cursor = canLaunch ? 'pointer' : 'not-allowed';
@@ -1196,6 +1304,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           sidebar.addTacticalPing(ping);
           hud.showTacticalPing(ping.name || `Commander ${ping.playerIndex}`, ping.kind);
         },
+        onRematchStart: () => {
+          if (multiplayer) restartMultiplayerMatch(multiplayer.client, multiplayer.session);
+        },
       })
     : undefined;
   if (multiplayerMode) setNetworkStatus(`Room ${multiplayer.session.room.code} · army ${localTeam} · online`);
@@ -1452,7 +1563,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     const hostileTeams = teams.filter((team) => areTeamsHostile(sim, localTeam, team));
     if (hostileTeams.every((team) => alive(team) === 0)) outcome = 'victory';
     else if (alive(localTeam) === 0) outcome = 'defeat';
-    if (outcome) showOutcomeBanner(outcome, combinedCommanderStats(commanders), settings, matchSnapshot());
+    if (outcome) {
+      showOutcomeBanner(
+        outcome,
+        combinedCommanderStats(commanders),
+        settings,
+        matchSnapshot(),
+        multiplayer && lockstep ? () => lockstep.requestRematch() : undefined,
+      );
+    }
   };
   lockstep?.connect();
   window.addEventListener('beforeunload', () => lockstep?.disconnect(), { once: true });
@@ -1861,6 +1980,7 @@ function showOutcomeBanner(
   aiStats: { attacksLaunched: number; rebuilds: number },
   settings: SkirmishSettings,
   snapshot: MatchSnapshot,
+  onRematch?: () => void,
 ): void {
   const el = document.createElement('div');
   const win = outcome === 'victory';
@@ -1889,7 +2009,16 @@ function showOutcomeBanner(
   }
   const actions = document.createElement('div');
   actions.style.cssText = 'display:flex;justify-content:center;gap:10px;margin-top:18px;pointer-events:auto;';
-  const again = outcomeButton('PLAY AGAIN', () => reloadWithSettings({ ...settings, seed: randomSeed() }, true));
+  const again = outcomeButton(onRematch ? 'REMATCH' : 'PLAY AGAIN', () => {
+    if (!onRematch) {
+      reloadWithSettings({ ...settings, seed: randomSeed() }, true);
+      return;
+    }
+    onRematch();
+    again.disabled = true;
+    again.textContent = 'WAITING FOR PLAYER';
+    again.style.opacity = '.55';
+  });
   const setup = outcomeButton('SETUP', () => reloadWithSettings(settings, false));
   actions.append(again, setup);
   el.append(title, summary, stats, actions);
@@ -2177,6 +2306,14 @@ function findValidTestPlacement(
 async function start(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const settings = initialSettings(params);
+  const rematch = consumeMultiplayerRematch();
+  if (rematch) {
+    const client = new MultiplayerClient(rematch.server);
+    const session = await client.join(rematch.roomCode, undefined, rematch.playerId);
+    pendingMultiplayer = { client, session };
+    await boot(settingsFromRoom(session.room));
+    return;
+  }
   const hasAutostartParams = shouldAutostartFromUrl(params);
   const autostart = window.sessionStorage.getItem(AUTOSTART_STORAGE_KEY) === '1';
   window.sessionStorage.removeItem(AUTOSTART_STORAGE_KEY);

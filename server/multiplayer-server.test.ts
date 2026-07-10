@@ -82,6 +82,21 @@ describe('multiplayer relay', () => {
     }));
     await synchronizedSettings;
 
+    const profileUpdated = nextMessage(
+      host,
+      (message) => message.type === 'room-state' && message.room.players.some((player: any) => player.id === guestId && player.name === 'Wingmate' && player.color === 'azure'),
+    );
+    guest.send(JSON.stringify({ type: 'player-profile', roomCode, playerId: guestId, profile: { name: 'Wingmate', color: 'azure', side: 1 } }));
+    await profileUpdated;
+
+    const bothReady = nextMessage(
+      host,
+      (message) => message.type === 'room-state' && message.room.players.length === 2 && message.room.players.every((player: any) => player.ready),
+    );
+    host.send(JSON.stringify({ type: 'set-ready', roomCode, playerId: hostId, ready: true }));
+    guest.send(JSON.stringify({ type: 'set-ready', roomCode, playerId: guestId, ready: true }));
+    await bothReady;
+
     const guestCannotStart = noMessage(host, (message) => message.type === 'match-start', 80);
     guest.send(JSON.stringify({ type: 'start-match', roomCode, playerId: guestId }));
     await expect(guestCannotStart).resolves.toBe(true);
@@ -104,6 +119,12 @@ describe('multiplayer relay', () => {
     expect(guestPingEvent.kind).toBe('attack');
     expect(guestPingEvent.x).toBe(96.4);
     expect(guestPingEvent.z).toBe(-44.2);
+
+    const hostRematchStart = nextMessage(host, (message) => message.type === 'match-start' && message.rematch === true, 1200);
+    const guestRematchStart = nextMessage(guest, (message) => message.type === 'match-start' && message.rematch === true, 1200);
+    host.send(JSON.stringify({ type: 'request-rematch', roomCode, playerId: hostId }));
+    guest.send(JSON.stringify({ type: 'request-rematch', roomCode, playerId: guestId }));
+    await Promise.all([hostRematchStart, guestRematchStart]);
 
     const spoofedCommand = noMessage(host, (message) => message.type === 'command', 80);
     guest.send(JSON.stringify({

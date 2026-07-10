@@ -71,6 +71,7 @@ export interface LockstepRuntimeOptions {
   onStatus?: (message: string, bad?: boolean) => void;
   onSnapshotRestored?: () => void;
   onTacticalPing?: (ping: TacticalPing) => void;
+  onRematchStart?: () => void;
 }
 
 const DEFAULT_INPUT_DELAY_TICKS = 8;
@@ -173,6 +174,14 @@ export class LockstepRuntime {
     }
   }
 
+  requestRematch(): void {
+    try {
+      this.options.client.requestRematch(this.options.session.room.code, this.options.session.player.id);
+    } catch (err) {
+      this.options.onStatus?.(`Rematch request failed: ${String((err as Error).message ?? err)}`, true);
+    }
+  }
+
   private async send(command: NetCommand, tick = this.options.sim.tick + (this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS)): Promise<void> {
     try {
       await this.options.client.sendCommand(this.options.session.room.code, this.options.session.player.id, tick, command);
@@ -194,6 +203,10 @@ export class LockstepRuntime {
       return;
     }
     if (event.type === 'room-state' || event.type === 'match-start') {
+      if (event.type === 'match-start' && event.rematch) {
+        this.options.onRematchStart?.();
+        return;
+      }
       const missing = event.room.players.some((player) => player.index !== this.localTeam && !player.connected);
       const connected = event.room.players.filter((player) => player.connected).length;
       const peerReconnected = this.peerMissing && !missing;

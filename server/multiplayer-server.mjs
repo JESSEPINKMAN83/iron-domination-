@@ -32,9 +32,10 @@ const rooms = new Map();
  *   updatedAt: number;
  *   status: 'waiting' | 'starting' | 'in-game';
  *   startsAt?: number;
+ *   rematchStarting?: boolean;
  *   armyCount: 2;
  *   armySides: number[];
- *   players: Array<{ id: string; index: number; name: string; connected: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
+ *   players: Array<{ id: string; index: number; name: string; color: string; ready: boolean; rematchReady: boolean; connected: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
  *   clients: Map<string, import('ws').WebSocket>;
  * }} Room
  */
@@ -118,6 +119,9 @@ function routeSocket(socket, body) {
   if (body?.type === 'join') return handleJoin(socket, body);
   if (body?.type === 'start-match') return handleStartMatch(socket, body);
   if (body?.type === 'settings') return handleSettings(socket, body);
+  if (body?.type === 'set-ready') return handleSetReady(socket, body);
+  if (body?.type === 'player-profile') return handlePlayerProfile(socket, body);
+  if (body?.type === 'request-rematch') return handleRequestRematch(socket, body);
   if (body?.type === 'command') return handleCommand(socket, body);
   if (body?.type === 'tactical-ping') return handleTacticalPing(socket, body);
   if (body?.type === 'forfeit') return handleForfeit(socket, body);
@@ -151,7 +155,7 @@ function handleStartMatch(socket, body) {
   const { room, player } = roomAndPlayer(body, socket);
   if (!room || !player || player.index !== 1 || room.status !== 'waiting') return;
   const connected = room.players.filter((candidate) => candidate.connected);
-  if (connected.length !== 2) return;
+  if (connected.length !== 2 || !connected.every((candidate) => candidate.ready)) return;
   startRoom(room);
 }
 
@@ -165,8 +169,39 @@ function handleSettings(socket, body) {
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
   room.armySides = normalizeArmySides(next.armySides, 2);
+  for (const candidate of room.players) candidate.ready = false;
   room.updatedAt = Date.now();
   broadcast(room, roomState(room));
+}
+
+function handleSetReady(socket, body) {
+  const { room, player } = roomAndPlayer(body, socket);
+  if (!room || !player || room.status !== 'waiting') return;
+  player.ready = body.ready === true;
+  room.updatedAt = Date.now();
+  broadcast(room, roomState(room));
+}
+
+function handlePlayerProfile(socket, body) {
+  const { room, player } = roomAndPlayer(body, socket);
+  if (!room || !player || room.status !== 'waiting') return;
+  const profile = body.profile ?? {};
+  if (typeof profile.name === 'string') player.name = normalizePlayerName(profile.name, player.index);
+  if (normalizePlayerColor(profile.color)) player.color = normalizePlayerColor(profile.color);
+  if (Number.isFinite(Number(profile.side))) room.armySides[player.index - 1] = normalizeSide(profile.side);
+  player.ready = false;
+  room.updatedAt = Date.now();
+  broadcast(room, roomState(room));
+}
+
+function handleRequestRematch(socket, body) {
+  const { room, player } = roomAndPlayer(body, socket);
+  if (!room || !player || room.status !== 'in-game') return;
+  player.rematchReady = true;
+  room.updatedAt = Date.now();
+  const connected = room.players.filter((candidate) => candidate.connected);
+  if (connected.length === 2 && connected.every((candidate) => candidate.rematchReady)) startRematch(room);
+  else broadcast(room, roomState(room));
 }
 
 function handleCommand(socket, body) {
@@ -258,7 +293,10 @@ function addPlayer(room, name, requestedId, engine) {
   const player = {
     id,
     index: openIndex,
-    name: String(name).slice(0, 28),
+    name: normalizePlayerName(name, openIndex),
+    color: defaultPlayerColor(openIndex),
+    ready: false,
+    rematchReady: false,
     connected: true,
     engine: normalizeEngine(engine),
     joinedAt: Date.now(),
@@ -290,8 +328,10 @@ function detachSocket(socket) {
     player.disconnectedAt = Date.now();
   }
   if (room.status === 'starting') {
-    room.status = 'waiting';
-    room.startsAt = undefined;
+    if (!room.rematchStarting) {
+      room.status = 'waiting';
+      room.startsAt = undefined;
+    }
   }
   room.updatedAt = Date.now();
   broadcast(room, roomState(room));
@@ -301,6 +341,7 @@ function startRoom(room) {
   if (room.status !== 'waiting') return;
   room.inputDelay = inputDelayForRoom(room);
   room.status = 'starting';
+  room.rematchStarting = false;
   room.startsAt = Date.now() + START_COUNTDOWN_MS;
   const startsAt = room.startsAt;
   broadcast(room, roomState(room));
@@ -308,7 +349,28 @@ function startRoom(room) {
     if (!rooms.has(room.code) || room.status !== 'starting' || room.startsAt !== startsAt) return;
     room.status = 'in-game';
     room.startsAt = undefined;
+    room.rematchStarting = false;
     broadcast(room, { type: 'match-start', room: publicRoom(room) });
+    broadcast(room, roomState(room));
+  }, START_COUNTDOWN_MS);
+}
+
+function startRematch(room) {
+  room.status = 'starting';
+  room.rematchStarting = true;
+  room.startsAt = Date.now() + START_COUNTDOWN_MS;
+  for (const player of room.players) {
+    player.ready = false;
+    player.rematchReady = false;
+  }
+  const startsAt = room.startsAt;
+  broadcast(room, roomState(room));
+  setTimeout(() => {
+    if (!rooms.has(room.code) || room.status !== 'starting' || room.startsAt !== startsAt) return;
+    room.status = 'in-game';
+    room.startsAt = undefined;
+    room.rematchStarting = false;
+    broadcast(room, { type: 'match-start', room: publicRoom(room), rematch: true });
     broadcast(room, roomState(room));
   }, START_COUNTDOWN_MS);
 }
@@ -358,6 +420,9 @@ function publicPlayer(player) {
     connected: player.connected,
     engine: player.engine,
     pingMs: player.pingMs,
+    color: player.color,
+    ready: player.ready,
+    rematchReady: player.rematchReady,
   };
 }
 
@@ -430,6 +495,23 @@ function normalizeArmySides(value, armyCount) {
     const side = Math.floor(Number(input[index]) || index + 1);
     return index < armyCount ? Math.max(1, Math.min(4, side)) : index + 1;
   });
+}
+
+function normalizeSide(value) {
+  return Math.max(1, Math.min(4, Math.floor(Number(value) || 1)));
+}
+
+function normalizePlayerName(value, index) {
+  const name = String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, 28);
+  return name || `Commander ${index}`;
+}
+
+function normalizePlayerColor(value) {
+  return value === 'jade' || value === 'crimson' || value === 'azure' || value === 'amber' ? value : undefined;
+}
+
+function defaultPlayerColor(index) {
+  return index === 1 ? 'jade' : 'crimson';
 }
 
 function sendOptions(req, res) {

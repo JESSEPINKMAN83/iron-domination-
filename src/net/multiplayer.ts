@@ -23,7 +23,12 @@ export interface MultiplayerPlayer {
   connected: boolean;
   engine?: string;
   pingMs?: number;
+  color?: MultiplayerColor;
+  ready?: boolean;
+  rematchReady?: boolean;
 }
+
+export type MultiplayerColor = 'jade' | 'crimson' | 'azure' | 'amber';
 
 export type TacticalPingKind = 'attack' | 'help' | 'defend' | 'good-game';
 
@@ -39,7 +44,7 @@ export interface TacticalPing {
 
 export type MultiplayerEvent =
   | { type: 'room-state'; room: MultiplayerRoom }
-  | { type: 'match-start'; room: MultiplayerRoom }
+  | { type: 'match-start'; room: MultiplayerRoom; rematch?: boolean }
   | { type: 'command'; playerId: string; playerIndex: number; tick: number; command: unknown }
   | TacticalPing
   | { type: 'heartbeat'; now: number }
@@ -108,6 +113,18 @@ export class MultiplayerClient {
 
   startMatch(roomCode: string, playerId: string): void {
     this.send({ type: 'start-match', roomCode: normalizeRoomCode(roomCode), playerId });
+  }
+
+  setReady(roomCode: string, playerId: string, ready: boolean): void {
+    this.send({ type: 'set-ready', roomCode: normalizeRoomCode(roomCode), playerId, ready });
+  }
+
+  updatePlayerProfile(roomCode: string, playerId: string, profile: { name?: string; color?: MultiplayerColor; side?: number }): void {
+    this.send({ type: 'player-profile', roomCode: normalizeRoomCode(roomCode), playerId, profile });
+  }
+
+  requestRematch(roomCode: string, playerId: string): void {
+    this.send({ type: 'request-rematch', roomCode: normalizeRoomCode(roomCode), playerId });
   }
 
   forfeit(roomCode: string, playerId: string): void {
