@@ -897,11 +897,31 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
 }
 
 function storedMultiplayerServer(): string {
-  return window.localStorage.getItem(MULTIPLAYER_SERVER_STORAGE_KEY) ?? defaultMultiplayerServer();
+  const fallback = defaultMultiplayerServer();
+  const stored = window.localStorage.getItem(MULTIPLAYER_SERVER_STORAGE_KEY);
+  if (!stored) return fallback;
+  if (isPublicHost(window.location.hostname) && isLoopbackServer(stored)) {
+    window.localStorage.removeItem(MULTIPLAYER_SERVER_STORAGE_KEY);
+    return fallback;
+  }
+  return stored;
 }
 
 function defaultMultiplayerServer(): string {
   return normalizedBaseUrl(import.meta.env.VITE_MULTIPLAYER_SERVER_URL ?? 'http://127.0.0.1:8787');
+}
+
+function isPublicHost(hostname: string): boolean {
+  return hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '[::1]';
+}
+
+function isLoopbackServer(server: string): boolean {
+  try {
+    const hostname = new URL(normalizedBaseUrl(server)).hostname;
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
 }
 
 function playerStorageKey(server: string, roomCode: string): string {
