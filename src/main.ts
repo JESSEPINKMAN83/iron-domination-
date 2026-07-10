@@ -9,6 +9,7 @@ import { startPosition } from './content/startPositions';
 import { Input } from './engine/input';
 import { GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
 import { advanceTick } from './match/advanceTick';
+import { shouldAutostartFromUrl } from './match/startup';
 import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
@@ -522,7 +523,7 @@ function createMultiplayerSetupPanel(
   header.style.cssText = 'display:flex;justify-content:space-between;gap:12px;align-items:baseline;';
   header.innerHTML =
     '<div style="color:#d2b15f;">MULTIPLAYER</div>' +
-    '<div style="color:#6f7b78;font-size:10px;">M2 · friends-link 1v1</div>';
+    '<div style="color:#6f7b78;font-size:10px;">friends-link online 1v1</div>';
 
   const row = document.createElement('div');
   row.style.cssText =
@@ -745,7 +746,8 @@ function playerStorageKey(server: string, roomCode: string): string {
 }
 
 function rememberedPlayerId(server: string, roomCode: string): string | undefined {
-  const stored = window.localStorage.getItem(MULTIPLAYER_PLAYER_STORAGE_KEY);
+  const storage = normalizeRoomCode(roomCode) === 'HOST' ? window.localStorage : window.sessionStorage;
+  const stored = storage.getItem(MULTIPLAYER_PLAYER_STORAGE_KEY);
   if (!stored) return undefined;
   try {
     const map = JSON.parse(stored) as Record<string, string>;
@@ -756,7 +758,8 @@ function rememberedPlayerId(server: string, roomCode: string): string | undefine
 }
 
 function rememberPlayerId(server: string, roomCode: string, playerId: string): void {
-  const stored = window.localStorage.getItem(MULTIPLAYER_PLAYER_STORAGE_KEY);
+  const storage = normalizeRoomCode(roomCode) === 'HOST' ? window.localStorage : window.sessionStorage;
+  const stored = storage.getItem(MULTIPLAYER_PLAYER_STORAGE_KEY);
   let map: Record<string, string> = {};
   if (stored) {
     try {
@@ -767,7 +770,7 @@ function rememberPlayerId(server: string, roomCode: string, playerId: string): v
   }
   map[playerStorageKey(server, roomCode)] = playerId;
   if (Object.keys(map).length > 24) map = Object.fromEntries(Object.entries(map).slice(-24));
-  window.localStorage.setItem(MULTIPLAYER_PLAYER_STORAGE_KEY, JSON.stringify(map));
+  storage.setItem(MULTIPLAYER_PLAYER_STORAGE_KEY, JSON.stringify(map));
 }
 
 function friendlyMultiplayerError(err: unknown): string {
@@ -1957,10 +1960,10 @@ function findValidTestPlacement(
 async function start(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const settings = initialSettings(params);
-  const hasUrlParams = params.toString().length > 0;
+  const hasAutostartParams = shouldAutostartFromUrl(params);
   const autostart = window.sessionStorage.getItem(AUTOSTART_STORAGE_KEY) === '1';
   window.sessionStorage.removeItem(AUTOSTART_STORAGE_KEY);
-  if (hasUrlParams || autostart) {
+  if (hasAutostartParams || autostart) {
     saveSkirmishSettings(settings);
     await boot(settings);
     return;

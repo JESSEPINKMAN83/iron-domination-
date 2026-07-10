@@ -167,6 +167,49 @@ describe('multiplayer lockstep commands', () => {
     expect(sent.some((command) => isCommandType(command, 'match-snapshot'))).toBe(true);
   });
 
+  it('pauses after a reconnect until the guest acknowledges the host snapshot', () => {
+    const hf = generateHeightfield(MAP01);
+    const match = testMatch(hf);
+    let onEvent: ((event: unknown) => void) | undefined;
+    const sent: unknown[] = [];
+    const client = {
+      connect: (_room: string, _playerId: string, handler: (event: unknown) => void) => {
+        onEvent = handler;
+      },
+      disconnect: () => undefined,
+      sendCommand: async (_room: string, _playerId: string, _tick: number, command: unknown) => {
+        sent.push(command);
+      },
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({
+      sim: match.sim,
+      hf,
+      economies: { 1: match.economy1, 2: match.economy2 },
+      client,
+      session: sessionFor(1),
+    });
+    lockstep.connect();
+    onEvent?.({
+      type: 'room-state',
+      room: { ...sessionFor(1).room, players: [{ id: 'host', index: 1, connected: true }, { id: 'guest', index: 2, connected: false }] },
+    });
+    expect(lockstep.canAdvance()).toBe(false);
+    onEvent?.({
+      type: 'room-state',
+      room: { ...sessionFor(1).room, players: [{ id: 'host', index: 1, connected: true }, { id: 'guest', index: 2, connected: true }] },
+    });
+    expect(sent.some((command) => isCommandType(command, 'match-snapshot'))).toBe(true);
+    expect(lockstep.canAdvance()).toBe(false);
+    onEvent?.({
+      type: 'command',
+      playerId: 'guest',
+      playerIndex: 2,
+      tick: match.sim.tick,
+      command: { type: 'snapshot-applied', hash: hashSim(match.sim), tick: match.sim.tick },
+    });
+    expect(lockstep.canAdvance()).toBe(true);
+  });
+
   it('guest restores a host snapshot and resumes after desync recovery', () => {
     const hf = generateHeightfield(MAP01);
     const host = testMatch(hf);

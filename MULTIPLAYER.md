@@ -1,6 +1,6 @@
 # Iron Dominion Multiplayer
 
-## Current Slice: Phase M3 Snapshot Recovery
+## Current Slice: Phase M3 Resilient Online 1v1
 
 The friends-link 1v1 multiplayer layer now provides:
 
@@ -19,15 +19,18 @@ The friends-link 1v1 multiplayer layer now provides:
 - realtime V-mode possession mirroring for drive/fly controls, release, and manual fire
 - periodic sim-hash desync checks
 - host-authored snapshot repair when a sim-hash mismatch is detected
+- automatic socket reconnect with exponential backoff and the same player slot
+- a 60-second reconnect grace period before a disconnect becomes a defeat
+- match pause and host-snapshot acknowledgement before a recovered room resumes
 - explicit multiplayer forfeit from the in-match MENU, with victory messaging for the opponent
 - visible in-match multiplayer status/warning overlay
 - pause-on-disconnect for interrupted rooms/opponents
 - a short starting countdown/loading state when both players are ready
 
-This is still an MVP. Reconnect resumes the local stream and pauses on interruptions. Snapshot
-repair now handles detected host/guest drift, but it is not full rollback netcode: queued commands
-already covered by the restored snapshot are discarded, while future commands continue from the
-host state.
+This is a friends-match release rather than competitive server-authoritative netcode. Reconnect
+resumes the same player slot and repairs both peers to the host state before simulation continues.
+It is not rollback netcode: queued commands already covered by the restored snapshot are discarded,
+while future commands continue from the host state.
 
 Phase M3 has started with the shared state foundation:
 
@@ -40,7 +43,10 @@ Phase M3 has started with the shared state foundation:
   100 more ticks and verifies the hashes still match.
 - `LockstepRuntime` now sends a serialized host snapshot on desync, lets the guest restore the sim
   and economies, trims stale queued commands, and reconciles unit render objects after recovery.
-- Targeted tests verify both host snapshot emission and guest hash recovery.
+- The relay rejects commands sent with another player's identity, rate-limits command traffic,
+  hides its room listing by default, and limits WebSocket payload size.
+- Automated tests verify host snapshot emission, guest hash recovery, reconnect acknowledgement,
+  real WebSocket host/join, identity-spoof rejection, slot reclaim, and disconnect timeout closure.
 
 Cross-browser play can desync because browser engines are not guaranteed to produce bit-identical
 floating-point results. The lobby warns when engines differ. The planned M5 fix is a deterministic
@@ -95,13 +101,18 @@ For a deploy-ready setup:
 - Set `ALLOWED_ORIGINS=https://YOUR_NETLIFY_SITE.netlify.app` on the relay host to restrict
   browser access to the game site.
 - Keep `PORT` managed by the relay host; locally it defaults to `8787`.
-- Player IDs are remembered per relay+room in local storage, so rejoining the same room can
-  reclaim the same player slot while the room is still alive.
+- Player IDs are remembered per relay+room in tab session storage, so reload/reconnect reclaims
+  the same slot without making a second tab impersonate the host. Host identity is persisted
+  separately for future rooms.
+- `render.yaml` can create the relay directly on Render. Set its `ALLOWED_ORIGINS` secret to the
+  exact Netlify origin, then copy the Render service URL into Netlify's
+  `VITE_MULTIPLAYER_SERVER_URL` environment variable and redeploy the client.
 
-## Next Multiplayer Slice
+## Remaining Hardening
 
-Phase M3 should continue from snapshot repair into production-grade reconnect/quit behavior:
-
-- relay keeps disconnected rooms alive long enough for reconnect
-- reconnect polish should make returning players clearly reclaim the same slot after a dropped
-  connection
+- Cross-browser deterministic math (M5) is still required before promising reliable
+  Chrome-to-Safari/Firefox matches. Until then, use the same browser engine on both computers.
+- The relay is deliberately a friends-room service. It catches desyncs and limits traffic, but it
+  is not authoritative anti-cheat and every client holds the complete simulation state.
+- A production host should provide HTTPS/WSS, process restarts, logs, uptime monitoring, and a
+  non-sleeping instance if instant room creation matters.

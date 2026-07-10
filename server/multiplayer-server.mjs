@@ -1,11 +1,14 @@
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 
 const PORT = Number(process.env.PORT ?? 8787);
-const ROOM_TTL_MS = 1000 * 60 * 45;
-const HEARTBEAT_MS = 1000 * 5;
-const START_COUNTDOWN_MS = 3000;
+const ROOM_TTL_MS = Math.max(1000, Number(process.env.ROOM_TTL_MS ?? 1000 * 60 * 45));
+const HEARTBEAT_MS = Math.max(50, Number(process.env.HEARTBEAT_MS ?? 1000 * 5));
+const START_COUNTDOWN_MS = Math.max(10, Number(process.env.START_COUNTDOWN_MS ?? 3000));
+const RECONNECT_GRACE_MS = Math.max(1000, Number(process.env.RECONNECT_GRACE_MS ?? 60_000));
+const MAX_COMMANDS_PER_SECOND = Math.max(30, Number(process.env.MAX_COMMANDS_PER_SECOND ?? 180));
+const EXPOSE_ROOMS = process.env.EXPOSE_ROOMS === 'true';
 const ALLOWED_ORIGINS = new Set(
   String(process.env.ALLOWED_ORIGINS ?? '')
     .split(',')
@@ -31,7 +34,7 @@ const rooms = new Map();
  *   startsAt?: number;
  *   armyCount: 2;
  *   armySides: number[];
- *   players: Array<{ id: string; index: number; name: string; connected: boolean; ready: boolean; engine: string; pingMs?: number; joinedAt: number }>;
+ *   players: Array<{ id: string; index: number; name: string; connected: boolean; ready: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
  *   clients: Map<string, import('ws').WebSocket>;
  * }} Room
  */
@@ -41,17 +44,18 @@ const server = createServer((req, res) => {
   if (req.method === 'OPTIONS') return sendOptions(req, res);
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
   if (req.method === 'GET' && url.pathname === '/health') return sendJson(req, res, 200, { ok: true, rooms: rooms.size, transport: 'websocket' });
-  if (req.method === 'GET' && url.pathname === '/rooms') return sendJson(req, res, 200, { ok: true, rooms: Array.from(rooms.values()).map(publicRoom) });
+  if (EXPOSE_ROOMS && req.method === 'GET' && url.pathname === '/rooms') return sendJson(req, res, 200, { ok: true, rooms: Array.from(rooms.values()).map(publicRoom) });
   return sendJson(req, res, 404, { ok: false, error: 'not-found' });
 });
 
 const wss = new WebSocketServer({
   server,
   path: '/ws',
+  maxPayload: 8 * 1024 * 1024,
   verifyClient(info, done) {
     if (ALLOWED_ORIGINS.size === 0) return done(true);
     const origin = info.origin;
-    return done(!origin || ALLOWED_ORIGINS.has(origin), 403, 'origin-not-allowed');
+    return done(Boolean(origin) && ALLOWED_ORIGINS.has(origin), 403, 'origin-not-allowed');
   },
 });
 
@@ -71,6 +75,9 @@ server.listen(PORT, () => {
   console.log(`[mp] Iron Dominion WebSocket relay listening on http://127.0.0.1:${PORT}`);
 });
 
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);
+
 setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
@@ -78,6 +85,24 @@ setInterval(() => {
       broadcast(room, { type: 'room-closed', reason: 'expired' });
       closeRoom(code);
       continue;
+    }
+    const expiredPlayer = room.players.find(
+      (player) => !player.connected && player.disconnectedAt && now - player.disconnectedAt >= RECONNECT_GRACE_MS,
+    );
+    if (expiredPlayer) {
+      if (room.status === 'in-game') {
+        broadcast(room, { type: 'room-closed', reason: `disconnect-timeout:${expiredPlayer.index}` });
+        closeRoom(code);
+        continue;
+      }
+      if (expiredPlayer.index === 1) {
+        broadcast(room, { type: 'room-closed', reason: 'host-disconnected' });
+        closeRoom(code);
+        continue;
+      }
+      room.players = room.players.filter((player) => player !== expiredPlayer);
+      room.updatedAt = now;
+      broadcast(room, roomState(room));
     }
     for (const [playerId, socket] of room.clients) {
       const nonce = randomUUID();
@@ -114,6 +139,7 @@ function handleJoin(socket, body) {
   const existing = typeof body.playerId === 'string' ? room.players.find((player) => player.id === body.playerId) : undefined;
   const player = existing ?? addPlayer(room, body.name ?? `Commander ${room.players.length + 1}`, body.playerId, body.engine);
   player.connected = true;
+  player.disconnectedAt = undefined;
   player.engine = normalizeEngine(body.engine);
   attachSocket(room, player, socket);
   send(socket, { type: 'session', requestId: body.requestId, room: publicRoom(room), player: publicPlayer(player) });
@@ -121,8 +147,8 @@ function handleJoin(socket, body) {
   maybeStart(room);
 }
 
-function handleReady(_socket, body) {
-  const { room, player } = roomAndPlayer(body);
+function handleReady(socket, body) {
+  const { room, player } = roomAndPlayer(body, socket);
   if (!room || !player) return;
   player.ready = body.ready === true;
   room.updatedAt = Date.now();
@@ -130,8 +156,8 @@ function handleReady(_socket, body) {
   maybeStart(room);
 }
 
-function handleSettings(_socket, body) {
-  const { room, player } = roomAndPlayer(body);
+function handleSettings(socket, body) {
+  const { room, player } = roomAndPlayer(body, socket);
   if (!room || !player || player.index !== 1 || room.status !== 'waiting') return;
   const next = body.settings ?? {};
   room.mapId = normalizeMapId(next.mapId ?? room.mapId);
@@ -145,9 +171,9 @@ function handleSettings(_socket, body) {
   broadcast(room, roomState(room));
 }
 
-function handleCommand(_socket, body) {
-  const { room, player } = roomAndPlayer(body);
-  if (!room || !player) return;
+function handleCommand(socket, body) {
+  const { room, player } = roomAndPlayer(body, socket);
+  if (!room || !player || room.status !== 'in-game' || !consumeCommandBudget(socket)) return;
   room.updatedAt = Date.now();
   broadcast(room, {
     type: 'command',
@@ -158,8 +184,8 @@ function handleCommand(_socket, body) {
   });
 }
 
-function handleForfeit(_socket, body) {
-  const { room, player } = roomAndPlayer(body);
+function handleForfeit(socket, body) {
+  const { room, player } = roomAndPlayer(body, socket);
   if (!room || !player) return;
   room.updatedAt = Date.now();
   broadcast(room, { type: 'player-forfeit', playerId: player.id, playerIndex: player.index, name: player.name });
@@ -181,7 +207,7 @@ function handlePong(socket, body) {
 function createRoom(body) {
   let code = '';
   do {
-    code = Math.random().toString(36).slice(2, 8).toUpperCase().padEnd(6, 'X');
+    code = randomBytes(5).toString('base64url').replace(/[-_]/g, '').slice(0, 6).toUpperCase().padEnd(6, 'X');
   } while (rooms.has(code));
   const armySides = normalizeArmySides(body?.armySides, 2);
   return {
@@ -233,17 +259,24 @@ function attachSocket(room, player, socket) {
   if (previous && previous !== socket) previous.close();
   room.clients.set(player.id, socket);
   player.connected = true;
+  player.disconnectedAt = undefined;
   room.updatedAt = Date.now();
 }
 
 function detachSocket(socket) {
   const room = socket._roomCode ? rooms.get(socket._roomCode) : undefined;
   if (!room || !socket._playerId) return;
-  if (room.clients.get(socket._playerId) === socket) room.clients.delete(socket._playerId);
+  if (room.clients.get(socket._playerId) !== socket) return;
+  room.clients.delete(socket._playerId);
   const player = room.players.find((candidate) => candidate.id === socket._playerId);
   if (player) {
     player.connected = false;
-    player.ready = false;
+    player.disconnectedAt = Date.now();
+    if (room.status !== 'in-game') player.ready = false;
+  }
+  if (room.status === 'starting') {
+    room.status = 'waiting';
+    room.startsAt = undefined;
   }
   room.updatedAt = Date.now();
   broadcast(room, roomState(room));
@@ -256,9 +289,10 @@ function maybeStart(room) {
   room.inputDelay = inputDelayForRoom(room);
   room.status = 'starting';
   room.startsAt = Date.now() + START_COUNTDOWN_MS;
+  const startsAt = room.startsAt;
   broadcast(room, roomState(room));
   setTimeout(() => {
-    if (!rooms.has(room.code) || room.status !== 'starting') return;
+    if (!rooms.has(room.code) || room.status !== 'starting' || room.startsAt !== startsAt) return;
     room.status = 'in-game';
     room.startsAt = undefined;
     broadcast(room, { type: 'match-start', room: publicRoom(room) });
@@ -278,6 +312,12 @@ function closeRoom(code) {
   if (!room) return;
   for (const client of room.clients.values()) client.close();
   rooms.delete(code);
+}
+
+function shutdown() {
+  for (const code of Array.from(rooms.keys())) closeRoom(code);
+  wss.close(() => server.close(() => process.exit(0)));
+  setTimeout(() => process.exit(0), 2000).unref();
 }
 
 function publicRoom(room) {
@@ -309,10 +349,22 @@ function publicPlayer(player) {
   };
 }
 
-function roomAndPlayer(body) {
+function roomAndPlayer(body, socket) {
   const room = rooms.get(normalizeRoomCode(body?.roomCode));
   const player = room?.players.find((candidate) => candidate.id === body?.playerId);
+  if (!room || !player || socket?._roomCode !== room.code || socket?._playerId !== player.id) return {};
   return { room, player };
+}
+
+function consumeCommandBudget(socket) {
+  const now = Date.now();
+  const budget = socket._commandBudget;
+  if (!budget || now - budget.startedAt >= 1000) {
+    socket._commandBudget = { startedAt: now, count: 1 };
+    return true;
+  }
+  budget.count++;
+  return budget.count <= MAX_COMMANDS_PER_SECOND;
 }
 
 function roomState(room) {

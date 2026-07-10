@@ -53,7 +53,8 @@ export type NetCommand =
   | { type: 'possess-release'; id: number }
   | { type: 'sim-hash'; hash: number }
   | { type: 'snapshot-request'; hash: number; expectedHash: number; tick: number }
-  | { type: 'match-snapshot'; state: SerializedMatchState; hash: number; tick: number };
+  | { type: 'match-snapshot'; state: SerializedMatchState; hash: number; tick: number }
+  | { type: 'snapshot-applied'; hash: number; tick: number };
 
 interface QueuedCommand {
   tick: number;
@@ -81,6 +82,8 @@ export class LockstepRuntime {
   private roomPaused = false;
   private lastHashSent = 0;
   private recoveryPending = false;
+  private peerMissing = false;
+  private connectionInterrupted = false;
 
   constructor(private readonly options: LockstepRuntimeOptions) {}
 
@@ -97,11 +100,27 @@ export class LockstepRuntime {
       (event) => this.handleEvent(event),
       () => {
         this.connected = false;
+        this.roomPaused = true;
+        this.connectionInterrupted = true;
         this.options.onStatus?.('Multiplayer connection interrupted', true);
       },
       () => {
         this.connected = true;
-        this.options.onStatus?.('Multiplayer connected');
+        if (this.connectionInterrupted) {
+          this.connectionInterrupted = false;
+          if (this.localTeam === 1) this.sendRecoverySnapshot('Reconnected — synchronizing match state');
+          else {
+            this.recoveryPending = true;
+            this.roomPaused = true;
+            void this.send(
+              { type: 'snapshot-request', hash: hashSim(this.options.sim), expectedHash: 0, tick: this.options.sim.tick },
+              this.options.sim.tick,
+            );
+            this.options.onStatus?.('Reconnected — synchronizing with host');
+          }
+        } else {
+          this.options.onStatus?.('Multiplayer connected');
+        }
       },
     );
   }
@@ -168,9 +187,22 @@ export class LockstepRuntime {
     if (event.type === 'room-state' || event.type === 'match-start') {
       const missing = event.room.players.some((player) => player.index !== this.localTeam && !player.connected);
       const connected = event.room.players.filter((player) => player.connected).length;
-      this.roomPaused = missing;
+      const peerReconnected = this.peerMissing && !missing;
+      this.peerMissing = missing;
+      this.roomPaused = missing || this.recoveryPending;
       if (missing) this.options.onStatus?.('Opponent disconnected — match paused', true);
-      else if (connected >= event.room.armyCount) this.options.onStatus?.('All commanders connected');
+      else if (peerReconnected) {
+        if (this.localTeam === 1) this.sendRecoverySnapshot('Opponent reconnected — synchronizing match state');
+        else {
+          this.recoveryPending = true;
+          this.roomPaused = true;
+          void this.send(
+            { type: 'snapshot-request', hash: hashSim(this.options.sim), expectedHash: 0, tick: this.options.sim.tick },
+            this.options.sim.tick,
+          );
+          this.options.onStatus?.('Reconnected — synchronizing with host');
+        }
+      } else if (connected >= event.room.armyCount && !this.recoveryPending) this.options.onStatus?.('All commanders connected');
       return;
     }
     if (event.type === 'room-closed') {
@@ -186,7 +218,7 @@ export class LockstepRuntime {
     const key = `${event.playerId}:${event.tick}:${JSON.stringify(command)}`;
     if (this.seen.has(key)) return;
     this.seen.add(key);
-    if (command.type === 'snapshot-request' || command.type === 'match-snapshot') {
+    if (command.type === 'snapshot-request' || command.type === 'match-snapshot' || command.type === 'snapshot-applied') {
       this.apply(event.playerIndex, command);
       return;
     }
@@ -209,6 +241,18 @@ export class LockstepRuntime {
     if (command.type === 'match-snapshot') {
       if (this.localTeam === 1 || !isSerializedMatchState(command.state)) return;
       this.restoreSnapshot(command.state, command.hash);
+      return;
+    }
+    if (command.type === 'snapshot-applied') {
+      if (this.localTeam !== 1 || !this.recoveryPending) return;
+      const localHash = hashSim(this.options.sim);
+      if (localHash === command.hash && this.options.sim.tick === command.tick) {
+        this.recoveryPending = false;
+        this.roomPaused = false;
+        this.options.onStatus?.(`Match synchronized at tick ${command.tick}`);
+      } else {
+        this.sendRecoverySnapshot(`Recovery acknowledgement differed — retrying snapshot (${localHash} vs ${command.hash})`);
+      }
       return;
     }
     if (command.type === 'move') {
@@ -295,6 +339,8 @@ export class LockstepRuntime {
 
   private sendRecoverySnapshot(message: string): void {
     const state = serializeMatchState(this.options.sim, Object.values(this.options.economies));
+    this.recoveryPending = true;
+    this.roomPaused = true;
     void this.send({ type: 'match-snapshot', state, hash: hashSim(this.options.sim), tick: this.options.sim.tick }, this.options.sim.tick);
     this.options.onStatus?.(message, true);
   }
@@ -310,6 +356,7 @@ export class LockstepRuntime {
     this.roomPaused = false;
     this.options.onSnapshotRestored?.();
     const localHash = hashSim(this.options.sim);
+    void this.send({ type: 'snapshot-applied', hash: localHash, tick: this.options.sim.tick }, this.options.sim.tick);
     this.options.onStatus?.(
       localHash === expectedHash ? `Recovered from host snapshot at tick ${state.sim.tick}` : `Recovered snapshot hash differs: ${localHash} vs ${expectedHash}`,
       localHash !== expectedHash,
@@ -348,5 +395,11 @@ function roomClosedMessage(reason: string, localTeam: number): string {
     const team = Number(forfeit[1]);
     return team === localTeam ? 'You forfeited the match' : `Commander ${team} forfeited — victory`;
   }
+  const disconnect = /^disconnect-timeout:(\d+)$/.exec(reason);
+  if (disconnect) {
+    const team = Number(disconnect[1]);
+    return team === localTeam ? 'Connection recovery timed out — defeat' : `Commander ${team} did not reconnect — victory`;
+  }
+  if (reason === 'reconnect-expired') return 'Could not recover the multiplayer room';
   return `Room closed: ${reason}`;
 }

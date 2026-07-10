@@ -1089,3 +1089,25 @@ drafted in `drafts/phase6/` (unwired, see its README).
 
 ### Next
 - Continue M3 with reconnect UX polish and public-relay deployment validation.
+
+## Phase M3 — Reconnect & Relay Hardening ✅ (2026-07-10)
+
+- Added automatic WebSocket reconnect with exponential backoff. A reconnecting browser reclaims
+  its existing player id and army slot instead of creating another commander.
+- Scoped active-room identity to tab session storage so two tabs on one computer can host/join
+  without the guest accidentally reusing the host player id; reloads in each tab still reclaim.
+- Added a 60-second relay grace period for interrupted in-game players. Both simulations pause;
+  reconnect restores play, while expiry closes the room as a disconnect defeat/victory.
+- Added a snapshot acknowledgement handshake. Reconnected matches stay paused until the guest has
+  loaded the host snapshot and confirmed the exact tick and hash.
+- Cancelled a lobby countdown if a player disconnects while the match is starting.
+- Bound commands to the authenticated socket/player pair, added a per-socket command rate limit,
+  capped WebSocket payloads, replaced predictable room generation, and hid `/rooms` by default.
+- Added graceful relay shutdown and an included `render.yaml` Blueprint for public Node hosting.
+- Added a real WebSocket integration test covering match start, identity-spoof rejection, valid
+  command relay, player-slot reconnect, and disconnect-timeout room closure.
+- Latest verification: targeted multiplayer tests pass and `npm run build` passes.
+
+### Next
+- Deploy the relay and static client, run a two-computer same-browser recovery test, then continue
+  with M4 multiplayer victory/spectator/chat polish or M5 cross-browser deterministic math.
