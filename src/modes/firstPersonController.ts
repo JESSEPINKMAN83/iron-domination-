@@ -306,7 +306,9 @@ export class FirstPersonController {
     const chaseHeight = Math.max(2.8, chaseDistance * Math.sin(cameraPitch) + 1.2);
     const position = tankCenter.clone().addScaledVector(this.tmpHorizontal, -horizontalDistance);
     position.y += chaseHeight;
-    this.tmpAimTarget.copy(tankCenter).addScaledVector(this.tmpForward, 100);
+    // Project the crosshair through the entire battlefield so manual tank fire
+    // is not visually or mechanically capped near the vehicle.
+    this.tmpAimTarget.copy(tankCenter).addScaledVector(this.tmpForward, this.hf.size * 1.5);
     this.tmpAimTarget.y = Math.max(sampleHeight(this.hf, this.tmpAimTarget.x, this.tmpAimTarget.z) + 1.5, this.tmpAimTarget.y);
     return this.lookPose(position, this.tmpAimTarget, fov);
   }

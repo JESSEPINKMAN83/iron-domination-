@@ -159,6 +159,25 @@ describe('phase 4 combat simulation', () => {
     expect(event?.toY).toBeGreaterThan(sampleHeight(hf, event!.toX, event!.toZ) + 8);
   });
 
+  it('lets manually aimed tank missiles travel to distant battlefield points', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const attacker = spawnTankAt(sim, -180, -20, 'Long Shot');
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    attacker.turret!.yaw = Math.PI / 2;
+
+    expect(manualFireAt(sim, attacker, 280, -20)).toBe(true);
+
+    const launch = sim.events.at(-1);
+    expect(launch?.kind).toBe('tankMissile');
+    expect(launch?.toX).toBe(280);
+    expect(sim.projectiles[0]?.toX).toBe(280);
+    expect(sim.projectiles[0]?.duration).toBe(3.2);
+    settle(sim, 3.25);
+    expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.toX === 280)).toBe(true);
+  });
+
   it('fires ballistic bombs that damage on impact, with splash falloff', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

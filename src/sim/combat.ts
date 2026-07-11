@@ -158,7 +158,9 @@ export function manualFireAt(
 
   // direct fire goes down the turret barrel — it must have traversed onto the shot line
   if (attacker.turret && Math.abs(angleDelta(attacker.turret.yaw, Math.atan2(ux, uz))) > AIM_TOLERANCE) return false;
-  const range = Math.min(weapon.range || def.range, len);
+  // Player-issued tank missiles follow the full aim ray. Automatic combat still
+  // uses each tank's normal acquisition range before it reaches this path.
+  const range = isTankDirectMissile(def.kind) ? len : Math.min(weapon.range || def.range, len);
   if (def.minRange !== undefined && len < def.minRange) return false;
   const target = acquireLineTarget(sim, attacker, weapon, ux, uz, range);
   const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
@@ -297,7 +299,7 @@ function launchWeaponProjectile(
     elapsed: 0,
     duration,
     speed,
-    maxDistance: def.projectile.fizzleRange ?? def.range,
+    maxDistance: def.projectile.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
     directTargetId: target?.id,
     trajectory: def.projectile.trajectory,
     homing,
@@ -321,6 +323,10 @@ function launchWeaponProjectile(
     duration,
     trajectory: def.projectile.trajectory,
   });
+}
+
+function isTankDirectMissile(kind: WeaponKind): boolean {
+  return kind === 'scoutMissile' || kind === 'tankMissile' || kind === 'siegeMissile';
 }
 
 function bombMuzzleY(attacker: Entity): number | undefined {
