@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { STRUCTURES, UNITS, type UnitKind } from '../content/phase3';
-import { manualFireAt } from './combat';
+import { manualFireAt, stepCombat } from './combat';
 import { generateHeightfield } from './heightfield';
 import {
   buildings,
@@ -157,6 +157,8 @@ describe('phase 3 economy and production', () => {
     attacker.turret!.yaw = yaw;
     expect(manualFireAt(sim, attacker, harvester!.transform.x, harvester!.transform.z)).toBe(true);
 
+    for (let i = 0; i < 24; i++) stepCombat(sim, 1 / 30);
+
     stepEconomy(sim, hf, economy, 1 / 30);
 
     expect(harvester!.health!.current).toBeLessThan(harvester!.health!.max);
@@ -310,9 +312,9 @@ describe('phase 3 economy and production', () => {
     expect(units.some((entity) => entity.name === 'Sniper' && entity.weapon?.kind === 'sniperRifle' && entity.weapon.range === 320 && entity.vision?.radius === 360)).toBe(true);
     expect(units.some((entity) => entity.name === 'Grenadier' && entity.weapon?.kind === 'grenade')).toBe(true);
     expect(units.some((entity) => entity.name === 'Rocket Team' && entity.weapon?.kind === 'rocketLauncher')).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('Jackal') && entity.weapon?.kind === 'autocannon' && entity.weapons?.secondary?.salvoCount === 1)).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('M-17') && entity.weapon?.kind === 'cannon' && entity.weapons?.secondary?.salvoCount === 2)).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('Mauler') && entity.weapon?.kind === 'heavyCannon' && entity.weapons?.secondary?.salvoCount === 4)).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Jackal') && entity.weapon?.kind === 'scoutMissile' && entity.weapons?.secondary?.salvoCount === 1)).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('M-17') && entity.weapon?.kind === 'tankMissile' && entity.weapons?.secondary?.salvoCount === 2)).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Mauler') && entity.weapon?.kind === 'siegeMissile' && entity.weapons?.secondary?.salvoCount === 4)).toBe(true);
     expect(units.some((entity) => entity.name?.includes('Wasp') && entity.flight && entity.weapon?.kind === 'waspAutocannon' && entity.weapons?.secondary?.salvoCount === 1)).toBe(true);
     expect(units.some((entity) => entity.name?.includes('Vulture') && entity.flight && entity.weapon?.kind === 'rocketPod' && entity.weapons?.secondary?.salvoCount === 2)).toBe(true);
     expect(units.some((entity) => entity.name?.includes('Hammerhead') && entity.flight && entity.health?.max === 230 && entity.weapons?.secondary?.salvoCount === 4)).toBe(true);

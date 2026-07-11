@@ -192,7 +192,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   'scout-tank': {
     kind: 'scout-tank',
     label: 'Jackal Scout',
-    role: 'Fast scout with single bomb',
+    role: 'Fast light missile tank with single bomb',
     tab: 'vehicles',
     cost: 360,
     buildTime: 7,
@@ -202,7 +202,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   tank: {
     kind: 'tank',
     label: 'M-17 Tank',
-    role: 'Balanced armor with twin bombs',
+    role: 'Balanced direct missiles with twin bombs',
     tab: 'vehicles',
     cost: 550,
     buildTime: 9,
@@ -212,7 +212,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   'siege-tank': {
     kind: 'siege-tank',
     label: 'Mauler Siege',
-    role: 'Heavy cannon with four-bomb salvo',
+    role: 'Heavy siege missiles with four-bomb salvo',
     tab: 'vehicles',
     cost: 820,
     buildTime: 12,

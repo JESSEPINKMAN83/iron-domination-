@@ -166,9 +166,9 @@ function unitKindForEntity(entity: Entity): UnitKind | undefined {
   if (weapon === 'grenade') return 'grenadier';
   if (weapon === 'rocketLauncher') return 'rocket-infantry';
   if (weapon === 'rifle') return 'infantry';
-  if (weapon === 'autocannon' || name.includes('jackal')) return 'scout-tank';
-  if (weapon === 'heavyCannon' || name.includes('mauler')) return 'siege-tank';
-  if (weapon === 'cannon' || entity.selectable?.type === 'tank') return 'tank';
+  if (weapon === 'scoutMissile' || weapon === 'autocannon' || name.includes('jackal')) return 'scout-tank';
+  if (weapon === 'siegeMissile' || weapon === 'heavyCannon' || name.includes('mauler')) return 'siege-tank';
+  if (weapon === 'tankMissile' || weapon === 'cannon' || entity.selectable?.type === 'tank') return 'tank';
   if (name.includes('wasp')) return 'wasp';
   if (name.includes('hammerhead')) return 'hammerhead';
   if (entity.selectable?.type === 'vulture' || name.includes('vulture')) return 'vulture';

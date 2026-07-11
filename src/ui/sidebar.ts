@@ -1110,9 +1110,9 @@ function primaryWeaponForUnit(kind: UnitKind): WeaponKind {
   if (kind === 'sniper') return 'sniperRifle';
   if (kind === 'grenadier') return 'grenade';
   if (kind === 'rocket-infantry') return 'rocketLauncher';
-  if (kind === 'scout-tank') return 'autocannon';
-  if (kind === 'tank') return 'cannon';
-  if (kind === 'siege-tank') return 'heavyCannon';
+  if (kind === 'scout-tank') return 'scoutMissile';
+  if (kind === 'tank') return 'tankMissile';
+  if (kind === 'siege-tank') return 'siegeMissile';
   if (kind === 'wasp') return 'waspAutocannon';
   if (kind === 'vulture') return 'rocketPod';
   return 'agMissile';

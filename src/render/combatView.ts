@@ -34,6 +34,7 @@ interface Burst {
   total: number;
   kind: 'small' | 'bomb';
   materials: MeshBasicMaterial[];
+  baseScale: number;
 }
 
 interface BombProjectile {
@@ -115,8 +116,14 @@ export class CombatView {
       }
       if (isProjectileImpact(event.kind)) {
         if (shouldPaintGroundScorch(this.hf, event)) this.spawnGroundScorch(event);
-        if (event.kind === 'bomb-impact' || event.kind === 'grenade-impact' || event.kind === 'agMissile-impact') {
-          this.spawnBombBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.4, event.toZ, event.killed);
+        if (event.kind === 'bomb-impact' || event.kind === 'grenade-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
+          this.spawnBombBlast(
+            event.toX,
+            sampleHeight(this.hf, event.toX, event.toZ) + 0.4,
+            event.toZ,
+            event.killed,
+            tankMissileImpactScale(event.kind),
+          );
         } else {
           this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed);
         }
@@ -158,7 +165,7 @@ export class CombatView {
       const life = Math.max(0, burst.ttl / burst.total);
       const age = 1 - life;
       if (burst.kind === 'bomb') {
-        burst.group.scale.setScalar(1 + age * 1.28);
+        burst.group.scale.setScalar(burst.baseScale * (1 + age * 1.28));
         for (const material of burst.materials) {
           if (material.userData.role === 'smoke') material.opacity = Math.min(0.2, age * 0.36) * life;
           else if (material.userData.role === 'shock') material.opacity = life * 0.2;
@@ -282,7 +289,7 @@ export class CombatView {
     if (projectile.smokeTimer > 0) return;
     projectile.smokeTimer = cadence;
     const pos = projectile.group.position.clone();
-    const back = tangent.clone().multiplyScalar(projectile.event.kind === 'aaMissile' || projectile.event.kind === 'agMissile' ? -1.35 : -0.65);
+    const back = tangent.clone().multiplyScalar(isLargeMissile(projectile.event.kind) ? -1.35 : -0.65);
     pos.add(back);
     pos.x += Math.sin(projectile.elapsed * 19 + projectile.event.fromX) * 0.12;
     pos.z += Math.cos(projectile.elapsed * 17 + projectile.event.fromZ) * 0.12;
@@ -379,7 +386,7 @@ export class CombatView {
 
   private makeProjectileMesh(kind: string): Group {
     const group = new Group();
-    const missile = kind === 'agMissile' || kind === 'aaMissile' || kind === 'atRocket';
+    const missile = isMissile(kind);
     const grenade = kind === 'grenade';
     const shellMaterial = new MeshBasicMaterial({ color: missile ? 0x20262a : grenade ? 0x1c2218 : 0x181814 });
     const noseMaterial = new MeshBasicMaterial({ color: kind === 'aaMissile' ? 0x70d8ff : kind === 'agMissile' ? 0xf2d66c : 0xd07a2a });
@@ -404,7 +411,7 @@ export class CombatView {
       fin.rotation.y = angle;
       group.add(fin);
     }
-    group.scale.setScalar(missile ? 1.6 : grenade ? 1.1 : 1.75);
+    group.scale.setScalar(projectileVisualScale(kind));
     return group;
   }
 
@@ -416,11 +423,11 @@ export class CombatView {
     group.position.set(x, y, z);
     group.renderOrder = 49;
     const ttl = killed ? 0.55 : 0.28;
-    this.bursts.push({ group, ttl, total: ttl, kind: 'small', materials: [material] });
+    this.bursts.push({ group, ttl, total: ttl, kind: 'small', materials: [material], baseScale: 1 });
     this.group.add(group);
   }
 
-  private spawnBombBlast(x: number, y: number, z: number, killed: boolean): void {
+  private spawnBombBlast(x: number, y: number, z: number, killed: boolean, baseScale = 1): void {
     const group = new Group();
     const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xffc66b : 0xff9738, transparent: true, opacity: 0.54, depthWrite: false });
     const smokeMaterial = new MeshBasicMaterial({ color: 0x292520, transparent: true, opacity: 0.01, depthWrite: false });
@@ -454,7 +461,8 @@ export class CombatView {
     group.position.set(x, y, z);
     group.renderOrder = 55;
     const ttl = killed ? 0.82 : 0.68;
-    this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial] });
+    group.scale.setScalar(baseScale);
+    this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial], baseScale });
     this.group.add(group);
   }
 
@@ -467,7 +475,7 @@ export class CombatView {
     group.add(ring);
     group.position.set(x, y + 0.12, z);
     group.renderOrder = 56;
-    this.bursts.push({ group, ttl: 1.05, total: 1.05, kind: 'bomb', materials: [material] });
+    this.bursts.push({ group, ttl: 1.05, total: 1.05, kind: 'bomb', materials: [material], baseScale: 1 });
     this.group.add(group);
     for (let i = 0; i < 12; i++) {
       const angle = (i / 12) * Math.PI * 2;
@@ -578,11 +586,38 @@ function bezierTangent(from: Vector3, control: Vector3, to: Vector3, t: number):
 }
 
 function isProjectileLaunch(kind: string): boolean {
-  return kind === 'bomb' || kind === 'grenade' || kind === 'atRocket' || kind === 'agMissile' || kind === 'aaMissile';
+  return kind === 'bomb' || kind === 'grenade' || kind === 'atRocket' || kind === 'scoutMissile' || kind === 'tankMissile' || kind === 'siegeMissile' || kind === 'agMissile' || kind === 'aaMissile';
 }
 
 function isProjectileImpact(kind: string): boolean {
-  return kind === 'bomb-impact' || kind === 'grenade-impact' || kind === 'atRocket-impact' || kind === 'agMissile-impact' || kind === 'aaMissile-impact';
+  return kind === 'bomb-impact' || kind === 'grenade-impact' || kind === 'atRocket-impact' || isTankMissileImpact(kind) || kind === 'agMissile-impact' || kind === 'aaMissile-impact';
+}
+
+function isMissile(kind: string): boolean {
+  return kind === 'agMissile' || kind === 'aaMissile' || kind === 'atRocket' || kind === 'scoutMissile' || kind === 'tankMissile' || kind === 'siegeMissile';
+}
+
+function isLargeMissile(kind: string): boolean {
+  return kind === 'agMissile' || kind === 'aaMissile' || kind === 'tankMissile' || kind === 'siegeMissile';
+}
+
+function isTankMissileImpact(kind: string): boolean {
+  return kind === 'scoutMissile-impact' || kind === 'tankMissile-impact' || kind === 'siegeMissile-impact';
+}
+
+function projectileVisualScale(kind: string): number {
+  if (kind === 'scoutMissile') return 1.25;
+  if (kind === 'tankMissile') return 1.7;
+  if (kind === 'siegeMissile') return 2.25;
+  if (isMissile(kind)) return 1.6;
+  return kind === 'grenade' ? 1.1 : 1.75;
+}
+
+function tankMissileImpactScale(kind: string): number {
+  if (kind === 'scoutMissile-impact') return 0.52;
+  if (kind === 'tankMissile-impact') return 0.72;
+  if (kind === 'siegeMissile-impact') return 1;
+  return 1;
 }
 
 function shouldPaintGroundScorch(hf: Heightfield, event: CombatEvent): boolean {
@@ -597,6 +632,9 @@ function scorchProfile(kind: string, killed: boolean): { size: number; opacity: 
   if (kind === 'agMissile-impact') return { size: killed ? 11.5 : 8.6, opacity: 0.58, ttl: killed ? 48 : 38 };
   if (kind === 'grenade-impact') return { size: killed ? 7.4 : 5.8, opacity: 0.5, ttl: 30 };
   if (kind === 'atRocket-impact') return { size: killed ? 6.9 : 5.2, opacity: 0.48, ttl: 28 };
+  if (kind === 'scoutMissile-impact') return { size: killed ? 6.4 : 4.8, opacity: 0.47, ttl: 28 };
+  if (kind === 'tankMissile-impact') return { size: killed ? 8.6 : 6.8, opacity: 0.53, ttl: 34 };
+  if (kind === 'siegeMissile-impact') return { size: killed ? 11.8 : 9.2, opacity: 0.6, ttl: 42 };
   if (kind === 'aaMissile-impact') return { size: killed ? 7.2 : 5.4, opacity: 0.44, ttl: 28 };
   return { size: 5.5, opacity: 0.46, ttl: 28 };
 }

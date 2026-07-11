@@ -46,7 +46,7 @@ export interface CombatEvent {
 
 /** In-flight ballistic ordnance. Damage happens on impact, at the aimed location. */
 export interface Projectile {
-  kind: 'bomb' | 'grenade' | 'atRocket' | 'agMissile' | 'aaMissile';
+  kind: 'bomb' | 'grenade' | 'atRocket' | 'scoutMissile' | 'tankMissile' | 'siegeMissile' | 'agMissile' | 'aaMissile';
   fromX: number;
   fromY?: number;
   fromZ: number;
@@ -219,9 +219,9 @@ interface TankVariant {
 }
 
 const STANDARD_TANK: TankVariant = {
-  primary: 'cannon',
+  primary: 'tankMissile',
   secondary: 'bomb',
-  primaryRange: 78,
+  primaryRange: 92,
   secondaryRange: 152,
   secondarySalvoCount: 2,
   health: 100,
@@ -237,9 +237,9 @@ export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, te
 
 export function spawnScoutTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
   return spawnTankVariantAt(sim, x, z, name, team, {
-    primary: 'autocannon',
+    primary: 'scoutMissile',
     secondary: 'bomb',
-    primaryRange: 62,
+    primaryRange: 72,
     secondaryRange: 132,
     secondarySalvoCount: 1,
     health: 72,
@@ -252,9 +252,9 @@ export function spawnScoutTankAt(sim: GameSim, x: number, z: number, name: strin
 
 export function spawnSiegeTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
   return spawnTankVariantAt(sim, x, z, name, team, {
-    primary: 'heavyCannon',
+    primary: 'siegeMissile',
     secondary: 'bomb',
-    primaryRange: 104,
+    primaryRange: 118,
     secondaryRange: 176,
     secondarySalvoCount: 4,
     health: 138,
@@ -979,6 +979,9 @@ const PROJECTILE_KIND_CODE: Record<string, number> = {
   atRocket: 3,
   agMissile: 4,
   aaMissile: 5,
+  scoutMissile: 6,
+  tankMissile: 7,
+  siegeMissile: 8,
 };
 
 export function hashSim(sim: GameSim): number {

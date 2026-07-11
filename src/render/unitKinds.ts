@@ -17,8 +17,8 @@ export function unitVisualKind(entity: Entity): UnitVisualKind {
     return 'vulture';
   }
   if (entity.selectable?.type === 'tank') {
-    if (primary === 'autocannon') return 'jackal';
-    if (primary === 'heavyCannon') return 'mauler';
+    if (primary === 'scoutMissile' || primary === 'autocannon') return 'jackal';
+    if (primary === 'siegeMissile' || primary === 'heavyCannon') return 'mauler';
     return 'm17';
   }
   return 'm17';

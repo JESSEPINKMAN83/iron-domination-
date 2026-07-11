@@ -83,6 +83,8 @@ describe('phase 4 combat simulation', () => {
 
     attacker.turret!.yaw = Math.PI / 2; // traversed onto the shot line
     expect(manualFireAt(sim, attacker, 42, -20)).toBe(true);
+    expect(sim.events.at(-1)?.kind).toBe('tankMissile');
+    settle(sim, 0.6);
     expect(target.health?.current).toBeLessThan(100);
     const event = sim.events.at(-1);
     expect(event?.sourceTeamId).toBe(1);
@@ -113,10 +115,10 @@ describe('phase 4 combat simulation', () => {
     stepCombat(sim, 1 / 30);
 
     const event = sim.events.at(-1);
-    expect(event?.kind).toBe('cannon');
+    expect(event?.kind).toBe('tankMissile');
     expect(event?.damage).toBe(0);
     expect(target.health?.current).toBe(100);
-    expect(attacker.weapons?.primary.cooldown).toBeCloseTo(0.76);
+    expect(attacker.weapons?.primary.cooldown).toBeCloseTo(1.8);
     expect(Math.hypot((event?.toX ?? 0) - target.transform.x, (event?.toZ ?? 0) - target.transform.z)).toBeGreaterThan(1.5);
   });
 
@@ -129,13 +131,13 @@ describe('phase 4 combat simulation', () => {
     attacker.turret!.yaw = Math.PI / 2;
 
     settle(sim, 2);
-    expect(sim.events.some((event) => event.kind === 'cannon')).toBe(false);
+    expect(sim.events.some((event) => event.kind === 'tankMissile')).toBe(false);
     expect(target.health?.current).toBe(100);
 
     expect(issueMoveOrder(sim, [attacker], 42, -20, true)).toBe(true);
-    stepCombat(sim, 1 / 30);
+    settle(sim, 0.7);
 
-    expect(sim.events.some((event) => event.kind === 'cannon')).toBe(true);
+    expect(sim.events.some((event) => event.kind === 'tankMissile')).toBe(true);
     expect(target.health?.current).toBeLessThan(100);
   });
 
@@ -152,7 +154,7 @@ describe('phase 4 combat simulation', () => {
     expect(manualFireAt(sim, attacker, targetX, targetZ, 'primary', aimY)).toBe(true);
 
     const event = sim.events.at(-1);
-    expect(event?.kind).toBe('cannon');
+    expect(event?.kind).toBe('tankMissile');
     expect(event?.toY).toBe(aimY);
     expect(event?.toY).toBeGreaterThan(sampleHeight(hf, event!.toX, event!.toZ) + 8);
   });
@@ -163,6 +165,10 @@ describe('phase 4 combat simulation', () => {
     const attacker = spawnTankAt(sim, -20, -20, 'A');
     const primary = spawnTankAt(sim, 18, -20, 'B', 2);
     const nearby = spawnTankAt(sim, 22, -20, 'C', 2);
+    primary.weapon = undefined;
+    primary.weapons = undefined;
+    nearby.weapon = undefined;
+    nearby.weapons = undefined;
     attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
 
     const fired = manualFireAt(sim, attacker, primary.transform.x, primary.transform.z, 'secondary');
@@ -430,6 +436,7 @@ describe('phase 4 combat simulation', () => {
     attacker.turret!.yaw = 0;
     wall!.health!.current = 1;
     expect(manualFireAt(sim, attacker, wall!.transform.x, wall!.transform.z)).toBe(true);
+    settle(sim, 0.6);
 
     expect(wall!.destroyed).toBeDefined();
     expect(sim.nav.isWalkableCell(cell.x, cell.y)).toBe(true);
@@ -523,6 +530,7 @@ describe('phase 4 combat simulation', () => {
     attacker.turret!.yaw = yaw;
 
     expect(manualFireAt(sim, attacker, harvester!.transform.x, harvester!.transform.z)).toBe(true);
+    settle(sim, 0.7);
 
     expect(harvester!.health?.current).toBeLessThan(harvester!.health!.max);
     expect(defender.mover?.defenseAlert?.targetId).toBe(attacker.id);

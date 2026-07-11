@@ -147,7 +147,7 @@ export class AudioDirector {
       this.playMetalCrash(event);
       return;
     }
-    if (event.kind === 'bomb' || event.kind === 'grenade' || event.kind === 'agMissile' || event.kind === 'aaMissile') {
+    if (event.kind === 'bomb' || event.kind === 'grenade' || event.kind === 'agMissile' || event.kind === 'aaMissile' || event.kind === 'scoutMissile' || event.kind === 'tankMissile' || event.kind === 'siegeMissile') {
       this.playLaunch(event);
       return;
     }
@@ -422,6 +422,9 @@ function explosionProfile(kind: string, killed: boolean): SoundProfile {
   if (kind === 'agMissile-impact') return { gain: killed ? 0.5 : 0.38, near: 24, far: 390 };
   if (kind === 'grenade-impact') return { gain: killed ? 0.34 : 0.24, near: 18, far: 260 };
   if (kind === 'atRocket-impact' || kind === 'aaMissile-impact') return { gain: killed ? 0.34 : 0.24, near: 18, far: 280 };
+  if (kind === 'scoutMissile-impact') return { gain: killed ? 0.32 : 0.22, near: 18, far: 270 };
+  if (kind === 'tankMissile-impact') return { gain: killed ? 0.42 : 0.31, near: 22, far: 340 };
+  if (kind === 'siegeMissile-impact') return { gain: killed ? 0.54 : 0.42, near: 26, far: 420 };
   return { gain: 0.24, near: 18, far: 260 };
 }
 

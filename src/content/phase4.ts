@@ -4,6 +4,9 @@ export type WeaponKind =
   | 'sniperRifle'
   | 'grenade'
   | 'rocketLauncher'
+  | 'scoutMissile'
+  | 'tankMissile'
+  | 'siegeMissile'
   | 'autocannon'
   | 'waspAutocannon'
   | 'cannon'
@@ -13,7 +16,7 @@ export type WeaponKind =
   | 'agMissile'
   | 'aaMissile';
 
-export type ProjectileKind = 'grenade' | 'atRocket' | 'agMissile' | 'aaMissile';
+export type ProjectileKind = 'grenade' | 'atRocket' | 'scoutMissile' | 'tankMissile' | 'siegeMissile' | 'agMissile' | 'aaMissile';
 
 export interface WeaponDef {
   kind: WeaponKind;
@@ -79,6 +82,39 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     targetTypes: ['light', 'heavy', 'building'],
     vs: { infantry: 0.45, light: 0.95, heavy: 0.78, building: 0.52, air: 0 },
     projectile: { kind: 'atRocket', speed: 70, trajectory: 'flat', impactRadius: 1.4 },
+  },
+  scoutMissile: {
+    kind: 'scoutMissile',
+    label: 'Jackal Direct Missile',
+    damage: 16,
+    cooldown: 0.62,
+    range: 72,
+    splashRadius: 1.6,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 0.82, light: 0.88, heavy: 0.48, building: 0.32, air: 0 },
+    projectile: { kind: 'scoutMissile', speed: 104, trajectory: 'flat', impactRadius: 1.5 },
+  },
+  tankMissile: {
+    kind: 'tankMissile',
+    label: 'M-17 Direct Missile',
+    damage: 28,
+    cooldown: 0.9,
+    range: 92,
+    splashRadius: 2.6,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 0.9, light: 0.96, heavy: 0.72, building: 0.5, air: 0 },
+    projectile: { kind: 'tankMissile', speed: 96, trajectory: 'flat', impactRadius: 2.1 },
+  },
+  siegeMissile: {
+    kind: 'siegeMissile',
+    label: 'Mauler Heavy Missile',
+    damage: 48,
+    cooldown: 1.42,
+    range: 118,
+    splashRadius: 3.9,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 0.82, light: 1.02, heavy: 1.0, building: 0.72, air: 0 },
+    projectile: { kind: 'siegeMissile', speed: 86, trajectory: 'flat', impactRadius: 3.0 },
   },
   autocannon: {
     kind: 'autocannon',
