@@ -33,7 +33,7 @@ const rooms = new Map();
  *   status: 'waiting' | 'starting' | 'in-game';
  *   startsAt?: number;
  *   rematchStarting?: boolean;
- *   armyCount: 2;
+ *   armyCount: 2 | 3 | 4;
  *   armySides: number[];
  *   players: Array<{ id: string; index: number; name: string; color: string; ready: boolean; rematchReady: boolean; connected: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
  *   clients: Map<string, import('ws').WebSocket>;
@@ -155,7 +155,7 @@ function handleStartMatch(socket, body) {
   const { room, player } = roomAndPlayer(body, socket);
   if (!room || !player || player.index !== 1 || room.status !== 'waiting') return;
   const connected = room.players.filter((candidate) => candidate.connected);
-  if (connected.length !== 2 || !connected.every((candidate) => candidate.ready)) return;
+  if (connected.length !== room.armyCount || !connected.every((candidate) => candidate.ready)) return;
   startRoom(room);
 }
 
@@ -200,7 +200,7 @@ function handleRequestRematch(socket, body) {
   player.rematchReady = true;
   room.updatedAt = Date.now();
   const connected = room.players.filter((candidate) => candidate.connected);
-  if (connected.length === 2 && connected.every((candidate) => candidate.rematchReady)) startRematch(room);
+  if (connected.length === room.armyCount && connected.every((candidate) => candidate.rematchReady)) startRematch(room);
   else broadcast(room, roomState(room));
 }
 
@@ -261,7 +261,8 @@ function createRoom(body) {
   do {
     code = randomBytes(5).toString('base64url').replace(/[-_]/g, '').slice(0, 6).toUpperCase().padEnd(6, 'X');
   } while (rooms.has(code));
-  const armySides = normalizeArmySides(body?.armySides, 2);
+  const armyCount = normalizeArmyCount(body?.armyCount);
+  const armySides = normalizeArmySides(body?.armySides, armyCount);
   return {
     code,
     mapId: normalizeMapId(body?.mapId),
@@ -270,7 +271,7 @@ function createRoom(body) {
     aiStyle: String(body?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(body?.combatMode),
     inputDelay: 8,
-    armyCount: 2,
+    armyCount,
     armySides,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -282,7 +283,7 @@ function createRoom(body) {
 
 function addPlayer(room, name, requestedId, engine) {
   let openIndex = 0;
-  for (let candidate = 1; candidate <= 2; candidate++) {
+  for (let candidate = 1; candidate <= room.armyCount; candidate++) {
     if (!room.players.some((player) => player.index === candidate)) {
       openIndex = candidate;
       break;
@@ -495,6 +496,11 @@ function normalizeArmySides(value, armyCount) {
     const side = Math.floor(Number(input[index]) || index + 1);
     return index < armyCount ? Math.max(1, Math.min(4, side)) : index + 1;
   });
+}
+
+function normalizeArmyCount(value) {
+  const count = Math.floor(Number(value));
+  return count === 3 || count === 4 ? count : 2;
 }
 
 function normalizeSide(value) {

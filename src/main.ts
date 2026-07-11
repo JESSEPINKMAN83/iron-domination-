@@ -72,6 +72,7 @@ const LOAD_SAVE_STORAGE_KEY = 'iron-dominion.load-save.v1';
 const MULTIPLAYER_SERVER_STORAGE_KEY = 'iron-dominion.multiplayer.server.v1';
 const MULTIPLAYER_PLAYER_STORAGE_KEY = 'iron-dominion.multiplayer.players.v1';
 const MULTIPLAYER_REMATCH_STORAGE_KEY = 'iron-dominion.multiplayer.rematch.v1';
+const MATCH_HISTORY_STORAGE_KEY = 'iron-dominion.match-history.v1';
 
 interface SkirmishSettings {
   mapId: MapId;
@@ -144,6 +145,40 @@ function renderLobbyMapPreview(root: HTMLDivElement, map: (typeof MAP_PRESETS)[M
   root.append(terrain, label, details);
 }
 
+function createMatchHistoryPanel(): HTMLDivElement {
+  const root = document.createElement('div');
+  root.style.cssText = 'display:grid;gap:7px;padding:11px;border:1px solid #303936;background:rgba(9,13,13,.7);';
+  const title = document.createElement('div');
+  title.textContent = 'RECENT MATCHES';
+  title.style.cssText = 'color:#d2b15f;font-size:10px;letter-spacing:.12em;';
+  const history = readMatchHistory();
+  if (history.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Your completed matches will appear here.';
+    empty.style.cssText = 'color:#7f8a85;font-size:10px;';
+    root.append(title, empty);
+    return root;
+  }
+  const rows = document.createElement('div');
+  rows.style.cssText = 'display:grid;gap:4px;';
+  for (const match of history) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;padding:6px 7px;background:#101514;color:#aebbc4;font-size:10px;';
+    const result = document.createElement('div');
+    result.textContent = match.outcome.toUpperCase();
+    result.style.color = match.outcome === 'victory' ? '#7df27d' : '#ff8a72';
+    const details = document.createElement('div');
+    details.textContent = `${MAP_PRESETS[match.mapId].shortLabel} · ${match.multiplayer ? 'ONLINE' : 'SKIRMISH'}`;
+    details.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    const duration = document.createElement('div');
+    duration.textContent = formatDuration(match.duration);
+    row.append(result, details, duration);
+    rows.appendChild(row);
+  }
+  root.append(title, rows);
+  return root;
+}
+
 interface MatchSnapshot {
   elapsedSeconds: number;
   playerCredits: number;
@@ -165,6 +200,15 @@ interface StoredMultiplayerRematch {
   server: string;
   roomCode: string;
   playerId: string;
+}
+
+interface MatchHistoryEntry {
+  playedAt: number;
+  outcome: 'victory' | 'defeat';
+  mapId: MapId;
+  seed: number;
+  duration: number;
+  multiplayer: boolean;
 }
 
 let pendingMultiplayer: { client: MultiplayerClient; session: MultiplayerSession } | undefined;
@@ -279,6 +323,26 @@ function consumeMultiplayerRematch(): StoredMultiplayerRematch | undefined {
   } catch {
     return undefined;
   }
+}
+
+function readMatchHistory(): MatchHistoryEntry[] {
+  try {
+    const rows = JSON.parse(window.localStorage.getItem(MATCH_HISTORY_STORAGE_KEY) ?? '[]');
+    return Array.isArray(rows) ? rows.filter(isMatchHistoryEntry).slice(0, 6) : [];
+  } catch {
+    return [];
+  }
+}
+
+function recordMatchHistory(entry: MatchHistoryEntry): void {
+  const history = [entry, ...readMatchHistory()].slice(0, 6);
+  window.localStorage.setItem(MATCH_HISTORY_STORAGE_KEY, JSON.stringify(history));
+}
+
+function isMatchHistoryEntry(value: unknown): value is MatchHistoryEntry {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Partial<MatchHistoryEntry>;
+  return (entry.outcome === 'victory' || entry.outcome === 'defeat') && !!sanitizeMapId(entry.mapId) && Number.isFinite(entry.playedAt) && Number.isFinite(entry.duration);
 }
 
 function readStoredMatchSave(): StoredMatchSave | undefined {
@@ -417,7 +481,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       combatMode.setValue(room.combatMode ?? 'assisted');
       mapChoice.setValue(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID);
       seedInput.value = String(room.seed);
-      armies.setState(2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
+      armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
       const guestLocked = playerIndex !== 1;
       difficulty.setDisabled(guestLocked);
       commander.setDisabled(guestLocked);
@@ -481,7 +545,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     if (multiplayerSession) setMultiplayerLaunchOnly();
     window.addEventListener('keydown', onKeyDown);
 
-    leftColumn.append(form);
+    leftColumn.append(form, createMatchHistoryPanel());
     rightColumn.append(mapChoice.root, seedRow, caption, multiplayer, controls, start);
     layout.append(leftColumn, rightColumn);
     panel.append(title, layout);
@@ -593,6 +657,12 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
     button.textContent = `${value} ARMIES`;
     button.onclick = () => {
       count = value;
+      if (value === 4 && sides.join(',') === '1,2,3,4') {
+        sides[0] = 1;
+        sides[1] = 1;
+        sides[2] = 2;
+        sides[3] = 2;
+      }
       render();
       button.blur();
     };
@@ -654,7 +724,7 @@ function createMultiplayerSetupPanel(
   header.style.cssText = 'display:flex;justify-content:space-between;gap:12px;align-items:baseline;';
   header.innerHTML =
     '<div style="color:#d2b15f;">MULTIPLAYER</div>' +
-    '<div style="color:#6f7b78;font-size:10px;">friends-link online 1v1</div>';
+    '<div style="color:#6f7b78;font-size:10px;">friends-link online 1v1 / 2v2</div>';
 
   const row = document.createElement('div');
   row.style.cssText =
@@ -748,7 +818,7 @@ function createMultiplayerSetupPanel(
     }
   };
 
-  join.onclick = async () => {
+  const joinRoom = async (): Promise<void> => {
     try {
       setBusy(true);
       const code = normalizeRoomCode(codeLabel.input.value);
@@ -766,6 +836,7 @@ function createMultiplayerSetupPanel(
       join.blur();
     }
   };
+  join.onclick = () => void joinRoom();
 
   copy.onclick = async () => {
     const code = normalizeRoomCode(codeLabel.input.value);
@@ -773,13 +844,17 @@ function createMultiplayerSetupPanel(
     const url = new URL(location.href);
     url.searchParams.set('room', code);
     await navigator.clipboard?.writeText(url.toString());
-    setStatus(`Copied room link ${code}. Guest opens it and clicks JOIN ROOM; the host starts the match.`);
+    setStatus(`Copied room link ${code}. Friends join the lobby automatically when they open it.`);
     copy.blur();
   };
 
   actionRow.append(host, join, copy);
   row.append(serverLabel.root, codeLabel.root, actionRow);
   root.append(header, row, status);
+  if (normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? '') && !currentSession()) {
+    setStatus('Joining invitation...');
+    void joinRoom();
+  }
   return root;
 }
 
@@ -908,7 +983,7 @@ function createRoomLobbyView(
       return item;
     }));
     renderLobbyMapPreview(mapPreview, map, room.seed);
-    const playerSlots = [1, 2].map((index) => {
+    const playerSlots = Array.from({ length: room.armyCount }, (_, offset) => offset + 1).map((index) => {
       const player = room.players.find((candidate) => candidate.index === index);
       const row = document.createElement('div');
       row.style.cssText =
@@ -935,11 +1010,11 @@ function createRoomLobbyView(
     side.value = String(room.armySides[playerIndex - 1] ?? playerIndex);
     for (const [color, button] of colorButtons) button.style.outline = color === (localPlayer.color ?? 'jade') ? '2px solid #f0d56a' : 'none';
     const connected = room.players.filter((player) => player.connected).length;
-    const allReady = connected === 2 && room.players.filter((player) => player.connected).every((player) => player.ready);
+    const allReady = connected === room.armyCount && room.players.filter((player) => player.connected).every((player) => player.ready);
     const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
     if (room.status === 'starting') status.textContent = 'Host launched the match · synchronizing both players...';
     else if (engines.size > 1) status.textContent = 'Different browsers detected · matching browser engines are recommended.';
-    else if (connected < 2) status.textContent = playerIndex === 1 ? 'Waiting for another commander to join...' : 'Connected · waiting for the host.';
+    else if (connected < room.armyCount) status.textContent = playerIndex === 1 ? `Waiting for commanders (${connected}/${room.armyCount})...` : `Connected · waiting for room (${connected}/${room.armyCount}).`;
     else if (!allReady) status.textContent = 'Each commander must choose a team and confirm READY.';
     else status.textContent = playerIndex === 1 ? 'All commanders ready · host can launch.' : 'All commanders ready · waiting for the host.';
     ready.disabled = room.status !== 'waiting';
@@ -980,7 +1055,7 @@ function renderRoomStatus(room: MultiplayerRoom, playerIndex: number, setStatus:
   const map = MAP_PRESETS[sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID].shortLabel;
   const countdown =
     room.status === 'starting' && room.startsAt ? `starting in ${Math.max(1, Math.ceil((room.startsAt - Date.now()) / 1000))}s` : undefined;
-  const waiting = countdown ?? (connected < 2 ? 'waiting for commander' : room.status === 'waiting' ? playerIndex === 1 ? 'host can launch' : 'waiting for host' : room.status);
+  const waiting = countdown ?? (connected < room.armyCount ? `waiting for commanders ${connected}/${room.armyCount}` : room.status === 'waiting' ? playerIndex === 1 ? 'host can launch' : 'waiting for host' : room.status);
   const combat = room.combatMode === 'manual' ? 'manual combat' : 'assisted combat';
   const pings = room.players.map((player) => player.pingMs).filter((ping): ping is number => Number.isFinite(ping));
   const ping = pings.length ? `${Math.max(...pings)}ms` : 'measuring ping';
@@ -1570,11 +1645,20 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (hostileTeams.every((team) => alive(team) === 0)) outcome = 'victory';
     else if (alive(localTeam) === 0) outcome = 'defeat';
     if (outcome) {
+      const snapshot = matchSnapshot();
+      recordMatchHistory({
+        playedAt: Date.now(),
+        outcome,
+        mapId: settings.mapId,
+        seed: settings.seed,
+        duration: snapshot.elapsedSeconds,
+        multiplayer: multiplayerMode,
+      });
       showOutcomeBanner(
         outcome,
         combinedCommanderStats(commanders),
         settings,
-        matchSnapshot(),
+        snapshot,
         multiplayer && lockstep ? () => lockstep.requestRematch() : undefined,
       );
     }

@@ -87,7 +87,7 @@ export class MultiplayerClient {
     await this.ensureSocket();
     return this.request({
       type: 'host',
-      settings: { ...settings, armyCount: 2 },
+      settings,
       name: settings.name,
       playerId: settings.playerId,
       engine: browserEngine(),

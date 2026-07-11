@@ -169,6 +169,45 @@ describe('multiplayer relay', () => {
     const closed = await timedOut;
     expect(closed.reason).toBe('disconnect-timeout:2');
   }, 5000);
+
+  it('starts a four-player 2v2 only after every commander is ready', async () => {
+    const port = await availablePort();
+    const child = spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, PORT: String(port), HEARTBEAT_MS: '50', START_COUNTDOWN_MS: '20' },
+      stdio: 'ignore',
+    });
+    children.push(child);
+    await waitForHealth(port);
+
+    const host = await connect(port);
+    host.send(JSON.stringify({ type: 'host', requestId: 'host', name: 'Host', settings: { armyCount: 4, armySides: [1, 1, 2, 2], seed: 777 } }));
+    const hostSession = await nextMessage(host, (message) => message.type === 'session');
+    const roomCode = hostSession.room.code as string;
+    const sessions = [hostSession];
+    const clients = [host];
+    for (let index = 2; index <= 4; index++) {
+      const client = await connect(port);
+      client.send(JSON.stringify({ type: 'join', requestId: `join-${index}`, code: roomCode, name: `P${index}` }));
+      clients.push(client);
+      sessions.push(await nextMessage(client, (message) => message.type === 'session'));
+    }
+    expect(hostSession.room.armyCount).toBe(4);
+    expect(sessions.map((session) => session.player.index)).toEqual([1, 2, 3, 4]);
+
+    const ready = nextMessage(host, (message) => message.type === 'room-state' && message.room.players.length === 4 && message.room.players.every((player: any) => player.ready));
+    for (const session of sessions) {
+      const client = clients[session.player.index - 1];
+      client.send(JSON.stringify({ type: 'set-ready', roomCode, playerId: session.player.id, ready: true }));
+    }
+    await ready;
+
+    const starts = clients.map((client) => nextMessage(client, (message) => message.type === 'match-start'));
+    host.send(JSON.stringify({ type: 'start-match', roomCode, playerId: hostSession.player.id }));
+    const events = await Promise.all(starts);
+    expect(events.every((event) => event.room.armyCount === 4)).toBe(true);
+    expect(events[0].room.armySides).toEqual([1, 1, 2, 2]);
+  }, 5000);
 });
 
 async function availablePort(): Promise<number> {
