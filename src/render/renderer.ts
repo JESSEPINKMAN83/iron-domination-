@@ -43,20 +43,23 @@ export class RenderContext {
   private readonly maxPixelRatio: number;
   private pixelRatio: number;
   private qualitySampleSeconds = 0;
-  private qualityFrameSeconds = 0;
+  private qualityFrameCount = 0;
   // Map construction and the first shader compilation can briefly spike frame time.
   // Give those one-off costs time to settle before adapting persistent quality.
-  private qualityCooldownSeconds = 3;
+  private qualityCooldownSeconds: number;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, options: { multiplayer?: boolean } = {}) {
     this.renderer = new WebGLRenderer({ antialias: false, stencil: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFSoftShadowMap;
-    this.maxPixelRatio = Math.min(window.devicePixelRatio, 1.25);
+    // Multiplayer commonly runs beside voice chat and sometimes a second test
+    // browser. Start slightly leaner there, then let adaptive quality recover.
+    this.maxPixelRatio = Math.min(window.devicePixelRatio, options.multiplayer ? 1 : 1.25);
     this.pixelRatio = this.maxPixelRatio;
+    this.qualityCooldownSeconds = options.multiplayer ? 1.25 : 3;
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.info.autoReset = false;
@@ -146,21 +149,22 @@ export class RenderContext {
     if (this.qualityCooldownSeconds > 0) {
       this.qualityCooldownSeconds = Math.max(0, this.qualityCooldownSeconds - dt);
       this.qualitySampleSeconds = 0;
-      this.qualityFrameSeconds = 0;
+      this.qualityFrameCount = 0;
       return;
     }
     this.qualitySampleSeconds += dt;
-    this.qualityFrameSeconds += dt;
-    if (this.qualitySampleSeconds < 1) return;
+    this.qualityFrameCount++;
+    if (this.qualitySampleSeconds < 0.75) return;
 
-    const averageFrameSeconds = this.qualityFrameSeconds / this.qualitySampleSeconds;
+    const averageFrameSeconds = this.qualitySampleSeconds / Math.max(1, this.qualityFrameCount);
     this.qualitySampleSeconds = 0;
-    this.qualityFrameSeconds = 0;
+    this.qualityFrameCount = 0;
     if (averageFrameSeconds > 0.025) {
-      if (this.pixelRatio > 0.76) this.setPixelRatio(Math.max(0.75, this.pixelRatio - 0.15));
+      if (averageFrameSeconds > 0.04 && this.n8ao.enabled) this.n8ao.enabled = false;
+      else if (this.pixelRatio > 0.71) this.setPixelRatio(Math.max(0.7, this.pixelRatio - 0.18));
       else if (this.n8ao.enabled) this.n8ao.enabled = false;
       else return;
-      this.qualityCooldownSeconds = 2.5;
+      this.qualityCooldownSeconds = 1.5;
       return;
     }
     if (averageFrameSeconds < 0.019) {

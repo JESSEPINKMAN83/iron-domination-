@@ -1212,7 +1212,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const hf = generateHeightfield({ ...mapConfig(settings.mapId), seed: settings.seed });
   console.info(`[map] ${selectedMap.label} · seed ${settings.seed} · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
 
-  const ctx = new RenderContext(app);
+  const ctx = new RenderContext(app, { multiplayer: multiplayerMode });
   applyMapAtmosphere(ctx, selectedMap);
   const input = new Input();
   input.attach(ctx.renderer.domElement);
@@ -1670,6 +1670,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let simTicks = 0;
   let simHz = SIM_HZ;
   let lastSimSample = performance.now();
+  let lastUiRefreshTick = -999;
 
   const loop = new GameLoop({
     simTick: () => {
@@ -1689,10 +1690,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       for (const entity of spawned) {
         unitView.addEntity(entity);
       }
-      for (const entity of sim.world.entities) {
-        if (entity.selectable?.type === 'tank' && !entity.destroyed) scatter.crushNear(entity.transform.x, entity.transform.z, 3.6);
+      if (sim.tick % 3 === 0) {
+        for (const entity of sim.world.entities) {
+          if (entity.selectable?.type === 'tank' && !entity.destroyed) scatter.crushNear(entity.transform.x, entity.transform.z, 3.6);
+        }
       }
-      if (sim.tick - lastFogTextureTick >= 2) {
+      if (sim.tick - lastFogTextureTick >= 4) {
         lastFogTextureTick = sim.tick;
         fogView.refresh();
       }
@@ -1711,7 +1714,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         rig.update(dt);
       }
       unitView.update(alpha, dt, ctx.camera);
-      buildingView.setProducerHighlights(sidebar.producerHighlightIds());
+      if (sim.tick - lastUiRefreshTick >= 3) {
+        lastUiRefreshTick = sim.tick;
+        buildingView.setProducerHighlights(sidebar.producerHighlightIds());
+        selectionBar.update();
+        sidebar.update();
+      }
       buildingView.update(economy, ctx.camera);
       combatView.update(dt);
       economyFx.update(dt);
@@ -1720,11 +1728,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         lastResourceVisualTick = sim.tick;
         terrain.updateResources(sim.resourceNodes);
       }
-      selectionBar.update();
       water.update(time);
       snowfall?.update(dt, time);
       ctx.render(dt);
-      sidebar.update();
 
       fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
       const now = performance.now();
