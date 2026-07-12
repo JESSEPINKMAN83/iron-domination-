@@ -68,6 +68,15 @@ interface SmokePuff {
   spin: number;
 }
 
+interface HitFragment {
+  mesh: Mesh;
+  material: MeshBasicMaterial;
+  velocity: Vector3;
+  ttl: number;
+  total: number;
+  spin: Vector3;
+}
+
 interface GroundScorch {
   mesh: Mesh<PlaneGeometry, MeshBasicMaterial>;
   texture: CanvasTexture;
@@ -87,6 +96,7 @@ export class CombatView {
   private readonly bombProjectiles: BombProjectile[] = [];
   private readonly hitIndicators: HitIndicator[] = [];
   private readonly smokePuffs: SmokePuff[] = [];
+  private readonly hitFragments: HitFragment[] = [];
   private readonly groundScorches: GroundScorch[] = [];
   private readonly up = new Vector3(0, 1, 0);
 
@@ -103,7 +113,7 @@ export class CombatView {
       const playerHiddenHit = event.sourceTeamId === 1 && event.damage > 0;
       // fights entirely inside the fog stay hidden, except brief player-fired hit confirmations
       if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
-      const muzzleHeight = event.kind === 'bomb' ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : 2.2;
+      const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : 2.2;
       const fromY = event.fromY ?? sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
       const toY = event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
       if (event.kind === 'crash') {
@@ -116,18 +126,21 @@ export class CombatView {
       }
       if (isProjectileImpact(event.kind)) {
         if (shouldPaintGroundScorch(this.hf, event)) this.spawnGroundScorch(event);
-        if (event.kind === 'bomb-impact' || event.kind === 'grenade-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
+        if (isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
           this.spawnBombBlast(
             event.toX,
             sampleHeight(this.hf, event.toX, event.toZ) + 0.4,
             event.toZ,
             event.killed,
-            tankMissileImpactScale(event.kind),
+            impactBlastScale(event.kind),
           );
         } else {
           this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed);
         }
-        if (event.damage > 0 || event.killed) this.spawnHitIndicator(event);
+        if (event.damage > 0 || event.killed) {
+          this.spawnHitIndicator(event);
+          this.spawnHitFragments(event, toY);
+        }
         continue;
       }
 
@@ -140,13 +153,17 @@ export class CombatView {
       this.group.add(line);
 
       this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed);
-      if (event.damage > 0 || event.killed) this.spawnHitIndicator(event);
+      if (event.damage > 0 || event.killed) {
+        this.spawnHitIndicator(event);
+        this.spawnHitFragments(event, toY);
+      }
     }
   }
 
   update(dt: number): void {
     this.updateBombProjectiles(dt);
     this.updateSmokePuffs(dt);
+    this.updateHitFragments(dt);
     this.updateGroundScorches(dt);
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tracer = this.tracers[i];
@@ -285,7 +302,7 @@ export class CombatView {
 
   private emitProjectileSmoke(projectile: BombProjectile, tangent: Vector3, dt: number): void {
     projectile.smokeTimer -= dt;
-    const cadence = projectile.event.kind === 'bomb' ? 0.075 : projectile.event.kind === 'grenade' ? 0.12 : 0.045;
+    const cadence = isBombKind(projectile.event.kind) ? 0.075 : projectile.event.kind === 'grenade' ? 0.12 : 0.045;
     if (projectile.smokeTimer > 0) return;
     projectile.smokeTimer = cadence;
     const pos = projectile.group.position.clone();
@@ -294,13 +311,13 @@ export class CombatView {
     pos.x += Math.sin(projectile.elapsed * 19 + projectile.event.fromX) * 0.12;
     pos.z += Math.cos(projectile.elapsed * 17 + projectile.event.fromZ) * 0.12;
     const smokeMaterial = new MeshBasicMaterial({
-      color: projectile.event.kind === 'bomb' ? 0x3a3026 : 0xb7b0a1,
+      color: isBombKind(projectile.event.kind) ? 0x3a3026 : 0xb7b0a1,
       transparent: true,
       opacity: projectile.event.kind === 'grenade' ? 0.22 : 0.34,
       depthWrite: false,
     });
     smokeMaterial.userData.baseOpacity = smokeMaterial.opacity;
-    const puff = new Mesh(new SphereGeometry(projectile.event.kind === 'bomb' ? 0.42 : 0.28, 8, 5), smokeMaterial);
+    const puff = new Mesh(new SphereGeometry(isBombKind(projectile.event.kind) ? 0.42 : 0.28, 8, 5), smokeMaterial);
     puff.position.copy(pos);
     puff.renderOrder = 57;
     this.group.add(puff);
@@ -308,8 +325,8 @@ export class CombatView {
       mesh: puff,
       material: smokeMaterial,
       velocity: new Vector3(-tangent.x * 0.9, 0.5 + Math.abs(tangent.y) * 0.2, -tangent.z * 0.9),
-      ttl: projectile.event.kind === 'bomb' ? 0.9 : 0.68,
-      total: projectile.event.kind === 'bomb' ? 0.9 : 0.68,
+      ttl: isBombKind(projectile.event.kind) ? 0.9 : 0.68,
+      total: isBombKind(projectile.event.kind) ? 0.9 : 0.68,
       spin: Math.sin(projectile.elapsed * 11 + projectile.event.toX) * 0.6,
     });
     while (this.smokePuffs.length > 90) this.disposeSmokePuff(this.smokePuffs.shift());
@@ -337,6 +354,65 @@ export class CombatView {
     this.group.remove(puff.mesh);
     puff.mesh.geometry.dispose();
     puff.material.dispose();
+  }
+
+  private spawnHitFragments(event: CombatEvent, y: number): void {
+    const heavy = isBombImpact(event.kind);
+    const count = heavy ? 18 : isTankMissileImpact(event.kind) || event.killed ? 11 : 6;
+    const force = heavy ? 8.5 : isTankMissileImpact(event.kind) ? 6.4 : 4.2;
+    for (let i = 0; i < count; i++) {
+      const seed = deterministicAngle(event.toX + i * 1.73, event.toZ - i * 0.91, event.kind);
+      const angle = seed + (i / count) * Math.PI * 2;
+      const spark = i % 3 === 0;
+      const material = new MeshBasicMaterial({
+        color: spark ? 0xffc45c : i % 2 === 0 ? 0x2c2924 : 0x696158,
+        transparent: true,
+        opacity: spark ? 0.94 : 0.78,
+        depthWrite: false,
+      });
+      const size = heavy ? 0.16 + (i % 4) * 0.055 : 0.1 + (i % 3) * 0.045;
+      const mesh = new Mesh(new BoxGeometry(size, spark ? size * 0.45 : size * 0.75, size * 0.55), material);
+      mesh.position.set(event.toX, y + 0.25, event.toZ);
+      mesh.rotation.set(angle * 0.31, angle, angle * 0.19);
+      mesh.renderOrder = 59;
+      this.group.add(mesh);
+      const speed = force * (0.55 + ((i * 37) % 11) / 16);
+      const ttl = heavy ? 1.05 + (i % 5) * 0.06 : 0.62 + (i % 4) * 0.07;
+      this.hitFragments.push({
+        mesh,
+        material,
+        velocity: new Vector3(Math.cos(angle) * speed, force * (0.72 + (i % 5) * 0.1), Math.sin(angle) * speed),
+        ttl,
+        total: ttl,
+        spin: new Vector3(2.5 + (i % 3), 3.2 + (i % 4), 2.1 + (i % 5)),
+      });
+    }
+    while (this.hitFragments.length > 140) this.disposeHitFragment(this.hitFragments.shift());
+  }
+
+  private updateHitFragments(dt: number): void {
+    for (let i = this.hitFragments.length - 1; i >= 0; i--) {
+      const fragment = this.hitFragments[i];
+      fragment.ttl -= dt;
+      fragment.velocity.y -= 18 * dt;
+      fragment.mesh.position.addScaledVector(fragment.velocity, dt);
+      fragment.mesh.rotation.x += fragment.spin.x * dt;
+      fragment.mesh.rotation.y += fragment.spin.y * dt;
+      fragment.mesh.rotation.z += fragment.spin.z * dt;
+      const life = Math.max(0, fragment.ttl / fragment.total);
+      fragment.material.opacity = life * life * 0.9;
+      if (fragment.ttl <= 0) {
+        this.disposeHitFragment(fragment);
+        this.hitFragments.splice(i, 1);
+      }
+    }
+  }
+
+  private disposeHitFragment(fragment?: HitFragment): void {
+    if (!fragment) return;
+    this.group.remove(fragment.mesh);
+    fragment.mesh.geometry.dispose();
+    fragment.material.dispose();
   }
 
   private spawnGroundScorch(event: CombatEvent): void {
@@ -586,11 +662,19 @@ function bezierTangent(from: Vector3, control: Vector3, to: Vector3, t: number):
 }
 
 function isProjectileLaunch(kind: string): boolean {
-  return kind === 'bomb' || kind === 'grenade' || kind === 'atRocket' || kind === 'scoutMissile' || kind === 'tankMissile' || kind === 'siegeMissile' || kind === 'agMissile' || kind === 'aaMissile';
+  return isBombKind(kind) || kind === 'grenade' || kind === 'atRocket' || kind === 'scoutMissile' || kind === 'tankMissile' || kind === 'siegeMissile' || kind === 'agMissile' || kind === 'aaMissile';
 }
 
 function isProjectileImpact(kind: string): boolean {
-  return kind === 'bomb-impact' || kind === 'grenade-impact' || kind === 'atRocket-impact' || isTankMissileImpact(kind) || kind === 'agMissile-impact' || kind === 'aaMissile-impact';
+  return isBombImpact(kind) || kind === 'grenade-impact' || kind === 'atRocket-impact' || isTankMissileImpact(kind) || kind === 'agMissile-impact' || kind === 'aaMissile-impact';
+}
+
+function isBombKind(kind: string): boolean {
+  return kind === 'bomb' || kind === 'tankBomb';
+}
+
+function isBombImpact(kind: string): boolean {
+  return kind === 'bomb-impact' || kind === 'tankBomb-impact';
 }
 
 function isMissile(kind: string): boolean {
@@ -606,6 +690,7 @@ function isTankMissileImpact(kind: string): boolean {
 }
 
 function projectileVisualScale(kind: string): number {
+  if (kind === 'tankBomb') return 2.25;
   if (kind === 'scoutMissile') return 1.25;
   if (kind === 'tankMissile') return 1.7;
   if (kind === 'siegeMissile') return 2.25;
@@ -613,7 +698,10 @@ function projectileVisualScale(kind: string): number {
   return kind === 'grenade' ? 1.1 : 1.75;
 }
 
-function tankMissileImpactScale(kind: string): number {
+function impactBlastScale(kind: string): number {
+  if (kind === 'tankBomb-impact') return 1.42;
+  if (kind === 'bomb-impact') return 1;
+  if (kind === 'grenade-impact') return 0.58;
   if (kind === 'scoutMissile-impact') return 0.52;
   if (kind === 'tankMissile-impact') return 0.72;
   if (kind === 'siegeMissile-impact') return 1;
@@ -628,6 +716,7 @@ function shouldPaintGroundScorch(hf: Heightfield, event: CombatEvent): boolean {
 }
 
 function scorchProfile(kind: string, killed: boolean): { size: number; opacity: number; ttl: number } {
+  if (kind === 'tankBomb-impact') return { size: killed ? 18.5 : 15.2, opacity: 0.7, ttl: killed ? 66 : 54 };
   if (kind === 'bomb-impact') return { size: killed ? 13.5 : 10.5, opacity: 0.62, ttl: killed ? 54 : 42 };
   if (kind === 'agMissile-impact') return { size: killed ? 11.5 : 8.6, opacity: 0.58, ttl: killed ? 48 : 38 };
   if (kind === 'grenade-impact') return { size: killed ? 7.4 : 5.8, opacity: 0.5, ttl: 30 };
@@ -650,7 +739,7 @@ function makeScorchTexture(kind: string, x: number, z: number): CanvasTexture {
 
   const centerX = 128 + (rng() - 0.5) * 10;
   const centerY = 128 + (rng() - 0.5) * 10;
-  const radius = kind === 'bomb-impact' || kind === 'agMissile-impact' ? 92 : kind === 'grenade-impact' ? 70 : 62;
+  const radius = kind === 'tankBomb-impact' ? 108 : kind === 'bomb-impact' || kind === 'agMissile-impact' ? 92 : kind === 'grenade-impact' ? 70 : 62;
   const edge = 28 + rng() * 16;
 
   const gradient = ctx.createRadialGradient(centerX, centerY, radius * 0.08, centerX, centerY, radius);
@@ -677,7 +766,7 @@ function makeScorchTexture(kind: string, x: number, z: number): CanvasTexture {
   for (let i = 0; i < 32; i++) {
     const angle = rng() * Math.PI * 2;
     const dist = radius * (0.22 + rng() * 0.62);
-    const dotR = 2 + rng() * (kind === 'bomb-impact' ? 7 : 4);
+    const dotR = 2 + rng() * (kind === 'tankBomb-impact' ? 9 : kind === 'bomb-impact' ? 7 : 4);
     ctx.fillStyle = `rgba(${22 + rng() * 30},${17 + rng() * 20},${11 + rng() * 12},${0.14 + rng() * 0.22})`;
     ctx.beginPath();
     ctx.ellipse(centerX + Math.cos(angle) * dist, centerY + Math.sin(angle) * dist, dotR * (1.2 + rng()), dotR, angle, 0, Math.PI * 2);
@@ -685,8 +774,8 @@ function makeScorchTexture(kind: string, x: number, z: number): CanvasTexture {
   }
 
   ctx.strokeStyle = 'rgba(15, 11, 8, 0.34)';
-  ctx.lineWidth = kind === 'bomb-impact' || kind === 'agMissile-impact' ? 2.2 : 1.4;
-  const cracks = kind === 'bomb-impact' || kind === 'agMissile-impact' ? 9 : 5;
+  ctx.lineWidth = kind === 'tankBomb-impact' ? 2.8 : kind === 'bomb-impact' || kind === 'agMissile-impact' ? 2.2 : 1.4;
+  const cracks = kind === 'tankBomb-impact' ? 12 : kind === 'bomb-impact' || kind === 'agMissile-impact' ? 9 : 5;
   for (let i = 0; i < cracks; i++) {
     const angle = rng() * Math.PI * 2;
     const start = radius * (0.16 + rng() * 0.18);

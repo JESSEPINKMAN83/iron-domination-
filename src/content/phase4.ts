@@ -11,6 +11,7 @@ export type WeaponKind =
   | 'waspAutocannon'
   | 'cannon'
   | 'heavyCannon'
+  | 'tankBomb'
   | 'bomb'
   | 'rocketPod'
   | 'agMissile'
@@ -160,6 +161,16 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     splashRadius: 2.2,
     targetTypes: ['light', 'heavy', 'building'],
     vs: { infantry: 0.75, light: 0.82, heavy: 0.88, building: 0.48, air: 0 },
+  },
+  tankBomb: {
+    kind: 'tankBomb',
+    label: 'Heavy Arc Missile',
+    damage: 42,
+    cooldown: 5.2,
+    range: 176,
+    splashRadius: 7.5,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 0.95, light: 0.9, heavy: 0.82, building: 0.55, air: 0 },
   },
   bomb: {
     kind: 'bomb',

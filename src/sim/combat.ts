@@ -74,7 +74,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
         if (Math.abs(angleDelta(attacker.turret.yaw, bearing)) > AIM_TOLERANCE) continue;
       }
       if (weapon.cooldown > 0) continue;
-      if (def.kind === 'bomb') {
+      if (def.kind === 'bomb' || def.kind === 'tankBomb') {
         const aim = autoAimPoint(sim, attacker, weapon, target, target.transform.x, target.transform.z, 'bomb');
         launchBomb(sim, attacker, weapon, aim.x, aim.z, def.range);
       } else if (def.projectile) {
@@ -149,7 +149,7 @@ export function manualFireAt(
   const uz = rawLen > 0.001 ? rawDz / rawLen : Math.cos(fallbackYaw);
   const len = Math.max(0.0001, rawLen);
 
-  if (def.kind === 'bomb') {
+  if (def.kind === 'bomb' || def.kind === 'tankBomb') {
     const maxRange = Math.max(def.range, BOMB_MANUAL_MAX_RANGE);
     const range = attacker.flight ? Math.min(maxRange, len) : len < 8 ? 48 : Math.min(maxRange, len);
     launchBomb(sim, attacker, weapon, attacker.transform.x + ux * range, attacker.transform.z + uz * range, maxRange);
@@ -219,7 +219,9 @@ export function manualFireAt(
  */
 function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: number, targetZ: number, maxRange: number): void {
   if (!attacker.team) return;
-  const def = WEAPONS.bomb;
+  const weaponKind = weapon.kind === 'tankBomb' ? 'tankBomb' : 'bomb';
+  const def = WEAPONS[weaponKind];
+  const projectileKind = weaponKind === 'tankBomb' ? 'tankBomb' : 'bomb';
   const range = Math.hypot(targetX - attacker.transform.x, targetZ - attacker.transform.z);
   const salvoCount = Math.max(1, Math.min(4, Math.round(weapon.salvoCount ?? 1)));
   const baseImpact = scatterBombImpact(sim, attacker, targetX, targetZ, range, maxRange);
@@ -229,7 +231,8 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
     const flight = Math.hypot(impact.x - attacker.transform.x, impact.z - attacker.transform.z);
     const duration = Math.min(3.6, Math.max(0.85, flight / BOMB_SPEED) + i * 0.08);
     sim.projectiles.push({
-      kind: 'bomb',
+      kind: projectileKind,
+      weaponKind,
       fromX: attacker.transform.x,
       fromZ: attacker.transform.z,
       toX: impact.x,
@@ -241,7 +244,7 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
       attackerId: attacker.id,
     });
     sim.events.push({
-      kind: 'bomb',
+      kind: projectileKind,
       fromX: attacker.transform.x,
       fromY: bombMuzzleY(attacker),
       fromZ: attacker.transform.z,
@@ -670,7 +673,7 @@ function splashDamageForTarget(kind: WeaponKind, target: Entity, falloff: number
   if (!target.armor) return 0;
   const def = WEAPONS[kind];
   if (target.armor.kind === 'air' && !def.canTargetAir) return 0;
-  const multiplier = kind === 'bomb' || kind === 'agMissile' || kind === 'aaMissile' ? 1 : 0.55;
+  const multiplier = kind === 'bomb' || kind === 'tankBomb' || kind === 'agMissile' || kind === 'aaMissile' ? 1 : 0.55;
   return damageForArmor(kind, target.armor.kind) * falloff * multiplier;
 }
 

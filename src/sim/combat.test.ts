@@ -17,6 +17,8 @@ describe('phase 4 combat simulation', () => {
     expect(damageForArmor('cannon', 'heavy')).toBeCloseTo(5.76);
     expect(damageForArmor('bomb', 'heavy')).toBeCloseTo(15.08);
     expect(damageForArmor('bomb', 'building')).toBeCloseTo(7.8);
+    expect(damageForArmor('tankBomb', 'heavy')).toBeCloseTo(34.44);
+    expect(damageForArmor('tankBomb', 'building')).toBeCloseTo(23.1);
   });
 
   it('lets a sniper manually pick infantry from long range', () => {
@@ -196,12 +198,12 @@ describe('phase 4 combat simulation', () => {
     expect(fired).toBe(true);
     expect(firedAgain).toBe(false);
     expect(sim.projectiles).toHaveLength(2);
-    expect(sim.events.at(-1)?.kind).toBe('bomb');
+    expect(sim.events.at(-1)?.kind).toBe('tankBomb');
     // no damage until the bomb lands
     expect(primary.health?.current).toBe(100);
 
     settle(sim, 1.5);
-    const impact = sim.events.find((event) => event.kind === 'bomb-impact');
+    const impact = sim.events.find((event) => event.kind === 'tankBomb-impact');
     expect(sim.projectiles).toHaveLength(0);
     expect(impact).toBeDefined();
     expect(impact?.sourceTeamId).toBe(1);
@@ -210,7 +212,7 @@ describe('phase 4 combat simulation', () => {
     expect(impact?.targetMaxHealth).toBe(100);
     expect(primary.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeLessThan(100);
-    expect(nearby.health?.current).toBeGreaterThan(80);
+    expect(nearby.health?.current).toBeGreaterThan(60);
   });
 
   it('lets player-controlled bombs fire beyond normal range with deterministic scatter', () => {
@@ -225,7 +227,7 @@ describe('phase 4 combat simulation', () => {
     expect(sim.events).toHaveLength(2);
     expect(Math.hypot(sim.events[0].toX - attacker.transform.x, sim.events[0].toZ - attacker.transform.z)).toBeGreaterThan(152);
     expect(sim.events[0].toX).not.toBeCloseTo(360);
-    expect(sim.events.every((event) => event.kind === 'bomb')).toBe(true);
+    expect(sim.events.every((event) => event.kind === 'tankBomb')).toBe(true);
   });
 
   it('keeps a manually fired bomb safely away from the firing tank', () => {
@@ -272,7 +274,7 @@ describe('phase 4 combat simulation', () => {
       enemy.turret!.yaw = Math.PI; // facing the player
 
       stepCombat(sim, 1 / 30);
-      expect(sim.events.some((event) => event.kind === 'bomb')).toBe(true);
+      expect(sim.events.some((event) => event.kind === 'tankBomb')).toBe(true);
       if (dodge) {
         player.transform.x += 30; // drove away during the flight
         player.previousTransform.x += 30;
@@ -367,7 +369,7 @@ describe('phase 4 combat simulation', () => {
       expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'primary')).toBe(false);
       expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'secondary')).toBe(false);
 
-      for (let i = 0; i < Math.round(4.2 * 30); i++) stepCombat(sim, 1 / 30, { autoFire: false });
+      for (let i = 0; i < Math.round(5.3 * 30); i++) stepCombat(sim, 1 / 30, { autoFire: false });
       if (vehicle.turret) vehicle.turret.yaw = aimYaw;
 
       expect(vehicle.weapons?.primary.cooldown).toBe(0);
@@ -403,7 +405,7 @@ describe('phase 4 combat simulation', () => {
     settle(sim, 1.5);
 
     expect(vulture.health?.current).toBeGreaterThan(158);
-    expect(sim.events.some((event) => event.kind === 'bomb-impact')).toBe(true);
+    expect(sim.events.some((event) => event.kind === 'tankBomb-impact')).toBe(true);
   });
 
   it('gives AA missile towers a real anti-air role', () => {

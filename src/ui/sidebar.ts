@@ -1097,7 +1097,7 @@ function unitCardDetail(kind: string): { role: string; pips: number[] } | undefi
   const secondary = secondaryWeaponForUnit(unit.kind);
   const secondaryDef = secondary ? WEAPONS[secondary] : undefined;
   const salvo = bombSalvoForUnit(unit.kind);
-  const burstDamage = secondaryDef?.kind === 'bomb' ? secondaryDef.damage * salvo : (secondaryDef?.damage ?? 0);
+  const burstDamage = secondaryDef?.kind === 'bomb' || secondaryDef?.kind === 'tankBomb' ? secondaryDef.damage * salvo : (secondaryDef?.damage ?? 0);
   const damage = Math.min(1, Math.max(weapon.damage, burstDamage) / 104);
   const range = Math.min(1, Math.max(weapon.range, secondaryDef?.range ?? 0) / 188);
   const speed = speedScoreForUnit(unit.kind);
@@ -1120,9 +1120,8 @@ function primaryWeaponForUnit(kind: UnitKind): WeaponKind {
 
 function secondaryWeaponForUnit(kind: UnitKind): WeaponKind | undefined {
   if (kind === 'rocket-infantry') return 'aaMissile';
-  if (kind === 'scout-tank' || kind === 'tank' || kind === 'siege-tank' || kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead') {
-    return 'bomb';
-  }
+  if (kind === 'scout-tank' || kind === 'tank' || kind === 'siege-tank') return 'tankBomb';
+  if (kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead') return 'bomb';
   return undefined;
 }
 

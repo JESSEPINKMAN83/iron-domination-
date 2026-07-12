@@ -147,7 +147,7 @@ export class AudioDirector {
       this.playMetalCrash(event);
       return;
     }
-    if (event.kind === 'bomb' || event.kind === 'grenade' || event.kind === 'agMissile' || event.kind === 'aaMissile' || event.kind === 'scoutMissile' || event.kind === 'tankMissile' || event.kind === 'siegeMissile') {
+    if (event.kind === 'bomb' || event.kind === 'tankBomb' || event.kind === 'grenade' || event.kind === 'agMissile' || event.kind === 'aaMissile' || event.kind === 'scoutMissile' || event.kind === 'tankMissile' || event.kind === 'siegeMissile') {
       this.playLaunch(event);
       return;
     }
@@ -170,7 +170,7 @@ export class AudioDirector {
     const bus = this.spatialBus(event.toX, event.toZ, profile);
     if (!bus) return;
     const now = this.ctx!.currentTime;
-    const heavy = event.kind === 'bomb-impact' || event.kind === 'agMissile-impact';
+    const heavy = event.kind === 'tankBomb-impact' || event.kind === 'bomb-impact' || event.kind === 'agMissile-impact';
     const duration = heavy ? 1.35 : 0.72;
 
     const boom = this.ctx!.createOscillator();
@@ -207,10 +207,11 @@ export class AudioDirector {
 
   private playLaunch(event: CombatEvent): void {
     const kind = event.kind;
+    const heavyArc = kind === 'tankBomb';
     const profile: SoundProfile = {
-      gain: kind === 'bomb' ? 0.2 : kind === 'grenade' ? 0.12 : 0.16,
+      gain: heavyArc ? 0.28 : kind === 'bomb' ? 0.2 : kind === 'grenade' ? 0.12 : 0.16,
       near: 22,
-      far: kind === 'bomb' ? 260 : 210,
+      far: heavyArc ? 340 : kind === 'bomb' ? 260 : 210,
     };
     if (!this.allowSoundAt(event.kind, event.fromX, event.fromZ, profile, kind === 'aaMissile' || kind === 'agMissile' ? 0.06 : 0.04, 'launch')) return;
     const bus = this.spatialBus(event.fromX, event.fromZ, profile);
@@ -218,8 +219,8 @@ export class AudioDirector {
     const now = this.ctx!.currentTime;
     const whistle = this.ctx!.createOscillator();
     whistle.type = kind === 'grenade' ? 'triangle' : 'sawtooth';
-    whistle.frequency.setValueAtTime(kind === 'bomb' ? 120 : kind === 'grenade' ? 270 : 390, now);
-    whistle.frequency.exponentialRampToValueAtTime(kind === 'bomb' ? 72 : kind === 'grenade' ? 210 : 850, now + 0.22);
+    whistle.frequency.setValueAtTime(heavyArc ? 92 : kind === 'bomb' ? 120 : kind === 'grenade' ? 270 : 390, now);
+    whistle.frequency.exponentialRampToValueAtTime(heavyArc ? 54 : kind === 'bomb' ? 72 : kind === 'grenade' ? 210 : 850, now + 0.22);
     const gain = this.ctx!.createGain();
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(kind === 'bomb' ? 0.08 : 0.04, now + 0.014);
@@ -418,6 +419,7 @@ export class AudioDirector {
 }
 
 function explosionProfile(kind: string, killed: boolean): SoundProfile {
+  if (kind === 'tankBomb-impact') return { gain: killed ? 0.76 : 0.62, near: 34, far: killed ? 620 : 540 };
   if (kind === 'bomb-impact') return { gain: killed ? 0.62 : 0.48, near: 28, far: killed ? 520 : 430 };
   if (kind === 'agMissile-impact') return { gain: killed ? 0.5 : 0.38, near: 24, far: 390 };
   if (kind === 'grenade-impact') return { gain: killed ? 0.34 : 0.24, near: 18, far: 260 };
