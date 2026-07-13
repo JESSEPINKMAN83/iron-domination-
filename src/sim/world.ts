@@ -547,6 +547,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     transform.y ??= sampleHeight(hf, transform.x, transform.z);
     let desiredX = 0;
     let desiredZ = 0;
+    let orientToMovement = false;
 
     if (entity.flight) {
       stepFlightEntity(sim, hf, movers, entity, i, dt);
@@ -583,10 +584,12 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       } else if (finalDist < 18) {
         desiredX = finalDx / finalDist;
         desiredZ = finalDz / finalDist;
+        orientToMovement = true;
       } else {
         const dir = mover.flow.directionAt(transform.x, transform.z);
         desiredX = dir.x;
         desiredZ = dir.z;
+        orientToMovement = true;
       }
     } else if (mover.engage) {
       // guard response set by combat: advance until back in weapon range
@@ -596,6 +599,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       if (d > 2) {
         desiredX = dx / d;
         desiredZ = dz / d;
+        orientToMovement = true;
       }
       mover.engage = undefined; // re-issued next combat tick while the foe stays visible
     } else if (mover.faceYaw !== undefined) {
@@ -648,7 +652,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     }
 
     const speed = Math.hypot(velocity.x, velocity.z);
-    if (!entity.playerControlled && speed > 0.05) transform.rot = Math.atan2(velocity.x, velocity.z);
+    if (!entity.playerControlled && orientToMovement && speed > 0.05) transform.rot = Math.atan2(velocity.x, velocity.z);
     transform.y = sampleHeight(hf, transform.x, transform.z);
   }
 

@@ -102,6 +102,8 @@ interface UnitHitReaction {
   force: number;
   dirX: number;
   dirZ: number;
+  localSide: number;
+  localForward: number;
   flip: boolean;
   sign: number;
 }
@@ -424,17 +426,22 @@ export class UnitView {
       const isInfantry = entity.selectable?.type === 'infantry';
       const isAircraft = Boolean(entity.flight);
       const flipRoll = deterministicUnit(entity.id, Math.round(event.toX * 11 + event.toZ * 7));
-      const flip = !isInfantry && !isAircraft && force > 0.46 && flipRoll < Math.min(0.62, (force - 0.34) * 0.92);
-      const duration = isInfantry ? 0.42 + force * 0.68 : isAircraft ? 0.62 + force * 0.82 : flip ? 1.28 + force * 0.78 : 0.42 + force * 0.72;
+      const flip = !isInfantry && !isAircraft && force > 0.78 && flipRoll < Math.min(0.16, (force - 0.72) * 0.54);
+      const duration = isInfantry ? 0.42 + force * 0.68 : isAircraft ? 0.62 + force * 0.82 : flip ? 1.08 + force * 0.42 : 0.34 + force * 0.46;
       const existing = this.hitReactions.get(entity);
+      const localAngle = Math.atan2(dirX, dirZ) - entity.transform.rot;
+      const localSide = existing?.flip ? existing.localSide : Math.sin(localAngle);
+      const localForward = existing?.flip ? existing.localForward : Math.cos(localAngle);
       this.hitReactions.set(entity, {
         elapsed: 0,
         duration: Math.max(duration, existing?.duration ?? 0),
         force: Math.min(1, force + (existing?.force ?? 0) * 0.28),
         dirX,
         dirZ,
+        localSide,
+        localForward,
         flip: flip || Boolean(existing?.flip),
-        sign: Math.sin(Math.atan2(dirX, dirZ) - entity.transform.rot) >= 0 ? 1 : -1,
+        sign: localSide >= 0 ? 1 : -1,
       });
     }
   }
@@ -541,9 +548,7 @@ export class UnitView {
     const t = Math.min(1, reaction.elapsed / reaction.duration);
     const arc = Math.sin(t * Math.PI);
     const recoil = Math.sin(Math.min(1, t * 2.4) * Math.PI) * Math.exp(-t * 2.2);
-    const localAngle = Math.atan2(reaction.dirX, reaction.dirZ) - entity.transform.rot;
-    const localSide = Math.sin(localAngle);
-    const localForward = Math.cos(localAngle);
+    const { localSide, localForward } = reaction;
     if (entity.selectable?.type === 'infantry') {
       const knock = (0.14 + reaction.force * 1.35) * arc;
       obj.rotation.x += -localForward * knock;
@@ -559,12 +564,12 @@ export class UnitView {
       obj.position.z += reaction.dirZ * arc * reaction.force * 1.1;
     } else {
       const axisX = Math.abs(localForward) >= Math.abs(localSide);
-      const angle = reaction.flip ? Math.PI * (0.92 + reaction.force * 0.12) * arc : (0.1 + reaction.force * 0.48) * arc;
+      const angle = reaction.flip ? (0.92 + reaction.force * 0.42) * arc : (0.04 + reaction.force * 0.24) * recoil;
       if (axisX) obj.rotation.x += -Math.sign(localForward || 1) * angle;
       else obj.rotation.z += reaction.sign * angle;
-      obj.position.y += arc * (reaction.flip ? 2.4 + reaction.force * 2.2 : 0.12 + reaction.force * 0.58);
-      obj.position.x += reaction.dirX * arc * reaction.force * 0.9;
-      obj.position.z += reaction.dirZ * arc * reaction.force * 0.9;
+      obj.position.y += arc * (reaction.flip ? 0.72 + reaction.force * 0.82 : 0.04 + reaction.force * 0.2);
+      obj.position.x += reaction.dirX * arc * reaction.force * 0.46;
+      obj.position.z += reaction.dirZ * arc * reaction.force * 0.46;
     }
     if (t >= 1) this.hitReactions.delete(entity);
   }

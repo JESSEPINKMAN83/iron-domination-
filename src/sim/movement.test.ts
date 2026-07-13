@@ -60,6 +60,22 @@ describe('phase 2 movement simulation', () => {
     expect(tank.mover?.flow).toBeUndefined();
   });
 
+  it('does not turn an idle tank to face passive blast momentum', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const [tank] = spawnDebugTanks(sim, hf, 1);
+    const start = { x: tank.transform.x, z: tank.transform.z, rot: 1.17 };
+    tank.transform.rot = start.rot;
+    tank.previousTransform.rot = start.rot;
+    tank.velocity!.x = 9;
+    tank.velocity!.z = -4;
+
+    stepSim(sim, hf, 1 / 30);
+
+    expect(Math.hypot(tank.transform.x - start.x, tank.transform.z - start.z)).toBeGreaterThan(0.05);
+    expect(tank.transform.rot).toBeCloseTo(start.rot);
+  });
+
   it('doubles possessed ground unit movement while boost is held', () => {
     const run = (boost: boolean) => {
       const hf = generateHeightfield(MAP01);
