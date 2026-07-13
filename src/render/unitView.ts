@@ -83,6 +83,18 @@ interface FriendlyGlowMesh {
   count: number;
 }
 
+interface BikeDustParticle {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  age: number;
+  lifetime: number;
+  scale: number;
+}
+
 // Unit and overlay geometries are shared by dimensions, so spawning visual variants
 // does not allocate fresh GPU shapes for every entity.
 const HEALTH_BACK_GEOM = new PlaneGeometry(4.1, 0.48);
@@ -91,6 +103,8 @@ const AIR_SHADOW_GEOM = new CircleGeometry(3.8, 32);
 const ROTOR_WASH_GEOM = new RingGeometry(1.8, 5.2, 48);
 const FRIENDLY_GLOW_GEOM = new SphereGeometry(1, 16, 10);
 const MAX_FRIENDLY_GLOWS = 1024;
+const BIKE_DUST_GEOM = new SphereGeometry(1, 8, 5);
+const MAX_BIKE_DUST_PARTICLES = 256;
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
@@ -143,6 +157,11 @@ export class UnitView {
   private readonly teamMaterials: Record<FactionId, TeamMaterials>;
   private readonly friendlyGlow: FriendlyGlowMesh;
   private readonly glowTransform = new Object3D();
+  private readonly bikeDustMesh: InstancedMesh;
+  private readonly bikeDustTransform = new Object3D();
+  private readonly bikeDustParticles: BikeDustParticle[] = [];
+  private readonly bikeDustSpawn = new Map<Entity, number>();
+  private bikeDustSerial = 0;
   private readonly wreckMaterial: Material;
   private readonly vehicleScorchMaterial: Material;
   private readonly vehicleCrackMaterial: Material;
@@ -179,6 +198,8 @@ export class UnitView {
     };
     this.friendlyGlow = createFriendlyGlowMesh(factionId(localTeam));
     this.group.add(this.friendlyGlow.mesh);
+    this.bikeDustMesh = createBikeDustMesh(hf.kind);
+    this.group.add(this.bikeDustMesh);
     this.wreckMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1d1a16, roughness: 1, metalness: 0.05 }));
     this.vehicleScorchMaterial = new MeshBasicMaterial({ color: 0x070605, transparent: true, opacity: 0.64, depthWrite: false, side: DoubleSide });
     this.vehicleCrackMaterial = new MeshBasicMaterial({ color: 0x0b0a09, transparent: true, opacity: 0.86, depthWrite: false, side: DoubleSide });
@@ -341,6 +362,7 @@ export class UnitView {
     }
     this.soldierRigs.delete(entity);
     this.anims.delete(entity);
+    this.bikeDustSpawn.delete(entity);
     this.wrecked.delete(entity);
     this.damageOverlays.delete(entity);
   }
@@ -443,6 +465,7 @@ export class UnitView {
     }
     this.friendlyGlow.mesh.count = this.friendlyGlow.count;
     this.friendlyGlow.mesh.instanceMatrix.needsUpdate = true;
+    this.updateBikeDust(dt);
   }
 
   private updateFriendlyGlow(entity: Entity, x: number, y: number, z: number, time: number): void {
@@ -605,6 +628,17 @@ export class UnitView {
       rig.hipR.rotation.x = -0.72;
       rig.kneeL.rotation.x = 1.2;
       rig.kneeR.rotation.x = 1.2;
+      for (const wheel of rig.bikeWheels) wheel.rotation.x -= (speed / 0.43) * dt;
+      const moveYaw = speed > 0.4 && entity.velocity ? Math.atan2(entity.velocity.x, entity.velocity.z) : entity.transform.rot;
+      const slip = Math.atan2(Math.sin(moveYaw - entity.transform.rot), Math.cos(moveYaw - entity.transform.rot));
+      const lean = Math.max(-0.22, Math.min(0.22, -slip * 0.48));
+      rig.combatBike.rotation.z += (lean - rig.combatBike.rotation.z) * Math.min(1, dt * 8);
+      rig.combatBike.position.y = Math.sin(anim.phase * 1.7) * 0.028 * speedT;
+      this.emitBikeDust(entity, speed, dt);
+    } else {
+      rig.combatBike.rotation.z += (0 - rig.combatBike.rotation.z) * Math.min(1, dt * 8);
+      rig.combatBike.position.y = 0;
+      this.bikeDustSpawn.delete(entity);
     }
     // gait bob + a touch of forward lean when running
     obj.position.y += onCombatBike ? 0.34 : (Math.abs(Math.sin(anim.phase * 2)) * 0.05 - 0.02) * anim.swing - anim.crouch * 0.12 - rocketKneel * 0.08;
@@ -636,6 +670,66 @@ export class UnitView {
       rig.backBlast.scale.setScalar(1.2 + recoilT * 0.5);
     }
     if (rig.antenna) rig.antenna.rotation.z = Math.sin(anim.phase * 1.15 + entity.id) * 0.13 * Math.max(0.25, anim.swing);
+  }
+
+  private emitBikeDust(entity: Entity, speed: number, dt: number): void {
+    if (speed < 7 || !entity.velocity) {
+      this.bikeDustSpawn.set(entity, 0);
+      return;
+    }
+    let pending = (this.bikeDustSpawn.get(entity) ?? 0) + dt * Math.min(14, 1.1 + speed * 0.34);
+    const dirX = entity.velocity.x / speed;
+    const dirZ = entity.velocity.z / speed;
+    let emitted = 0;
+    while (pending >= 1 && emitted < 3) {
+      pending -= 1;
+      emitted++;
+      const seed = entity.id * 211 + this.bikeDustSerial++;
+      const jitter = deterministicUnitSigned(seed, 0xd51);
+      const side = deterministicUnitSigned(seed, 0xd73) * 0.48;
+      const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
+      if (this.bikeDustParticles.length >= MAX_BIKE_DUST_PARTICLES) this.bikeDustParticles.shift();
+      this.bikeDustParticles.push({
+        x: entity.transform.x - dirX * 0.9 - dirZ * side,
+        y: groundY + 0.28,
+        z: entity.transform.z - dirZ * 0.9 + dirX * side,
+        vx: -dirX * (1.1 + speed * 0.045) - dirZ * jitter * 0.7,
+        vy: 0.65 + Math.abs(jitter) * 0.55,
+        vz: -dirZ * (1.1 + speed * 0.045) + dirX * jitter * 0.7,
+        age: 0,
+        lifetime: 0.78 + Math.abs(deterministicUnitSigned(seed, 0xda1)) * 0.48,
+        scale: 0.68 + Math.abs(deterministicUnitSigned(seed, 0xdc7)) * 0.46,
+      });
+    }
+    this.bikeDustSpawn.set(entity, pending);
+  }
+
+  private updateBikeDust(dt: number): void {
+    let count = 0;
+    for (let i = this.bikeDustParticles.length - 1; i >= 0; i--) {
+      const particle = this.bikeDustParticles[i];
+      particle.age += dt;
+      if (particle.age >= particle.lifetime) {
+        this.bikeDustParticles.splice(i, 1);
+        continue;
+      }
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      particle.z += particle.vz * dt;
+      particle.vx *= Math.max(0, 1 - dt * 1.8);
+      particle.vz *= Math.max(0, 1 - dt * 1.8);
+      particle.vy += dt * 0.18;
+      const life = particle.age / particle.lifetime;
+      const fade = Math.min(1, life * 7) * Math.max(0, 1 - life);
+      const size = particle.scale * (0.28 + life * 1.75) * Math.sqrt(fade);
+      this.bikeDustTransform.position.set(particle.x, particle.y, particle.z);
+      this.bikeDustTransform.rotation.set(0, 0, 0);
+      this.bikeDustTransform.scale.set(size * 1.35, size * 0.62, size);
+      this.bikeDustTransform.updateMatrix();
+      this.bikeDustMesh.setMatrixAt(count++, this.bikeDustTransform.matrix);
+    }
+    this.bikeDustMesh.count = count;
+    this.bikeDustMesh.instanceMatrix.needsUpdate = true;
   }
 
   private updateUnitDamage(entity: Entity, obj: Object3D): void {
@@ -834,6 +928,23 @@ function createFriendlyGlowMesh(id: FactionId): FriendlyGlowMesh {
   mesh.frustumCulled = false;
   mesh.renderOrder = 22;
   return { mesh, count: 0 };
+}
+
+function createBikeDustMesh(kind: Heightfield['kind']): InstancedMesh {
+  const color = kind === 'frostbite-pass' ? 0xaebdc3 : kind === 'crater-oasis' ? 0xc69458 : 0x9b8965;
+  const material = new MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: kind === 'frostbite-pass' ? 0.28 : 0.2,
+    depthWrite: false,
+    depthTest: true,
+  });
+  const mesh = new InstancedMesh(BIKE_DUST_GEOM, material, MAX_BIKE_DUST_PARTICLES);
+  mesh.count = 0;
+  mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 21;
+  return mesh;
 }
 
 function createCamoTexture(id: FactionId): CanvasTexture {

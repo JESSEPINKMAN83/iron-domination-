@@ -42,8 +42,8 @@ export interface UnitUpgradeDef {
 export const UNIT_UPGRADES: Record<UnitUpgradeId, UnitUpgradeDef> = {
   'combat-bike': {
     id: 'combat-bike', label: 'Combat Bike', category: 'frame', cost: 170,
-    description: 'Mounts the soldier on a fast attack bike. Snipers must stop the bike before aiming or firing.',
-    kinds: ['infantry', 'grenadier', 'sniper', 'rocket-infantry'], speedMultiplier: 1.85, healthBonus: 14,
+    description: 'Mounts the soldier on a high-speed attack bike. Snipers must stop the bike before aiming or firing.',
+    kinds: ['infantry', 'grenadier', 'sniper', 'rocket-infantry'], speedMultiplier: 2.65, healthBonus: 14,
   },
   'tesla-dart': {
     id: 'tesla-dart', label: 'Tesla Dart', category: 'ability', cost: 290, hotkey: 'F',

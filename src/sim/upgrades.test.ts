@@ -17,13 +17,13 @@ describe('unit upgrades', () => {
     const result = purchaseUnitUpgrade(sim, economy, [first.id, second.id], 'combat-bike');
     expect(result).toMatchObject({ ok: true, upgraded: 2, cost: 340 });
     expect(economy.credits).toBe(1660);
-    expect(first.mover!.speed).toBeCloseTo(baseSpeed * 1.85);
+    expect(first.mover!.speed).toBeCloseTo(baseSpeed * 2.65);
     expect(first.health!.max).toBeGreaterThan(first.health!.current - 1);
 
     const duplicate = purchaseUnitUpgrade(sim, economy, [first.id, second.id], 'combat-bike');
     expect(duplicate.ok).toBe(false);
     expect(economy.credits).toBe(1660);
-    expect(first.mover!.speed).toBeCloseTo(baseSpeed * 1.85);
+    expect(first.mover!.speed).toBeCloseTo(baseSpeed * 2.65);
   });
 
   it('installs a special weapon only on the purchased tank and includes it in the sim hash', () => {

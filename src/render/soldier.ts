@@ -35,6 +35,7 @@ export interface SoldierRig {
   backBlast?: Mesh;
   antenna?: Group;
   combatBike: Group;
+  bikeWheels: Group[];
   kit: SoldierKit;
 }
 
@@ -163,15 +164,19 @@ function addShoulders(torso: Group, m: SoldierMaterials): void {
   torso.add(box(0.14, 0.035, 0.19, m.accent, -0.31, 0.685, 0));
 }
 
-function buildCombatBike(m: SoldierMaterials): Group {
+function buildCombatBike(m: SoldierMaterials): { root: Group; wheels: Group[] } {
   const bike = new Group();
   bike.name = 'combatBikeUpgrade';
-  const wheel = (z: number): Mesh => {
-    const mesh = cyl(0.43, 0.43, 0.14, 12, m.gunmetal, 0, 0.43, z);
+  const wheel = (z: number): Group => {
+    const pivot = new Group();
+    pivot.position.set(0, 0.43, z);
+    const mesh = cyl(0.43, 0.43, 0.14, 12, m.gunmetal, 0, 0, 0);
     mesh.rotation.z = Math.PI / 2;
-    return mesh;
+    pivot.add(mesh);
+    return pivot;
   };
-  bike.add(wheel(-0.82), wheel(0.86));
+  const wheels = [wheel(-0.82), wheel(0.86)];
+  bike.add(...wheels);
   const frame = box(0.15, 0.15, 1.42, m.accent, 0, 0.56, 0.04);
   frame.rotation.x = 0.06;
   bike.add(frame);
@@ -184,7 +189,7 @@ function buildCombatBike(m: SoldierMaterials): Group {
   bike.add(box(0.27, 0.19, 0.12, m.lightBar, 0, 0.7, 0.91));
   bike.add(box(0.08, 0.08, 0.7, m.gunmetal, -0.3, 0.55, -0.35));
   bike.visible = false;
-  return bike;
+  return { root: bike, wheels };
 }
 
 function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, kit: SoldierKit): { antenna?: Group; backBlast?: Mesh } {
@@ -251,7 +256,7 @@ function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, 
 export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): SoldierRig {
   const root = new Group();
   const combatBike = buildCombatBike(m);
-  root.add(combatBike);
+  root.add(combatBike.root);
 
   const legL = buildLeg(m, -1);
   const legR = buildLeg(m, 1);
@@ -290,7 +295,8 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): So
     muzzleFlash: weapon.muzzleFlash,
     backBlast: kitRefs.backBlast,
     antenna: kitRefs.antenna,
-    combatBike,
+    combatBike: combatBike.root,
+    bikeWheels: combatBike.wheels,
     kit,
   };
 }
