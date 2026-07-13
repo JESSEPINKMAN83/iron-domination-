@@ -3,7 +3,7 @@ import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { manualFireAt } from '../sim/combat';
-import { issueMoveOrder, setSelected, type GameSim } from '../sim/world';
+import { issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
 
@@ -60,6 +60,8 @@ export class FirstPersonController {
   private readonly tmpCameraTarget = new Vector3();
   private readonly tmpEntityCenter = new Vector3();
   private readonly tmpVelocityDir = new Vector3();
+  private readonly tmpShakeRight = new Vector3();
+  private readonly tmpShakeUp = new Vector3();
   private readonly smoothFlightCenter = new Vector3();
   private hasSmoothFlightCenter = false;
   private chaseZoom = 0;
@@ -73,10 +75,17 @@ export class FirstPersonController {
   private readonly artilleryPreview: HTMLCanvasElement;
   private readonly abilityStatus: HTMLDivElement;
   private readonly abilityHud: HTMLDivElement;
+  private readonly impactOverlay: HTMLDivElement;
   private abilityStatusTimer = 0;
   private sniperReloadFlash = 0;
   private lastControlSentTick = -999;
   private lastControlSignature = '';
+  private impactShakeStrength = 0;
+  private impactShakeRemaining = 0;
+  private impactShakeDuration = 0;
+  private impactShakeSeed = 0;
+  private impactSide = 0;
+  private impactOverlayOpacity = 0;
 
   constructor(
     private readonly dom: HTMLElement,
@@ -118,6 +127,12 @@ export class FirstPersonController {
       'position:fixed;right:20px;bottom:58px;display:none;pointer-events:none;z-index:13;padding:7px 10px;' +
       'border-left:3px solid #d2b15f;background:rgba(8,12,12,.76);color:#dbe5df;font:700 10px ui-monospace,Menlo,monospace;letter-spacing:.08em;';
     document.body.appendChild(this.abilityHud);
+    this.impactOverlay = document.createElement('div');
+    this.impactOverlay.style.cssText =
+      'position:fixed;inset:0;display:none;pointer-events:none;z-index:15;' +
+      'background:radial-gradient(circle at center,transparent 0 48%,rgba(255,187,116,.08) 70%,rgba(255,78,42,.62) 100%);' +
+      'box-shadow:inset 0 0 95px rgba(255,116,62,.5);mix-blend-mode:screen;';
+    document.body.appendChild(this.impactOverlay);
 
     dom.addEventListener(
       'pointerdown',
@@ -161,6 +176,23 @@ export class FirstPersonController {
 
   get possessedEntity(): Entity | undefined {
     return this.possessed;
+  }
+
+  handleCombatEvents(events: CombatEvent[]): void {
+    if (!this.active || !this.possessed) return;
+    for (const event of events) {
+      if (event.kind !== 'impact-reaction' || event.targetId !== this.possessed.id) continue;
+      const force = Math.max(0.02, Math.min(1, event.force ?? event.damage / Math.max(1, event.targetMaxHealth ?? event.damage)));
+      const duration = 0.16 + force * 0.48;
+      this.impactShakeStrength = Math.max(this.impactShakeStrength * 0.55, 0.12 + force * 0.88);
+      this.impactShakeDuration = Math.max(this.impactShakeDuration, duration);
+      this.impactShakeRemaining = Math.max(this.impactShakeRemaining, duration);
+      this.impactShakeSeed = (event.targetId * 31 + this.sim.tick * 17) % 997;
+      const impactYaw = Math.atan2(event.toX - event.fromX, event.toZ - event.fromZ);
+      this.impactSide = Math.sin(impactYaw - this.lookYaw) >= 0 ? 1 : -1;
+      this.impactOverlayOpacity = Math.max(this.impactOverlayOpacity, 0.12 + force * 0.66);
+      this.impactOverlay.style.display = 'block';
+    }
   }
 
   enter(candidates: Entity[]): boolean {
@@ -278,7 +310,7 @@ export class FirstPersonController {
     if (this.mode === 'entering') {
       this.transitionT = Math.min(1, this.transitionT + dt / 0.6);
       this.toPose = this.poseFor(this.possessed, this.lookYaw, this.lookPitch, 62, alpha, dt);
-      this.applyPose(lerpPose(this.fromPose, this.toPose, ease(this.transitionT)));
+      this.applyPose(lerpPose(this.fromPose, this.toPose, ease(this.transitionT)), dt);
       this.updateArtilleryPreview();
       if (this.transitionT >= 1) this.mode = 'fps';
       return;
@@ -287,7 +319,7 @@ export class FirstPersonController {
     if (this.mode === 'exiting') {
       this.updateScopeOverlay(false);
       this.transitionT = Math.min(1, this.transitionT + dt / 0.58);
-      this.applyPose(lerpPose(this.fromPose, this.toPose, easeOutCubic(this.transitionT)));
+      this.applyPose(lerpPose(this.fromPose, this.toPose, easeOutCubic(this.transitionT)), dt);
       this.hideArtilleryPreview();
       if (this.transitionT >= 1) this.finishExit();
       return;
@@ -296,7 +328,7 @@ export class FirstPersonController {
     const speed = this.possessed.velocity ? Math.hypot(this.possessed.velocity.x, this.possessed.velocity.z) : 0;
     const maxSpeed = this.possessed.flight ? FLIGHT_MODELS[this.possessed.flight.model].maxSpeed : 46;
     const baseFov = this.possessed.flight ? MathUtils.lerp(62, 70, Math.min(1, speed / maxSpeed)) : 62;
-    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.zoomedFov(baseFov), alpha, dt));
+    this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.zoomedFov(baseFov), alpha, dt), dt);
     this.updateArtilleryPreview();
   }
 
@@ -329,6 +361,9 @@ export class FirstPersonController {
     this.abilityStatusTimer = 0;
     this.abilityStatus.style.display = 'none';
     this.abilityHud.style.display = 'none';
+    this.impactOverlay.style.display = 'none';
+    this.impactOverlayOpacity = 0;
+    this.impactShakeRemaining = 0;
     this.updateScopeOverlay(false);
     this.hideArtilleryPreview();
     this.mode = 'rts';
@@ -829,9 +864,34 @@ export class FirstPersonController {
     return { position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(), fov: this.camera.fov };
   }
 
-  private applyPose(pose: CameraPose): void {
-    this.camera.position.copy(pose.position);
-    this.camera.quaternion.copy(pose.quaternion);
+  private applyPose(pose: CameraPose, dt: number): void {
+    const position = pose.position.clone();
+    const quaternion = pose.quaternion.clone();
+    if (this.impactShakeRemaining > 0 && this.impactShakeDuration > 0) {
+      this.impactShakeRemaining = Math.max(0, this.impactShakeRemaining - dt);
+      const envelope = this.impactShakeRemaining / this.impactShakeDuration;
+      const elapsed = this.impactShakeDuration - this.impactShakeRemaining;
+      const phase = elapsed * (39 + this.impactShakeSeed % 9) + this.impactShakeSeed * 0.17;
+      const kick = this.impactShakeStrength * envelope * envelope;
+      const lateral = Math.sin(phase) * kick;
+      const vertical = Math.sin(phase * 1.43 + 0.8) * kick;
+      this.tmpShakeRight.set(1, 0, 0).applyQuaternion(quaternion);
+      this.tmpShakeUp.set(0, 1, 0).applyQuaternion(quaternion);
+      position.addScaledVector(this.tmpShakeRight, lateral * 0.34 + this.impactSide * kick * 0.18);
+      position.addScaledVector(this.tmpShakeUp, vertical * 0.23);
+      const yawKick = new Quaternion().setFromAxisAngle(this.tmpShakeUp, (lateral + this.impactSide * kick * 0.55) * 0.018);
+      const pitchKick = new Quaternion().setFromAxisAngle(this.tmpShakeRight, vertical * 0.014);
+      quaternion.premultiply(yawKick).premultiply(pitchKick);
+    }
+    this.impactOverlayOpacity = Math.max(0, this.impactOverlayOpacity - dt * 1.75);
+    if (this.impactOverlayOpacity > 0.001) {
+      this.impactOverlay.style.display = 'block';
+      this.impactOverlay.style.opacity = this.impactOverlayOpacity.toFixed(3);
+    } else {
+      this.impactOverlay.style.display = 'none';
+    }
+    this.camera.position.copy(position);
+    this.camera.quaternion.copy(quaternion);
     if (Math.abs(this.camera.fov - pose.fov) > 0.01) {
       this.camera.fov = pose.fov;
       this.camera.updateProjectionMatrix();

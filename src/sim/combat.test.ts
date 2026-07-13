@@ -4,7 +4,7 @@ import { damageForArmor, manualFireAt, stepCombat } from './combat';
 import { createEconomy, createInitialBase, placeStructure, spawnInfantryAt, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
-import { createGameSim, hashSim, issueMoveOrder, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, stepSim } from './world';
+import { createGameSim, hashSim, issueMoveOrder, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
 
 const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
   for (let i = 0; i < Math.round(seconds * 30); i++) stepCombat(sim, 1 / 30);
@@ -213,6 +213,51 @@ describe('phase 4 combat simulation', () => {
     expect(primary.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeLessThan(100);
     expect(nearby.health?.current).toBeGreaterThan(60);
+  });
+
+  it('transfers deterministic blast momentum to every surviving unit in the impact area', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnTankAt(sim, -20, -20, 'A');
+    const primary = spawnTankAt(sim, 18, -20, 'B', 2);
+    const nearby = spawnTankAt(sim, 22, -20, 'C', 2);
+    primary.weapon = undefined;
+    primary.weapons = undefined;
+    nearby.weapon = undefined;
+    nearby.weapons = undefined;
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    if (attacker.weapons?.secondary) attacker.weapons.secondary.salvoCount = 1;
+
+    expect(manualFireAt(sim, attacker, primary.transform.x, primary.transform.z, 'secondary')).toBe(true);
+    for (let i = 0; i < Math.round(1.5 * 30); i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    const reactions = sim.events.filter((event) => event.kind === 'impact-reaction');
+    const primaryReaction = reactions.find((event) => event.targetId === primary.id);
+    const nearbyReaction = reactions.find((event) => event.targetId === nearby.id);
+    expect(primaryReaction?.impactKind).toBe('tankBomb');
+    expect(primaryReaction?.force).toBeGreaterThan(nearbyReaction?.force ?? 1);
+    expect(nearbyReaction).toBeDefined();
+    expect(Math.hypot(primary.velocity?.x ?? 0, primary.velocity?.z ?? 0)).toBeGreaterThan(0);
+    expect(Math.hypot(nearby.velocity?.x ?? 0, nearby.velocity?.z ?? 0)).toBeGreaterThan(0);
+  });
+
+  it('destabilizes a surviving aircraft after a direct air-to-air hit', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnWaspAt(sim, hf, -20, -20, 'A');
+    const aircraft = spawnVultureAt(sim, hf, 18, -20, 'B', 2);
+    aircraft.weapon = undefined;
+    aircraft.weapons = undefined;
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    if (attacker.turret) attacker.turret.yaw = Math.PI / 2;
+
+    expect(manualFireAt(sim, attacker, aircraft.transform.x, aircraft.transform.z, 'primary')).toBe(true);
+
+    const reaction = sim.events.find((event) => event.kind === 'impact-reaction' && event.targetId === aircraft.id);
+    expect(reaction?.targetType).toBe('aircraft');
+    expect(aircraft.health?.current).toBeGreaterThan(0);
+    expect(aircraft.flight?.verticalVelocity).toBeGreaterThan(0);
+    expect(Math.abs(aircraft.flight?.rollAttitude ?? 0)).toBeGreaterThan(0);
   });
 
   it('lets player-controlled bombs fire beyond normal range with deterministic scatter', () => {

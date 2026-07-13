@@ -42,6 +42,9 @@ export interface CombatEvent {
   /** flight time in seconds for ballistic launches ('bomb') */
   duration?: number;
   trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
+  /** Original weapon and normalized physical force for per-target hit reactions. */
+  impactKind?: string;
+  force?: number;
 }
 
 /** In-flight ballistic ordnance. Damage happens on impact, at the aimed location. */

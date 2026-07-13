@@ -25,6 +25,7 @@ import {
   type Vector3,
 } from 'three';
 import type { Entity } from '../sim/components';
+import type { CombatEvent } from '../sim/world';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { factionId, FACTION, type FactionId } from './palette';
 import type { RenderContext } from './renderer';
@@ -95,6 +96,16 @@ interface BikeDustParticle {
   scale: number;
 }
 
+interface UnitHitReaction {
+  elapsed: number;
+  duration: number;
+  force: number;
+  dirX: number;
+  dirZ: number;
+  flip: boolean;
+  sign: number;
+}
+
 // Unit and overlay geometries are shared by dimensions, so spawning visual variants
 // does not allocate fresh GPU shapes for every entity.
 const HEALTH_BACK_GEOM = new PlaneGeometry(4.1, 0.48);
@@ -151,6 +162,7 @@ function sharedRingGeometry(radius: number): RingGeometry {
 export class UnitView {
   readonly group = new Group();
   private readonly objects = new Map<Entity, Object3D>();
+  private readonly entitiesById = new Map<number, Entity>();
   private readonly refs = new Map<Entity, UnitRefs>();
   private readonly selectedRings = new Map<Entity, Mesh>();
   private readonly entities: Entity[] = [];
@@ -178,6 +190,7 @@ export class UnitView {
   private readonly airShadows = new Map<Entity, Mesh>();
   private readonly rotorWashes = new Map<Entity, { mesh: Mesh; material: MeshBasicMaterial }>();
   private readonly damageOverlays = new Map<Entity, UnitDamageOverlay>();
+  private readonly hitReactions = new Map<Entity, UnitHitReaction>();
   private readonly airShadowMaterial = new MeshBasicMaterial({ color: 0x020403, transparent: true, opacity: 0.26, depthWrite: false });
   private readonly wrecked = new Set<Entity>();
   private hiddenEntity?: Entity;
@@ -238,6 +251,7 @@ export class UnitView {
   addEntity(entity: Entity): void {
     if (this.objects.has(entity)) return;
     this.entities.push(entity);
+    this.entitiesById.set(entity.id, entity);
     const kind = unitVisualKind(entity);
     const materials = this.teamMaterials[factionId(entity.team?.id)];
     let built: BuiltUnit;
@@ -338,6 +352,8 @@ export class UnitView {
       this.objects.delete(entity);
     }
     this.refs.delete(entity);
+    this.entitiesById.delete(entity.id);
+    this.hitReactions.delete(entity);
     const ring = this.selectedRings.get(entity);
     if (ring) {
       this.group.remove(ring); // ring geometry is shared — do not dispose
@@ -389,6 +405,40 @@ export class UnitView {
     this.selectionOverlayVisible = visible;
   }
 
+  pushCombatEvents(events: CombatEvent[]): void {
+    for (const event of events) {
+      if (event.kind !== 'impact-reaction' || event.targetId === undefined || event.killed) continue;
+      const entity = this.entitiesById.get(event.targetId);
+      if (!entity || entity.building || entity.destroyed) continue;
+      let dirX = event.toX - event.fromX;
+      let dirZ = event.toZ - event.fromZ;
+      const distance = Math.hypot(dirX, dirZ);
+      if (distance > 0.001) {
+        dirX /= distance;
+        dirZ /= distance;
+      } else {
+        dirX = -Math.sin(entity.transform.rot);
+        dirZ = -Math.cos(entity.transform.rot);
+      }
+      const force = Math.max(0.025, Math.min(1, event.force ?? event.damage / Math.max(1, event.targetMaxHealth ?? event.damage)));
+      const isInfantry = entity.selectable?.type === 'infantry';
+      const isAircraft = Boolean(entity.flight);
+      const flipRoll = deterministicUnit(entity.id, Math.round(event.toX * 11 + event.toZ * 7));
+      const flip = !isInfantry && !isAircraft && force > 0.46 && flipRoll < Math.min(0.62, (force - 0.34) * 0.92);
+      const duration = isInfantry ? 0.42 + force * 0.68 : isAircraft ? 0.62 + force * 0.82 : flip ? 1.28 + force * 0.78 : 0.42 + force * 0.72;
+      const existing = this.hitReactions.get(entity);
+      this.hitReactions.set(entity, {
+        elapsed: 0,
+        duration: Math.max(duration, existing?.duration ?? 0),
+        force: Math.min(1, force + (existing?.force ?? 0) * 0.28),
+        dirX,
+        dirZ,
+        flip: flip || Boolean(existing?.flip),
+        sign: Math.sin(Math.atan2(dirX, dirZ) - entity.transform.rot) >= 0 ? 1 : -1,
+      });
+    }
+  }
+
   update(alpha: number, dt: number, camera: Camera): void {
     // Evict entities the sim has finished with (wreck window expired). The possessed
     // unit is only hidden, never evicted here — it's reclaimed when possession ends.
@@ -428,6 +478,7 @@ export class UnitView {
       obj.rotation.y = rot;
       if (!entity.destroyed) this.updateFriendlyGlow(entity, x, y, z, glowTime);
       this.applyPose(entity, obj, dt);
+      this.applyHitReaction(entity, obj, dt);
       this.updateUnitDamage(entity, obj);
       const turret = this.refs.get(entity)?.turretPivot;
       if (turret && entity.turret && !entity.destroyed) turret.rotation.y = entity.turret.yaw - rot;
@@ -481,6 +532,41 @@ export class UnitView {
     this.glowTransform.updateMatrix();
     this.friendlyGlow.mesh.setMatrixAt(this.friendlyGlow.count, this.glowTransform.matrix);
     this.friendlyGlow.count++;
+  }
+
+  private applyHitReaction(entity: Entity, obj: Object3D, dt: number): void {
+    const reaction = this.hitReactions.get(entity);
+    if (!reaction) return;
+    reaction.elapsed += dt;
+    const t = Math.min(1, reaction.elapsed / reaction.duration);
+    const arc = Math.sin(t * Math.PI);
+    const recoil = Math.sin(Math.min(1, t * 2.4) * Math.PI) * Math.exp(-t * 2.2);
+    const localAngle = Math.atan2(reaction.dirX, reaction.dirZ) - entity.transform.rot;
+    const localSide = Math.sin(localAngle);
+    const localForward = Math.cos(localAngle);
+    if (entity.selectable?.type === 'infantry') {
+      const knock = (0.14 + reaction.force * 1.35) * arc;
+      obj.rotation.x += -localForward * knock;
+      obj.rotation.z += localSide * knock + reaction.sign * recoil * reaction.force * 0.22;
+      obj.position.y += arc * reaction.force * 0.48;
+      obj.position.x += reaction.dirX * arc * reaction.force * 0.7;
+      obj.position.z += reaction.dirZ * arc * reaction.force * 0.7;
+    } else if (entity.flight) {
+      obj.rotation.x += -localForward * (0.12 + reaction.force * 0.72) * arc;
+      obj.rotation.z += reaction.sign * (0.18 + reaction.force * 1.35) * arc;
+      obj.position.y += -arc * reaction.force * 1.8 + Math.sin(t * Math.PI * 2) * reaction.force * 0.32;
+      obj.position.x += reaction.dirX * arc * reaction.force * 1.1;
+      obj.position.z += reaction.dirZ * arc * reaction.force * 1.1;
+    } else {
+      const axisX = Math.abs(localForward) >= Math.abs(localSide);
+      const angle = reaction.flip ? Math.PI * (0.92 + reaction.force * 0.12) * arc : (0.1 + reaction.force * 0.48) * arc;
+      if (axisX) obj.rotation.x += -Math.sign(localForward || 1) * angle;
+      else obj.rotation.z += reaction.sign * angle;
+      obj.position.y += arc * (reaction.flip ? 2.4 + reaction.force * 2.2 : 0.12 + reaction.force * 0.58);
+      obj.position.x += reaction.dirX * arc * reaction.force * 0.9;
+      obj.position.z += reaction.dirZ * arc * reaction.force * 0.9;
+    }
+    if (t >= 1) this.hitReactions.delete(entity);
   }
 
   /** Walk cycles, death poses, and wreck states — all driven by sim data. */

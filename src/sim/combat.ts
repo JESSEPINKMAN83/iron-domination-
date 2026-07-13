@@ -181,6 +181,7 @@ export function manualFireAt(
       fromZ: attacker.transform.z,
       splashRadius: 0,
       trajectory: attacker.flight ? 'flat' : 'flat',
+      weaponKind: def.kind,
     });
     if (direct > 0) alertEconomyDefenders(sim, target, attacker);
     damage = direct;
@@ -423,6 +424,7 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
         fromZ: projectile.fromZ,
         splashRadius: 0,
         trajectory: impactTrajectory,
+        weaponKind,
       });
       if (directDamage > 0) {
         alertEconomyDefenders(sim, directTarget, attacker);
@@ -463,6 +465,7 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
       fromZ: attacker.transform.z,
       splashRadius: 0,
       trajectory: attacker.flight ? 'flat' : 'flat',
+      weaponKind: def.kind,
     });
     if (directDamage > 0) alertEconomyDefenders(sim, target, attacker);
     hit = directDamage > 0 ? summarizeHit(target, directDamage) : undefined;
@@ -623,6 +626,7 @@ interface DamageImpact {
   fromZ: number;
   splashRadius: number;
   trajectory?: 'arc' | 'drop' | 'flat';
+  weaponKind: WeaponKind;
 }
 
 function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: DamageImpact): number {
@@ -630,6 +634,7 @@ function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: Dama
   const before = target.health.current;
   target.health.current = Math.max(0, target.health.current - amount);
   const dealt = before - target.health.current;
+  if (dealt > 0 && impact && !target.building) applyImpactPhysics(sim, target, dealt, impact);
   if (dealt > 0 && target.building && impact) {
     applyStructureDamage(target, {
       hitX: impact.hitX,
@@ -649,6 +654,65 @@ function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: Dama
     if (target.building) sim.nav.removeDynamicBlocker(target.id);
   }
   return dealt;
+}
+
+function applyImpactPhysics(sim: GameSim, target: Entity, dealt: number, impact: DamageImpact): void {
+  if (!target.health || !target.velocity || !target.mover) return;
+  const force = normalizedImpactForce(target, dealt, impact.weaponKind);
+  if (force <= 0.012) return;
+  const originX = impact.splashRadius > 0 ? impact.hitX : impact.fromX;
+  const originZ = impact.splashRadius > 0 ? impact.hitZ : impact.fromZ;
+  let dx = target.transform.x - originX;
+  let dz = target.transform.z - originZ;
+  let distance = Math.hypot(dx, dz);
+  if (distance < 0.001) {
+    dx = -Math.sin(target.transform.rot);
+    dz = -Math.cos(target.transform.rot);
+    distance = 1;
+  }
+  dx /= distance;
+  dz /= distance;
+  const impulseSpeed = force * (target.armor?.kind === 'infantry' ? 10.5 : target.armor?.kind === 'air' ? 7.5 : target.armor?.kind === 'heavy' ? 4.2 : 6.2);
+  target.velocity.x += dx * impulseSpeed;
+  target.velocity.z += dz * impulseSpeed;
+  if (target.flight) {
+    const side = Math.sin(Math.atan2(dx, dz) - target.transform.rot) >= 0 ? 1 : -1;
+    target.flight.verticalVelocity += force * 3.8;
+    target.flight.rollAttitude += side * force * 0.42;
+    target.flight.pitchAttitude -= force * 0.18;
+  }
+  sim.events.push({
+    kind: 'impact-reaction',
+    impactKind: impact.weaponKind,
+    force,
+    fromX: originX,
+    fromZ: originZ,
+    toX: target.transform.x,
+    toY: target.transform.y,
+    toZ: target.transform.z,
+    targetId: target.id,
+    targetLabel: target.name ?? target.selectable?.type ?? 'unit',
+    targetType: target.flight ? 'aircraft' : target.selectable?.type ?? 'unit',
+    targetHealth: target.health.current,
+    targetMaxHealth: target.health.max,
+    damage: dealt,
+    killed: target.health.current <= 0,
+    trajectory: impact.trajectory,
+  });
+}
+
+function normalizedImpactForce(target: Entity, damage: number, kind: WeaponKind): number {
+  const damageRatio = damage / Math.max(1, target.health?.max ?? damage);
+  const weaponEnergy =
+    kind === 'tankBomb' || kind === 'annihilatorMissile' ? 1.9
+      : kind === 'bomb' || kind === 'siegeMissile' || kind === 'agMissile' ? 1.55
+        : kind === 'tankMissile' || kind === 'rocketLauncher' || kind === 'swarmRocket' ? 1.18
+          : kind === 'grenade' || kind === 'clusterGrenade' || kind === 'aaMissile' ? 0.92
+            : kind === 'sniperRifle' || kind === 'railShot' || kind === 'heavyCannon' ? 0.72
+              : kind === 'cannon' || kind === 'scoutMissile' || kind === 'rocketPod' ? 0.58
+                : 0.34;
+  const armorResponse = target.armor?.kind === 'infantry' ? 1.35 : target.armor?.kind === 'air' ? 1.12 : target.armor?.kind === 'heavy' ? 0.68 : 1;
+  return Math.max(0, Math.min(1, damageRatio * weaponEnergy * armorResponse * 4));
 }
 
 function directDamageForTarget(kind: WeaponKind, target: Entity): number {
@@ -707,6 +771,7 @@ function applyAreaDamage(
       fromZ: attacker?.transform.z ?? z,
       splashRadius: radius,
       trajectory: trajectory ?? (attacker?.flight ? 'flat' : 'flat'),
+      weaponKind: kind,
     });
     if (dealt > 0) alertEconomyDefenders(sim, target, attacker);
     damage += dealt;

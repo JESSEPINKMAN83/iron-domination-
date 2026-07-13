@@ -108,6 +108,7 @@ export class CombatView {
   push(events: CombatEvent[]): void {
     for (const event of events) {
       if (event.kind === 'ore-delivery') continue;
+      if (event.kind === 'impact-reaction') continue;
       const sourceVisible = this.isVisible(event.fromX, event.fromZ);
       const impactVisible = this.isVisible(event.toX, event.toZ);
       const playerHiddenHit = event.sourceTeamId === 1 && event.damage > 0;

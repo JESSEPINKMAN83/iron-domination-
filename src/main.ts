@@ -1716,6 +1716,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         fogView.refresh();
       }
       const events = tickResult.events;
+      unitView.pushCombatEvents(events);
+      firstPerson.handleCombatEvents(events);
       audio.handleCombatEvents(events);
       economyFx.push(events);
       combatView.push(events);
