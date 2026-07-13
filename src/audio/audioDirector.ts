@@ -151,7 +151,7 @@ export class AudioDirector {
       this.playLaunch(event);
       return;
     }
-    if (event.kind === 'rifle' || event.kind === 'sniperRifle') {
+    if (event.kind === 'rifle' || event.kind === 'sniperRifle' || event.kind === 'overchargeRifle' || event.kind === 'railShot') {
       this.playRifle(event);
       return;
     }

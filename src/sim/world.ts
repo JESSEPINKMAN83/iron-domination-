@@ -1016,6 +1016,13 @@ export function hashSim(sim: GameSim): number {
       mix(Math.round(entity.weapons.secondary.cooldown * 1000));
       mix(entity.weapons.secondary.targetId ?? 0);
     }
+    if (entity.specialWeapon) {
+      mix(Math.round(entity.specialWeapon.cooldown * 1000));
+      mix(entity.specialWeapon.targetId ?? 0);
+    }
+    if (entity.unitUpgrades) {
+      for (const id of entity.unitUpgrades.ids) for (let i = 0; i < id.length; i++) mix(id.charCodeAt(i));
+    }
     if (entity.flight) {
       mix(Math.round(entity.flight.pitchAttitude * 1000));
       mix(Math.round(entity.flight.rollAttitude * 1000));

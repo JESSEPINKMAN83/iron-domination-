@@ -34,6 +34,7 @@ export interface SoldierRig {
   muzzleFlash: Mesh;
   backBlast?: Mesh;
   antenna?: Group;
+  combatBike: Group;
   kit: SoldierKit;
 }
 
@@ -162,6 +163,30 @@ function addShoulders(torso: Group, m: SoldierMaterials): void {
   torso.add(box(0.14, 0.035, 0.19, m.accent, -0.31, 0.685, 0));
 }
 
+function buildCombatBike(m: SoldierMaterials): Group {
+  const bike = new Group();
+  bike.name = 'combatBikeUpgrade';
+  const wheel = (z: number): Mesh => {
+    const mesh = cyl(0.43, 0.43, 0.14, 12, m.gunmetal, 0, 0.43, z);
+    mesh.rotation.z = Math.PI / 2;
+    return mesh;
+  };
+  bike.add(wheel(-0.82), wheel(0.86));
+  const frame = box(0.15, 0.15, 1.42, m.accent, 0, 0.56, 0.04);
+  frame.rotation.x = 0.06;
+  bike.add(frame);
+  const engine = box(0.56, 0.42, 0.56, m.gear, 0, 0.63, -0.08);
+  bike.add(engine);
+  bike.add(box(0.42, 0.12, 0.42, m.canvas, 0, 0.91, -0.28));
+  bike.add(box(0.64, 0.09, 0.09, m.gunmetal, 0, 1.04, 0.62));
+  bike.add(box(0.07, 0.58, 0.07, m.gunmetal, 0, 0.79, 0.62));
+  bike.add(box(0.38, 0.3, 0.22, m.accent, 0, 0.68, 0.78));
+  bike.add(box(0.27, 0.19, 0.12, m.lightBar, 0, 0.7, 0.91));
+  bike.add(box(0.08, 0.08, 0.7, m.gunmetal, -0.3, 0.55, -0.35));
+  bike.visible = false;
+  return bike;
+}
+
 function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, kit: SoldierKit): { antenna?: Group; backBlast?: Mesh } {
   if (kit !== 'rifle') torso.add(box(0.035, 0.58, 0.045, m.gear, -0.16, 0.42, -0.16).rotateZ(-0.55)); // sling
   if (kit === 'grenadier') {
@@ -225,6 +250,8 @@ function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, 
 
 export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): SoldierRig {
   const root = new Group();
+  const combatBike = buildCombatBike(m);
+  root.add(combatBike);
 
   const legL = buildLeg(m, -1);
   const legR = buildLeg(m, 1);
@@ -263,6 +290,7 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): So
     muzzleFlash: weapon.muzzleFlash,
     backBlast: kitRefs.backBlast,
     antenna: kitRefs.antenna,
+    combatBike,
     kit,
   };
 }

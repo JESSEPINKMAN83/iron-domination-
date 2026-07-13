@@ -47,6 +47,7 @@ import {
 } from './sim/economy';
 import { generateHeightfield } from './sim/heightfield';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from './sim/serialize';
+import { purchaseUnitUpgrade } from './sim/upgrades';
 import { VisibilityGrid } from './sim/visibility';
 import {
   createGameSim,
@@ -1549,6 +1550,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         localTeam,
       );
     },
+    credits: () => economy.credits,
+    purchaseUpgrade: (ids, upgradeId) => {
+      audio.playUi('build');
+      if (lockstep) {
+        lockstep.issue({ type: 'upgrade-units', ids, upgradeId });
+        return { ok: true, reason: 'Upgrade order queued', upgraded: ids.length, cost: 0 };
+      }
+      const result = purchaseUnitUpgrade(sim, economy, ids, upgradeId, localTeam);
+      if (!result.ok) audio.playUi('error');
+      return result;
+    },
   }, localTeam);
   let uiPaused = false;
   const setUiPaused = (paused: boolean): void => {
@@ -1619,6 +1631,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   });
   input.onKeyDown('Tab', () => {
     firstPerson.cyclePossessed(1);
+  });
+  input.onKeyDown('KeyF', () => {
+    firstPerson.useSpecialAbility();
   });
   input.onKeyDown('Escape', () => {
     if (firstPerson.active) firstPerson.exit();

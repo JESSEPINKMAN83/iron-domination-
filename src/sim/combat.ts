@@ -93,7 +93,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
 
 function tickWeaponCooldowns(sim: GameSim, dt: number): void {
   for (const entity of sim.world.entities) {
-    for (const weapon of weaponSlots(entity)) weapon.cooldown = Math.max(0, weapon.cooldown - dt);
+    for (const weapon of cooldownWeapons(entity)) weapon.cooldown = Math.max(0, weapon.cooldown - dt);
   }
 }
 
@@ -132,7 +132,7 @@ export function manualFireAt(
   attacker: Entity,
   targetX: number,
   targetZ: number,
-  slot: 'primary' | 'secondary' = 'primary',
+  slot: 'primary' | 'secondary' | 'special' = 'primary',
   targetY?: number,
 ): boolean {
   if (!attacker.team || attacker.destroyed) return false;
@@ -756,7 +756,14 @@ function weaponSlots(entity: Entity): Weapon[] {
   return entity.weapon ? [entity.weapon] : [];
 }
 
-function weaponForSlot(entity: Entity, slot: 'primary' | 'secondary'): Weapon | undefined {
+function cooldownWeapons(entity: Entity): Weapon[] {
+  const weapons = weaponSlots(entity);
+  if (entity.specialWeapon) weapons.push(entity.specialWeapon);
+  return weapons;
+}
+
+function weaponForSlot(entity: Entity, slot: 'primary' | 'secondary' | 'special'): Weapon | undefined {
+  if (slot === 'special') return entity.specialWeapon;
   if (entity.weapons) return slot === 'primary' ? entity.weapons.primary : entity.weapons.secondary;
   return slot === 'primary' ? entity.weapon : undefined;
 }

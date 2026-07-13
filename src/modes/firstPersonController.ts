@@ -5,6 +5,7 @@ import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { manualFireAt } from '../sim/combat';
 import { issueMoveOrder, setSelected, type GameSim } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
+import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
 
 type PossessionMode = 'rts' | 'entering' | 'fps' | 'exiting';
 const CHASE_ZOOM_MIN = -1;
@@ -42,7 +43,7 @@ export interface FirstPersonCommandSink {
     vx?: number;
     vz?: number;
   }): void;
-  fire(command: { id: number; slot: 'primary' | 'secondary'; x: number; z: number; y?: number; aimYaw: number }): void;
+  fire(command: { id: number; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number }): void;
   release(id: number): void;
 }
 
@@ -75,6 +76,9 @@ export class FirstPersonController {
   private readonly scopeOverlay: HTMLDivElement;
   private readonly scopeStatus: HTMLDivElement;
   private readonly artilleryPreview: HTMLCanvasElement;
+  private readonly abilityStatus: HTMLDivElement;
+  private readonly abilityHud: HTMLDivElement;
+  private abilityStatusTimer = 0;
   private sniperReloadFlash = 0;
   private lastControlSentTick = -999;
   private lastControlSignature = '';
@@ -108,6 +112,17 @@ export class FirstPersonController {
     this.artilleryPreview.style.cssText =
       'position:fixed;inset:0;width:100vw;height:100vh;display:none;pointer-events:none;z-index:11;';
     document.body.appendChild(this.artilleryPreview);
+    this.abilityStatus = document.createElement('div');
+    this.abilityStatus.style.cssText =
+      'position:fixed;left:50%;bottom:11%;transform:translateX(-50%);display:none;pointer-events:none;z-index:14;' +
+      'padding:7px 11px;border:1px solid rgba(210,177,95,.72);background:rgba(8,12,12,.86);color:#f0d56a;' +
+      'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-shadow:0 1px 2px #000;';
+    document.body.appendChild(this.abilityStatus);
+    this.abilityHud = document.createElement('div');
+    this.abilityHud.style.cssText =
+      'position:fixed;right:20px;bottom:58px;display:none;pointer-events:none;z-index:13;padding:7px 10px;' +
+      'border-left:3px solid #d2b15f;background:rgba(8,12,12,.76);color:#dbe5df;font:700 10px ui-monospace,Menlo,monospace;letter-spacing:.08em;';
+    document.body.appendChild(this.abilityHud);
 
     dom.addEventListener(
       'pointerdown',
@@ -118,6 +133,10 @@ export class FirstPersonController {
         this.ensurePointerLock();
         if (event.button === 0 && (event.metaKey || this.input.isMetaDown())) return;
         if (event.button === 2 && this.isSniper(this.possessed)) {
+          if (this.sniperBikeMoving(this.possessed)) {
+            this.flashAbilityStatus('STOP COMBAT BIKE TO AIM');
+            return;
+          }
           this.sniperScopeActive = !this.sniperScopeActive;
           this.updateScopeOverlay(this.sniperScopeActive);
           return;
@@ -217,16 +236,36 @@ export class FirstPersonController {
     this.updateSquadFollowers();
   }
 
+  useSpecialAbility(): boolean {
+    if (this.mode !== 'fps' || !this.possessed) return false;
+    if (!this.possessed.specialWeapon) {
+      this.flashAbilityStatus('SPECIAL LOCKED - BUY AN F ABILITY');
+      return false;
+    }
+    if (this.possessed.specialWeapon.cooldown > 0) {
+      this.flashAbilityStatus(`SPECIAL RECHARGING ${this.possessed.specialWeapon.cooldown.toFixed(1)}S`);
+      return false;
+    }
+    if (this.sniperBikeMoving(this.possessed)) {
+      this.flashAbilityStatus('STOP COMBAT BIKE TO FIRE');
+      return false;
+    }
+    return this.fire('special');
+  }
+
   update(dt: number, alpha = 1): void {
     if (!this.active || !this.possessed) return;
     const sniperScoped = this.isSniperScoped();
     this.sniperReloadFlash = Math.max(0, this.sniperReloadFlash - dt);
+    this.abilityStatusTimer = Math.max(0, this.abilityStatusTimer - dt);
+    if (this.abilityStatusTimer <= 0) this.abilityStatus.style.display = 'none';
     const wheel = this.input.consumeWheel();
     if (wheel !== 0) {
       if (sniperScoped) this.sniperScopeZoom = MathUtils.clamp(this.sniperScopeZoom - wheel * 0.0018, 0, 1);
       else this.chaseZoom = MathUtils.clamp(this.chaseZoom + wheel * 0.0014, CHASE_ZOOM_MIN, CHASE_ZOOM_MAX);
     }
     this.updateScopeOverlay(sniperScoped);
+    this.updateAbilityHud();
     const delta = this.input.consumeMouseDelta();
     const orbitAdjusting = this.mode === 'fps' && this.input.isMetaDown() && this.input.isButton(0);
     if (this.mode === 'fps' && (delta.dx !== 0 || delta.dy !== 0)) {
@@ -292,6 +331,9 @@ export class FirstPersonController {
     this.hasSmoothFlightCenter = false;
     this.sniperScopeActive = false;
     this.sniperReloadFlash = 0;
+    this.abilityStatusTimer = 0;
+    this.abilityStatus.style.display = 'none';
+    this.abilityHud.style.display = 'none';
     this.updateScopeOverlay(false);
     this.hideArtilleryPreview();
     this.mode = 'rts';
@@ -368,22 +410,28 @@ export class FirstPersonController {
     return this.lookPose(position, this.tmpCameraTarget, fov, -cameraRoll);
   }
 
-  private fire(slot: 'primary' | 'secondary'): void {
-    if (!this.possessed) return;
+  private fire(slot: 'primary' | 'secondary' | 'special'): boolean {
+    if (!this.possessed) return false;
+    if (this.isSniper(this.possessed) && hasUnitUpgrade(this.possessed, 'combat-bike') && this.sniperBikeMoving(this.possessed)) {
+      this.flashAbilityStatus('STOP COMBAT BIKE TO FIRE');
+      return false;
+    }
     if (this.isSniperScoped(this.possessed) && slot === 'primary') {
       const weapon = this.possessed.weapons?.primary ?? this.possessed.weapon;
       if ((weapon?.cooldown ?? 0) > 0) {
         this.sniperReloadFlash = 0.25;
         this.updateScopeOverlay(true);
-        return;
+        return false;
       }
       this.possessed.playerControlled!.aimYaw = this.lookYaw;
       if (this.possessed.turret) this.possessed.turret.yaw = this.lookYaw;
     }
     const target = this.possessed.flight
-      ? this.flightTarget(this.possessed, slot)
+      ? this.flightTarget(this.possessed, slot === 'secondary' ? 'secondary' : 'primary')
       : this.isSniperScoped(this.possessed) && slot === 'primary'
         ? this.sniperScopeShotTarget(this.possessed)
+        : this.isSniperScoped(this.possessed) && slot === 'special'
+          ? this.sniperScopeShotTarget(this.possessed)
         : slot === 'secondary'
           ? this.bombTarget(this.possessed)
           : this.tmpAimTarget;
@@ -394,6 +442,36 @@ export class FirstPersonController {
       manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y);
       if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y);
     }
+    if (slot === 'special') this.flashAbilityStatus(fired ? 'SPECIAL DEPLOYED' : 'ALIGN WEAPON WITH TARGET');
+    return fired;
+  }
+
+  private sniperBikeMoving(entity: Entity | undefined): boolean {
+    if (!entity || !this.isSniper(entity) || !hasUnitUpgrade(entity, 'combat-bike')) return false;
+    return Math.hypot(entity.velocity?.x ?? 0, entity.velocity?.z ?? 0) > 0.55;
+  }
+
+  private flashAbilityStatus(message: string): void {
+    this.abilityStatus.textContent = message;
+    this.abilityStatus.style.display = 'block';
+    this.abilityStatusTimer = 1.35;
+  }
+
+  private updateAbilityHud(): void {
+    if (this.mode !== 'fps' || !this.possessed) {
+      this.abilityHud.style.display = 'none';
+      return;
+    }
+    const weapon = this.possessed.specialWeapon;
+    if (!weapon) {
+      this.abilityHud.textContent = 'F  SPECIAL LOCKED';
+      this.abilityHud.style.color = '#85918d';
+    } else {
+      const label = specialUpgradeForEntity(this.possessed)?.label ?? 'Special Weapon';
+      this.abilityHud.textContent = `F  ${label.toUpperCase()}  ${weapon.cooldown > 0 ? `${weapon.cooldown.toFixed(1)}S` : 'READY'}`;
+      this.abilityHud.style.color = weapon.cooldown > 0 ? '#d2b15f' : '#78df8b';
+    }
+    this.abilityHud.style.display = 'block';
   }
 
   private publishControlState(force = false): void {

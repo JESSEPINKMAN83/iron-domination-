@@ -81,6 +81,10 @@ export interface WeaponRack {
   secondary?: Weapon;
 }
 
+export interface UnitUpgrades {
+  ids: string[];
+}
+
 export interface Turret {
   yaw: number;
   turnRate: number;
@@ -180,6 +184,8 @@ export interface Entity {
   flight?: Flight;
   weapon?: Weapon;
   weapons?: WeaponRack;
+  specialWeapon?: Weapon;
+  unitUpgrades?: UnitUpgrades;
   aiCombat?: AiCombat;
   turret?: Turret;
   vision?: Vision;

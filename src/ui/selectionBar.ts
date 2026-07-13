@@ -1,6 +1,13 @@
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import type { Entity } from '../sim/components';
 import { selectedEntities, type GameSim } from '../sim/world';
+import {
+  hasUnitUpgrade,
+  unitKindForUpgrade,
+  upgradeOptionsForKind,
+  type UnitUpgradeId,
+  type UpgradePurchaseResult,
+} from '../sim/upgrades';
 
 interface SelectionGroup {
   key: string;
@@ -9,6 +16,7 @@ interface SelectionGroup {
   type: string;
   entities: Entity[];
   healthPct?: number;
+  unitKind?: UnitKind;
 }
 
 export class SelectionBar {
@@ -18,7 +26,11 @@ export class SelectionBar {
 
   constructor(
     private readonly sim: GameSim,
-    private readonly actions: { selectEntities: (entities: Entity[]) => void },
+    private readonly actions: {
+      selectEntities: (entities: Entity[]) => void;
+      credits: () => number;
+      purchaseUpgrade: (ids: number[], upgradeId: UnitUpgradeId) => UpgradePurchaseResult;
+    },
     private readonly localTeam = 1,
   ) {
     this.root = document.createElement('div');
@@ -48,7 +60,7 @@ export class SelectionBar {
     }
     const groups = selectionGroups(selected);
     const key = groups
-      .map((group) => `${group.key}:${group.entities.map((entity) => entity.id).join(',')}:${group.healthPct ?? ''}`)
+      .map((group) => `${group.key}:${group.entities.map((entity) => `${entity.id}.${entity.unitUpgrades?.ids.join('+') ?? ''}`).join(',')}:${group.healthPct ?? ''}`)
       .join('|');
     if (key === this.lastKey) return;
     this.lastKey = key;
@@ -77,9 +89,11 @@ export class SelectionBar {
     this.root.append(header, grid);
   }
 
-  private groupButton(group: SelectionGroup, selectedCount: number): HTMLButtonElement {
+  private groupButton(group: SelectionGroup, selectedCount: number): HTMLDivElement {
     const active = group.entities.length === selectedCount;
-    const button = document.createElement('button');
+    const button = document.createElement('div');
+    button.tabIndex = 0;
+    button.setAttribute('role', 'button');
     button.title = `Select ${group.entities.length} ${group.label}`;
     button.setAttribute('aria-label', `Select ${group.entities.length} ${group.label}`);
     button.style.cssText =
@@ -91,6 +105,13 @@ export class SelectionBar {
       if (event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
+      this.actions.selectEntities(group.entities);
+      this.lastKey = '';
+      this.update();
+    };
+    button.onkeydown = (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
       this.actions.selectEntities(group.entities);
       this.lastKey = '';
       this.update();
@@ -111,6 +132,7 @@ export class SelectionBar {
     img.style.cssText = 'position:relative;z-index:2;width:100%;height:100%;object-fit:cover;display:block;';
     img.onerror = () => img.remove();
     icon.append(fallback, img, badge(`×${group.entities.length}`, active));
+    if (group.unitKind) icon.appendChild(this.upgradeButton(group));
 
     const copy = document.createElement('div');
     copy.style.cssText = 'display:grid;gap:2px;min-width:0;';
@@ -124,6 +146,89 @@ export class SelectionBar {
     copy.append(name, meta);
     button.append(icon, copy);
     return button;
+  }
+
+  private upgradeButton(group: SelectionGroup): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = '↑';
+    button.title = `Upgrade ${group.label}`;
+    button.setAttribute('aria-label', `Upgrade ${group.label}`);
+    button.style.cssText =
+      'position:absolute;left:3px;top:3px;z-index:6;width:24px;height:24px;padding:0;display:grid;place-items:center;' +
+      'border:1px solid #d2b15f;background:#101716;color:#f0d56a;font:bold 18px/1 ui-monospace,Menlo,monospace;cursor:pointer;' +
+      'box-shadow:0 2px 6px rgba(0,0,0,.55);';
+    button.onpointerdown = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.openUpgradePopover(group, button);
+    };
+    button.onkeydown = (event) => event.stopPropagation();
+    return button;
+  }
+
+  private openUpgradePopover(group: SelectionGroup, anchor: HTMLElement): void {
+    this.root.querySelector('[data-upgrade-popover]')?.remove();
+    if (!group.unitKind) return;
+    const popover = document.createElement('div');
+    popover.dataset.upgradePopover = 'true';
+    popover.style.cssText =
+      'position:absolute;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%);width:min(440px,calc(100vw - 40px));' +
+      'display:grid;gap:8px;padding:10px;background:linear-gradient(180deg,#1d2625,#0b1110);border:1px solid #717b74;' +
+      'box-shadow:0 16px 36px rgba(0,0,0,.55),inset 0 0 0 1px rgba(210,177,95,.18);z-index:20;';
+    popover.onpointerdown = (event) => event.stopPropagation();
+
+    const heading = document.createElement('div');
+    heading.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;color:#f0d56a;font-size:12px;';
+    const ownedSummary = group.entities.reduce((sum, entity) => sum + (entity.unitUpgrades?.ids.length ?? 0), 0);
+    heading.innerHTML = `<span>UPGRADE ${escapeHtml(group.label.toUpperCase())}</span><span style="color:#b8c3bf">$${Math.floor(this.actions.credits())} · ${ownedSummary} INSTALLED</span>`;
+    popover.appendChild(heading);
+
+    for (const def of upgradeOptionsForKind(group.unitKind)) {
+      const owned = group.entities.filter((entity) => hasUnitUpgrade(entity, def.id)).length;
+      const missing = group.entities.length - owned;
+      const totalCost = missing * def.cost;
+      const affordable = this.actions.credits() >= totalCost;
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.disabled = missing === 0 || !affordable;
+      row.style.cssText =
+        'width:100%;display:grid;grid-template-columns:1fr auto;gap:7px 12px;text-align:left;padding:9px;border:1px solid #46514e;' +
+        `background:${missing === 0 ? '#18211b' : affordable ? '#202a28' : '#241b19'};color:#eef3e9;cursor:${row.disabled ? 'default' : 'pointer'};opacity:${missing === 0 ? '.72' : '1'};`;
+      const state = missing === 0 ? 'INSTALLED' : `$${totalCost}`;
+      const stateColor = missing === 0 ? '#78df8b' : affordable ? '#f0d56a' : '#ff7d67';
+      row.innerHTML =
+        `<strong style="font-size:12px">${escapeHtml(def.label)}${def.hotkey ? ` <span style="color:#72e6d0">[${def.hotkey}]</span>` : ''}</strong>` +
+        `<strong style="font-size:12px;color:${stateColor}">${state}</strong>` +
+        `<span style="grid-column:1/-1;color:#aebbc4;font-size:10px;line-height:1.35">${escapeHtml(def.description)}</span>` +
+        `<span style="grid-column:1/-1;color:#76847f;font-size:9px">${owned}/${group.entities.length} OWN THIS · $${def.cost} PER UNIT</span>`;
+      row.onclick = () => {
+        const result = this.actions.purchaseUpgrade(group.entities.map((entity) => entity.id), def.id);
+        this.showPurchaseResult(popover, result);
+        this.lastKey = '';
+      };
+      popover.appendChild(row);
+    }
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = 'CLOSE';
+    close.style.cssText = 'justify-self:end;padding:4px 8px;border:1px solid #46514e;background:#111817;color:#b8c3bf;cursor:pointer;font:10px ui-monospace,Menlo,monospace;';
+    close.onclick = () => popover.remove();
+    popover.appendChild(close);
+    this.root.appendChild(popover);
+    anchor.blur();
+  }
+
+  private showPurchaseResult(popover: HTMLElement, result: UpgradePurchaseResult): void {
+    const existing = popover.querySelector('[data-purchase-result]');
+    existing?.remove();
+    const status = document.createElement('div');
+    status.dataset.purchaseResult = 'true';
+    status.textContent = result.reason;
+    status.style.cssText = `font-size:10px;color:${result.ok ? '#78df8b' : '#ff7d67'};`;
+    popover.appendChild(status);
+    if (result.ok) setTimeout(() => this.update(), 0);
   }
 }
 
@@ -150,29 +255,13 @@ function selectionDescriptor(entity: Entity): Omit<SelectionGroup, 'entities' | 
     };
   }
   if (entity.harvester) return { key: 'unit:harvester', kind: 'harvester', label: entity.name ?? 'Ore Harvester', type: 'ECONOMY' };
-  const unitKind = unitKindForEntity(entity);
+  const unitKind = unitKindForUpgrade(entity);
   if (unitKind) {
     const unit = UNITS[unitKind];
-    return { key: `unit:${unitKind}`, kind: unitKind, label: unit.label, type: unit.tab.toUpperCase() };
+    return { key: `unit:${unitKind}`, kind: unitKind, label: unit.label, type: unit.tab.toUpperCase(), unitKind };
   }
   const type = entity.selectable?.type ?? 'unit';
   return { key: `unit:${type}`, kind: type, label: entity.name ?? typeLabel(type), type: type.toUpperCase() };
-}
-
-function unitKindForEntity(entity: Entity): UnitKind | undefined {
-  const name = (entity.name ?? '').toLowerCase();
-  const weapon = entity.weapon?.kind;
-  if (weapon === 'sniperRifle') return 'sniper';
-  if (weapon === 'grenade') return 'grenadier';
-  if (weapon === 'rocketLauncher') return 'rocket-infantry';
-  if (weapon === 'rifle') return 'infantry';
-  if (weapon === 'scoutMissile' || weapon === 'autocannon' || name.includes('jackal')) return 'scout-tank';
-  if (weapon === 'siegeMissile' || weapon === 'heavyCannon' || name.includes('mauler')) return 'siege-tank';
-  if (weapon === 'tankMissile' || weapon === 'cannon' || entity.selectable?.type === 'tank') return 'tank';
-  if (name.includes('wasp')) return 'wasp';
-  if (name.includes('hammerhead')) return 'hammerhead';
-  if (entity.selectable?.type === 'vulture' || name.includes('vulture')) return 'vulture';
-  return undefined;
 }
 
 function averageHealthPct(entities: Entity[]): number | undefined {
@@ -214,4 +303,8 @@ function typeLabel(type: string): string {
 
 function commandIconPath(kind: string): string {
   return `/assets/ui/command-icons/${kind}.png`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]!);
 }

@@ -26,6 +26,7 @@ import { factionId, FACTION, type FactionId } from './palette';
 import type { RenderContext } from './renderer';
 import { buildSoldier, type SoldierMaterials, type SoldierRig } from './soldier';
 import { unitVisualKind, type UnitVisualKind } from './unitKinds';
+import { hasUnitUpgrade } from '../sim/upgrades';
 
 interface AnimState {
   phase: number; // walk-cycle phase, radians
@@ -538,6 +539,8 @@ export class UnitView {
     obj.rotation.x = 0;
     obj.rotation.z = 0;
     const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
+    const onCombatBike = hasUnitUpgrade(entity, 'combat-bike');
+    rig.combatBike.visible = onCombatBike;
     const maxSpeed = entity.mover?.speed ?? 12;
     const speedT = Math.min(1, speed / Math.max(1, maxSpeed));
     const moving = speed > 0.4;
@@ -561,9 +564,15 @@ export class UnitView {
     // knee bends as the leg swings back and lifts
     rig.kneeL.rotation.x = Math.max(0, -s) * 0.85 * anim.swing + anim.crouch * 0.72 + rocketKneel * 0.55;
     rig.kneeR.rotation.x = Math.max(0, -c) * 0.85 * anim.swing + anim.crouch * 0.62 + rocketKneel * 1.2;
+    if (onCombatBike) {
+      rig.hipL.rotation.x = -0.72;
+      rig.hipR.rotation.x = -0.72;
+      rig.kneeL.rotation.x = 1.2;
+      rig.kneeR.rotation.x = 1.2;
+    }
     // gait bob + a touch of forward lean when running
-    obj.position.y += (Math.abs(Math.sin(anim.phase * 2)) * 0.05 - 0.02) * anim.swing - anim.crouch * 0.12 - rocketKneel * 0.08;
-    rig.root.rotation.x = 0.04 + 0.1 * speedT * anim.swing - anim.crouch * 0.05;
+    obj.position.y += onCombatBike ? 0.34 : (Math.abs(Math.sin(anim.phase * 2)) * 0.05 - 0.02) * anim.swing - anim.crouch * 0.12 - rocketKneel * 0.08;
+    rig.root.rotation.x = onCombatBike ? -0.1 : 0.04 + 0.1 * speedT * anim.swing - anim.crouch * 0.05;
     // idle breathing
     rig.torso.position.y = 1.12 - anim.crouch * 0.08 + Math.sin(anim.phase * 0.35 + entity.id) * 0.008 * (1 - anim.swing);
     rig.torso.rotation.x = -anim.crouch * 0.08 - (anim.recoil > 0 ? 0.035 : 0);

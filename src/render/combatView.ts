@@ -146,9 +146,9 @@ export class CombatView {
 
       const geometry = new BufferGeometry();
       geometry.setAttribute('position', new Float32BufferAttribute([event.fromX, fromY, event.fromZ, event.toX, toY, event.toZ], 3));
-      const line = new Line(geometry, event.kind === 'sniperRifle' ? this.sniperMaterial : event.kind === 'rifle' ? this.rifleMaterial : this.cannonMaterial);
+      const line = new Line(geometry, event.kind === 'sniperRifle' || event.kind === 'railShot' ? this.sniperMaterial : event.kind === 'rifle' || event.kind === 'overchargeRifle' ? this.rifleMaterial : this.cannonMaterial);
       line.renderOrder = 50;
-      const tracerTtl = event.kind === 'sniperRifle' ? 0.34 : event.kind === 'rifle' ? 0.08 : 0.16;
+      const tracerTtl = event.kind === 'sniperRifle' || event.kind === 'railShot' ? 0.34 : event.kind === 'rifle' || event.kind === 'overchargeRifle' ? 0.08 : 0.16;
       this.tracers.push({ line, ttl: tracerTtl, total: tracerTtl });
       this.group.add(line);
 

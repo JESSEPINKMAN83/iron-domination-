@@ -15,7 +15,12 @@ export type WeaponKind =
   | 'bomb'
   | 'rocketPod'
   | 'agMissile'
-  | 'aaMissile';
+  | 'aaMissile'
+  | 'overchargeRifle'
+  | 'clusterGrenade'
+  | 'railShot'
+  | 'swarmRocket'
+  | 'annihilatorMissile';
 
 export type ProjectileKind = 'grenade' | 'atRocket' | 'scoutMissile' | 'tankMissile' | 'siegeMissile' | 'agMissile' | 'aaMissile';
 
@@ -215,5 +220,59 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     targetTypes: ['air'],
     vs: { infantry: 0, light: 0, heavy: 0, building: 0, air: 1.0 },
     projectile: { kind: 'aaMissile', speed: 110, trajectory: 'homing', impactRadius: 2.5, fizzleRange: 160 },
+  },
+  overchargeRifle: {
+    kind: 'overchargeRifle',
+    label: 'Tesla Dart',
+    damage: 46,
+    cooldown: 6.5,
+    range: 240,
+    splashRadius: 1.8,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 0.9, light: 1.05, heavy: 0.7, building: 0.3, air: 0 },
+  },
+  clusterGrenade: {
+    kind: 'clusterGrenade',
+    label: 'Cluster Satchel',
+    damage: 48,
+    cooldown: 8.5,
+    range: 180,
+    minRange: 8,
+    splashRadius: 7.2,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 1.35, light: 0.9, heavy: 0.45, building: 0.55, air: 0 },
+    projectile: { kind: 'grenade', speed: 38, trajectory: 'arc', impactRadius: 3.4 },
+  },
+  railShot: {
+    kind: 'railShot',
+    label: 'Rail Lance',
+    damage: 142,
+    cooldown: 10,
+    range: 520,
+    splashRadius: 0,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 1.2, light: 1.0, heavy: 0.82, building: 0.38, air: 0 },
+  },
+  swarmRocket: {
+    kind: 'swarmRocket',
+    label: 'Hunter Missile',
+    damage: 68,
+    cooldown: 9,
+    range: 360,
+    splashRadius: 5.4,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 0.8, light: 1.1, heavy: 0.82, building: 0.5, air: 0 },
+    projectile: { kind: 'agMissile', speed: 118, trajectory: 'flat', impactRadius: 3.2 },
+  },
+  annihilatorMissile: {
+    kind: 'annihilatorMissile',
+    label: 'Tactical Warhead',
+    damage: 116,
+    cooldown: 14,
+    range: 420,
+    splashRadius: 9.5,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 0.85, light: 1.15, heavy: 1.05, building: 0.82, air: 0 },
+    projectile: { kind: 'siegeMissile', speed: 104, trajectory: 'flat', impactRadius: 4.8 },
   },
 };

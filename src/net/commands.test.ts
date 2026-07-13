@@ -136,6 +136,36 @@ describe('multiplayer lockstep commands', () => {
     expect(guestTank.playerControlled).toBeUndefined();
   });
 
+  it('applies a remote unit upgrade to owned entities and charges that player economy', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1, 2000);
+    const economy2 = createEconomy(2, 2000);
+    const hostTank = spawnTankAt(sim, 30, 30, 'Host Tank', 1);
+    const guestTank = spawnTankAt(sim, 48, 30, 'Guest Tank', 2);
+    let onEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      connect: (_room: string, _playerId: string, handler: (event: unknown) => void) => { onEvent = handler; },
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const session: MultiplayerSession = {
+      player: { id: 'host', index: 1, name: 'Host', connected: true },
+      room: { code: 'ABCD', seed: 1, ai: 'normal', aiStyle: 'balanced', armyCount: 2, armySides: [1, 2, 3, 4], status: 'in-game', players: [] },
+    };
+    const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
+    lockstep.connect();
+    onEvent?.({
+      type: 'command', playerId: 'guest', playerIndex: 2, tick: sim.tick,
+      command: { type: 'upgrade-units', ids: [guestTank.id, hostTank.id], upgradeId: 'ion-spear' },
+    });
+    lockstep.tick();
+    expect(guestTank.specialWeapon?.kind).toBe('annihilatorMissile');
+    expect(hostTank.specialWeapon).toBeUndefined();
+    expect(economy2.credits).toBe(1440);
+    expect(economy1.credits).toBe(2000);
+  });
+
   it('host sends a recovery snapshot when a remote hash mismatches', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

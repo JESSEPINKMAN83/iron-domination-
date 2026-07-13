@@ -16,6 +16,7 @@ import {
 } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
 import { manualFireAt } from '../sim/combat';
+import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
 import { areTeamsHostile, entityById, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
 import { hashSim } from '../sim/world';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from '../sim/serialize';
@@ -33,6 +34,7 @@ export type NetCommand =
   | { type: 'cancel-unit'; kind: UnitKind; producerId?: number }
   | { type: 'primary-producer'; producerId: number }
   | { type: 'rally'; producerId: number; x: number; z: number }
+  | { type: 'upgrade-units'; ids: number[]; upgradeId: UnitUpgradeId }
   | {
       type: 'possess-control';
       id: number;
@@ -49,7 +51,7 @@ export type NetCommand =
       vx?: number;
       vz?: number;
     }
-  | { type: 'possess-fire'; id: number; slot: 'primary' | 'secondary'; x: number; z: number; y?: number; aimYaw: number }
+  | { type: 'possess-fire'; id: number; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number }
   | { type: 'possess-release'; id: number }
   | { type: 'sim-hash'; hash: number }
   | { type: 'snapshot-request'; hash: number; expectedHash: number; tick: number }
@@ -310,6 +312,8 @@ export class LockstepRuntime {
     } else if (command.type === 'rally') {
       const producer = entityById(this.options.sim, command.producerId);
       if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
+    } else if (command.type === 'upgrade-units') {
+      purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, playerIndex);
     } else if (command.type === 'possess-control') {
       const entity = ownedEntity(this.options.sim, command.id, playerIndex);
       if (!entity?.possessable || !entity.mover) return;
