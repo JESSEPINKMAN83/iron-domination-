@@ -51,7 +51,8 @@ export type NetCommand =
   | { type: 'sim-hash'; hash: number }
   | { type: 'snapshot-request'; hash: number; expectedHash: number; tick: number }
   | { type: 'match-snapshot'; state: SerializedMatchState; hash: number; tick: number }
-  | { type: 'snapshot-applied'; hash: number; tick: number };
+  | { type: 'snapshot-applied'; hash: number; tick: number }
+  | { type: 'snapshot-resume'; hash: number; tick: number };
 
 interface QueuedCommand {
   tick: number;
@@ -85,6 +86,8 @@ export class LockstepRuntime {
   private peerMissing = false;
   private connectionInterrupted = false;
   private readonly hashHistory = new Map<number, number>();
+  private estimatedRttMs = 160;
+  private recoveryResumeTimer?: ReturnType<typeof setTimeout>;
 
   constructor(private readonly options: LockstepRuntimeOptions) {}
 
@@ -127,6 +130,7 @@ export class LockstepRuntime {
   }
 
   disconnect(): void {
+    this.clearRecoveryResumeTimer();
     this.options.client.disconnect();
     this.connected = false;
   }
@@ -162,12 +166,7 @@ export class LockstepRuntime {
 
   issue(command: NetCommand): boolean {
     const roomDelay = this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS;
-    const possessionCommand =
-      command.type === 'possess-input' || command.type === 'possess-fire' || command.type === 'possess-follow' || command.type === 'possess-release';
-    // The relay chooses roomDelay from round-trip ping. Possession can safely use
-    // two fewer ticks because only one-way delivery must fit before execution.
-    const delay = possessionCommand ? Math.max(2, roomDelay - 2) : roomDelay;
-    const tick = this.options.sim.tick + delay;
+    const tick = this.options.sim.tick + roomDelay;
     this.queue.push({ tick, playerIndex: this.localTeam, command });
     this.queue.sort((a, b) => a.tick - b.tick);
     void this.send(command, tick);
@@ -217,6 +216,8 @@ export class LockstepRuntime {
       }
       const missing = event.room.players.some((player) => player.index !== this.localTeam && !player.connected);
       const connected = event.room.players.filter((player) => player.connected).length;
+      const localPing = event.room.players.find((player) => player.index === this.localTeam)?.pingMs;
+      if (Number.isFinite(localPing)) this.estimatedRttMs = Math.max(20, Math.min(500, Number(localPing)));
       const peerReconnected = this.peerMissing && !missing;
       this.peerMissing = missing;
       this.roomPaused = missing || this.recoveryPending;
@@ -236,6 +237,7 @@ export class LockstepRuntime {
       return;
     }
     if (event.type === 'room-closed') {
+      this.clearRecoveryResumeTimer();
       this.connected = false;
       this.roomPaused = true;
       this.options.onStatus?.(roomClosedMessage(event.reason, this.localTeam), true);
@@ -252,7 +254,12 @@ export class LockstepRuntime {
     const key = `${event.playerId}:${event.tick}:${JSON.stringify(command)}`;
     if (this.seen.has(key)) return;
     this.seen.add(key);
-    if (command.type === 'snapshot-request' || command.type === 'match-snapshot' || command.type === 'snapshot-applied') {
+    if (
+      command.type === 'snapshot-request' ||
+      command.type === 'match-snapshot' ||
+      command.type === 'snapshot-applied' ||
+      command.type === 'snapshot-resume'
+    ) {
       this.apply(event.playerIndex, command, event.tick);
       return;
     }
@@ -283,12 +290,20 @@ export class LockstepRuntime {
       if (this.localTeam !== 1 || !this.recoveryPending) return;
       const localHash = hashSim(this.options.sim);
       if (localHash === command.hash && this.options.sim.tick === command.tick) {
-        this.recoveryPending = false;
-        this.roomPaused = false;
-        this.options.onStatus?.(`Match synchronized at tick ${command.tick}`);
+        void this.send({ type: 'snapshot-resume', hash: localHash, tick: command.tick }, command.tick);
+        this.scheduleHostRecoveryResume(command.tick);
       } else {
         this.sendRecoverySnapshot(`Recovery acknowledgement differed — retrying snapshot (${localHash} vs ${command.hash})`);
       }
+      return;
+    }
+    if (command.type === 'snapshot-resume') {
+      if (this.localTeam === 1 || !this.recoveryPending) return;
+      const localHash = hashSim(this.options.sim);
+      if (localHash !== command.hash || this.options.sim.tick !== command.tick) return;
+      this.recoveryPending = false;
+      this.roomPaused = this.peerMissing;
+      this.options.onStatus?.(`Match synchronized at tick ${command.tick}`);
       return;
     }
     if (command.type === 'move') {
@@ -383,6 +398,10 @@ export class LockstepRuntime {
   }
 
   private sendRecoverySnapshot(message: string): void {
+    this.clearRecoveryResumeTimer();
+    this.queue.length = 0;
+    this.hashHistory.clear();
+    this.rememberHash(this.options.sim.tick, hashSim(this.options.sim));
     const state = serializeMatchState(this.options.sim, Object.values(this.options.economies));
     this.recoveryPending = true;
     this.roomPaused = true;
@@ -396,18 +415,35 @@ export class LockstepRuntime {
       const economy = this.options.economies[economyState.team];
       if (economy) restoreEconomyState(economy, this.options.sim, economyState);
     }
-    this.queue.splice(0, this.queue.length, ...this.queue.filter((queued) => queued.tick > state.sim.tick));
+    this.queue.length = 0;
     this.hashHistory.clear();
     this.rememberHash(this.options.sim.tick, hashSim(this.options.sim));
-    this.recoveryPending = false;
-    this.roomPaused = false;
+    this.recoveryPending = true;
+    this.roomPaused = true;
     this.options.onSnapshotRestored?.();
     const localHash = hashSim(this.options.sim);
     void this.send({ type: 'snapshot-applied', hash: localHash, tick: this.options.sim.tick }, this.options.sim.tick);
     this.options.onStatus?.(
-      localHash === expectedHash ? `Recovered from host snapshot at tick ${state.sim.tick}` : `Recovered snapshot hash differs: ${localHash} vs ${expectedHash}`,
+      localHash === expectedHash ? `Snapshot applied at tick ${state.sim.tick} — waiting for host` : `Recovered snapshot hash differs: ${localHash} vs ${expectedHash}`,
       localHash !== expectedHash,
     );
+  }
+
+  private scheduleHostRecoveryResume(tick: number): void {
+    this.clearRecoveryResumeTimer();
+    const delayMs = Math.max(35, Math.min(250, this.estimatedRttMs * 0.5));
+    this.recoveryResumeTimer = setTimeout(() => {
+      this.recoveryResumeTimer = undefined;
+      this.recoveryPending = false;
+      this.roomPaused = this.peerMissing;
+      this.options.onStatus?.(`Match synchronized at tick ${tick}`);
+    }, delayMs);
+  }
+
+  private clearRecoveryResumeTimer(): void {
+    if (this.recoveryResumeTimer === undefined) return;
+    clearTimeout(this.recoveryResumeTimer);
+    this.recoveryResumeTimer = undefined;
   }
 
   private rememberHash(tick: number, hash: number): void {

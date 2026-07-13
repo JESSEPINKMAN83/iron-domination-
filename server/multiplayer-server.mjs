@@ -441,7 +441,7 @@ function startRematch(room) {
 }
 
 function inputDelayForRoom(room) {
-  const worstPing = Math.max(...room.players.map((player) => player.pingMs ?? 80));
+  const worstPing = Math.max(...room.players.map((player) => player.pingMs ?? 160));
   if (worstPing <= 80) return 4;
   if (worstPing <= 180) return 8;
   return 12;

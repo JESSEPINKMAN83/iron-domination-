@@ -41,6 +41,7 @@ export class RenderContext {
   private readonly composer: EffectComposer;
   private readonly n8ao: N8AOPostPass;
   private readonly maxPixelRatio: number;
+  private readonly multiplayerMode: boolean;
   private pixelRatio: number;
   private qualitySampleSeconds = 0;
   private qualityFrameCount = 0;
@@ -50,6 +51,7 @@ export class RenderContext {
   private fastMotionMode = false;
 
   constructor(container: HTMLElement, options: { multiplayer?: boolean } = {}) {
+    this.multiplayerMode = options.multiplayer === true;
     this.renderer = new WebGLRenderer({ antialias: false, stencil: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
@@ -58,7 +60,7 @@ export class RenderContext {
     this.renderer.shadowMap.type = PCFSoftShadowMap;
     // Multiplayer commonly runs beside voice chat and sometimes a second test
     // browser. Start slightly leaner there, then let adaptive quality recover.
-    this.maxPixelRatio = Math.min(window.devicePixelRatio, options.multiplayer ? 1 : 1.25);
+    this.maxPixelRatio = Math.min(window.devicePixelRatio, this.multiplayerMode ? 0.9 : 1.25);
     this.pixelRatio = this.maxPixelRatio;
     this.qualityCooldownSeconds = options.multiplayer ? 1.25 : 3;
     this.renderer.setPixelRatio(this.pixelRatio);
@@ -97,6 +99,7 @@ export class RenderContext {
     this.n8ao.configuration.intensity = 2.4;
     this.n8ao.configuration.distanceFalloff = 4;
     this.n8ao.setQualityMode('Low');
+    if (this.multiplayerMode) this.n8ao.enabled = false;
     this.composer.addPass(this.n8ao);
 
     const lut = LookupTexture.createNeutral(32);
@@ -183,7 +186,7 @@ export class RenderContext {
       return;
     }
     if (averageFrameSeconds < 0.019) {
-      if (!this.n8ao.enabled) this.n8ao.enabled = true;
+      if (!this.n8ao.enabled && !this.multiplayerMode) this.n8ao.enabled = true;
       else if (this.pixelRatio < this.maxPixelRatio - 0.01) this.setPixelRatio(Math.min(this.maxPixelRatio, this.pixelRatio + 0.1));
       else return;
       this.qualityCooldownSeconds = 4;

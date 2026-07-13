@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { createEconomy, createInitialBase } from '../sim/economy';
 import { generateHeightfield } from '../sim/heightfield';
@@ -72,7 +72,7 @@ describe('multiplayer lockstep commands', () => {
     expect(tank.mover?.target).toEqual({ x: 62, z: 58 });
   });
 
-  it('uses a shorter ping-safe delay for local possession inputs', () => {
+  it('keeps local possession inputs inside the full room safety delay', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const economy1 = createEconomy(1);
@@ -88,11 +88,11 @@ describe('multiplayer lockstep commands', () => {
     session.room.inputDelay = 4;
     const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
     lockstep.issue({ type: 'possess-input', id: tank.id, throttle: 1, turn: 0.25, aimYaw: 0.5 });
-    expect(sentTicks).toEqual([2]);
-    sim.tick = 1;
+    expect(sentTicks).toEqual([4]);
+    sim.tick = 3;
     lockstep.tick();
     expect(tank.playerControlled).toBeUndefined();
-    sim.tick = 2;
+    sim.tick = 4;
     lockstep.tick();
     expect(tank.playerControlled).toMatchObject({ throttle: 1, turn: 0.25, aimYaw: 0.5 });
   });
@@ -258,6 +258,7 @@ describe('multiplayer lockstep commands', () => {
   });
 
   it('pauses after a reconnect until the guest acknowledges the host snapshot', () => {
+    vi.useFakeTimers();
     const hf = generateHeightfield(MAP01);
     const match = testMatch(hf);
     let onEvent: ((event: unknown) => void) | undefined;
@@ -297,10 +298,14 @@ describe('multiplayer lockstep commands', () => {
       tick: match.sim.tick,
       command: { type: 'snapshot-applied', hash: hashSim(match.sim), tick: match.sim.tick },
     });
+    expect(sent.some((command) => isCommandType(command, 'snapshot-resume'))).toBe(true);
+    expect(lockstep.canAdvance()).toBe(false);
+    vi.advanceTimersByTime(100);
     expect(lockstep.canAdvance()).toBe(true);
+    vi.useRealTimers();
   });
 
-  it('guest restores a host snapshot and resumes after desync recovery', () => {
+  it('guest stays paused after applying a host snapshot until the host resumes the match', () => {
     const hf = generateHeightfield(MAP01);
     const host = testMatch(hf);
     const guest = testMatch(hf);
@@ -338,6 +343,14 @@ describe('multiplayer lockstep commands', () => {
     });
     expect(restored).toBe(1);
     expect(hashSim(guest.sim)).toBe(hashSim(host.sim));
+    expect(lockstep.canAdvance()).toBe(false);
+    onEvent?.({
+      type: 'command',
+      playerId: 'host',
+      playerIndex: 1,
+      tick: host.sim.tick,
+      command: { type: 'snapshot-resume', hash: hashSim(host.sim), tick: host.sim.tick },
+    });
     expect(lockstep.canAdvance()).toBe(true);
   });
 
