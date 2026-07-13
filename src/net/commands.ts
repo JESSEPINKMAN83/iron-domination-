@@ -161,7 +161,13 @@ export class LockstepRuntime {
   }
 
   issue(command: NetCommand): boolean {
-    const tick = this.options.sim.tick + (this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS);
+    const roomDelay = this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS;
+    const possessionCommand =
+      command.type === 'possess-input' || command.type === 'possess-fire' || command.type === 'possess-follow' || command.type === 'possess-release';
+    // The relay chooses roomDelay from round-trip ping. Possession can safely use
+    // two fewer ticks because only one-way delivery must fit before execution.
+    const delay = possessionCommand ? Math.max(2, roomDelay - 2) : roomDelay;
+    const tick = this.options.sim.tick + delay;
     this.queue.push({ tick, playerIndex: this.localTeam, command });
     this.queue.sort((a, b) => a.tick - b.tick);
     void this.send(command, tick);

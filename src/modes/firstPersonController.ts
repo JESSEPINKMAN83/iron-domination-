@@ -155,6 +155,10 @@ export class FirstPersonController {
     return this.squad.length > 1 ? `${this.possessed.name ?? 'unit'} ${this.squadIndex + 1}/${this.squad.length}` : this.possessed.name;
   }
 
+  get flying(): boolean {
+    return this.active && Boolean(this.possessed?.flight);
+  }
+
   get possessedEntity(): Entity | undefined {
     return this.possessed;
   }
@@ -383,7 +387,7 @@ export class FirstPersonController {
       this.smoothFlightCenter.copy(targetCenter);
       this.hasSmoothFlightCenter = true;
     } else {
-      this.smoothFlightCenter.lerp(targetCenter, 1 - Math.exp(-dt * 4.5));
+      this.smoothFlightCenter.lerp(targetCenter, 1 - Math.exp(-dt * 9));
     }
     const center = this.smoothFlightCenter;
     const speedT = Math.min(1, speed / model.maxSpeed);
@@ -496,7 +500,8 @@ export class FirstPersonController {
       controlled.boost ? '1' : '0',
       this.lookYaw.toFixed(3),
     ].join(':');
-    if (!force && this.sim.tick - this.lastControlSentTick < 3) return;
+    const cadenceTicks = this.possessed.flight ? 1 : 3;
+    if (!force && this.sim.tick - this.lastControlSentTick < cadenceTicks) return;
     this.lastControlSentTick = this.sim.tick;
     this.lastControlSignature = signature;
     this.commandSink.control({

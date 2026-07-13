@@ -47,6 +47,7 @@ export class RenderContext {
   // Map construction and the first shader compilation can briefly spike frame time.
   // Give those one-off costs time to settle before adapting persistent quality.
   private qualityCooldownSeconds: number;
+  private fastMotionMode = false;
 
   constructor(container: HTMLElement, options: { multiplayer?: boolean } = {}) {
     this.renderer = new WebGLRenderer({ antialias: false, stencil: false, powerPreference: 'high-performance' });
@@ -127,6 +128,19 @@ export class RenderContext {
     return this.pixelRatio;
   }
 
+  setFastMotionMode(active: boolean): void {
+    if (this.fastMotionMode === active) return;
+    this.fastMotionMode = active;
+    this.qualitySampleSeconds = 0;
+    this.qualityFrameCount = 0;
+    if (active) {
+      this.n8ao.enabled = false;
+      if (this.pixelRatio > 0.8) this.setPixelRatio(0.8);
+      return;
+    }
+    this.qualityCooldownSeconds = 2;
+  }
+
   render(dt: number): void {
     this.updateAdaptiveQuality(dt);
     this.renderer.info.reset();
@@ -145,6 +159,7 @@ export class RenderContext {
 
   /** Keep the full visual stack while it fits, then reduce GPU fill-rate only under sustained pressure. */
   private updateAdaptiveQuality(dt: number): void {
+    if (this.fastMotionMode) return;
     if (!Number.isFinite(dt) || dt <= 0 || dt > 0.1) return;
     if (this.qualityCooldownSeconds > 0) {
       this.qualityCooldownSeconds = Math.max(0, this.qualityCooldownSeconds - dt);

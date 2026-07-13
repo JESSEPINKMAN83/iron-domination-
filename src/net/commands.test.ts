@@ -72,6 +72,31 @@ describe('multiplayer lockstep commands', () => {
     expect(tank.mover?.target).toEqual({ x: 62, z: 58 });
   });
 
+  it('uses a shorter ping-safe delay for local possession inputs', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1);
+    const economy2 = createEconomy(2);
+    const tank = spawnTankAt(sim, 30, 30, 'Host Tank', 1);
+    const sentTicks: number[] = [];
+    const client = {
+      connect: () => undefined,
+      disconnect: () => undefined,
+      sendCommand: async (_room: string, _playerId: string, tick: number) => { sentTicks.push(tick); },
+    } as unknown as MultiplayerClient;
+    const session = sessionFor(1);
+    session.room.inputDelay = 4;
+    const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
+    lockstep.issue({ type: 'possess-input', id: tank.id, throttle: 1, turn: 0.25, aimYaw: 0.5 });
+    expect(sentTicks).toEqual([2]);
+    sim.tick = 1;
+    lockstep.tick();
+    expect(tank.playerControlled).toBeUndefined();
+    sim.tick = 2;
+    lockstep.tick();
+    expect(tank.playerControlled).toMatchObject({ throttle: 1, turn: 0.25, aimYaw: 0.5 });
+  });
+
   it('applies tick-scheduled remote possession input, fire, and release to owned units only', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

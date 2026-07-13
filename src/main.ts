@@ -1723,6 +1723,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       simTicks++;
     },
     render: (alpha, dt, time) => {
+      ctx.setFastMotionMode(multiplayerMode && firstPerson.flying);
       if (firstPerson.active) firstPerson.update(dt, alpha);
       else {
         rig.setGrabSuppressed(controller.isRightOrderGestureActive());
