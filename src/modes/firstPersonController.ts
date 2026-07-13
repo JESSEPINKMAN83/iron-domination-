@@ -36,14 +36,9 @@ export interface FirstPersonCommandSink {
     climb?: number;
     strafe?: number;
     boost?: boolean;
-    x: number;
-    z: number;
-    y?: number;
-    rot: number;
-    vx?: number;
-    vz?: number;
   }): void;
-  fire(command: { id: number; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number }): void;
+  fire(command: { id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number }): void;
+  follow(command: { leaderId: number; followerIds: number[]; x: number; z: number; faceYaw: number }): void;
   release(id: number): void;
 }
 
@@ -212,7 +207,7 @@ export class FirstPersonController {
   }
 
   simTick(): void {
-    if (!this.possessed?.playerControlled) return;
+    if (!this.possessed) return;
     if (this.possessed.destroyed) {
       if (!this.cyclePossessed(1)) this.beginExit();
       return;
@@ -226,13 +221,9 @@ export class FirstPersonController {
     const strafe = 0;
     const climb = (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('ControlLeft') || this.input.isDown('ControlRight') ? 1 : 0);
     const boost = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
-    this.possessed.playerControlled.throttle = forward;
-    this.possessed.playerControlled.turn = turn;
-    this.possessed.playerControlled.aimYaw = this.lookYaw;
-    this.possessed.playerControlled.climb = climb;
-    this.possessed.playerControlled.strafe = strafe;
-    this.possessed.playerControlled.boost = boost;
-    this.publishControlState();
+    const control = { throttle: forward, turn, aimYaw: this.lookYaw, climb, strafe, boost };
+    if (this.commandSink) this.publishControlState(control);
+    else if (this.possessed.playerControlled) Object.assign(this.possessed.playerControlled, control);
     this.updateSquadFollowers();
   }
 
@@ -318,8 +309,8 @@ export class FirstPersonController {
   private finishExit(): void {
     const entity = this.possessed;
     if (entity) {
-      delete entity.playerControlled;
-      this.commandSink?.release(entity.id);
+      if (this.commandSink) this.commandSink.release(entity.id);
+      else delete entity.playerControlled;
       if (entity.velocity && !entity.flight) {
         entity.velocity.x = 0;
         entity.velocity.z = 0;
@@ -423,7 +414,7 @@ export class FirstPersonController {
         this.updateScopeOverlay(true);
         return false;
       }
-      this.possessed.playerControlled!.aimYaw = this.lookYaw;
+      if (this.possessed.playerControlled) this.possessed.playerControlled.aimYaw = this.lookYaw;
       if (this.possessed.turret) this.possessed.turret.yaw = this.lookYaw;
     }
     const target = this.possessed.flight
@@ -435,12 +426,29 @@ export class FirstPersonController {
         : slot === 'secondary'
           ? this.bombTarget(this.possessed)
           : this.tmpAimTarget;
-    const fired = manualFireAt(this.sim, this.possessed, target.x, target.z, slot, target.y);
-    if (fired) this.commandSink?.fire({ id: this.possessed.id, slot, x: target.x, z: target.z, y: target.y, aimYaw: this.lookYaw });
-    for (const wingman of this.squadFollowers()) {
-      if (wingman.turret) wingman.turret.yaw = Math.atan2(target.x - wingman.transform.x, target.z - wingman.transform.z);
-      manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y);
-      if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y);
+    const followers = this.squadFollowers();
+    let fired = false;
+    if (this.commandSink) {
+      const weapon = slot === 'special' ? this.possessed.specialWeapon : this.possessed.weapons?.[slot] ?? (slot === 'primary' ? this.possessed.weapon : undefined);
+      fired = Boolean(weapon && weapon.cooldown <= 0);
+      if (fired) {
+        this.commandSink.fire({
+          id: this.possessed.id,
+          followerIds: followers.map((wingman) => wingman.id),
+          slot,
+          x: target.x,
+          z: target.z,
+          y: target.y,
+          aimYaw: this.lookYaw,
+        });
+      }
+    } else {
+      fired = manualFireAt(this.sim, this.possessed, target.x, target.z, slot, target.y);
+      for (const wingman of followers) {
+        if (wingman.turret) wingman.turret.yaw = Math.atan2(target.x - wingman.transform.x, target.z - wingman.transform.z);
+        manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y);
+        if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y);
+      }
     }
     if (slot === 'special') this.flashAbilityStatus(fired ? 'SPECIAL DEPLOYED' : 'ALIGN WEAPON WITH TARGET');
     return fired;
@@ -474,9 +482,11 @@ export class FirstPersonController {
     this.abilityHud.style.display = 'block';
   }
 
-  private publishControlState(force = false): void {
-    if (!this.commandSink || !this.possessed?.playerControlled) return;
-    const controlled = this.possessed.playerControlled;
+  private publishControlState(
+    controlled: { throttle: number; turn: number; aimYaw: number; climb?: number; strafe?: number; boost?: boolean },
+    force = false,
+  ): void {
+    if (!this.commandSink || !this.possessed) return;
     const signature = [
       this.possessed.id,
       controlled.throttle.toFixed(2),
@@ -485,11 +495,8 @@ export class FirstPersonController {
       controlled.strafe?.toFixed(2) ?? '0',
       controlled.boost ? '1' : '0',
       this.lookYaw.toFixed(3),
-      this.possessed.transform.x.toFixed(1),
-      this.possessed.transform.z.toFixed(1),
-      (this.possessed.transform.y ?? 0).toFixed(1),
     ].join(':');
-    if (!force && this.sim.tick - this.lastControlSentTick < 3 && signature === this.lastControlSignature) return;
+    if (!force && this.sim.tick - this.lastControlSentTick < 3) return;
     this.lastControlSentTick = this.sim.tick;
     this.lastControlSignature = signature;
     this.commandSink.control({
@@ -500,12 +507,6 @@ export class FirstPersonController {
       climb: controlled.climb,
       strafe: controlled.strafe,
       boost: controlled.boost,
-      x: this.possessed.transform.x,
-      z: this.possessed.transform.z,
-      y: this.possessed.transform.y,
-      rot: this.possessed.transform.rot,
-      vx: this.possessed.velocity?.x,
-      vz: this.possessed.velocity?.z,
     });
   }
 
@@ -726,18 +727,19 @@ export class FirstPersonController {
 
   private takeControl(entity: Entity): void {
     if (this.possessed && this.possessed !== entity) {
-      delete this.possessed.playerControlled;
-      this.commandSink?.release(this.possessed.id);
+      if (this.commandSink) this.commandSink.release(this.possessed.id);
+      else delete this.possessed.playerControlled;
     }
     this.possessed = entity;
     this.lookYaw = nearestEquivalentAngle(entity.transform.rot, this.lookYaw);
     this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
     this.sniperScopeZoom = 0.35;
     this.sniperScopeActive = false;
-    entity.playerControlled = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0, strafe: 0, boost: false };
+    const initialControl = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0, strafe: 0, boost: false };
+    if (!this.commandSink) entity.playerControlled = initialControl;
     this.lastControlSentTick = -999;
     this.lastControlSignature = '';
-    this.publishControlState(true);
+    this.publishControlState(initialControl, true);
   }
 
   private ensurePointerLock(): void {
@@ -791,7 +793,15 @@ export class FirstPersonController {
       return Math.hypot(dx, dz) > SQUAD_FOLLOW_MIN_DISTANCE || leaderSpeed > 1.5 || entity.mover?.target === undefined;
     });
     if (!shouldRefresh) return;
-    issueMoveOrder(this.sim, followers, this.possessed.transform.x, this.possessed.transform.z, false, this.possessed.transform.rot);
+    if (this.commandSink) {
+      this.commandSink.follow({
+        leaderId: this.possessed.id,
+        followerIds: followers.map((entity) => entity.id),
+        x: this.possessed.transform.x,
+        z: this.possessed.transform.z,
+        faceYaw: this.possessed.transform.rot,
+      });
+    } else issueMoveOrder(this.sim, followers, this.possessed.transform.x, this.possessed.transform.z, false, this.possessed.transform.rot);
   }
 
   private lookPose(position: Vector3, target: Vector3, fov: number, roll = 0): CameraPose {

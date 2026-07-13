@@ -36,7 +36,7 @@ export type NetCommand =
   | { type: 'rally'; producerId: number; x: number; z: number }
   | { type: 'upgrade-units'; ids: number[]; upgradeId: UnitUpgradeId }
   | {
-      type: 'possess-control';
+      type: 'possess-input';
       id: number;
       throttle: number;
       turn: number;
@@ -44,14 +44,9 @@ export type NetCommand =
       climb?: number;
       strafe?: number;
       boost?: boolean;
-      x: number;
-      z: number;
-      y?: number;
-      rot: number;
-      vx?: number;
-      vz?: number;
     }
-  | { type: 'possess-fire'; id: number; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number }
+  | { type: 'possess-fire'; id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number }
+  | { type: 'possess-follow'; leaderId: number; followerIds: number[]; x: number; z: number; faceYaw: number }
   | { type: 'possess-release'; id: number }
   | { type: 'sim-hash'; hash: number }
   | { type: 'snapshot-request'; hash: number; expectedHash: number; tick: number }
@@ -149,7 +144,7 @@ export class LockstepRuntime {
       this.apply(queued.playerIndex, queued.command);
       this.queue.splice(i, 1);
     }
-    if (this.connected && tick - this.lastHashSent >= HASH_INTERVAL_TICKS) {
+    if (this.connected && !hasActivePossession(this.options.sim) && tick - this.lastHashSent >= HASH_INTERVAL_TICKS) {
       this.lastHashSent = tick;
       void this.send({ type: 'sim-hash', hash: hashSim(this.options.sim) }, tick);
     }
@@ -160,11 +155,6 @@ export class LockstepRuntime {
     this.queue.push({ tick, playerIndex: this.localTeam, command });
     this.queue.sort((a, b) => a.tick - b.tick);
     void this.send(command, tick);
-    return true;
-  }
-
-  issueRealtime(command: NetCommand): boolean {
-    void this.send(command, this.options.sim.tick);
     return true;
   }
 
@@ -258,6 +248,7 @@ export class LockstepRuntime {
     const economy = this.options.economies[playerIndex];
     if (!economy) return;
     if (command.type === 'sim-hash') {
+      if (hasActivePossession(this.options.sim) || this.recoveryPending) return;
       const localHash = hashSim(this.options.sim);
       if (localHash !== command.hash) this.handleHashMismatch(localHash, command.hash);
       return;
@@ -314,18 +305,9 @@ export class LockstepRuntime {
       if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
     } else if (command.type === 'upgrade-units') {
       purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, playerIndex);
-    } else if (command.type === 'possess-control') {
+    } else if (command.type === 'possess-input') {
       const entity = ownedEntity(this.options.sim, command.id, playerIndex);
       if (!entity?.possessable || !entity.mover) return;
-      entity.previousTransform = { ...entity.transform };
-      entity.transform.x = command.x;
-      entity.transform.z = command.z;
-      entity.transform.y = command.y;
-      entity.transform.rot = command.rot;
-      if (entity.velocity && command.vx !== undefined && command.vz !== undefined) {
-        entity.velocity.x = command.vx;
-        entity.velocity.z = command.vz;
-      }
       entity.playerControlled = {
         throttle: clampUnit(command.throttle),
         turn: clampUnit(command.turn),
@@ -348,6 +330,22 @@ export class LockstepRuntime {
       };
       if (entity.turret) entity.turret.yaw = Math.atan2(command.x - entity.transform.x, command.z - entity.transform.z);
       manualFireAt(this.options.sim, entity, command.x, command.z, command.slot, command.y);
+      const followers = ownedEntities(this.options.sim, command.followerIds ?? [], playerIndex).filter((follower) => follower.id !== entity.id);
+      for (const follower of followers) {
+        if (follower.turret) follower.turret.yaw = Math.atan2(command.x - follower.transform.x, command.z - follower.transform.z);
+        manualFireAt(this.options.sim, follower, command.x, command.z, command.slot, command.y);
+        if (command.slot === 'secondary') manualFireAt(this.options.sim, follower, command.x, command.z, 'primary', command.y);
+      }
+    } else if (command.type === 'possess-follow') {
+      if (!ownedEntity(this.options.sim, command.leaderId, playerIndex)) return;
+      issueMoveOrder(
+        this.options.sim,
+        ownedEntities(this.options.sim, command.followerIds, playerIndex),
+        command.x,
+        command.z,
+        false,
+        command.faceYaw,
+      );
     } else if (command.type === 'possess-release') {
       const entity = ownedEntity(this.options.sim, command.id, playerIndex);
       if (entity) delete entity.playerControlled;
@@ -407,6 +405,10 @@ function ownedEntities(sim: GameSim, ids: number[], team: number): Entity[] {
 
 function clampUnit(value: number): number {
   return Math.max(-1, Math.min(1, value));
+}
+
+function hasActivePossession(sim: GameSim): boolean {
+  return sim.world.entities.some((entity) => !entity.destroyed && !!entity.playerControlled);
 }
 
 function isNetCommand(value: unknown): value is NetCommand {

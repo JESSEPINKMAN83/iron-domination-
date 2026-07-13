@@ -72,7 +72,7 @@ describe('multiplayer lockstep commands', () => {
     expect(tank.mover?.target).toEqual({ x: 62, z: 58 });
   });
 
-  it('applies realtime remote possession control, fire, and release to owned units only', () => {
+  it('applies tick-scheduled remote possession input, fire, and release to owned units only', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const economy1 = createEconomy(1);
@@ -100,18 +100,18 @@ describe('multiplayer lockstep commands', () => {
       playerId: 'guest',
       playerIndex: 2,
       tick: sim.tick,
-      command: { type: 'possess-control', id: guestTank.id, throttle: 1, turn: -0.5, aimYaw: Math.PI / 2, x: 52, z: 31, rot: Math.PI / 3, vx: 3, vz: 1 },
+      command: { type: 'possess-input', id: guestTank.id, throttle: 1, turn: -0.5, aimYaw: Math.PI / 2 },
     });
     onEvent?.({
       type: 'command',
       playerId: 'guest',
       playerIndex: 2,
       tick: sim.tick,
-      command: { type: 'possess-control', id: hostTank.id, throttle: 1, turn: 1, aimYaw: 0, x: 90, z: 90, rot: 0 },
+      command: { type: 'possess-input', id: hostTank.id, throttle: 1, turn: 1, aimYaw: 0 },
     });
     lockstep.tick();
     expect(guestTank.playerControlled).toMatchObject({ throttle: 1, turn: -0.5, aimYaw: Math.PI / 2 });
-    expect(guestTank.transform.x).toBe(52);
+    expect(guestTank.transform.x).toBe(48);
     expect(hostTank.playerControlled).toBeUndefined();
     expect(hostTank.transform.x).toBe(30);
 

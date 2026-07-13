@@ -6,8 +6,9 @@ const PORT = Number(process.env.PORT ?? 8787);
 const ROOM_TTL_MS = Math.max(1000, Number(process.env.ROOM_TTL_MS ?? 1000 * 60 * 45));
 const HEARTBEAT_MS = Math.max(50, Number(process.env.HEARTBEAT_MS ?? 1000 * 5));
 const START_COUNTDOWN_MS = Math.max(10, Number(process.env.START_COUNTDOWN_MS ?? 3000));
-const RECONNECT_GRACE_MS = Math.max(1000, Number(process.env.RECONNECT_GRACE_MS ?? 60_000));
+const RECONNECT_GRACE_MS = Math.max(1000, Number(process.env.RECONNECT_GRACE_MS ?? 180_000));
 const MAX_COMMANDS_PER_SECOND = Math.max(30, Number(process.env.MAX_COMMANDS_PER_SECOND ?? 180));
+const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 const EXPOSE_ROOMS = process.env.EXPOSE_ROOMS === 'true';
 const ALLOWED_ORIGINS = new Set(
   String(process.env.ALLOWED_ORIGINS ?? '')
@@ -117,6 +118,7 @@ setInterval(() => {
 function routeSocket(socket, body) {
   if (body?.type === 'host') return handleHost(socket, body);
   if (body?.type === 'join') return handleJoin(socket, body);
+  if (body?.type === 'resume-room') return handleResumeRoom(socket, body);
   if (body?.type === 'start-match') return handleStartMatch(socket, body);
   if (body?.type === 'settings') return handleSettings(socket, body);
   if (body?.type === 'set-ready') return handleSetReady(socket, body);
@@ -148,6 +150,33 @@ function handleJoin(socket, body) {
   player.engine = normalizeEngine(body.engine);
   attachSocket(room, player, socket);
   send(socket, { type: 'session', requestId: body.requestId, room: publicRoom(room), player: publicPlayer(player) });
+  broadcast(room, roomState(room));
+}
+
+function handleResumeRoom(socket, body) {
+  const snapshot = body?.room;
+  const requestedPlayer = body?.player;
+  const code = normalizeRoomCode(snapshot?.code);
+  const snapshotHost = Array.isArray(snapshot?.players) ? snapshot.players.find((player) => player?.index === 1) : undefined;
+  if (!code || requestedPlayer?.index !== 1 || requestedPlayer?.id !== snapshotHost?.id) {
+    return send(socket, { type: 'error', requestId: body.requestId, error: 'invalid-resume' });
+  }
+  const existingRoom = rooms.get(code);
+  if (existingRoom) {
+    return handleJoin(socket, {
+      ...body,
+      type: 'join',
+      code,
+      name: requestedPlayer.name,
+      playerId: requestedPlayer.id,
+    });
+  }
+  const room = restoreRoom(snapshot);
+  const host = room.players.find((player) => player.index === 1);
+  if (!host) return send(socket, { type: 'error', requestId: body.requestId, error: 'invalid-resume' });
+  rooms.set(room.code, room);
+  attachSocket(room, host, socket);
+  send(socket, { type: 'session', requestId: body.requestId, room: publicRoom(room), player: publicPlayer(host) });
   broadcast(room, roomState(room));
 }
 
@@ -214,7 +243,7 @@ function handleCommand(socket, body) {
     playerIndex: player.index,
     tick: Math.max(0, Math.floor(Number(body.tick) || 0)),
     command: body.command ?? {},
-  });
+  }, player.id);
 }
 
 function handleTacticalPing(socket, body) {
@@ -279,6 +308,41 @@ function createRoom(body) {
     players: [],
     clients: new Map(),
   };
+}
+
+function restoreRoom(snapshot) {
+  const armyCount = normalizeArmyCount(snapshot?.armyCount);
+  const now = Date.now();
+  const room = {
+    code: normalizeRoomCode(snapshot?.code),
+    mapId: normalizeMapId(snapshot?.mapId),
+    seed: Math.max(1, Math.floor(Number(snapshot?.seed) || 1)),
+    ai: String(snapshot?.ai ?? 'normal'),
+    aiStyle: String(snapshot?.aiStyle ?? 'balanced'),
+    combatMode: normalizeCombatMode(snapshot?.combatMode),
+    inputDelay: Math.max(4, Math.min(12, Math.floor(Number(snapshot?.inputDelay) || 8))),
+    armyCount,
+    armySides: normalizeArmySides(snapshot?.armySides, armyCount),
+    createdAt: now,
+    updatedAt: now,
+    status: 'in-game',
+    players: [],
+    clients: new Map(),
+  };
+  const sourcePlayers = Array.isArray(snapshot?.players) ? snapshot.players : [];
+  room.players = sourcePlayers.slice(0, armyCount).map((source, offset) => ({
+    id: typeof source?.id === 'string' && /^[0-9a-f-]{16,64}$/i.test(source.id) ? source.id : randomUUID(),
+    index: Math.max(1, Math.min(armyCount, Math.floor(Number(source?.index) || offset + 1))),
+    name: normalizePlayerName(source?.name, offset + 1),
+    color: normalizePlayerColor(source?.color) ?? defaultPlayerColor(offset + 1),
+    ready: true,
+    rematchReady: false,
+    connected: false,
+    engine: normalizeEngine(source?.engine),
+    joinedAt: now,
+    disconnectedAt: now,
+  }));
+  return room;
 }
 
 function addPlayer(room, name, requestedId, engine) {
@@ -449,8 +513,10 @@ function roomState(room) {
   return { type: 'room-state', room: publicRoom(room) };
 }
 
-function broadcast(room, message) {
-  for (const client of room.clients.values()) send(client, message);
+function broadcast(room, message, excludePlayerId) {
+  for (const [playerId, client] of room.clients) {
+    if (playerId !== excludePlayerId) send(client, message);
+  }
 }
 
 function broadcastToAllies(room, team, message) {
@@ -463,7 +529,18 @@ function broadcastToAllies(room, team, message) {
 }
 
 function send(socket, payload) {
-  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(payload));
+  if (socket.readyState !== socket.OPEN) return false;
+  if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
+    socket.close(1013, 'slow-client');
+    return false;
+  }
+  try {
+    socket.send(JSON.stringify(payload));
+    return true;
+  } catch {
+    socket.close(1011, 'send-failed');
+    return false;
+  }
 }
 
 function normalizeRoomCode(code) {

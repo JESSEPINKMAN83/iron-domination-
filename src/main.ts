@@ -1619,9 +1619,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     localTeam,
     lockstep
       ? {
-          control: (command) => lockstep.issueRealtime({ type: 'possess-control', ...command }),
-          fire: (command) => lockstep.issueRealtime({ type: 'possess-fire', ...command }),
-          release: (id) => lockstep.issueRealtime({ type: 'possess-release', id }),
+          control: (command) => lockstep.issue({ type: 'possess-input', ...command }),
+          fire: (command) => lockstep.issue({ type: 'possess-fire', ...command }),
+          follow: (command) => lockstep.issue({ type: 'possess-follow', ...command }),
+          release: (id) => lockstep.issue({ type: 'possess-release', id }),
         }
       : undefined,
   );

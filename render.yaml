@@ -13,6 +13,6 @@ services:
       - key: ALLOWED_ORIGINS
         sync: false
       - key: RECONNECT_GRACE_MS
-        value: '60000'
+        value: '180000'
       - key: MAX_COMMANDS_PER_SECOND
         value: '180'

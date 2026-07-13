@@ -208,6 +208,50 @@ describe('multiplayer relay', () => {
     expect(events.every((event) => event.room.armyCount === 4)).toBe(true);
     expect(events[0].room.armySides).toEqual([1, 1, 2, 2]);
   }, 5000);
+
+  it('restores an in-progress room after a relay restart and lets the guest reclaim its slot', async () => {
+    const port = await availablePort();
+    const child = spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, PORT: String(port), HEARTBEAT_MS: '50' },
+      stdio: 'ignore',
+    });
+    children.push(child);
+    await waitForHealth(port);
+
+    const hostId = '11111111-1111-4111-8111-111111111111';
+    const guestId = '22222222-2222-4222-8222-222222222222';
+    const room = {
+      code: 'RESUME',
+      mapId: 'frostbite-pass',
+      seed: 771204,
+      ai: 'easy',
+      aiStyle: 'balanced',
+      combatMode: 'manual',
+      inputDelay: 8,
+      armyCount: 2,
+      armySides: [1, 2, 3, 4],
+      status: 'in-game',
+      players: [
+        { id: hostId, index: 1, name: 'Host', connected: true, color: 'jade', engine: 'chromium' },
+        { id: guestId, index: 2, name: 'Guest', connected: true, color: 'crimson', engine: 'chromium' },
+      ],
+    };
+    const host = await connect(port);
+    host.send(JSON.stringify({ type: 'resume-room', requestId: 'resume-host', room, player: room.players[0] }));
+    const restored = await nextMessage(host, (message) => message.type === 'session');
+    expect(restored.room.code).toBe('RESUME');
+    expect(restored.room.status).toBe('in-game');
+    expect(restored.room.mapId).toBe('frostbite-pass');
+    expect(restored.player.id).toBe(hostId);
+
+    const guest = await connect(port);
+    guest.send(JSON.stringify({ type: 'join', requestId: 'resume-guest', code: 'RESUME', playerId: guestId, name: 'Guest' }));
+    const rejoined = await nextMessage(guest, (message) => message.type === 'session');
+    expect(rejoined.player.id).toBe(guestId);
+    expect(rejoined.player.index).toBe(2);
+    expect(rejoined.room.players.every((player: any) => player.connected)).toBe(true);
+  }, 5000);
 });
 
 async function availablePort(): Promise<number> {

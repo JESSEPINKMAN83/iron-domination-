@@ -80,6 +80,7 @@ export class MultiplayerClient {
   private reconnecting = false;
   private reconnectAttempt = 0;
   private reconnectTimer?: number;
+  private reconnectStartedAt?: number;
 
   constructor(readonly baseUrl: string) {}
 
@@ -143,6 +144,7 @@ export class MultiplayerClient {
   disconnect(): void {
     this.shouldReconnect = false;
     this.reconnecting = false;
+    this.reconnectStartedAt = undefined;
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     for (const request of this.pending.values()) {
@@ -168,6 +170,7 @@ export class MultiplayerClient {
       if (this.socket === socket) this.socket = undefined;
       if (!this.serverClosedRoom) this.onError?.();
       this.rejectPending('connection-closed');
+      this.reconnectStartedAt ??= Date.now();
       this.scheduleReconnect();
     };
     socket.onerror = () => {
@@ -227,10 +230,27 @@ export class MultiplayerClient {
       });
       this.lastSession = session;
       this.reconnectAttempt = 0;
+      this.reconnectStartedAt = undefined;
       this.onOpen?.();
     } catch (err) {
       const reason = String((err as Error).message ?? err);
-      if (reason === 'room-not-found' || reason === 'room-full') {
+      if (reason === 'room-not-found' && previous.player.index === 1) {
+        try {
+          const session = await this.request({
+            type: 'resume-room',
+            room: previous.room,
+            player: previous.player,
+            engine: browserEngine(),
+          });
+          this.lastSession = session;
+          this.reconnectAttempt = 0;
+          this.reconnectStartedAt = undefined;
+          this.onOpen?.();
+          return;
+        } catch {
+          this.scheduleReconnect();
+        }
+      } else if (reason === 'room-full' || Date.now() - (this.reconnectStartedAt ?? Date.now()) >= 180_000) {
         this.serverClosedRoom = true;
         this.shouldReconnect = false;
         this.onEvent?.({ type: 'room-closed', reason: 'reconnect-expired' });
@@ -298,6 +318,9 @@ export class MultiplayerClient {
       this.shouldReconnect = false;
       if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
+    }
+    if ((message.type === 'room-state' || message.type === 'match-start') && this.lastSession) {
+      this.lastSession = { ...this.lastSession, room: message.room };
     }
     this.onEvent?.(message);
   }
