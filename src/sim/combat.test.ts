@@ -161,6 +161,23 @@ describe('phase 4 combat simulation', () => {
     expect(event?.toY).toBeGreaterThan(sampleHeight(hf, event!.toX, event!.toZ) + 8);
   });
 
+  it('does not let a unit below the center aim ray steal a manual shot', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnTankAt(sim, 0, 0, 'A');
+    const lowTarget = spawnTankAt(sim, 0, 30, 'Low target', 2);
+    attacker.transform.y = 0;
+    lowTarget.transform.y = 0;
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    attacker.turret!.yaw = 0;
+
+    expect(manualFireAt(sim, attacker, 0, 100, 'primary', 40)).toBe(true);
+
+    expect(sim.projectiles[0]?.directTargetId).toBeUndefined();
+    expect(sim.projectiles[0]?.toZ).toBe(100);
+    expect(sim.projectiles[0]?.toY).toBe(40);
+  });
+
   it('lets manually aimed tank missiles travel to distant battlefield points', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

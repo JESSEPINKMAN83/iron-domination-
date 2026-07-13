@@ -147,6 +147,11 @@ export function manualFireAt(
   const ux = rawLen > 0.001 ? rawDx / rawLen : Math.sin(fallbackYaw);
   const uz = rawLen > 0.001 ? rawDz / rawLen : Math.cos(fallbackYaw);
   const len = Math.max(0.0001, rawLen);
+  const muzzleY = directMuzzleY(attacker) ?? attacker.transform.y ?? targetY ?? 0;
+  const rayLength = targetY === undefined ? 0 : Math.hypot(rawDx, targetY - muzzleY, rawDz);
+  const aimRay = targetY !== undefined && rayLength > 0.001
+    ? { x: rawDx / rayLength, y: (targetY - muzzleY) / rayLength, z: rawDz / rayLength, fromY: muzzleY }
+    : undefined;
 
   if (def.kind === 'bomb' || def.kind === 'tankBomb') {
     // A manually aimed artillery shot can cross the entire battlefield. The
@@ -164,7 +169,7 @@ export function manualFireAt(
   // uses each tank's normal acquisition range before it reaches this path.
   const range = isTankDirectMissile(def.kind) ? len : Math.min(weapon.range || def.range, len);
   if (def.minRange !== undefined && len < def.minRange) return false;
-  const target = acquireLineTarget(sim, attacker, weapon, ux, uz, range);
+  const target = acquireLineTarget(sim, attacker, weapon, ux, uz, range, aimRay);
   const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
   const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
   if (def.projectile) {
@@ -560,21 +565,48 @@ function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: nu
   return best;
 }
 
-function acquireLineTarget(sim: GameSim, attacker: Entity, weapon: Weapon, ux: number, uz: number, range: number): Entity | undefined {
+interface ManualAimRay {
+  x: number;
+  y: number;
+  z: number;
+  fromY: number;
+}
+
+function acquireLineTarget(
+  sim: GameSim,
+  attacker: Entity,
+  weapon: Weapon,
+  ux: number,
+  uz: number,
+  range: number,
+  aimRay?: ManualAimRay,
+): Entity | undefined {
   let best: Entity | undefined;
-  let bestAlong = range;
+  let bestAlong = Number.POSITIVE_INFINITY;
   const visionCap = attacker.vision?.radius ?? range;
   for (const candidate of sim.world.entities) {
     if (!isWeaponTargetable(sim, attacker, weapon, candidate)) continue;
     const dx = candidate.transform.x - attacker.transform.x;
     const dz = candidate.transform.z - attacker.transform.z;
-    const along = dx * ux + dz * uz;
+    const horizontalAlong = dx * ux + dz * uz;
     const targetRange = effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range, visionCap);
-    if (along < 0 || along > targetRange || along > bestAlong) continue;
-    if (along < minimumRangeForWeapon(weapon.kind as WeaponKind)) continue;
-    const perp = Math.abs(dx * uz - dz * ux);
+    if (horizontalAlong < 0 || horizontalAlong > targetRange) continue;
+    if (horizontalAlong < minimumRangeForWeapon(weapon.kind as WeaponKind)) continue;
     const radius = candidate.collider?.radius ?? candidate.selectable?.radius ?? 2.4;
-    if (perp > radius + 2.2) continue;
+    let along = horizontalAlong;
+    let perp = Math.abs(dx * uz - dz * ux);
+    let tolerance = radius + 2.2;
+    if (aimRay) {
+      const baseY = candidate.transform.y;
+      const centerOffset = candidate.flight ? 0 : candidate.building ? 2.4 : candidate.selectable?.type === 'infantry' ? 1 : 1.4;
+      const candidateY = baseY === undefined ? aimRay.fromY : baseY + centerOffset;
+      const dy = candidateY - aimRay.fromY;
+      along = dx * aimRay.x + dy * aimRay.y + dz * aimRay.z;
+      if (along < 0) continue;
+      perp = Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along));
+      tolerance = radius + (candidate.flight ? 1.35 : 0.8);
+    }
+    if (along > bestAlong || perp > tolerance) continue;
     best = candidate;
     bestAlong = along;
   }

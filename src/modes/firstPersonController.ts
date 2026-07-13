@@ -21,6 +21,8 @@ const ARTILLERY_FULL_RANGE_PITCH = MathUtils.degToRad(68);
 const ARTILLERY_MIN_RANGE_PITCH = MathUtils.degToRad(-12);
 const ARTILLERY_SPEED = 95;
 const ARTILLERY_MAX_FLIGHT_TIME = 8;
+const AIM_DELTA_X_LIMIT = 140;
+const AIM_DELTA_Y_LIMIT = 90;
 const SNIPER_SCOPE_FOV_WIDE = 30;
 const SNIPER_SCOPE_FOV_TIGHT = 11;
 const SQUAD_FOLLOW_REFRESH_TICKS = 12;
@@ -262,7 +264,7 @@ export class FirstPersonController {
     const strafe = 0;
     const climb = (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('ControlLeft') || this.input.isDown('ControlRight') ? 1 : 0);
     const boost = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
-    const control = { throttle: forward, turn, aimYaw: this.lookYaw, climb, strafe, boost };
+    const control = { throttle: forward, turn, aimYaw: this.currentAimYaw(), climb, strafe, boost };
     if (this.commandSink) this.publishControlState(control);
     else if (this.possessed.playerControlled) Object.assign(this.possessed.playerControlled, control);
     this.updateSquadFollowers();
@@ -301,14 +303,19 @@ export class FirstPersonController {
     const delta = this.input.consumeMouseDelta();
     const orbitAdjusting = this.mode === 'fps' && this.input.isMetaDown() && this.input.isButton(0);
     if (this.mode === 'fps' && (delta.dx !== 0 || delta.dy !== 0)) {
+      // Pointer-lock transitions can occasionally report a screen-sized delta.
+      // Clamp only those outliers; normal mouse movement remains one-to-one and
+      // stops immediately when the player stops moving the mouse.
+      const aimDx = MathUtils.clamp(delta.dx, -AIM_DELTA_X_LIMIT, AIM_DELTA_X_LIMIT);
+      const aimDy = MathUtils.clamp(delta.dy, -AIM_DELTA_Y_LIMIT, AIM_DELTA_Y_LIMIT);
       if (orbitAdjusting) {
-        this.orbitYaw -= delta.dx * 0.004;
-        this.orbitPitch = MathUtils.clamp(this.orbitPitch - delta.dy * 0.003, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
+        this.orbitYaw -= aimDx * 0.004;
+        this.orbitPitch = MathUtils.clamp(this.orbitPitch - aimDy * 0.003, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
       } else {
-        this.lookYaw -= delta.dx * 0.0024;
+        this.lookYaw -= aimDx * 0.0024;
         const minPitch = this.possessed.flight ? FLIGHT_LOOK_DOWN_MIN : GROUND_LOOK_DOWN_MIN;
         const maxPitch = this.possessed.flight ? FLIGHT_LOOK_UP_MAX : GROUND_LOOK_UP_MAX;
-        this.lookPitch = MathUtils.clamp(this.lookPitch - delta.dy * 0.0018, minPitch, maxPitch);
+        this.lookPitch = MathUtils.clamp(this.lookPitch - aimDy * 0.0018, minPitch, maxPitch);
       }
     }
 
@@ -394,10 +401,14 @@ export class FirstPersonController {
     const chaseHeight = Math.max(2.8, chaseDistance * Math.sin(cameraPitch) + 1.2);
     const position = tankCenter.clone().addScaledVector(this.tmpHorizontal, -horizontalDistance);
     position.y += chaseHeight;
-    const terrainAim = this.rayTerrainPoint(tankCenter, this.tmpForward, this.hf.size * 1.6);
+    // The camera always follows the raw yaw/pitch vector. A terrain hit only
+    // chooses where the weapon converges; it must never steer the camera or the
+    // center reticle jumps when the ray crosses a ridge or the horizon.
+    this.tmpCameraTarget.copy(position).addScaledVector(this.tmpForward, this.hf.size * 2);
+    const terrainAim = this.rayTerrainPoint(position, this.tmpForward, this.hf.size * 1.6);
     if (terrainAim) this.tmpAimTarget.copy(terrainAim);
-    else this.tmpAimTarget.copy(tankCenter).addScaledVector(this.tmpForward, this.hf.size * 1.5);
-    return this.lookPose(position, this.tmpAimTarget, fov);
+    else this.tmpAimTarget.copy(position).addScaledVector(this.tmpForward, this.hf.size * 1.5);
+    return this.lookPose(position, this.tmpCameraTarget, fov);
   }
 
   private sniperPoseFor(entity: Entity, yaw: number, pitch: number, regularFov?: number): CameraPose {
@@ -483,7 +494,7 @@ export class FirstPersonController {
           x: target.x,
           z: target.z,
           y: target.y,
-          aimYaw: this.lookYaw,
+          aimYaw: this.currentAimYaw(),
         });
       }
     } else {
@@ -501,6 +512,14 @@ export class FirstPersonController {
   private sniperBikeMoving(entity: Entity | undefined): boolean {
     if (!entity || !this.isSniper(entity) || !hasUnitUpgrade(entity, 'combat-bike')) return false;
     return Math.hypot(entity.velocity?.x ?? 0, entity.velocity?.z ?? 0) > 0.55;
+  }
+
+  private currentAimYaw(): number {
+    const entity = this.possessed;
+    if (!entity || entity.flight || this.isSniper(entity)) return this.lookYaw;
+    const dx = this.tmpAimTarget.x - entity.transform.x;
+    const dz = this.tmpAimTarget.z - entity.transform.z;
+    return Math.hypot(dx, dz) > 0.001 ? Math.atan2(dx, dz) : this.lookYaw;
   }
 
   private flashAbilityStatus(message: string): void {
@@ -538,7 +557,7 @@ export class FirstPersonController {
       controlled.climb?.toFixed(2) ?? '0',
       controlled.strafe?.toFixed(2) ?? '0',
       controlled.boost ? '1' : '0',
-      this.lookYaw.toFixed(3),
+      controlled.aimYaw.toFixed(3),
     ].join(':');
     const cadenceTicks = this.possessed.flight ? 1 : 3;
     if (!force && this.sim.tick - this.lastControlSentTick < cadenceTicks) return;
