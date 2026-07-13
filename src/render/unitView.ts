@@ -1,5 +1,6 @@
 import {
   AdditiveBlending,
+  BackSide,
   BoxGeometry,
   CanvasTexture,
   CircleGeometry,
@@ -16,6 +17,7 @@ import {
   RingGeometry,
   RepeatWrapping,
   SRGBColorSpace,
+  SphereGeometry,
   type Camera,
   type BufferGeometry,
   type Material,
@@ -76,9 +78,8 @@ interface UnitDamageOverlay {
   patches: UnitDamagePatch[];
 }
 
-interface TeamAuraMeshes {
-  fill: InstancedMesh;
-  ring: InstancedMesh;
+interface FriendlyGlowMesh {
+  mesh: InstancedMesh;
   count: number;
 }
 
@@ -88,9 +89,8 @@ const HEALTH_BACK_GEOM = new PlaneGeometry(4.1, 0.48);
 const HEALTH_FILL_GEOM = new PlaneGeometry(3.6, 0.22);
 const AIR_SHADOW_GEOM = new CircleGeometry(3.8, 32);
 const ROTOR_WASH_GEOM = new RingGeometry(1.8, 5.2, 48);
-const UNIT_AURA_FILL_GEOM = new CircleGeometry(1, 48);
-const UNIT_AURA_RING_GEOM = new RingGeometry(0.72, 1, 48);
-const MAX_UNIT_AURAS_PER_TEAM = 1024;
+const FRIENDLY_GLOW_GEOM = new SphereGeometry(1, 16, 10);
+const MAX_FRIENDLY_GLOWS = 1024;
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
@@ -141,8 +141,8 @@ export class UnitView {
   private readonly selectedRings = new Map<Entity, Mesh>();
   private readonly entities: Entity[] = [];
   private readonly teamMaterials: Record<FactionId, TeamMaterials>;
-  private readonly teamAuras: Record<FactionId, TeamAuraMeshes>;
-  private readonly auraTransform = new Object3D();
+  private readonly friendlyGlow: FriendlyGlowMesh;
+  private readonly glowTransform = new Object3D();
   private readonly wreckMaterial: Material;
   private readonly vehicleScorchMaterial: Material;
   private readonly vehicleCrackMaterial: Material;
@@ -172,18 +172,13 @@ export class UnitView {
     private readonly localTeam = 1,
   ) {
     this.teamMaterials = {
-      1: createTeamMaterials(ctx, 1),
-      2: createTeamMaterials(ctx, 2),
-      3: createTeamMaterials(ctx, 3),
-      4: createTeamMaterials(ctx, 4),
+      1: createTeamMaterials(ctx, 1, localTeam === 1),
+      2: createTeamMaterials(ctx, 2, localTeam === 2),
+      3: createTeamMaterials(ctx, 3, localTeam === 3),
+      4: createTeamMaterials(ctx, 4, localTeam === 4),
     };
-    this.teamAuras = {
-      1: createTeamAuraMeshes(1, localTeam === 1),
-      2: createTeamAuraMeshes(2, localTeam === 2),
-      3: createTeamAuraMeshes(3, localTeam === 3),
-      4: createTeamAuraMeshes(4, localTeam === 4),
-    };
-    for (const aura of Object.values(this.teamAuras)) this.group.add(aura.fill, aura.ring);
+    this.friendlyGlow = createFriendlyGlowMesh(factionId(localTeam));
+    this.group.add(this.friendlyGlow.mesh);
     this.wreckMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1d1a16, roughness: 1, metalness: 0.05 }));
     this.vehicleScorchMaterial = new MeshBasicMaterial({ color: 0x070605, transparent: true, opacity: 0.64, depthWrite: false, side: DoubleSide });
     this.vehicleCrackMaterial = new MeshBasicMaterial({ color: 0x0b0a09, transparent: true, opacity: 0.86, depthWrite: false, side: DoubleSide });
@@ -382,8 +377,8 @@ export class UnitView {
         this.entities.splice(i, 1);
       }
     }
-    for (const aura of Object.values(this.teamAuras)) aura.count = 0;
-    const auraTime = performance.now() * 0.0026;
+    this.friendlyGlow.count = 0;
+    const glowTime = performance.now() * 0.0026;
     for (const entity of this.entities) {
       const obj = this.objects.get(entity);
       const ring = this.selectedRings.get(entity);
@@ -409,7 +404,7 @@ export class UnitView {
       const y = entity.flight ? lerp(entity.previousTransform.y ?? entity.transform.y ?? groundY, entity.transform.y ?? groundY, alpha) : groundY + 0.35;
       obj.position.set(x, y, z);
       obj.rotation.y = rot;
-      if (!entity.destroyed) this.updateUnitAura(entity, x, y, z, groundY, auraTime);
+      if (!entity.destroyed) this.updateFriendlyGlow(entity, x, y, z, glowTime);
       this.applyPose(entity, obj, dt);
       this.updateUnitDamage(entity, obj);
       const turret = this.refs.get(entity)?.turretPivot;
@@ -446,30 +441,23 @@ export class UnitView {
       }
       this.updateHealthBar(entity, x, y, z, camera);
     }
-    for (const aura of Object.values(this.teamAuras)) {
-      aura.fill.count = aura.count;
-      aura.ring.count = aura.count;
-      aura.fill.instanceMatrix.needsUpdate = true;
-      aura.ring.instanceMatrix.needsUpdate = true;
-    }
+    this.friendlyGlow.mesh.count = this.friendlyGlow.count;
+    this.friendlyGlow.mesh.instanceMatrix.needsUpdate = true;
   }
 
-  private updateUnitAura(entity: Entity, x: number, y: number, z: number, groundY: number, time: number): void {
-    const team = factionId(entity.team?.id);
-    const aura = this.teamAuras[team];
-    if (aura.count >= MAX_UNIT_AURAS_PER_TEAM) return;
-    const own = team === factionId(this.localTeam);
+  private updateFriendlyGlow(entity: Entity, x: number, y: number, z: number, time: number): void {
+    if (factionId(entity.team?.id) !== factionId(this.localTeam) || this.friendlyGlow.count >= MAX_FRIENDLY_GLOWS) return;
     const type = entity.selectable?.type;
-    const baseRadius = type === 'infantry' ? 2.25 : entity.flight ? 5.1 : type === 'harvester' ? 4.2 : 3.5;
     const pulse = 0.5 + 0.5 * Math.sin(time + entity.id * 0.71);
-    const radius = baseRadius * (own ? 1 : 0.88) * (0.96 + pulse * 0.1);
-    this.auraTransform.position.set(x, entity.flight ? y - 0.7 : groundY + 0.11, z);
-    this.auraTransform.rotation.set(-Math.PI / 2, 0, 0);
-    this.auraTransform.scale.set(radius, radius, 1);
-    this.auraTransform.updateMatrix();
-    aura.fill.setMatrixAt(aura.count, this.auraTransform.matrix);
-    aura.ring.setMatrixAt(aura.count, this.auraTransform.matrix);
-    aura.count++;
+    const breathe = 0.96 + pulse * 0.12;
+    const radius = type === 'infantry' ? 1.05 : entity.flight ? 4.25 : type === 'harvester' ? 3.25 : 2.75;
+    const height = type === 'infantry' ? 1.55 : entity.flight ? 1.85 : 1.45;
+    this.glowTransform.position.set(x, y + (type === 'infantry' ? 1.1 : entity.flight ? 0.1 : 1.15), z);
+    this.glowTransform.rotation.set(0, 0, 0);
+    this.glowTransform.scale.set(radius * breathe, height * breathe, radius * breathe);
+    this.glowTransform.updateMatrix();
+    this.friendlyGlow.mesh.setMatrixAt(this.friendlyGlow.count, this.glowTransform.matrix);
+    this.friendlyGlow.count++;
   }
 
   /** Walk cycles, death poses, and wreck states — all driven by sim data. */
@@ -814,53 +802,38 @@ function createUnitDamageOverlay(entity: Entity, kind: UnitVisualKind, scorch: M
   return { root, patches };
 }
 
-function createTeamMaterials(ctx: RenderContext, id: FactionId): TeamMaterials {
+function createTeamMaterials(ctx: RenderContext, id: FactionId, own: boolean): TeamMaterials {
   const f = FACTION[id];
   return {
-    hull: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.hull, roughness: 0.78, metalness: 0.08 })),
-    dark: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.hullDark, roughness: 0.82, metalness: 0.12 })),
-    canvas: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.canvas, roughness: 0.9, metalness: 0.02 })),
-    uniform: ctx.setupLitMaterial(new MeshStandardMaterial({ map: createCamoTexture(id), roughness: 0.92, metalness: 0.01 })),
-    accent: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.accent, emissive: f.accentEmissive, roughness: 0.7, metalness: 0.1 })),
+    hull: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.hull, emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.14 : 0, roughness: 0.78, metalness: 0.08 })),
+    dark: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.hullDark, emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.08 : 0, roughness: 0.82, metalness: 0.12 })),
+    canvas: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.canvas, emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.1 : 0, roughness: 0.9, metalness: 0.02 })),
+    uniform: ctx.setupLitMaterial(new MeshStandardMaterial({ map: createCamoTexture(id), emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.12 : 0, roughness: 0.92, metalness: 0.01 })),
+    accent: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.accent, emissive: own ? f.accent : f.accentEmissive, emissiveIntensity: own ? 1.35 : 1, roughness: 0.7, metalness: 0.1 })),
     lightBar: ctx.setupLitMaterial(
-      new MeshStandardMaterial({ color: f.lightBar, emissive: f.lightBar, emissiveIntensity: 0.55, roughness: 0.55, metalness: 0.05 }),
+      new MeshStandardMaterial({ color: f.lightBar, emissive: f.lightBar, emissiveIntensity: own ? 2.2 : 0.55, roughness: 0.55, metalness: 0.05 }),
     ),
   };
 }
 
-function createTeamAuraMeshes(id: FactionId, own: boolean): TeamAuraMeshes {
+function createFriendlyGlowMesh(id: FactionId): FriendlyGlowMesh {
   const palette = FACTION[id];
-  const fillMaterial = new MeshBasicMaterial({
-    color: palette.accent,
-    transparent: true,
-    opacity: own ? 0.18 : 0.07,
-    depthWrite: false,
-    depthTest: false,
-    side: DoubleSide,
-    blending: AdditiveBlending,
-    toneMapped: false,
-  });
-  const ringMaterial = new MeshBasicMaterial({
+  const material = new MeshBasicMaterial({
     color: palette.lightBar,
     transparent: true,
-    opacity: own ? 0.92 : 0.46,
+    opacity: 0.115,
     depthWrite: false,
-    depthTest: false,
-    side: DoubleSide,
+    depthTest: true,
+    side: BackSide,
     blending: AdditiveBlending,
     toneMapped: false,
   });
-  const fill = new InstancedMesh(UNIT_AURA_FILL_GEOM, fillMaterial, MAX_UNIT_AURAS_PER_TEAM);
-  const ring = new InstancedMesh(UNIT_AURA_RING_GEOM, ringMaterial, MAX_UNIT_AURAS_PER_TEAM);
-  fill.count = 0;
-  ring.count = 0;
-  fill.instanceMatrix.setUsage(DynamicDrawUsage);
-  ring.instanceMatrix.setUsage(DynamicDrawUsage);
-  fill.frustumCulled = false;
-  ring.frustumCulled = false;
-  fill.renderOrder = 23;
-  ring.renderOrder = 24;
-  return { fill, ring, count: 0 };
+  const mesh = new InstancedMesh(FRIENDLY_GLOW_GEOM, material, MAX_FRIENDLY_GLOWS);
+  mesh.count = 0;
+  mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 22;
+  return { mesh, count: 0 };
 }
 
 function createCamoTexture(id: FactionId): CanvasTexture {
