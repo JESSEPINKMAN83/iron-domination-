@@ -73,6 +73,7 @@ export interface LockstepRuntimeOptions {
 
 const DEFAULT_INPUT_DELAY_TICKS = 8;
 const HASH_INTERVAL_TICKS = 30 * 5;
+const HASH_HISTORY_TICKS = 30 * 30;
 
 export class LockstepRuntime {
   private readonly queue: QueuedCommand[] = [];
@@ -83,6 +84,7 @@ export class LockstepRuntime {
   private recoveryPending = false;
   private peerMissing = false;
   private connectionInterrupted = false;
+  private readonly hashHistory = new Map<number, number>();
 
   constructor(private readonly options: LockstepRuntimeOptions) {}
 
@@ -135,18 +137,26 @@ export class LockstepRuntime {
 
   tick(): void {
     const tick = this.options.sim.tick;
+    const due: QueuedCommand[] = [];
     for (let i = 0; i < this.queue.length; ) {
       const queued = this.queue[i];
       if (queued.tick > tick) {
         i++;
         continue;
       }
-      this.apply(queued.playerIndex, queued.command);
+      due.push(queued);
       this.queue.splice(i, 1);
+    }
+    for (const queued of due) {
+      if (queued.command.type !== 'sim-hash') this.apply(queued.playerIndex, queued.command, queued.tick);
+    }
+    this.rememberHash(tick, hashSim(this.options.sim));
+    for (const queued of due) {
+      if (queued.command.type === 'sim-hash') this.apply(queued.playerIndex, queued.command, queued.tick);
     }
     if (this.connected && !hasActivePossession(this.options.sim) && tick - this.lastHashSent >= HASH_INTERVAL_TICKS) {
       this.lastHashSent = tick;
-      void this.send({ type: 'sim-hash', hash: hashSim(this.options.sim) }, tick);
+      void this.send({ type: 'sim-hash', hash: this.hashHistory.get(tick)! }, tick);
     }
   }
 
@@ -237,19 +247,20 @@ export class LockstepRuntime {
     if (this.seen.has(key)) return;
     this.seen.add(key);
     if (command.type === 'snapshot-request' || command.type === 'match-snapshot' || command.type === 'snapshot-applied') {
-      this.apply(event.playerIndex, command);
+      this.apply(event.playerIndex, command, event.tick);
       return;
     }
     this.queue.push({ tick: event.tick, playerIndex: event.playerIndex, command });
     this.queue.sort((a, b) => a.tick - b.tick);
   }
 
-  private apply(playerIndex: number, command: NetCommand): void {
+  private apply(playerIndex: number, command: NetCommand, commandTick = this.options.sim.tick): void {
     const economy = this.options.economies[playerIndex];
     if (!economy) return;
     if (command.type === 'sim-hash') {
       if (hasActivePossession(this.options.sim) || this.recoveryPending) return;
-      const localHash = hashSim(this.options.sim);
+      const localHash = this.hashHistory.get(commandTick);
+      if (localHash === undefined) return;
       if (localHash !== command.hash) this.handleHashMismatch(localHash, command.hash);
       return;
     }
@@ -380,6 +391,8 @@ export class LockstepRuntime {
       if (economy) restoreEconomyState(economy, this.options.sim, economyState);
     }
     this.queue.splice(0, this.queue.length, ...this.queue.filter((queued) => queued.tick > state.sim.tick));
+    this.hashHistory.clear();
+    this.rememberHash(this.options.sim.tick, hashSim(this.options.sim));
     this.recoveryPending = false;
     this.roomPaused = false;
     this.options.onSnapshotRestored?.();
@@ -389,6 +402,15 @@ export class LockstepRuntime {
       localHash === expectedHash ? `Recovered from host snapshot at tick ${state.sim.tick}` : `Recovered snapshot hash differs: ${localHash} vs ${expectedHash}`,
       localHash !== expectedHash,
     );
+  }
+
+  private rememberHash(tick: number, hash: number): void {
+    this.hashHistory.set(tick, hash);
+    const oldestTick = tick - HASH_HISTORY_TICKS;
+    for (const recordedTick of this.hashHistory.keys()) {
+      if (recordedTick >= oldestTick) break;
+      this.hashHistory.delete(recordedTick);
+    }
   }
 }
 

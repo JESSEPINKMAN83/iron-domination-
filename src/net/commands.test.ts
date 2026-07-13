@@ -197,6 +197,41 @@ describe('multiplayer lockstep commands', () => {
     expect(sent.some((command) => isCommandType(command, 'match-snapshot'))).toBe(true);
   });
 
+  it('compares a delayed peer hash against the same simulation tick instead of the live state', () => {
+    const hf = generateHeightfield(MAP01);
+    const match = testMatch(hf);
+    let onEvent: ((event: unknown) => void) | undefined;
+    const sent: unknown[] = [];
+    const client = {
+      connect: (_room: string, _playerId: string, handler: (event: unknown) => void) => { onEvent = handler; },
+      disconnect: () => undefined,
+      sendCommand: async (_room: string, _playerId: string, _tick: number, command: unknown) => { sent.push(command); },
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({
+      sim: match.sim,
+      hf,
+      economies: { 1: match.economy1, 2: match.economy2 },
+      client,
+      session: sessionFor(1),
+    });
+    lockstep.connect();
+    const tickZeroHash = hashSim(match.sim);
+    lockstep.tick();
+    match.sim.tick = 4;
+    const entity = match.sim.world.entities[0];
+    expect(entity).toBeDefined();
+    entity.transform.x += 3;
+    onEvent?.({
+      type: 'command',
+      playerId: 'guest',
+      playerIndex: 2,
+      tick: 0,
+      command: { type: 'sim-hash', hash: tickZeroHash },
+    });
+    lockstep.tick();
+    expect(sent.some((command) => isCommandType(command, 'match-snapshot'))).toBe(false);
+  });
+
   it('pauses after a reconnect until the guest acknowledges the host snapshot', () => {
     const hf = generateHeightfield(MAP01);
     const match = testMatch(hf);
