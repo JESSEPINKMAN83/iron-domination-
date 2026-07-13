@@ -8,7 +8,6 @@ import { areTeamsHostile, entityById, stopEntities, type GameSim } from './world
 /** Cannons may only fire once the turret has traversed onto the bearing. */
 const AIM_TOLERANCE = 0.12;
 const BOMB_SPEED = 95; // meters per second of flight, drives travel time
-const BOMB_MANUAL_MAX_RANGE = 440;
 const DEFENSE_ALERT_RADIUS = 145;
 const DEFENSE_ALERT_TTL = 9;
 
@@ -150,7 +149,10 @@ export function manualFireAt(
   const len = Math.max(0.0001, rawLen);
 
   if (def.kind === 'bomb' || def.kind === 'tankBomb') {
-    const maxRange = Math.max(def.range, BOMB_MANUAL_MAX_RANGE);
+    // A manually aimed artillery shot can cross the entire battlefield. The
+    // V-mode reticle keeps the requested point inside the map, while this cap
+    // also accepts network commands from any corner to the opposite corner.
+    const maxRange = Math.max(def.range, sim.nav.size * Math.SQRT2 + 8);
     const range = attacker.flight ? Math.min(maxRange, len) : len < 8 ? 48 : Math.min(maxRange, len);
     launchBomb(sim, attacker, weapon, attacker.transform.x + ux * range, attacker.transform.z + uz * range, maxRange);
     return true;
@@ -227,10 +229,15 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
   const salvoCount = Math.max(1, Math.min(4, Math.round(weapon.salvoCount ?? 1)));
   const baseImpact = scatterBombImpact(sim, attacker, targetX, targetZ, range, maxRange);
   const aimYaw = Math.atan2(targetX - attacker.transform.x, targetZ - attacker.transform.z);
+  const impactLimit = sim.nav.size / 2 - 2;
   for (let i = 0; i < salvoCount; i++) {
-    const impact = offsetSalvoImpact(baseImpact.x, baseImpact.z, aimYaw, salvoCount, i);
+    const salvoImpact = offsetSalvoImpact(baseImpact.x, baseImpact.z, aimYaw, salvoCount, i);
+    const impact = {
+      x: Math.max(-impactLimit, Math.min(impactLimit, salvoImpact.x)),
+      z: Math.max(-impactLimit, Math.min(impactLimit, salvoImpact.z)),
+    };
     const flight = Math.hypot(impact.x - attacker.transform.x, impact.z - attacker.transform.z);
-    const duration = Math.min(3.6, Math.max(0.85, flight / BOMB_SPEED) + i * 0.08);
+    const duration = Math.min(8, Math.max(0.85, flight / BOMB_SPEED) + i * 0.08);
     sim.projectiles.push({
       kind: projectileKind,
       weaponKind,

@@ -231,7 +231,7 @@ export class CombatView {
       ? Math.max(toY + 2, (fromY + toY) * 0.46 - Math.min(16, distance * 0.04))
       : flat
         ? (fromY + toY) * 0.5
-        : Math.max(fromY, toY) + Math.min(84, distance * 0.28);
+        : Math.max(fromY, toY) + Math.min(190, distance * 0.24);
     const control = new Vector3((event.fromX + event.toX) / 2, controlY, (event.fromZ + event.toZ) / 2);
     const group = this.makeProjectileMesh(event.kind);
     group.position.copy(from);
@@ -253,7 +253,7 @@ export class CombatView {
       to,
       elapsed: 0,
       // matches the sim's flight time exactly — the blast lands when the damage does
-      duration: event.duration ?? Math.min(3.4, Math.max(0.85, distance / 95)),
+      duration: event.duration ?? Math.min(8, Math.max(0.85, distance / 95)),
       event,
       smokeTimer: 0,
     });

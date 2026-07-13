@@ -260,18 +260,19 @@ describe('phase 4 combat simulation', () => {
     expect(Math.abs(aircraft.flight?.rollAttitude ?? 0)).toBeGreaterThan(0);
   });
 
-  it('lets player-controlled bombs fire beyond normal range with deterministic scatter', () => {
+  it('lets player-controlled bombs cross the battlefield with deterministic scatter', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
-    const attacker = spawnTankAt(sim, -20, -20, 'A');
-    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    const attacker = spawnTankAt(sim, -480, -480, 'A');
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 4 };
 
-    const fired = manualFireAt(sim, attacker, 360, -20, 'secondary');
+    const fired = manualFireAt(sim, attacker, 480, 480, 'secondary');
 
     expect(fired).toBe(true);
     expect(sim.events).toHaveLength(2);
-    expect(Math.hypot(sim.events[0].toX - attacker.transform.x, sim.events[0].toZ - attacker.transform.z)).toBeGreaterThan(152);
-    expect(sim.events[0].toX).not.toBeCloseTo(360);
+    expect(Math.hypot(sim.events[0].toX - attacker.transform.x, sim.events[0].toZ - attacker.transform.z)).toBeGreaterThan(1200);
+    expect(sim.events[0].duration).toBe(8);
+    expect(sim.events[0].toX).not.toBeCloseTo(480);
     expect(sim.events.every((event) => event.kind === 'tankBomb')).toBe(true);
   });
 

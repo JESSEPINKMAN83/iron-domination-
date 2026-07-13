@@ -15,7 +15,12 @@ const ORBIT_PITCH_MAX = MathUtils.degToRad(48);
 const FLIGHT_LOOK_DOWN_MIN = MathUtils.degToRad(-86);
 const FLIGHT_LOOK_UP_MAX = MathUtils.degToRad(56);
 const GROUND_LOOK_DOWN_MIN = MathUtils.degToRad(-82);
-const GROUND_LOOK_UP_MAX = MathUtils.degToRad(70);
+const GROUND_LOOK_UP_MAX = MathUtils.degToRad(86);
+const ARTILLERY_MIN_RANGE = 34;
+const ARTILLERY_FULL_RANGE_PITCH = MathUtils.degToRad(68);
+const ARTILLERY_MIN_RANGE_PITCH = MathUtils.degToRad(-12);
+const ARTILLERY_SPEED = 95;
+const ARTILLERY_MAX_FLIGHT_TIME = 8;
 const SNIPER_SCOPE_FOV_WIDE = 30;
 const SNIPER_SCOPE_FOV_TIGHT = 11;
 const SQUAD_FOLLOW_REFRESH_TICKS = 12;
@@ -581,11 +586,27 @@ export class FirstPersonController {
     const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
     const origin = new Vector3(entity.transform.x, groundY + 2.4, entity.transform.z);
     const horizontal = new Vector3(Math.sin(this.lookYaw), 0, Math.cos(this.lookYaw));
-    const pitchT = MathUtils.clamp((this.lookPitch - MathUtils.degToRad(-12)) / MathUtils.degToRad(64), 0, 1);
-    const range = MathUtils.lerp(34, 430, pitchT);
+    const pitchT = MathUtils.smoothstep(this.lookPitch, ARTILLERY_MIN_RANGE_PITCH, ARTILLERY_FULL_RANGE_PITCH);
+    const maxRange = this.artilleryRangeToMapEdge(entity, horizontal.x, horizontal.z);
+    const range = MathUtils.lerp(Math.min(ARTILLERY_MIN_RANGE, maxRange), maxRange, pitchT);
     const target = origin.addScaledVector(horizontal, range);
     target.y = sampleHeight(this.hf, target.x, target.z);
     return target;
+  }
+
+  private artilleryRangeToMapEdge(entity: Entity, dirX: number, dirZ: number): number {
+    const half = this.hf.size / 2 - 5;
+    const xDistance = dirX > 0.0001
+      ? (half - entity.transform.x) / dirX
+      : dirX < -0.0001
+        ? (-half - entity.transform.x) / dirX
+        : Number.POSITIVE_INFINITY;
+    const zDistance = dirZ > 0.0001
+      ? (half - entity.transform.z) / dirZ
+      : dirZ < -0.0001
+        ? (-half - entity.transform.z) / dirZ
+        : Number.POSITIVE_INFINITY;
+    return Math.max(1, Math.min(xDistance, zDistance));
   }
 
   private updateArtilleryPreview(): void {
@@ -615,7 +636,7 @@ export class FirstPersonController {
     const to = this.bombTarget(entity);
     to.y = sampleHeight(this.hf, to.x, to.z) + 0.4;
     const distance = Math.hypot(to.x - from.x, to.z - from.z);
-    const control = new Vector3((from.x + to.x) / 2, Math.max(from.y, to.y) + Math.min(84, distance * 0.28), (from.z + to.z) / 2);
+    const control = new Vector3((from.x + to.x) / 2, Math.max(from.y, to.y) + Math.min(190, distance * 0.24), (from.z + to.z) / 2);
     const points: Array<{ x: number; y: number; visible: boolean }> = [];
     for (let i = 0; i <= 28; i++) {
       const t = i / 28;
@@ -645,7 +666,8 @@ export class FirstPersonController {
     const landing = points[points.length - 1];
     if (landing.visible) {
       const pulse = 9 + Math.sin(performance.now() * 0.008) * 2;
-      const scatterT = MathUtils.smoothstep(distance, 135, 440);
+      const maxRange = this.artilleryRangeToMapEdge(entity, Math.sin(this.lookYaw), Math.cos(this.lookYaw));
+      const scatterT = MathUtils.smoothstep(distance, 135, Math.max(136, maxRange));
       const scatterWorld = scatterT * scatterT * 58;
       if (scatterWorld > 0.5) {
         const right = new Vector3(Math.cos(this.lookYaw) * scatterWorld, 0, -Math.sin(this.lookYaw) * scatterWorld);
@@ -668,6 +690,19 @@ export class FirstPersonController {
       ctx.moveTo(landing.x, landing.y - pulse - 5);
       ctx.lineTo(landing.x, landing.y + pulse + 5);
       ctx.stroke();
+
+      const flightTime = Math.min(ARTILLERY_MAX_FLIGHT_TIME, Math.max(0.85, distance / ARTILLERY_SPEED));
+      const label = `ARC ${Math.round(distance)}m  ${flightTime.toFixed(1)}s`;
+      ctx.font = '700 11px ui-monospace, Menlo, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const labelWidth = ctx.measureText(label).width + 12;
+      const labelX = MathUtils.clamp(landing.x, labelWidth / 2 + 4, width - labelWidth / 2 - 4);
+      const labelY = MathUtils.clamp(landing.y + pulse + 10, 4, height - 24);
+      ctx.fillStyle = 'rgba(7,10,10,.78)';
+      ctx.fillRect(labelX - labelWidth / 2, labelY - 2, labelWidth, 18);
+      ctx.fillStyle = 'rgba(255,208,103,.95)';
+      ctx.fillText(label, labelX, labelY);
     }
   }
 
