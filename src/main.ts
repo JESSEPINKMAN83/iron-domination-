@@ -1331,7 +1331,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       ]);
   for (const army of armies) army.vision.update(sim);
 
-  const unitView = new UnitView([...lineupUnits, ...startingUnits], hf, ctx, isVisibleToPlayer);
+  const unitView = new UnitView([...lineupUnits, ...startingUnits], hf, ctx, isVisibleToPlayer, localTeam);
   unitView.attach(ctx.scene);
   const buildingView = new BuildingView(sim, hf, ctx, isVisibleToPlayer);
   ctx.scene.add(buildingView.group);

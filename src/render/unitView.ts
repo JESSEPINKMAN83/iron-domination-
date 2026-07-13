@@ -5,7 +5,9 @@ import {
   CircleGeometry,
   CylinderGeometry,
   DoubleSide,
+  DynamicDrawUsage,
   Group,
+  InstancedMesh,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -74,12 +76,21 @@ interface UnitDamageOverlay {
   patches: UnitDamagePatch[];
 }
 
+interface TeamAuraMeshes {
+  fill: InstancedMesh;
+  ring: InstancedMesh;
+  count: number;
+}
+
 // Unit and overlay geometries are shared by dimensions, so spawning visual variants
 // does not allocate fresh GPU shapes for every entity.
 const HEALTH_BACK_GEOM = new PlaneGeometry(4.1, 0.48);
 const HEALTH_FILL_GEOM = new PlaneGeometry(3.6, 0.22);
 const AIR_SHADOW_GEOM = new CircleGeometry(3.8, 32);
 const ROTOR_WASH_GEOM = new RingGeometry(1.8, 5.2, 48);
+const UNIT_AURA_FILL_GEOM = new CircleGeometry(1, 48);
+const UNIT_AURA_RING_GEOM = new RingGeometry(0.72, 1, 48);
+const MAX_UNIT_AURAS_PER_TEAM = 1024;
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
@@ -130,6 +141,8 @@ export class UnitView {
   private readonly selectedRings = new Map<Entity, Mesh>();
   private readonly entities: Entity[] = [];
   private readonly teamMaterials: Record<FactionId, TeamMaterials>;
+  private readonly teamAuras: Record<FactionId, TeamAuraMeshes>;
+  private readonly auraTransform = new Object3D();
   private readonly wreckMaterial: Material;
   private readonly vehicleScorchMaterial: Material;
   private readonly vehicleCrackMaterial: Material;
@@ -156,6 +169,7 @@ export class UnitView {
     private readonly hf: Heightfield,
     ctx: RenderContext,
     private readonly isVisible: (x: number, z: number) => boolean = () => true,
+    private readonly localTeam = 1,
   ) {
     this.teamMaterials = {
       1: createTeamMaterials(ctx, 1),
@@ -163,6 +177,13 @@ export class UnitView {
       3: createTeamMaterials(ctx, 3),
       4: createTeamMaterials(ctx, 4),
     };
+    this.teamAuras = {
+      1: createTeamAuraMeshes(1, localTeam === 1),
+      2: createTeamAuraMeshes(2, localTeam === 2),
+      3: createTeamAuraMeshes(3, localTeam === 3),
+      4: createTeamAuraMeshes(4, localTeam === 4),
+    };
+    for (const aura of Object.values(this.teamAuras)) this.group.add(aura.fill, aura.ring);
     this.wreckMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1d1a16, roughness: 1, metalness: 0.05 }));
     this.vehicleScorchMaterial = new MeshBasicMaterial({ color: 0x070605, transparent: true, opacity: 0.64, depthWrite: false, side: DoubleSide });
     this.vehicleCrackMaterial = new MeshBasicMaterial({ color: 0x0b0a09, transparent: true, opacity: 0.86, depthWrite: false, side: DoubleSide });
@@ -361,12 +382,14 @@ export class UnitView {
         this.entities.splice(i, 1);
       }
     }
+    for (const aura of Object.values(this.teamAuras)) aura.count = 0;
+    const auraTime = performance.now() * 0.0026;
     for (const entity of this.entities) {
       const obj = this.objects.get(entity);
       const ring = this.selectedRings.get(entity);
       if (!obj || !ring) continue;
       const gone = entity === this.hiddenEntity;
-      const fogged = entity.team?.id !== 1 && !this.isVisible(entity.transform.x, entity.transform.z);
+      const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
       if (gone || fogged) {
         obj.visible = false;
         ring.visible = false;
@@ -386,6 +409,7 @@ export class UnitView {
       const y = entity.flight ? lerp(entity.previousTransform.y ?? entity.transform.y ?? groundY, entity.transform.y ?? groundY, alpha) : groundY + 0.35;
       obj.position.set(x, y, z);
       obj.rotation.y = rot;
+      if (!entity.destroyed) this.updateUnitAura(entity, x, y, z, groundY, auraTime);
       this.applyPose(entity, obj, dt);
       this.updateUnitDamage(entity, obj);
       const turret = this.refs.get(entity)?.turretPivot;
@@ -422,6 +446,30 @@ export class UnitView {
       }
       this.updateHealthBar(entity, x, y, z, camera);
     }
+    for (const aura of Object.values(this.teamAuras)) {
+      aura.fill.count = aura.count;
+      aura.ring.count = aura.count;
+      aura.fill.instanceMatrix.needsUpdate = true;
+      aura.ring.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  private updateUnitAura(entity: Entity, x: number, y: number, z: number, groundY: number, time: number): void {
+    const team = factionId(entity.team?.id);
+    const aura = this.teamAuras[team];
+    if (aura.count >= MAX_UNIT_AURAS_PER_TEAM) return;
+    const own = team === factionId(this.localTeam);
+    const type = entity.selectable?.type;
+    const baseRadius = type === 'infantry' ? 2.25 : entity.flight ? 5.1 : type === 'harvester' ? 4.2 : 3.5;
+    const pulse = 0.5 + 0.5 * Math.sin(time + entity.id * 0.71);
+    const radius = baseRadius * (own ? 1 : 0.88) * (0.96 + pulse * 0.1);
+    this.auraTransform.position.set(x, entity.flight ? y - 0.7 : groundY + 0.11, z);
+    this.auraTransform.rotation.set(-Math.PI / 2, 0, 0);
+    this.auraTransform.scale.set(radius, radius, 1);
+    this.auraTransform.updateMatrix();
+    aura.fill.setMatrixAt(aura.count, this.auraTransform.matrix);
+    aura.ring.setMatrixAt(aura.count, this.auraTransform.matrix);
+    aura.count++;
   }
 
   /** Walk cycles, death poses, and wreck states — all driven by sim data. */
@@ -679,7 +727,7 @@ export class UnitView {
 
   private isPickable(entity: Entity): boolean {
     if (entity === this.hiddenEntity || entity.destroyed) return false;
-    if (entity.team?.id !== 1 && !this.isVisible(entity.transform.x, entity.transform.z)) return false;
+    if (entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z)) return false;
     return true;
   }
 
@@ -778,6 +826,41 @@ function createTeamMaterials(ctx: RenderContext, id: FactionId): TeamMaterials {
       new MeshStandardMaterial({ color: f.lightBar, emissive: f.lightBar, emissiveIntensity: 0.55, roughness: 0.55, metalness: 0.05 }),
     ),
   };
+}
+
+function createTeamAuraMeshes(id: FactionId, own: boolean): TeamAuraMeshes {
+  const palette = FACTION[id];
+  const fillMaterial = new MeshBasicMaterial({
+    color: palette.accent,
+    transparent: true,
+    opacity: own ? 0.18 : 0.07,
+    depthWrite: false,
+    depthTest: false,
+    side: DoubleSide,
+    blending: AdditiveBlending,
+    toneMapped: false,
+  });
+  const ringMaterial = new MeshBasicMaterial({
+    color: palette.lightBar,
+    transparent: true,
+    opacity: own ? 0.92 : 0.46,
+    depthWrite: false,
+    depthTest: false,
+    side: DoubleSide,
+    blending: AdditiveBlending,
+    toneMapped: false,
+  });
+  const fill = new InstancedMesh(UNIT_AURA_FILL_GEOM, fillMaterial, MAX_UNIT_AURAS_PER_TEAM);
+  const ring = new InstancedMesh(UNIT_AURA_RING_GEOM, ringMaterial, MAX_UNIT_AURAS_PER_TEAM);
+  fill.count = 0;
+  ring.count = 0;
+  fill.instanceMatrix.setUsage(DynamicDrawUsage);
+  ring.instanceMatrix.setUsage(DynamicDrawUsage);
+  fill.frustumCulled = false;
+  ring.frustumCulled = false;
+  fill.renderOrder = 23;
+  ring.renderOrder = 24;
+  return { fill, ring, count: 0 };
 }
 
 function createCamoTexture(id: FactionId): CanvasTexture {
