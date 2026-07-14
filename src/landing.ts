@@ -38,7 +38,7 @@ export function showLandingScreen(): Promise<void> {
       </div>
       <section class="iron-landing__hero">
         <p class="iron-landing__eyebrow">Beta access · Play free</p>
-        <h1>Iron Dominion</h1>
+        <h1>Iron Domination</h1>
         <p class="iron-landing__copy">
           Command a war from above. Then drop into the fight yourself.
         </p>
