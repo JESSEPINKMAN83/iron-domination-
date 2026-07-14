@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Iron Dominion</title>
+    <meta name="description" content="Play the Iron Dominion beta — a hybrid strategy war game where you command armies from above or fight alongside them in first-person mode." />
+    <meta name="theme-color" content="#0a0d10" />
+    <meta property="og:title" content="Iron Dominion — command the battlefield" />
+    <meta property="og:description" content="Command a war from above. Then drop into the fight yourself. Sign up to play the beta." />
+    <meta property="og:type" content="website" />
+    <title>Iron Dominion — command the battlefield</title>
     <style>
       html,
       body {
@@ -25,6 +30,18 @@
     </style>
   </head>
   <body>
+    <form name="iron-dominion-beta" netlify netlify-honeypot="bot-field" hidden>
+      <input type="text" name="name" />
+      <input type="email" name="email" />
+      <input type="text" name="release-updates" />
+      <input type="text" name="bot-field" />
+    </form>
+    <form name="iron-dominion-game-feedback" netlify hidden>
+      <input type="text" name="name" />
+      <input type="text" name="rating" />
+      <textarea name="message"></textarea>
+      <input type="text" name="page" />
+    </form>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

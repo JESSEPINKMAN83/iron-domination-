@@ -13,8 +13,31 @@ Use the project root. `netlify.toml` tells Netlify to run:
 - Build command: `npm run build`
 - Publish directory: `dist`
 
-The default public URL opens the skirmish setup screen. QA modes remain hidden behind URL
+The default public URL opens the Iron Dominion landing page. **Start a new game** opens the
+skirmish setup as an overlay above the landing page. QA modes remain hidden behind URL
 params such as `?start=lineup` and `?start=test`.
+
+## Beta signups
+
+The landing page requires a name and email before opening the game setup. An optional,
+unchecked consent box records whether the player wants official-release updates.
+
+After deploying, signups are available in **Netlify → Forms → iron-dominion-beta**. Each
+submission includes `name`, `email`, and `release-updates` (`yes` or `no`). Configure email
+notifications or export a CSV from that Forms screen. Netlify Forms only captures submissions
+on the deployed Netlify site; local preview submissions are not stored in Netlify.
+
+After a successful signup, the browser stores an anonymous beta-access flag. Returning players
+on that browser see only the **Play game** button and are not asked to submit again. The flag does
+not contain their name or email. Private browsing, cleared site data, a different browser/device,
+or moving to another domain will require a new signup.
+
+## Player feedback
+
+The persistent **Feedback** button is available on the landing page, setup screen, and during a
+match. Submitted field reports appear under **Netlify → Forms → iron-dominion-game-feedback** with
+the player's name, 1–5 rating, written game feedback, and page URL. This clean form has no email
+field or honeypot and is registered as a new form on the next deploy.
 
 ## Multiplayer
 

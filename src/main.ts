@@ -1,5 +1,6 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { showLandingScreen } from './landing';
+import { showFeedbackWidget } from './feedback';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
 import {
@@ -2459,6 +2460,7 @@ function findValidTestPlacement(
 }
 
 async function start(): Promise<void> {
+  showFeedbackWidget();
   const params = new URLSearchParams(location.search);
   const settings = initialSettings(params);
   const rematch = consumeMultiplayerRematch();
