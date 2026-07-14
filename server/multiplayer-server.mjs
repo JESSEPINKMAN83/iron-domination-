@@ -199,6 +199,8 @@ function handleSettings(socket, body) {
   room.ai = String(next.ai ?? room.ai);
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
+  const nextArmyCount = normalizeArmyCount(next.armyCount ?? room.armyCount);
+  if (room.players.every((candidate) => candidate.index <= nextArmyCount)) room.armyCount = nextArmyCount;
   room.armySides = normalizeArmySides(next.armySides, room.armyCount);
   for (const candidate of room.players) candidate.ready = false;
   room.updatedAt = Date.now();
