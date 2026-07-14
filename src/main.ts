@@ -1,6 +1,7 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { showLandingScreen } from './landing';
 import { showFeedbackWidget } from './feedback';
+import './setup.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
 import {
@@ -408,105 +409,120 @@ function showLoadingOverlay(): HTMLDivElement {
 
 function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> {
   return new Promise((resolve) => {
-    const el = document.createElement('div');
-    el.style.cssText =
-      'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box;background:rgba(3,6,7,.62);backdrop-filter:blur(10px) saturate(.75);color:#cfd8e3;' +
-      'font:13px ui-monospace,Menlo,monospace;z-index:120;letter-spacing:.08em;';
-    const panel = document.createElement('div');
-    panel.style.cssText =
-      'width:min(1120px,calc(100vw - 28px));max-height:calc(100vh - 28px);display:grid;grid-template-rows:auto minmax(0,1fr);gap:16px;' +
-      'box-sizing:border-box;padding:22px 24px;background:linear-gradient(180deg,#151b1d,#070909);border:2px solid #596260;border-radius:4px;overflow:auto;overflow-x:hidden;' +
-      'box-shadow:inset 0 0 0 1px rgba(210,177,95,.22),0 22px 80px rgba(0,0,0,.62);';
+    const root = document.createElement('div');
+    root.id = 'iron-setup';
+    root.className = 'war-setup';
+    const shell = document.createElement('div');
+    shell.className = 'war-setup__shell';
 
-    const title = document.createElement('div');
-    title.innerHTML =
-      '<div style="font-size:30px;color:#f0d56a;letter-spacing:.22em;line-height:1">IRON DOMINION</div>' +
-      '<div style="margin-top:7px;color:#aebbc4;letter-spacing:.14em">public playtest skirmish</div>' +
-      '<div style="margin-top:4px;color:#6f7b78;font-size:11px;letter-spacing:.12em">Build a base, harvest oil, and break the enemy command yard</div>';
+    const header = document.createElement('header');
+    header.className = 'war-setup__header';
+    const headerCopy = document.createElement('div');
+    headerCopy.innerHTML =
+      '<div class="war-setup__eyebrow"><span>COMMAND CENTRE</span><span class="war-setup__signal">SYSTEM ONLINE</span></div>' +
+      '<h1 class="war-setup__title">CONFIGURE DEPLOYMENT</h1>' +
+      '<p class="war-setup__intro">Choose the battlefield, rules and forces. Your configuration stays intact when you switch modes.</p>';
+    const betaBadge = document.createElement('div');
+    betaBadge.className = 'war-setup__badge';
+    betaBadge.innerHTML = '<strong>PUBLIC BETA</strong><span>BUILD 0.1</span>';
+    header.append(headerCopy, betaBadge);
+
+    const params = new URLSearchParams(location.search);
+    let mode: 'skirmish' | 'multiplayer' = params.has('room') ? 'multiplayer' : 'skirmish';
+    const tabs = document.createElement('div');
+    tabs.className = 'war-tabs';
+    tabs.setAttribute('role', 'tablist');
+    const skirmishTab = createSetupTab('SKIRMISH', 'Solo command vs AI');
+    const multiplayerTab = createSetupTab('MULTIPLAYER', 'Host or join commanders');
+    tabs.append(skirmishTab, multiplayerTab);
 
     const layout = document.createElement('div');
-    layout.style.cssText =
-      'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start;min-width:0;min-height:0;';
-    const leftColumn = document.createElement('div');
-    leftColumn.style.cssText = 'display:grid;gap:12px;align-content:start;min-width:0;';
-    const rightColumn = document.createElement('div');
-    rightColumn.style.cssText =
-      'display:grid;gap:12px;min-width:0;min-height:0;';
+    layout.className = 'war-setup__body';
+    const config = document.createElement('main');
+    config.className = 'war-config';
+    const context = document.createElement('aside');
+    context.className = 'war-context';
+    const configModeNote = document.createElement('div');
+    configModeNote.className = 'war-config__mode-note';
+    config.appendChild(configModeNote);
 
-    const form = document.createElement('div');
-    form.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;';
-    const difficulty = createSegmentedControl('Difficulty', DIFFICULTIES, defaults.ai, DIFFICULTY_DESCRIPTIONS);
-    const commander = createSegmentedControl('Enemy commander', PERSONALITIES, defaults.aiStyle, PERSONALITY_DESCRIPTIONS);
-    const combatMode = createSegmentedControl('Combat mode', COMBAT_MODES, defaults.combatMode, COMBAT_MODE_DESCRIPTIONS);
-    combatMode.root.style.gridColumn = '1 / -1';
-    const armies = createArmySetupControl(defaults.armyCount, defaults.armySides);
-    armies.root.style.gridColumn = '1 / -1';
-    form.append(difficulty.root, commander.root, combatMode.root, armies.root);
+    let refresh = (): void => {};
+    const mapChoice = createSegmentedControl('Map', MAP_IDS, defaults.mapId, MAP_DESCRIPTIONS, mapChoiceLabel, () => refresh());
+    const mapSizeChoice = createSegmentedControl(
+      'Map size', MAP_SIZE_IDS, defaults.mapSize, MAP_SIZE_DESCRIPTIONS,
+      (size) => MAP_SIZE_PRESETS[size].label, () => refresh(),
+    );
+    const difficulty = createSegmentedControl('Difficulty', DIFFICULTIES, defaults.ai, DIFFICULTY_DESCRIPTIONS, undefined, () => refresh());
+    const commander = createSegmentedControl('Enemy commander', PERSONALITIES, defaults.aiStyle, PERSONALITY_DESCRIPTIONS, undefined, () => refresh());
+    const combatMode = createSegmentedControl('Combat mode', COMBAT_MODES, defaults.combatMode, COMBAT_MODE_DESCRIPTIONS, undefined, () => refresh());
+    const armies = createArmySetupControl(defaults.armyCount, defaults.armySides, () => refresh());
 
-    const mapChoice = createSegmentedControl('Map', MAP_IDS, defaults.mapId, MAP_DESCRIPTIONS, mapChoiceLabel);
-    mapChoice.root.style.padding = '11px';
-    mapChoice.root.style.border = '1px solid #303936';
-    mapChoice.root.style.background = 'rgba(9,13,13,.7)';
-
-    const mapSizeChoice = createSegmentedControl('Map size', MAP_SIZE_IDS, defaults.mapSize, MAP_SIZE_DESCRIPTIONS, (size) => MAP_SIZE_PRESETS[size].label);
-    mapSizeChoice.root.style.padding = '11px';
-    mapSizeChoice.root.style.border = '1px solid #303936';
-    mapSizeChoice.root.style.background = 'rgba(9,13,13,.7)';
-    const mapSettingsRow = document.createElement('div');
-    mapSettingsRow.style.cssText =
-      'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px;min-width:0;align-items:stretch;';
-    mapSettingsRow.append(mapChoice.root, mapSizeChoice.root);
+    const mapPreview = document.createElement('div');
+    mapPreview.className = 'war-map-preview';
+    const battlefieldControls = document.createElement('div');
+    battlefieldControls.className = 'war-battlefield__controls';
+    const mapSettings = document.createElement('div');
+    mapSettings.className = 'war-settings-grid';
+    mapSettings.append(mapChoice.root, mapSizeChoice.root);
 
     const seedRow = document.createElement('div');
-    seedRow.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;';
+    seedRow.className = 'war-seed-row';
     const seedWrap = document.createElement('label');
-    seedWrap.style.cssText = 'display:grid;gap:7px;color:#d2b15f;text-transform:uppercase;';
+    seedWrap.className = 'war-input';
+    const seedLabel = document.createElement('span');
+    seedLabel.className = 'war-input__label';
+    seedLabel.textContent = 'MAP SEED';
     const seedInput = document.createElement('input');
     seedInput.type = 'number';
     seedInput.min = '1';
     seedInput.step = '1';
     seedInput.value = String(defaults.seed);
-    seedInput.style.cssText =
-      'width:100%;min-width:0;box-sizing:border-box;height:38px;background:#090d0d;color:#f0f3e8;border:1px solid #46504d;padding:0 10px;font:16px ui-monospace,Menlo,monospace;letter-spacing:.08em;';
-    seedWrap.append('Map seed', seedInput);
+    seedInput.oninput = () => refresh();
+    seedWrap.append(seedLabel, seedInput);
     const randomize = document.createElement('button');
     randomize.type = 'button';
-    randomize.textContent = '🎲 RANDOMIZE';
-    randomize.style.cssText = smallSetupButtonCss();
+    randomize.className = 'war-button war-button--quiet';
+    randomize.textContent = 'RANDOMIZE';
     randomize.onclick = () => {
       seedInput.value = String(randomSeed());
+      refresh();
       randomize.blur();
     };
     seedRow.append(seedWrap, randomize);
+    const seedCaption = document.createElement('p');
+    seedCaption.className = 'war-field-note';
+    seedCaption.textContent = 'Same seed creates the same terrain, making battles easy to replay and share.';
+    battlefieldControls.append(mapSettings, seedRow, seedCaption);
+    const battlefield = document.createElement('div');
+    battlefield.className = 'war-battlefield';
+    battlefield.append(mapPreview, battlefieldControls);
+    config.append(createSetupSection('01', 'BATTLEFIELD', 'Select the terrain and scale of the operation.', battlefield));
 
-    const caption = document.createElement('div');
-    caption.style.cssText = 'color:#8d9a96;font-size:11px;line-height:1.45;letter-spacing:.06em;';
-    caption.textContent = 'Same seed, same terrain. Share the seed or match link to replay the same battlefield.';
+    const rules = document.createElement('div');
+    rules.className = 'war-rules-grid';
+    rules.append(difficulty.root, commander.root, combatMode.root);
+    config.append(createSetupSection('02', 'BATTLE RULES', 'Set enemy pressure and how directly you control combat.', rules));
+    config.append(createSetupSection('03', 'FORCES & ALLIANCES', 'Choose army count and group armies onto shared sides to create alliances.', armies.root));
 
     let multiplayerClient: MultiplayerClient | undefined;
     let multiplayerSession: MultiplayerSession | undefined;
     let multiplayerStarted = false;
     let startButton: HTMLButtonElement | undefined;
-    const currentSettings = (): SkirmishSettings => {
-      const seed = Math.max(1, Math.floor(Number(seedInput.value) || randomSeed()));
-      return {
-        mapId: mapChoice.value(),
-        mapSize: mapSizeChoice.value(),
-        seed,
-        ai: difficulty.value(),
-        aiStyle: commander.value(),
-        debug: defaults.debug,
-        combatMode: combatMode.value(),
-        armyCount: armies.armyCount(),
-        armySides: armies.armySides(),
-      };
-    };
+    const currentSettings = (): SkirmishSettings => ({
+      mapId: mapChoice.value(),
+      mapSize: mapSizeChoice.value(),
+      seed: Math.max(1, Math.floor(Number(seedInput.value) || randomSeed())),
+      ai: difficulty.value(),
+      aiStyle: commander.value(),
+      debug: defaults.debug,
+      combatMode: combatMode.value(),
+      armyCount: armies.armyCount(),
+      armySides: armies.armySides(),
+    });
     const setMultiplayerLaunchOnly = (): void => {
       if (!startButton) return;
       startButton.disabled = true;
-      startButton.textContent = 'WAITING FOR BOTH PLAYERS';
-      startButton.style.opacity = '.48';
-      startButton.style.cursor = 'not-allowed';
+      startButton.textContent = 'WAITING FOR COMMANDERS';
     };
     const applyRoomSettings = (room: MultiplayerRoom, playerIndex: number): void => {
       difficulty.setValue(room.ai);
@@ -525,28 +541,28 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       armies.setDisabled(guestLocked);
       seedInput.disabled = guestLocked;
       randomize.disabled = guestLocked;
-      randomize.style.opacity = guestLocked ? '.45' : '1';
-      caption.textContent = guestLocked
+      seedCaption.textContent = guestLocked
         ? 'Match settings are controlled by the host and synchronized for both players.'
-        : 'Your map, seed, and rules are synchronized to the guest before the match starts.';
+        : 'Your map, seed and rules are synchronized to the guest before the match starts.';
+      refresh();
     };
     const beginWithSettings = (settings: SkirmishSettings, fromMultiplayerRoom = false): void => {
-      if (multiplayerStarted) return;
-      if (multiplayerSession && !fromMultiplayerRoom) return;
+      if (multiplayerStarted || (multiplayerSession && !fromMultiplayerRoom)) return;
       multiplayerStarted = true;
       saveSkirmishSettings(settings);
       if (multiplayerClient && multiplayerSession) pendingMultiplayer = { client: multiplayerClient, session: multiplayerSession };
       else multiplayerClient?.disconnect();
       window.removeEventListener('keydown', onKeyDown);
-      el.remove();
+      root.remove();
       resolve(settings);
     };
     const multiplayer = createMultiplayerSetupPanel(
-      () => currentSettings(),
+      currentSettings,
       (settings) => beginWithSettings(settings, true),
       (client, session) => {
         multiplayerClient = client;
         multiplayerSession = session;
+        setMode('multiplayer');
         setMultiplayerLaunchOnly();
       },
       () => multiplayerSession,
@@ -554,39 +570,139 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     );
 
     const controls = document.createElement('div');
-    controls.style.cssText =
-      'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:12px;border:1px solid #303936;background:#0f1414;color:#aebbc4;font-size:10px;line-height:1.35;';
-    for (const text of ['Select: click/drag', 'Orders: right-click', 'Build: sidebar', 'V-mode: select + V', 'Fly: W/S A/D Q/E']) {
+    controls.className = 'war-controls';
+    for (const [key, text] of [['SELECT', 'Click or drag'], ['ORDERS', 'Right-click'], ['BUILD', 'Sidebar'], ['GROUND MODE', 'Select + V'], ['FLY', 'W/S · A/D · Q/E']]) {
       const item = document.createElement('div');
-      item.textContent = text;
+      const keyEl = document.createElement('span');
+      const valueEl = document.createElement('strong');
+      keyEl.textContent = key;
+      valueEl.textContent = text;
+      item.append(keyEl, valueEl);
       controls.appendChild(item);
     }
+    const startButtonEl = document.createElement('button');
+    startButton = startButtonEl;
+    startButtonEl.type = 'button';
+    startButtonEl.className = 'war-button war-button--primary war-start';
+    startButtonEl.textContent = 'START SKIRMISH';
 
-    const start = document.createElement('button');
-    startButton = start;
-    start.type = 'button';
-    start.textContent = 'START SKIRMISH';
-    start.style.cssText =
-      'height:60px;border:1px solid #d2b15f;background:linear-gradient(180deg,#d2b15f,#856c32);color:#121513;' +
-      'font:700 18px ui-monospace,Menlo,monospace;letter-spacing:.22em;cursor:pointer;box-shadow:0 8px 26px rgba(0,0,0,.45);position:sticky;bottom:0;';
+    const soloAside = document.createElement('div');
+    soloAside.className = 'war-aside';
+    soloAside.innerHTML =
+      '<div class="war-aside__kicker">DEPLOYMENT BRIEF</div>' +
+      '<h2>READY YOUR FORCES</h2>' +
+      '<p>Review the operation, then deploy immediately against the AI commander.</p>';
+    const summaryGrid = document.createElement('div');
+    summaryGrid.className = 'war-summary-grid';
+    const summaryValues = new Map<string, HTMLElement>();
+    for (const label of ['BATTLEFIELD', 'ENEMY', 'FORCES', 'COMBAT']) {
+      const item = document.createElement('div');
+      const key = document.createElement('span');
+      const value = document.createElement('strong');
+      key.textContent = label;
+      item.append(key, value);
+      summaryValues.set(label, value);
+      summaryGrid.appendChild(item);
+    }
+    const history = document.createElement('div');
+    history.className = 'war-history';
+    history.appendChild(createMatchHistoryPanel());
+    const controlsHeading = document.createElement('div');
+    controlsHeading.className = 'war-aside__subheading';
+    controlsHeading.textContent = 'FIELD CONTROLS';
+    soloAside.append(summaryGrid, history, controlsHeading, controls, startButtonEl);
 
-    const begin = (): void => {
-      beginWithSettings(currentSettings());
-    };
+    const multiplayerAside = document.createElement('div');
+    multiplayerAside.className = 'war-aside war-aside--multiplayer';
+    multiplayerAside.innerHTML =
+      '<div class="war-aside__kicker">ONLINE COMMAND</div>' +
+      '<h2>DEPLOY WITH ALLIES</h2>' +
+      '<p>Create a room using this configuration, or enter a room code to join another commander.</p>';
+    multiplayerAside.appendChild(multiplayer);
+    context.append(soloAside, multiplayerAside);
+
+    const begin = (): void => beginWithSettings(currentSettings());
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Enter') begin();
+      const target = event.target as HTMLElement | null;
+      if (event.key === 'Enter' && mode === 'skirmish' && !target?.matches('input, select, textarea, button')) begin();
     };
-    start.onclick = begin;
-    if (multiplayerSession) setMultiplayerLaunchOnly();
+    startButtonEl.onclick = begin;
     window.addEventListener('keydown', onKeyDown);
 
-    leftColumn.append(form, createMatchHistoryPanel(), controls);
-    rightColumn.append(mapSettingsRow, seedRow, caption, multiplayer, start);
-    layout.append(leftColumn, rightColumn);
-    panel.append(title, layout);
-    el.appendChild(panel);
-    document.body.appendChild(el);
+    refresh = (): void => {
+      const seed = Math.max(1, Math.floor(Number(seedInput.value) || defaults.seed));
+      const map = MAP_PRESETS[mapChoice.value()];
+      renderLobbyMapPreview(mapPreview, map, seed, mapSizeChoice.value());
+      summaryValues.get('BATTLEFIELD')!.textContent = `${map.shortLabel} · ${MAP_SIZE_PRESETS[mapSizeChoice.value()].label}`;
+      summaryValues.get('ENEMY')!.textContent = `${difficulty.value().toUpperCase()} · ${commander.value().toUpperCase()}`;
+      summaryValues.get('FORCES')!.textContent = `${armies.armyCount()} ARMIES`;
+      summaryValues.get('COMBAT')!.textContent = combatMode.value().toUpperCase();
+    };
+    function setMode(next: 'skirmish' | 'multiplayer'): void {
+      mode = next;
+      const solo = mode === 'skirmish';
+      skirmishTab.classList.toggle('is-active', solo);
+      multiplayerTab.classList.toggle('is-active', !solo);
+      skirmishTab.setAttribute('aria-selected', String(solo));
+      multiplayerTab.setAttribute('aria-selected', String(!solo));
+      soloAside.hidden = !solo;
+      multiplayerAside.hidden = solo;
+      configModeNote.textContent = solo
+        ? 'SKIRMISH CONFIGURATION · AI SETTINGS ACTIVE'
+        : 'MULTIPLAYER CONFIGURATION · HOST SETTINGS SYNC TO THE ROOM';
+    }
+    skirmishTab.onclick = () => {
+      setMode('skirmish');
+      skirmishTab.blur();
+    };
+    multiplayerTab.onclick = () => {
+      setMode('multiplayer');
+      multiplayerTab.blur();
+    };
+
+    layout.append(config, context);
+    shell.append(header, tabs, layout);
+    root.appendChild(shell);
+    document.body.appendChild(root);
+    refresh();
+    setMode(mode);
+    if (multiplayerSession) setMultiplayerLaunchOnly();
   });
+}
+
+function createSetupTab(title: string, subtitle: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'war-tab';
+  button.setAttribute('role', 'tab');
+  const heading = document.createElement('span');
+  const copy = document.createElement('small');
+  heading.textContent = title;
+  copy.textContent = subtitle;
+  button.append(heading, copy);
+  return button;
+}
+
+function createSetupSection(index: string, title: string, description: string, content: HTMLElement): HTMLElement {
+  const section = document.createElement('section');
+  section.className = 'war-section';
+  const heading = document.createElement('div');
+  heading.className = 'war-section__heading';
+  const number = document.createElement('span');
+  number.className = 'war-section__index';
+  number.textContent = index;
+  const copy = document.createElement('div');
+  const titleEl = document.createElement('h2');
+  const descriptionEl = document.createElement('p');
+  titleEl.textContent = title;
+  descriptionEl.textContent = description;
+  copy.append(titleEl, descriptionEl);
+  heading.append(number, copy);
+  const body = document.createElement('div');
+  body.className = 'war-section__body';
+  body.appendChild(content);
+  section.append(heading, body);
+  return section;
 }
 
 function createSegmentedControl<T extends string>(
@@ -595,36 +711,39 @@ function createSegmentedControl<T extends string>(
   initial: T,
   descriptions: Record<T, string>,
   format: (value: T) => string = (value) => value.toUpperCase(),
+  onChange: (value: T) => void = () => {},
 ): { root: HTMLDivElement; value: () => T; setValue: (value: T) => void; setDisabled: (disabled: boolean) => void } {
   let current = initial;
   let disabled = false;
   const root = document.createElement('div');
-  root.style.cssText = 'display:grid;gap:7px;min-width:0;';
+  root.className = 'war-field';
   const title = document.createElement('div');
   title.textContent = label.toUpperCase();
-  title.style.cssText = 'color:#d2b15f;';
+  title.className = 'war-field__label';
   const buttons = document.createElement('div');
-  buttons.style.cssText = `display:grid;grid-template-columns:repeat(${values.length},minmax(0,1fr));gap:5px;min-width:0;`;
+  buttons.className = 'war-choice-group';
+  buttons.style.setProperty('--option-count', String(values.length));
   const description = document.createElement('div');
-  description.style.cssText = 'min-height:42px;color:#8d9a96;font-size:10px;line-height:1.45;letter-spacing:.04em;overflow-wrap:anywhere;';
+  description.className = 'war-field__description';
   const render = (): void => {
     for (const button of Array.from(buttons.children) as HTMLButtonElement[]) {
       const active = button.dataset.value === current;
-      button.style.cssText = setupChoiceButtonCss(active);
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
       button.disabled = disabled;
-      button.style.opacity = disabled ? '.5' : '1';
-      button.style.cursor = disabled ? 'not-allowed' : 'pointer';
     }
     description.textContent = descriptions[current];
   };
   for (const value of values) {
     const button = document.createElement('button');
     button.type = 'button';
+    button.className = 'war-choice';
     button.dataset.value = value;
     button.textContent = format(value);
     button.onclick = () => {
       current = value;
       render();
+      onChange(current);
       button.blur();
     };
     buttons.appendChild(button);
@@ -638,6 +757,7 @@ function createSegmentedControl<T extends string>(
       if (!values.includes(value)) return;
       current = value;
       render();
+      onChange(current);
     },
     setDisabled: (value) => {
       disabled = value;
@@ -646,7 +766,7 @@ function createSegmentedControl<T extends string>(
   };
 }
 
-function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides): {
+function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides, onChange: () => void = () => {}): {
   root: HTMLDivElement;
   armyCount: () => ArmyCount;
   armySides: () => ArmySides;
@@ -657,30 +777,31 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   let disabled = false;
   const sides: ArmySides = [...initialSides] as ArmySides;
   const root = document.createElement('div');
-  root.style.cssText = 'display:grid;gap:9px;padding:11px;border:1px solid #303936;background:rgba(9,13,13,.7);';
+  root.className = 'war-armies';
   const title = document.createElement('div');
-  title.style.cssText = 'display:flex;justify-content:space-between;gap:12px;align-items:baseline;color:#d2b15f;';
-  title.innerHTML = '<span>ARMIES</span><span style="color:#6f7b78;font-size:10px;">same side = allies</span>';
+  title.className = 'war-armies__header';
+  title.innerHTML = '<span>ARMY COUNT</span><small>SAME SIDE = ALLIES</small>';
   const countButtons = document.createElement('div');
-  countButtons.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:5px;';
+  countButtons.className = 'war-choice-group';
+  countButtons.style.setProperty('--option-count', '3');
   const sideRows = document.createElement('div');
-  sideRows.style.cssText = 'display:grid;gap:6px;';
+  sideRows.className = 'war-armies__rows';
 
   const render = (): void => {
     for (const button of Array.from(countButtons.children) as HTMLButtonElement[]) {
-      button.style.cssText = setupChoiceButtonCss(Number(button.dataset.count) === count);
+      const active = Number(button.dataset.count) === count;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
       button.disabled = disabled;
-      button.style.opacity = disabled ? '.5' : '1';
-      button.style.cursor = disabled ? 'not-allowed' : 'pointer';
     }
     for (const row of Array.from(sideRows.children) as HTMLElement[]) {
       const army = Number(row.dataset.army);
       row.style.display = army <= count ? 'grid' : 'none';
       for (const button of Array.from(row.querySelectorAll('button')) as HTMLButtonElement[]) {
-        button.style.cssText = setupChoiceButtonCss(Number(button.dataset.side) === sides[army - 1]);
+        const active = Number(button.dataset.side) === sides[army - 1];
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', String(active));
         button.disabled = disabled;
-        button.style.opacity = disabled ? '.5' : '1';
-        button.style.cursor = disabled ? 'not-allowed' : 'pointer';
       }
     }
   };
@@ -688,6 +809,7 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   for (const value of [2, 3, 4] as ArmyCount[]) {
     const button = document.createElement('button');
     button.type = 'button';
+    button.className = 'war-choice';
     button.dataset.count = String(value);
     button.textContent = `${value} ARMIES`;
     button.onclick = () => {
@@ -699,6 +821,7 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
         sides[3] = 2;
       }
       render();
+      onChange();
       button.blur();
     };
     countButtons.appendChild(button);
@@ -707,19 +830,21 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   for (let army = 1; army <= 4; army++) {
     const row = document.createElement('div');
     row.dataset.army = String(army);
-    row.style.cssText = 'grid-template-columns:92px repeat(4,1fr);gap:5px;align-items:center;';
+    row.className = 'war-army-row';
     const label = document.createElement('div');
     label.textContent = army === 1 ? 'ARMY 1 YOU' : `ARMY ${army} AI`;
-    label.style.cssText = 'color:#aebbc4;font-size:10px;';
+    label.className = 'war-army-row__label';
     row.appendChild(label);
     for (let side = 1; side <= 4; side++) {
       const button = document.createElement('button');
       button.type = 'button';
+      button.className = 'war-choice war-choice--side';
       button.dataset.side = String(side);
       button.textContent = `SIDE ${side}`;
       button.onclick = () => {
         sides[army - 1] = side;
         render();
+        onChange();
         button.blur();
       };
       row.appendChild(button);
@@ -737,6 +862,7 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
       count = nextCount;
       for (let index = 0; index < sides.length; index++) sides[index] = nextSides[index];
       render();
+      onChange();
     },
     setDisabled: (value) => {
       disabled = value;
@@ -753,19 +879,17 @@ function createMultiplayerSetupPanel(
   applyRoomSettings: (room: MultiplayerRoom, playerIndex: number) => void,
 ): HTMLDivElement {
   const root = document.createElement('div');
-  root.style.cssText = 'display:grid;gap:10px;padding:12px;border:1px solid #303936;background:#0f1414;min-width:0;overflow:hidden;';
+  root.className = 'war-multiplayer';
 
-  const header = document.createElement('div');
-  header.style.cssText = 'display:flex;justify-content:space-between;gap:12px;align-items:baseline;';
-  header.innerHTML =
-    '<div style="color:#d2b15f;">MULTIPLAYER</div>' +
-    '<div style="color:#6f7b78;font-size:10px;">friends-link online 1v1 / 2v2</div>';
+  const hostCard = document.createElement('section');
+  hostCard.className = 'war-multiplayer__card war-multiplayer__card--host';
+  const hostCopy = document.createElement('div');
+  hostCopy.innerHTML = '<span class="war-multiplayer__step">01 · CREATE</span><h3>HOST A NEW ROOM</h3><p>Uses the battlefield, rules and forces configured on the left.</p>';
 
-  const row = document.createElement('div');
-  row.style.cssText =
-    'display:grid;grid-template-columns:minmax(0,1fr) minmax(92px,.28fr);gap:7px;align-items:end;min-width:0;';
-  const actionRow = document.createElement('div');
-  actionRow.style.cssText = 'grid-column:1 / -1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;min-width:0;';
+  const joinCard = document.createElement('section');
+  joinCard.className = 'war-multiplayer__card';
+  const joinCopy = document.createElement('div');
+  joinCopy.innerHTML = '<span class="war-multiplayer__step">02 · JOIN</span><h3>ENTER A ROOM CODE</h3><p>Join a host and receive their synchronized match settings.</p>';
 
   const serverLabel = setupTextInput('Server', storedMultiplayerServer());
   const codeLabel = setupTextInput('Room', normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? ''));
@@ -774,23 +898,23 @@ function createMultiplayerSetupPanel(
 
   const host = document.createElement('button');
   host.type = 'button';
-  host.textContent = 'HOST ROOM';
-  host.style.cssText = smallSetupButtonCss();
+  host.textContent = 'CREATE ROOM';
+  host.className = 'war-button war-button--primary';
 
   const join = document.createElement('button');
   join.type = 'button';
   join.textContent = 'JOIN ROOM';
-  join.style.cssText = smallSetupButtonCss();
+  join.className = 'war-button war-button--secondary';
 
   const copy = document.createElement('button');
   copy.type = 'button';
   copy.textContent = 'COPY LINK';
   copy.disabled = true;
-  copy.style.cssText = smallSetupButtonCss();
-  copy.style.opacity = '.45';
+  copy.className = 'war-button war-button--quiet';
 
   const status = document.createElement('div');
-  status.style.cssText = 'min-height:18px;color:#8d9a96;font-size:10px;line-height:1.4;letter-spacing:.05em;overflow-wrap:anywhere;';
+  status.className = 'war-multiplayer__status';
+  status.setAttribute('aria-live', 'polite');
   status.textContent = defaultMultiplayerServer() === 'http://127.0.0.1:8787'
     ? 'Run `npm run dev:multiplayer`, then host here and share the room code.'
     : 'Use the public relay URL below, then host here and share the room code.';
@@ -798,13 +922,10 @@ function createMultiplayerSetupPanel(
   const setBusy = (busy: boolean): void => {
     host.disabled = busy;
     join.disabled = busy;
-    host.style.opacity = busy ? '.55' : '1';
-    join.style.opacity = busy ? '.55' : '1';
-    copy.style.opacity = copy.disabled ? '.45' : '1';
   };
   const setStatus = (message: string, bad = false): void => {
     status.textContent = message;
-    status.style.color = bad ? '#ff8a72' : '#8d9a96';
+    status.classList.toggle('is-error', bad);
   };
   let lobbyView: ReturnType<typeof createRoomLobbyView> | undefined;
   const connectSession = (client: MultiplayerClient, session: MultiplayerSession): void => {
@@ -818,7 +939,6 @@ function createMultiplayerSetupPanel(
     lobbyView.update(session.room, session.player.index);
     codeLabel.input.value = session.room.code;
     copy.disabled = false;
-    copy.style.opacity = '1';
     renderRoomStatus(session.room, session.player.index, setStatus);
     client.connect(
       session.room.code,
@@ -883,9 +1003,17 @@ function createMultiplayerSetupPanel(
     copy.blur();
   };
 
-  actionRow.append(host, join, copy);
-  row.append(serverLabel.root, codeLabel.root, actionRow);
-  root.append(header, row, status);
+  hostCard.append(hostCopy, host);
+  const joinActions = document.createElement('div');
+  joinActions.className = 'war-multiplayer__join';
+  joinActions.append(codeLabel.root, join);
+  joinCard.append(joinCopy, joinActions);
+  const advanced = document.createElement('details');
+  advanced.className = 'war-multiplayer__advanced';
+  const advancedSummary = document.createElement('summary');
+  advancedSummary.textContent = 'ADVANCED CONNECTION';
+  advanced.append(advancedSummary, serverLabel.root);
+  root.append(hostCard, joinCard, copy, advanced, status);
   if (normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? '') && !currentSession()) {
     setStatus('Joining invitation...');
     void joinRoom();
@@ -899,43 +1027,36 @@ function createRoomLobbyView(
   settings: () => SkirmishSettings,
 ): { root: HTMLDivElement; update: (room: MultiplayerRoom, playerIndex: number) => void } {
   const root = document.createElement('div');
-  root.style.cssText =
-    'position:fixed;inset:0;z-index:145;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;' +
-    'background:rgba(5,8,9,.94);backdrop-filter:blur(10px);';
+  root.className = 'war-lobby';
   const panel = document.createElement('div');
-  panel.style.cssText =
-    'width:min(920px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:24px;box-sizing:border-box;' +
-    'display:grid;gap:18px;background:linear-gradient(180deg,#151b1d,#080b0b);border:2px solid #596260;' +
-    'box-shadow:inset 0 0 0 1px rgba(210,177,95,.2),0 28px 90px rgba(0,0,0,.7);';
+  panel.className = 'war-lobby__panel';
 
   const heading = document.createElement('div');
-  heading.style.cssText = 'display:flex;justify-content:space-between;gap:16px;align-items:flex-start;';
+  heading.className = 'war-lobby__header';
   const title = document.createElement('div');
-  title.style.cssText = 'color:#f0d56a;font-size:24px;letter-spacing:.16em;';
+  title.className = 'war-lobby__title';
   const role = document.createElement('div');
-  role.style.cssText = 'padding:6px 9px;border:1px solid #596260;color:#aebbc4;font-size:10px;letter-spacing:.12em;';
+  role.className = 'war-lobby__role';
   heading.append(title, role);
 
   const summary = document.createElement('div');
-  summary.style.cssText =
-    'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;border:1px solid #303936;background:#303936;';
+  summary.className = 'war-lobby__summary';
   const mapPreview = document.createElement('div');
-  mapPreview.style.cssText =
-    'min-height:156px;position:relative;overflow:hidden;border:1px solid #596260;background:#27472f;box-shadow:inset 0 0 0 1px rgba(210,177,95,.24);';
+  mapPreview.className = 'war-lobby__map';
   const players = document.createElement('div');
-  players.style.cssText = 'display:grid;gap:8px;';
+  players.className = 'war-lobby__players';
   const status = document.createElement('div');
-  status.style.cssText = 'min-height:18px;text-align:center;color:#aebbc4;font-size:11px;letter-spacing:.08em;';
+  status.className = 'war-lobby__status';
+  status.setAttribute('aria-live', 'polite');
 
   const profile = document.createElement('div');
-  profile.style.cssText = 'display:grid;grid-template-columns:minmax(160px,1fr) auto auto;gap:10px;align-items:end;padding:12px;border:1px solid #303936;background:#0f1414;';
+  profile.className = 'war-lobby__profile';
   const nameLabel = setupTextInput('Commander name', session.player.name);
   nameLabel.input.maxLength = 28;
   const sideLabel = document.createElement('label');
-  sideLabel.style.cssText = 'display:grid;gap:5px;color:#d2b15f;font-size:9px;letter-spacing:.1em;text-transform:uppercase;';
+  sideLabel.className = 'war-input';
   sideLabel.append('Team side');
   const side = document.createElement('select');
-  side.style.cssText = 'height:34px;background:#090d0d;color:#f0f3e8;border:1px solid #46504d;padding:0 8px;font:11px ui-monospace,Menlo,monospace;';
   for (let index = 1; index <= 4; index++) {
     const option = document.createElement('option');
     option.value = String(index);
@@ -944,15 +1065,16 @@ function createRoomLobbyView(
   }
   sideLabel.append(side);
   const colors = document.createElement('div');
-  colors.style.cssText = 'display:grid;gap:5px;color:#d2b15f;font-size:9px;letter-spacing:.1em;text-transform:uppercase;';
+  colors.className = 'war-lobby__colors';
   const colorButtons = new Map<string, HTMLButtonElement>();
   const colorRow = document.createElement('div');
-  colorRow.style.cssText = 'display:flex;gap:5px;height:34px;align-items:center;';
+  colorRow.className = 'war-lobby__color-row';
   for (const [color, value] of Object.entries(LOBBY_COLORS)) {
     const button = document.createElement('button');
     button.type = 'button';
     button.title = color;
-    button.style.cssText = `width:27px;height:27px;border:2px solid #111;background:${value};cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);`;
+    button.className = 'war-lobby__color';
+    button.style.background = value;
     button.onclick = () => client.updatePlayerProfile(session.room.code, session.player.id, { color: color as keyof typeof LOBBY_COLORS });
     colorButtons.set(color, button);
     colorRow.appendChild(button);
@@ -963,11 +1085,11 @@ function createRoomLobbyView(
   profile.append(nameLabel.root, sideLabel, colors);
 
   const actions = document.createElement('div');
-  actions.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;';
+  actions.className = 'war-lobby__actions';
   const copy = document.createElement('button');
   copy.type = 'button';
   copy.textContent = 'COPY ROOM LINK';
-  copy.style.cssText = smallSetupButtonCss();
+  copy.className = 'war-button war-button--quiet';
   copy.onclick = async () => {
     const url = new URL(location.href);
     url.searchParams.set('room', session.room.code);
@@ -977,22 +1099,31 @@ function createRoomLobbyView(
   };
   const ready = document.createElement('button');
   ready.type = 'button';
-  ready.style.cssText = smallSetupButtonCss();
+  ready.className = 'war-button war-button--secondary';
   ready.onclick = () => client.setReady(session.room.code, session.player.id, !session.player.ready);
   const launch = document.createElement('button');
   launch.type = 'button';
-  launch.style.cssText =
-    'height:54px;border:1px solid #d2b15f;background:linear-gradient(180deg,#d2b15f,#856c32);color:#121513;' +
-    'font:700 15px ui-monospace,Menlo,monospace;letter-spacing:.15em;cursor:pointer;';
+  launch.className = 'war-button war-button--primary';
   launch.onclick = () => {
     if (session.player.index !== 1) return;
     client.startMatch(session.room.code, session.player.id);
     launch.disabled = true;
     launch.textContent = 'STARTING MATCH...';
-    launch.style.opacity = '.55';
   };
   actions.append(copy, ready, launch);
-  panel.append(heading, mapPreview, summary, players, profile, status, actions);
+  const battlefield = document.createElement('div');
+  battlefield.className = 'war-lobby__battlefield';
+  battlefield.append(mapPreview, summary);
+  const roster = document.createElement('div');
+  roster.className = 'war-lobby__roster';
+  const rosterTitle = document.createElement('div');
+  rosterTitle.className = 'war-lobby__section-title';
+  rosterTitle.textContent = 'COMMANDER ROSTER';
+  roster.append(rosterTitle, players, profile);
+  const main = document.createElement('div');
+  main.className = 'war-lobby__grid';
+  main.append(battlefield, roster);
+  panel.append(heading, main, status, actions);
   root.appendChild(panel);
 
   const update = (room: MultiplayerRoom, playerIndex: number): void => {
@@ -1009,13 +1140,11 @@ function createRoomLobbyView(
     ];
     summary.replaceChildren(...values.map(([label, value]) => {
       const item = document.createElement('div');
-      item.style.cssText = 'padding:13px;background:#0f1414;display:grid;gap:5px;min-width:0;';
+      item.className = 'war-lobby__summary-item';
       const key = document.createElement('div');
       key.textContent = label;
-      key.style.cssText = 'color:#6f7b78;font-size:9px;letter-spacing:.12em;';
       const text = document.createElement('div');
       text.textContent = value;
-      text.style.cssText = 'color:#f0d56a;font-size:12px;overflow-wrap:anywhere;';
       item.append(key, text);
       return item;
     }));
@@ -1023,20 +1152,20 @@ function createRoomLobbyView(
     const playerSlots = Array.from({ length: room.armyCount }, (_, offset) => offset + 1).map((index) => {
       const player = room.players.find((candidate) => candidate.index === index);
       const row = document.createElement('div');
-      row.style.cssText =
-        'display:grid;grid-template-columns:42px 16px minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 14px;' +
-        'border:1px solid #303936;background:#0f1414;';
+      row.className = 'war-lobby__player';
       const number = document.createElement('div');
       number.textContent = `P${index}`;
-      number.style.cssText = `color:${player ? LOBBY_COLORS[player.color ?? (index === 1 ? 'jade' : 'crimson')] : '#6f7b78'};font-size:12px;`;
+      number.style.color = player ? LOBBY_COLORS[player.color ?? (index === 1 ? 'jade' : 'crimson')] : '#6f7b78';
       const swatch = document.createElement('div');
-      swatch.style.cssText = `width:12px;height:12px;background:${player ? LOBBY_COLORS[player.color ?? 'jade'] : '#222'};border:1px solid rgba(255,255,255,.45);`;
+      swatch.className = 'war-lobby__swatch';
+      swatch.style.background = player ? LOBBY_COLORS[player.color ?? 'jade'] : '#222';
       const name = document.createElement('div');
       name.textContent = player ? `${player.name} · SIDE ${room.armySides[index - 1] ?? index}` : index === 1 ? 'Host slot' : 'Waiting for player...';
-      name.style.cssText = 'color:#dce8df;';
+      name.className = 'war-lobby__player-name';
       const connection = document.createElement('div');
       connection.textContent = player?.connected ? player.ready ? 'READY' : `${player.pingMs ?? '...'} ms · NOT READY` : 'OPEN SLOT';
-      connection.style.cssText = `color:${player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : '#6f7b78'};font-size:10px;`;
+      connection.className = 'war-lobby__connection';
+      connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : '#6f7b78';
       row.append(number, swatch, name, connection);
       return row;
     });
@@ -1056,14 +1185,11 @@ function createRoomLobbyView(
     else status.textContent = playerIndex === 1 ? 'All commanders ready · host can launch.' : 'All commanders ready · waiting for the host.';
     ready.disabled = room.status !== 'waiting';
     ready.textContent = localPlayer.ready ? 'UNREADY' : 'READY';
-    ready.style.opacity = room.status === 'waiting' ? '1' : '.45';
     const canLaunch = playerIndex === 1 && allReady && room.status === 'waiting';
     launch.disabled = !canLaunch;
     launch.textContent = playerIndex === 1
       ? room.status === 'starting' ? 'STARTING MATCH...' : !allReady ? 'WAITING FOR READY' : 'START MATCH'
       : 'WAITING FOR HOST';
-    launch.style.opacity = canLaunch ? '1' : '.45';
-    launch.style.cursor = canLaunch ? 'pointer' : 'not-allowed';
   };
 
   return { root, update };
@@ -1192,28 +1318,14 @@ function friendlyMultiplayerError(err: unknown): string {
 
 function setupTextInput(label: string, value: string): { root: HTMLLabelElement; input: HTMLInputElement } {
   const root = document.createElement('label');
-  root.style.cssText = 'display:grid;gap:5px;color:#d2b15f;text-transform:uppercase;font-size:10px;min-width:0;';
+  root.className = 'war-input';
+  const title = document.createElement('span');
+  title.className = 'war-input__label';
+  title.textContent = label;
   const input = document.createElement('input');
   input.value = value;
-  input.style.cssText =
-    'width:100%;min-width:0;box-sizing:border-box;height:38px;background:#090d0d;color:#f0f3e8;border:1px solid #46504d;padding:0 9px;font:12px ui-monospace,Menlo,monospace;letter-spacing:.04em;';
-  root.append(label, input);
+  root.append(title, input);
   return { root, input };
-}
-
-function setupChoiceButtonCss(active: boolean): string {
-  return (
-    'min-width:0;height:38px;border-radius:2px;border:1px solid #4b5552;font:11px ui-monospace,Menlo,monospace;letter-spacing:.05em;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
-    `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
-    `color:${active ? '#141614' : '#d7e0e7'};`
-  );
-}
-
-function smallSetupButtonCss(): string {
-  return (
-    'width:100%;min-width:0;height:40px;border-radius:2px;border:1px solid #4b5552;font:11px ui-monospace,Menlo,monospace;letter-spacing:.04em;padding:0 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
-    'background:linear-gradient(180deg,#26302f,#111615);color:#d7e0e7;cursor:pointer;'
-  );
 }
 
 function applyMapAtmosphere(ctx: RenderContext, preset: (typeof MAP_PRESETS)[MapId]): void {
@@ -2479,7 +2591,8 @@ async function start(): Promise<void> {
     await boot(settings);
     return;
   }
-  await showLandingScreen();
+  const localSetupPreview = !isPublicHost(location.hostname) && params.get('setup-preview') === '1';
+  if (!localSetupPreview) await showLandingScreen();
   const chosen = await showSetupScreen(settings);
   document.getElementById('iron-landing')?.remove();
   await boot(chosen);
