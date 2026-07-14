@@ -104,8 +104,17 @@ interface UnitHitReaction {
   dirZ: number;
   localSide: number;
   localForward: number;
-  flip: boolean;
   sign: number;
+}
+
+export function groundVehicleImpactPose(force: number, progress: number): { angle: number; lift: number } {
+  const safeForce = Math.max(0, Math.min(1, force));
+  const t = Math.max(0, Math.min(1, progress));
+  const settle = Math.sin(t * Math.PI) * Math.exp(-t * 2.8);
+  return {
+    angle: Math.min(Math.PI / 15, (0.025 + safeForce * 0.18) * settle),
+    lift: (0.02 + safeForce * 0.12) * settle,
+  };
 }
 
 // Unit and overlay geometries are shared by dimensions, so spawning visual variants
@@ -425,13 +434,11 @@ export class UnitView {
       const force = Math.max(0.025, Math.min(1, event.force ?? event.damage / Math.max(1, event.targetMaxHealth ?? event.damage)));
       const isInfantry = entity.selectable?.type === 'infantry';
       const isAircraft = Boolean(entity.flight);
-      const flipRoll = deterministicUnit(entity.id, Math.round(event.toX * 11 + event.toZ * 7));
-      const flip = !isInfantry && !isAircraft && force > 0.78 && flipRoll < Math.min(0.16, (force - 0.72) * 0.54);
-      const duration = isInfantry ? 0.42 + force * 0.68 : isAircraft ? 0.62 + force * 0.82 : flip ? 1.08 + force * 0.42 : 0.34 + force * 0.46;
+      const duration = isInfantry ? 0.42 + force * 0.68 : isAircraft ? 0.62 + force * 0.82 : 0.3 + force * 0.28;
       const existing = this.hitReactions.get(entity);
       const localAngle = Math.atan2(dirX, dirZ) - entity.transform.rot;
-      const localSide = existing?.flip ? existing.localSide : Math.sin(localAngle);
-      const localForward = existing?.flip ? existing.localForward : Math.cos(localAngle);
+      const localSide = Math.sin(localAngle);
+      const localForward = Math.cos(localAngle);
       this.hitReactions.set(entity, {
         elapsed: 0,
         duration: Math.max(duration, existing?.duration ?? 0),
@@ -440,7 +447,6 @@ export class UnitView {
         dirZ,
         localSide,
         localForward,
-        flip: flip || Boolean(existing?.flip),
         sign: localSide >= 0 ? 1 : -1,
       });
     }
@@ -564,12 +570,12 @@ export class UnitView {
       obj.position.z += reaction.dirZ * arc * reaction.force * 1.1;
     } else {
       const axisX = Math.abs(localForward) >= Math.abs(localSide);
-      const angle = reaction.flip ? (0.92 + reaction.force * 0.42) * arc : (0.04 + reaction.force * 0.24) * recoil;
+      const { angle, lift } = groundVehicleImpactPose(reaction.force, t);
       if (axisX) obj.rotation.x += -Math.sign(localForward || 1) * angle;
       else obj.rotation.z += reaction.sign * angle;
-      obj.position.y += arc * (reaction.flip ? 0.72 + reaction.force * 0.82 : 0.04 + reaction.force * 0.2);
-      obj.position.x += reaction.dirX * arc * reaction.force * 0.46;
-      obj.position.z += reaction.dirZ * arc * reaction.force * 0.46;
+      obj.position.y += lift;
+      obj.position.x += reaction.dirX * arc * reaction.force * 0.22;
+      obj.position.z += reaction.dirZ * arc * reaction.force * 0.22;
     }
     if (t >= 1) this.hitReactions.delete(entity);
   }
