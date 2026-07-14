@@ -26,6 +26,10 @@ export interface MatchTickResult {
 
 export function advanceTick(match: MatchTickRuntime): MatchTickResult {
   match.lockstep?.tick();
+  // A hash mismatch or late command can begin recovery from inside tick(). Do
+  // not advance the simulation once more after the recovery snapshot was
+  // captured, otherwise the host and guest immediately disagree by one tick.
+  if (match.lockstep && !match.lockstep.canAdvance()) return { spawned: [], events: [] };
   if (match.runCommanders) {
     for (const commander of match.commanders) commander.step(SIM_DT);
   }

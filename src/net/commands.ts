@@ -74,7 +74,10 @@ export interface LockstepRuntimeOptions {
 }
 
 const DEFAULT_INPUT_DELAY_TICKS = 8;
-const HASH_INTERVAL_TICKS = 30 * 5;
+// First-person combat produces the highest command rate and is where even a
+// single late input can change a projectile hit or death. Check every second so
+// a disagreement cannot remain invisible for the rest of the match.
+const HASH_INTERVAL_TICKS = 30;
 const HASH_HISTORY_TICKS = 30 * 30;
 
 export class LockstepRuntime {
@@ -89,6 +92,7 @@ export class LockstepRuntime {
   private readonly hashHistory = new Map<number, number>();
   private estimatedRttMs = 160;
   private recoveryResumeTimer?: ReturnType<typeof setTimeout>;
+  private lateRemoteCommandTick?: number;
 
   constructor(private readonly options: LockstepRuntimeOptions) {}
 
@@ -155,11 +159,17 @@ export class LockstepRuntime {
     for (const queued of due) {
       if (queued.command.type !== 'sim-hash') this.apply(queued.playerIndex, queued.command, queued.tick);
     }
+    if (this.lateRemoteCommandTick !== undefined && !this.recoveryPending) {
+      const lateTick = this.lateRemoteCommandTick;
+      this.lateRemoteCommandTick = undefined;
+      this.handleLateRemoteCommand(lateTick);
+      return;
+    }
     this.rememberHash(tick, hashSim(this.options.sim));
     for (const queued of due) {
       if (queued.command.type === 'sim-hash') this.apply(queued.playerIndex, queued.command, queued.tick);
     }
-    if (this.connected && !hasActivePossession(this.options.sim) && tick - this.lastHashSent >= HASH_INTERVAL_TICKS) {
+    if (this.connected && tick - this.lastHashSent >= HASH_INTERVAL_TICKS) {
       this.lastHashSent = tick;
       void this.send({ type: 'sim-hash', hash: this.hashHistory.get(tick)! }, tick);
     }
@@ -264,6 +274,11 @@ export class LockstepRuntime {
       this.apply(event.playerIndex, command, event.tick);
       return;
     }
+    if (!this.recoveryPending && command.type !== 'sim-hash' && event.tick < this.options.sim.tick) {
+      this.lateRemoteCommandTick = this.lateRemoteCommandTick === undefined
+        ? event.tick
+        : Math.min(this.lateRemoteCommandTick, event.tick);
+    }
     this.queue.push({ tick: event.tick, playerIndex: event.playerIndex, command });
     this.queue.sort((a, b) => a.tick - b.tick);
   }
@@ -272,7 +287,7 @@ export class LockstepRuntime {
     const economy = this.options.economies[playerIndex];
     if (!economy) return;
     if (command.type === 'sim-hash') {
-      if (hasActivePossession(this.options.sim) || this.recoveryPending) return;
+      if (this.recoveryPending) return;
       const localHash = this.hashHistory.get(commandTick);
       if (localHash === undefined) return;
       if (localHash !== command.hash) this.handleHashMismatch(localHash, command.hash);
@@ -401,8 +416,21 @@ export class LockstepRuntime {
     this.options.onStatus?.(`Desync detected — requesting host snapshot (${localHash} vs ${expectedHash})`, true);
   }
 
+  private handleLateRemoteCommand(commandTick: number): void {
+    const localHash = hashSim(this.options.sim);
+    if (this.localTeam === 1) {
+      this.sendRecoverySnapshot(`Late network command for tick ${commandTick} — resynchronizing combat state`);
+      return;
+    }
+    this.recoveryPending = true;
+    this.roomPaused = true;
+    void this.send({ type: 'snapshot-request', hash: localHash, expectedHash: 0, tick: this.options.sim.tick }, this.options.sim.tick);
+    this.options.onStatus?.(`Late network command for tick ${commandTick} — requesting host state`, true);
+  }
+
   private sendRecoverySnapshot(message: string): void {
     this.clearRecoveryResumeTimer();
+    this.lateRemoteCommandTick = undefined;
     this.queue.length = 0;
     this.hashHistory.clear();
     this.rememberHash(this.options.sim.tick, hashSim(this.options.sim));
@@ -420,6 +448,7 @@ export class LockstepRuntime {
       if (economy) restoreEconomyState(economy, this.options.sim, economyState);
     }
     this.queue.length = 0;
+    this.lateRemoteCommandTick = undefined;
     this.hashHistory.clear();
     this.rememberHash(this.options.sim.tick, hashSim(this.options.sim));
     this.recoveryPending = true;
@@ -473,10 +502,6 @@ function ownedEntities(sim: GameSim, ids: number[], team: number): Entity[] {
 
 function clampUnit(value: number): number {
   return Math.max(-1, Math.min(1, value));
-}
-
-function hasActivePossession(sim: GameSim): boolean {
-  return sim.world.entities.some((entity) => !entity.destroyed && !!entity.playerControlled);
 }
 
 function isNetCommand(value: unknown): value is NetCommand {
