@@ -1186,7 +1186,7 @@ function friendlyMultiplayerError(err: unknown): string {
   if (message === 'room-full') return 'room is full. Start a new room for another match.';
   if (message === 'enter-room-code') return 'enter a room code first.';
   if (message === 'unknown-player') return 'player session expired. Join the room again.';
-  if (message === 'origin-not-allowed') return 'relay rejected this site origin. Add the Netlify URL to ALLOWED_ORIGINS.';
+  if (message === 'origin-not-allowed') return 'relay rejected this site origin. Add this site URL to ALLOWED_ORIGINS.';
   return message;
 }
 

@@ -8,9 +8,21 @@ Run:
 npm run build:cloudflare
 ```
 
-Upload the generated `dist-cloudflare/` folder to Cloudflare Pages using Direct Upload.
+Upload the generated `dist-cloudflare/` folder to Cloudflare Workers using Direct Upload.
 
-## First deployment
+## Automatic deployment from GitHub
+
+The existing Cloudflare Worker is configured in `wrangler.jsonc`. In Cloudflare, open the
+`throbbing-truth-af19` Worker, then go to **Settings → Builds → Connect** and select the GitHub
+repository. Use the `codex/cloudflare-version` branch initially.
+
+- Build command: `npm ci && npm run build:cloudflare`
+- Deploy command: `npx wrangler@4.34.0 deploy`
+- Root directory: `/`
+
+After the connection is saved, each push to the production branch builds and deploys the game.
+
+## Manual deployment
 
 1. Open the Cloudflare dashboard.
 2. Go to **Workers & Pages**.
@@ -19,7 +31,7 @@ Upload the generated `dist-cloudflare/` folder to Cloudflare Pages using Direct 
 5. Drag in the entire `dist-cloudflare/` folder.
 6. Select **Deploy site**.
 
-For later releases, open the Pages project, choose **Create a new deployment**, and upload a newly built folder.
+For later manual releases, open the Worker, choose **New deployment**, and upload a newly built folder.
 
 ## Forms
 
@@ -34,6 +46,6 @@ Formspree form inboxes.
 
 ## Multiplayer
 
-The static game client remains on Cloudflare Pages. The WebSocket multiplayer relay remains a
-separate Node service. Set its `ALLOWED_ORIGINS` value to the final `pages.dev` or custom-domain
+The static game client remains on Cloudflare Workers. The WebSocket multiplayer relay remains a
+separate Node service. Set its `ALLOWED_ORIGINS` value to the final `workers.dev` or custom-domain
 origin, and make sure the client build uses the production relay URL.

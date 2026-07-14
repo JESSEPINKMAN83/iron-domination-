@@ -1,0 +1,9 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "throbbing-truth-af19",
+  "compatibility_date": "2026-07-14",
+  "assets": {
+    "directory": "./dist-cloudflare",
+    "not_found_handling": "single-page-application"
+  }
+}
