@@ -418,51 +418,52 @@ export function issueMoveOrder(
   formationSpread?: number,
 ): boolean {
   let issued = false;
-  const flyers = entities.filter((entity) => entity.flight);
-  if (flyers.length > 0) {
-    const spacing = formationSpacing(8, flyers.length, formationSpread);
-    const width = formationWidth(flyers.length, faceYaw, formationSpread);
-    flyers.forEach((entity, i) => {
-      if (!entity.mover) return;
-      const col = i % width;
-      const row = Math.floor(i / width);
-      const offset = formationOffset(col, row, width, flyers.length, spacing, faceYaw);
+  const movers = entities.filter((entity): entity is Entity & { mover: NonNullable<Entity['mover']> } => !!entity.mover && !entity.destroyed);
+  if (movers.length === 0) return false;
+  const effectiveSpread = faceYaw !== undefined && formationSpread !== undefined
+    ? formationSpreadForEntities(movers, formationSpread)
+    : formationSpread;
+  const baseSpacing = formationBaseSpacing(movers);
+  const spacing = formationSpacing(baseSpacing, movers.length, effectiveSpread);
+  const width = formationWidth(movers.length, faceYaw, effectiveSpread);
+  const hasGroundUnits = movers.some((entity) => !entity.flight);
+  const targetPoint = hasGroundUnits ? walkableOrderPoint(sim, targetX, targetZ) : undefined;
+  const flow = targetPoint ? new FlowField(sim.nav, targetPoint.x, targetPoint.z) : undefined;
+
+  movers.forEach((entity, i) => {
+    const col = i % width;
+    const row = Math.floor(i / width);
+    const offset = formationOffset(col, row, width, movers.length, spacing, faceYaw);
+    if (entity.flight) {
       entity.mover.target = {
         x: clamp(targetX + offset.x, -sim.nav.size / 2, sim.nav.size / 2),
         z: clamp(targetZ + offset.z, -sim.nav.size / 2, sim.nav.size / 2),
       };
       entity.mover.formationOffset = undefined;
       entity.mover.flow = undefined;
-      entity.mover.attackMove = attackMove;
-      entity.mover.faceYaw = faceYaw;
-      entity.mover.defenseAlert = undefined;
-      issued = true;
-    });
-  }
-
-  const groundUnits = entities.filter((entity) => !entity.flight);
-  if (groundUnits.length === 0) return issued;
-  const targetPoint = walkableOrderPoint(sim, targetX, targetZ);
-  if (!targetPoint) return issued;
-  const target = sim.nav.nearestWalkableCell(targetPoint.x, targetPoint.z, 4);
-  if (!target) return issued;
-  const flow = new FlowField(sim.nav, targetPoint.x, targetPoint.z);
-  const spacing = formationSpacing(5.2, groundUnits.length, formationSpread);
-  const width = formationWidth(groundUnits.length, faceYaw, formationSpread);
-  groundUnits.forEach((entity, i) => {
-    if (!entity.mover) return;
-    const col = i % width;
-    const row = Math.floor(i / width);
-    const offset = formationOffset(col, row, width, groundUnits.length, spacing, faceYaw);
-    entity.mover.target = { x: targetPoint.x, z: targetPoint.z };
-    entity.mover.formationOffset = { x: offset.x, z: offset.z };
-    entity.mover.flow = flow;
+    } else {
+      if (!targetPoint || !flow) return;
+      const requestedSlot = { x: targetPoint.x + offset.x, z: targetPoint.z + offset.z };
+      const slot = walkableOrderPoint(sim, requestedSlot.x, requestedSlot.z);
+      if (!slot) return;
+      entity.mover.target = { x: targetPoint.x, z: targetPoint.z };
+      entity.mover.formationOffset = { x: slot.x - targetPoint.x, z: slot.z - targetPoint.z };
+      entity.mover.flow = flow;
+    }
     entity.mover.attackMove = attackMove;
+    entity.mover.attackTargetId = undefined;
     entity.mover.faceYaw = faceYaw;
     entity.mover.defenseAlert = undefined;
+    for (const weapon of attackWeapons(entity)) weapon.targetId = undefined;
     issued = true;
   });
   return issued;
+}
+
+export function formationSpreadForEntities(entities: Entity[], requestedSpread: number): number {
+  const movers = entities.filter((entity) => entity.mover && !entity.destroyed);
+  if (movers.length <= 1) return Math.max(6, requestedSpread);
+  return Math.max(requestedSpread, formationBaseSpacing(movers) * (movers.length - 1));
 }
 
 export function attackStandoffPoint(sim: GameSim, attackers: Entity[], target: Entity): { x: number; z: number } {
@@ -503,10 +504,13 @@ export function stopEntities(entities: Entity[]): void {
     entity.mover.target = undefined;
     entity.mover.formationOffset = undefined;
     entity.mover.flow = undefined;
+    entity.mover.attackMove = false;
+    entity.mover.attackTargetId = undefined;
     entity.mover.faceYaw = undefined;
     entity.mover.defenseAlert = undefined;
     entity.velocity.x = 0;
     entity.velocity.z = 0;
+    for (const weapon of attackWeapons(entity)) weapon.targetId = undefined;
   }
 }
 
@@ -559,6 +563,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       mover.formationOffset = undefined;
       mover.flow = undefined;
       mover.attackMove = false;
+      mover.attackTargetId = undefined;
       const throttle = Math.max(-1, Math.min(1, entity.playerControlled.throttle));
       const turn = Math.max(-1, Math.min(1, entity.playerControlled.turn));
       const boost = entity.playerControlled.boost ? POSSESSION_BOOST_MULTIPLIER : 1;
@@ -851,6 +856,7 @@ function possessedFlightCommand(entity: MovingEntity): FlightCommand {
   mover.formationOffset = undefined;
   mover.flow = undefined;
   mover.attackMove = false;
+  mover.attackTargetId = undefined;
   mover.defenseAlert = undefined;
   return {
     throttle: clamp(controlled?.throttle ?? 0, -1, 1),
@@ -926,6 +932,10 @@ function formationWidth(count: number, faceYaw?: number, formationSpread?: numbe
   if (faceYaw === undefined) return Math.max(1, Math.ceil(Math.sqrt(count)));
   if (formationSpread !== undefined) return count;
   return Math.min(count, Math.max(2, Math.ceil(Math.sqrt(count) * 1.8)));
+}
+
+function formationBaseSpacing(entities: Entity[]): number {
+  return entities.reduce((spacing, entity) => Math.max(spacing, (entity.mover?.radius ?? 2) * 2 + 2.4), 5.2);
 }
 
 function formationSpacing(baseSpacing: number, count: number, formationSpread?: number): number {
@@ -1014,6 +1024,7 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.target ? Math.round(entity.mover.target.z * 10) : 0);
       mix(entity.mover.engage ? Math.round(entity.mover.engage.x * 10) : 0);
       mix(entity.mover.engage ? Math.round(entity.mover.engage.z * 10) : 0);
+      mix(entity.mover.attackTargetId ?? 0);
     }
     if (entity.weapon) {
       mix(Math.round(entity.weapon.cooldown * 1000));

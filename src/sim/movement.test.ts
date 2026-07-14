@@ -294,6 +294,56 @@ describe('phase 2 movement simulation', () => {
     expect(tanks.every((tank) => tank.mover?.faceYaw === faceYaw)).toBe(true);
   });
 
+  it('finishes a right-drag order on reachable collision-safe formation slots', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tanks = spawnDebugTanks(sim, hf, 5);
+    const target = sim.nav.nearestWalkableCell(tanks[0].transform.x + 44, tanks[0].transform.z + 20, 96);
+    expect(target).toBeDefined();
+    const p = sim.nav.cellCenter(target!.x, target!.y);
+    const faceYaw = Math.PI * 0.35;
+
+    expect(issueMoveOrder(sim, tanks, p.x, p.z, false, faceYaw, 12)).toBe(true);
+    const destinations = tanks.map((tank) => ({
+      x: tank.mover!.target!.x + (tank.mover!.formationOffset?.x ?? 0),
+      z: tank.mover!.target!.z + (tank.mover!.formationOffset?.z ?? 0),
+    }));
+    const minimumSpacing = Math.max(...tanks.map((tank) => tank.mover!.radius * 2 + 2.4));
+    for (let i = 1; i < destinations.length; i++) {
+      expect(Math.hypot(destinations[i].x - destinations[i - 1].x, destinations[i].z - destinations[i - 1].z)).toBeGreaterThanOrEqual(minimumSpacing - 0.1);
+    }
+
+    for (let i = 0; i < 30 * 16; i++) stepSim(sim, hf, 1 / 30);
+
+    tanks.forEach((tank, index) => {
+      expect(Math.hypot(tank.transform.x - destinations[index].x, tank.transform.z - destinations[index].z)).toBeLessThan(2.5);
+      expect(Math.abs(angleDelta(tank.transform.rot, faceYaw))).toBeLessThan(0.2);
+    });
+  });
+
+  it('assigns mixed ground and air units to distinct slots in one formation line', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tanks = spawnDebugTanks(sim, hf, 2);
+    const flyers = [
+      spawnVultureAt(sim, hf, tanks[0].transform.x - 8, tanks[0].transform.z - 8, 'Vulture A'),
+      spawnVultureAt(sim, hf, tanks[0].transform.x - 12, tanks[0].transform.z - 12, 'Vulture B'),
+    ];
+    const units = [tanks[0], flyers[0], tanks[1], flyers[1]];
+    const target = sim.nav.nearestWalkableCell(tanks[0].transform.x + 48, tanks[0].transform.z + 18, 96);
+    expect(target).toBeDefined();
+    const p = sim.nav.cellCenter(target!.x, target!.y);
+
+    expect(issueMoveOrder(sim, units, p.x, p.z, false, Math.PI / 2, 60)).toBe(true);
+
+    const destinations = units.map((unit) => ({
+      x: unit.mover!.target!.x + (unit.mover!.formationOffset?.x ?? 0),
+      z: unit.mover!.target!.z + (unit.mover!.formationOffset?.z ?? 0),
+    }));
+    const unique = new Set(destinations.map((point) => `${point.x.toFixed(2)}:${point.z.toFixed(2)}`));
+    expect(unique.size).toBe(units.length);
+  });
+
   it('moves flyers directly over blocked terrain while maintaining altitude', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

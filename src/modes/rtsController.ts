@@ -1,6 +1,7 @@
 import { Raycaster, Vector2, Vector3, type PerspectiveCamera } from 'three';
 import type { GameSim } from '../sim/world';
-import { areTeamsHostile, attackStandoffPoint, issueMoveOrder, selectedEntities, setSelected, stopEntities } from '../sim/world';
+import { areTeamsHostile, attackStandoffPoint, formationSpreadForEntities, issueMoveOrder, selectedEntities, setSelected, stopEntities } from '../sim/world';
+import { issueAttackOrder } from '../sim/combat';
 import { issueHarvesterReturnOrder, issueHarvestOrder } from '../sim/economy';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
@@ -31,6 +32,7 @@ export interface OrderFeedback {
 
 export interface RtsCommandSink {
   move?(entityIds: number[], x: number, z: number, attackMove: boolean, faceYaw?: number, formationSpread?: number): boolean;
+  attack?(entityIds: number[], targetId: number): boolean;
   harvest?(entityIds: number[], x: number, z: number): boolean;
   returnHarvesters?(entityIds: number[], x: number, z: number): boolean;
   stop?(entityIds: number[]): boolean;
@@ -187,8 +189,20 @@ export class RtsController {
       }
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (p) {
-        const count = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover).length;
-        this.orderFeedback?.showFacingPreview?.(this.rightOrderStart.x, this.rightOrderStart.z, p.x, p.z, this.isAttackMoveQueued() ? 'attack' : 'move', count);
+        const movers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover);
+        const dx = p.x - this.rightOrderStart.x;
+        const dz = p.z - this.rightOrderStart.z;
+        const distance = Math.hypot(dx, dz);
+        const spread = formationSpreadForEntities(movers, distance);
+        const scale = distance > 0.001 ? spread / distance : 1;
+        this.orderFeedback?.showFacingPreview?.(
+          this.rightOrderStart.x,
+          this.rightOrderStart.z,
+          this.rightOrderStart.x + dx * scale,
+          this.rightOrderStart.z + dz * scale,
+          this.isAttackMoveQueued() ? 'attack' : 'move',
+          movers.length,
+        );
       }
       return;
     }
@@ -273,10 +287,18 @@ export class RtsController {
           const faceDistance = Math.hypot(faceDx, faceDz);
           if (faceDistance > 2) {
             faceYaw = Math.atan2(faceDx, faceDz);
-            formationSpread = Math.min(96, Math.max(6, faceDistance));
+            formationSpread = formationSpreadForEntities(selected, faceDistance);
           }
         }
         if (selected.length > 0) {
+          if (attackTarget) {
+            const attackers = this.selectedAttackers();
+            const attackerIds = attackers.map((entity) => entity.id);
+            const attackIssued = this.commandSink?.attack?.(attackerIds, attackTarget.id) ?? issueAttackOrder(this.sim, attackers, attackTarget);
+            if (attackIssued) this.orderFeedback?.showOrder(attackTarget.transform.x, attackTarget.transform.z, 'attack');
+            this.attackMoveQueued = false;
+            return;
+          }
           const harvesters = !dragged ? selected.filter((entity) => entity.harvester) : [];
           const harvesterIds = harvesters.map((entity) => entity.id).filter((id): id is number => id !== undefined);
           const harvestIssued =
@@ -295,7 +317,7 @@ export class RtsController {
             (this.commandSink?.move?.(moverIds, destination.x, destination.z, attackMove, faceYaw, formationSpread) ??
               issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, faceYaw, formationSpread))
           ) {
-            this.orderFeedback?.showOrder(attackTarget?.transform.x ?? destination.x, attackTarget?.transform.z ?? destination.z, attackMove ? 'attack' : 'move');
+            this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack' : 'move');
             if (faceYaw !== undefined) {
               this.orderFeedback?.showFacingOrder?.(destination.x, destination.z, faceYaw, attackMove ? 'attack' : 'move', formationSpread, movers.length);
             }

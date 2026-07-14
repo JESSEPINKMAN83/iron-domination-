@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
-import { damageForArmor, manualFireAt, stepCombat } from './combat';
+import { damageForArmor, issueAttackOrder, manualFireAt, stepCombat } from './combat';
 import { createEconomy, createInitialBase, placeStructure, spawnInfantryAt, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
@@ -141,6 +141,25 @@ describe('phase 4 combat simulation', () => {
 
     expect(sim.events.some((event) => event.kind === 'tankMissile')).toBe(true);
     expect(target.health?.current).toBeLessThan(100);
+  });
+
+  it('keeps a clicked building as the explicit target instead of attacking a nearer building', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnTankAt(sim, -60, -20, 'Ordered Tank');
+    const nearBuilding = createInitialBase(sim, hf, createEconomy(2), -24, -20);
+    const orderedBuilding = createInitialBase(sim, hf, createEconomy(2), 12, -20);
+    attacker.turret!.yaw = Math.atan2(
+      orderedBuilding.transform.x - attacker.transform.x,
+      orderedBuilding.transform.z - attacker.transform.z,
+    );
+
+    expect(issueAttackOrder(sim, [attacker], orderedBuilding)).toBe(true);
+    stepCombat(sim, 1 / 30);
+
+    expect(attacker.mover?.attackTargetId).toBe(orderedBuilding.id);
+    expect(attacker.weapons?.primary.targetId).toBe(orderedBuilding.id);
+    expect(attacker.weapons?.primary.targetId).not.toBe(nearBuilding.id);
   });
 
   it('preserves manual direct-fire aim height when shooting above the ground', () => {

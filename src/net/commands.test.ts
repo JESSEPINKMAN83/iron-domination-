@@ -42,6 +42,32 @@ describe('multiplayer lockstep commands', () => {
     expect(hostTank.mover?.target).toBeUndefined();
   });
 
+  it('applies a delayed explicit attack target without allowing a nearer enemy to replace it', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1);
+    const economy2 = createEconomy(2);
+    const orderedTarget = createInitialBase(sim, hf, economy1, -40, -20);
+    createInitialBase(sim, hf, economy1, 4, -20);
+    createInitialBase(sim, hf, economy2, 90, 40);
+    const guestTank = spawnTankAt(sim, 46, -20, 'Guest Tank', 2);
+    const client = {
+      connect: () => undefined,
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session: sessionFor(2) });
+
+    expect(lockstep.issue({ type: 'attack', ids: [guestTank.id], targetId: orderedTarget.id })).toBe(true);
+    for (let i = 0; i < 8; i++) {
+      sim.tick++;
+      lockstep.tick();
+    }
+
+    expect(guestTank.mover?.attackTargetId).toBe(orderedTarget.id);
+    expect(guestTank.weapons?.primary.targetId).toBe(orderedTarget.id);
+  });
+
   it('continues applying local queued commands during a stream interruption', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

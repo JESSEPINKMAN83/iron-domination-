@@ -1473,6 +1473,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     lockstep
       ? {
           move: (ids, x, z, attackMove, faceYaw, formationSpread) => lockstep.issue({ type: 'move', ids, x, z, attackMove, faceYaw, formationSpread }),
+          attack: (ids, targetId) => lockstep.issue({ type: 'attack', ids, targetId }),
           harvest: (ids, x, z) => {
             const node = sim.resourceNodes.find((candidate) => Math.hypot(candidate.x - x, candidate.z - z) <= candidate.radius + 4 && candidate.remaining > 0);
             return node ? lockstep.issue({ type: 'harvest', ids, x, z }) : false;

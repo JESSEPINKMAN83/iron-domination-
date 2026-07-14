@@ -3,7 +3,7 @@ import { angleDelta, slewAngle } from './angles';
 import type { Entity, Weapon } from './components';
 import { hash2i, smoothstep } from './noise';
 import { applyStructureDamage } from './structureDamage';
-import { areTeamsHostile, entityById, stopEntities, type GameSim } from './world';
+import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, stopEntities, type GameSim } from './world';
 
 /** Cannons may only fire once the turret has traversed onto the bearing. */
 const AIM_TOLERANCE = 0.12;
@@ -47,6 +47,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     const commandDrivenCombat = !sim.rules.autoCombat;
     if (commandDrivenCombat && !attacker.mover?.attackMove && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined)) continue;
 
+    const orderedTarget = explicitOrderTarget(sim, attacker);
     let turretGoalYaw: number | undefined;
     for (const weapon of weaponSlots(attacker)) {
       const def = WEAPONS[weapon.kind as WeaponKind];
@@ -54,7 +55,18 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
       // a unit can only auto-engage what it can see — no shelling into the fog
       const weaponRange = weapon.range || def.range;
       const range = Math.min(weaponRange, attacker.vision?.radius ?? weaponRange);
-      let target = validTarget(sim, attacker, weapon, range);
+      let target: Entity | undefined;
+      if (orderedTarget) {
+        if (!isWeaponTargetable(sim, attacker, weapon, orderedTarget)) {
+          weapon.targetId = undefined;
+          continue;
+        }
+        weapon.targetId = orderedTarget.id;
+        target = validTarget(sim, attacker, weapon, range);
+        if (!target) continue;
+      } else {
+        target = validTarget(sim, attacker, weapon, range);
+      }
       if (!target) {
         if (commandDrivenCombat && !attacker.mover?.attackMove) {
           weapon.targetId = undefined;
@@ -98,7 +110,7 @@ function tickWeaponCooldowns(sim: GameSim, dt: number): void {
 
 /** Idle units don't stand and take bombardment — they close on visible foes. */
 function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number): void {
-  if (!attacker.mover || attacker.mover.target || !attacker.vision) return;
+  if (!attacker.mover || attacker.mover.target || attacker.mover.attackTargetId !== undefined || !attacker.vision) return;
   const slots = weaponSlots(attacker);
   if (slots.length === 0) return;
   let weaponRange = 0;
@@ -124,6 +136,44 @@ function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number): void {
   }
   attacker.mover.engage =
     foe && distance(attacker, foe) > weaponRange * 0.85 ? { x: foe.transform.x, z: foe.transform.z } : undefined;
+}
+
+export function issueAttackOrder(sim: GameSim, attackers: Entity[], target: Entity): boolean {
+  if (!target.team || !target.health || target.destroyed) return false;
+  const eligible = attackers.filter(
+    (attacker) =>
+      attacker.mover &&
+      attacker.team &&
+      !attacker.destroyed &&
+      areTeamsHostile(sim, attacker.team.id, target.team!.id) &&
+      weaponSlots(attacker).some((weapon) => isWeaponTargetable(sim, attacker, weapon, target)),
+  );
+  if (eligible.length === 0) return false;
+  const destination = attackStandoffPoint(sim, eligible, target);
+  if (!issueMoveOrder(sim, eligible, destination.x, destination.z, true)) return false;
+  for (const attacker of eligible) {
+    attacker.mover!.attackTargetId = target.id;
+    for (const weapon of weaponSlots(attacker)) {
+      weapon.targetId = isWeaponTargetable(sim, attacker, weapon, target) ? target.id : undefined;
+    }
+  }
+  return true;
+}
+
+function explicitOrderTarget(sim: GameSim, attacker: Entity): Entity | undefined {
+  const targetId = attacker.mover?.attackTargetId;
+  if (targetId === undefined) return undefined;
+  const target = entityById(sim, targetId);
+  if (target && target.health && !target.destroyed && target.health.current > 0 && target.team && attacker.team && areTeamsHostile(sim, attacker.team.id, target.team.id)) {
+    return target;
+  }
+  attacker.mover!.attackTargetId = undefined;
+  attacker.mover!.attackMove = false;
+  attacker.mover!.target = undefined;
+  attacker.mover!.formationOffset = undefined;
+  attacker.mover!.flow = undefined;
+  for (const weapon of weaponSlots(attacker)) weapon.targetId = undefined;
+  return undefined;
 }
 
 export function manualFireAt(
