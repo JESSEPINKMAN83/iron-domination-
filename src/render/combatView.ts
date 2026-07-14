@@ -20,6 +20,7 @@ import {
   Vector3,
 } from 'three';
 import type { CombatEvent } from '../sim/world';
+import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 
 interface Tracer {
@@ -103,6 +104,7 @@ export class CombatView {
   constructor(
     private readonly hf: Heightfield,
     private readonly isVisible: (x: number, z: number) => boolean = () => true,
+    private readonly resolveEntity: (id: number) => Entity | undefined = () => undefined,
   ) {}
 
   push(events: CombatEvent[]): void {
@@ -263,6 +265,17 @@ export class CombatView {
     for (let i = this.bombProjectiles.length - 1; i >= 0; i--) {
       const projectile = this.bombProjectiles[i];
       projectile.elapsed += dt;
+      if (projectile.event.trajectory === 'homing' && projectile.event.targetId !== undefined) {
+        const target = this.resolveEntity(projectile.event.targetId);
+        if (target && !target.destroyed) {
+          projectile.to.set(target.transform.x, target.transform.y ?? projectile.to.y, target.transform.z);
+          projectile.control.set(
+            (projectile.from.x + projectile.to.x) * 0.5,
+            (projectile.from.y + projectile.to.y) * 0.5,
+            (projectile.from.z + projectile.to.z) * 0.5,
+          );
+        }
+      }
       const t = Math.min(1, projectile.elapsed / projectile.duration);
       const position = bezier(projectile.from, projectile.control, projectile.to, t);
       const tangent = bezierTangent(projectile.from, projectile.control, projectile.to, t).normalize();

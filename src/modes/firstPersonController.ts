@@ -27,6 +27,7 @@ const SNIPER_SCOPE_FOV_WIDE = 30;
 const SNIPER_SCOPE_FOV_TIGHT = 11;
 const SQUAD_FOLLOW_REFRESH_TICKS = 12;
 const SQUAD_FOLLOW_MIN_DISTANCE = 14;
+const TARGET_LOCK_SECONDS = 1;
 
 interface CameraPose {
   position: Vector3;
@@ -44,7 +45,7 @@ export interface FirstPersonCommandSink {
     strafe?: number;
     boost?: boolean;
   }): void;
-  fire(command: { id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number }): void;
+  fire(command: { id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number }): void;
   follow(command: { leaderId: number; followerIds: number[]; x: number; z: number; faceYaw: number }): void;
   release(id: number): void;
 }
@@ -83,6 +84,8 @@ export class FirstPersonController {
   private readonly abilityStatus: HTMLDivElement;
   private readonly abilityHud: HTMLDivElement;
   private readonly impactOverlay: HTMLDivElement;
+  private readonly lockHud: HTMLDivElement;
+  private readonly lockStatus: HTMLDivElement;
   private abilityStatusTimer = 0;
   private sniperReloadFlash = 0;
   private lastControlSentTick = -999;
@@ -93,6 +96,9 @@ export class FirstPersonController {
   private impactShakeSeed = 0;
   private impactSide = 0;
   private impactOverlayOpacity = 0;
+  private lockCandidateId?: number;
+  private lockedTargetId?: number;
+  private lockProgress = 0;
 
   constructor(
     private readonly dom: HTMLElement,
@@ -103,6 +109,7 @@ export class FirstPersonController {
     private readonly callbacks: { onEnter?: () => void; onExit?: (entity?: Entity) => void } = {},
     private readonly localTeam = 1,
     private readonly commandSink?: FirstPersonCommandSink,
+    private readonly isVisible: (x: number, z: number) => boolean = () => true,
   ) {
     this.scopeOverlay = document.createElement('div');
     this.scopeOverlay.style.cssText =
@@ -140,6 +147,17 @@ export class FirstPersonController {
       'background:radial-gradient(circle at center,transparent 0 48%,rgba(255,187,116,.08) 70%,rgba(255,78,42,.62) 100%);' +
       'box-shadow:inset 0 0 95px rgba(255,116,62,.5);mix-blend-mode:screen;';
     document.body.appendChild(this.impactOverlay);
+    this.lockHud = document.createElement('div');
+    this.lockHud.style.cssText =
+      'position:fixed;left:50%;top:50%;width:76px;height:76px;transform:translate(-50%,-50%);display:none;pointer-events:none;z-index:16;' +
+      'border:2px dashed rgba(240,213,106,.88);box-shadow:0 0 16px rgba(240,213,106,.34),inset 0 0 12px rgba(240,213,106,.1);' +
+      'transition:border-color .12s,box-shadow .12s,transform .12s;';
+    this.lockStatus = document.createElement('div');
+    this.lockStatus.style.cssText =
+      'position:absolute;left:50%;top:calc(100% + 8px);transform:translateX(-50%);white-space:nowrap;' +
+      'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#f0d56a;text-shadow:0 1px 3px #000;';
+    this.lockHud.appendChild(this.lockStatus);
+    document.body.appendChild(this.lockHud);
 
     dom.addEventListener(
       'pointerdown',
@@ -341,6 +359,7 @@ export class FirstPersonController {
     const maxSpeed = this.possessed.flight ? FLIGHT_MODELS[this.possessed.flight.model].maxSpeed : 46;
     const baseFov = this.possessed.flight ? MathUtils.lerp(62, 70, Math.min(1, speed / maxSpeed)) : 62;
     this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.zoomedFov(baseFov), alpha, dt), dt);
+    this.updateTargetLock(dt);
     this.updateArtilleryPreview();
   }
 
@@ -375,6 +394,7 @@ export class FirstPersonController {
     this.abilityHud.style.display = 'none';
     this.impactOverlay.style.display = 'none';
     this.impactOverlayOpacity = 0;
+    this.resetTargetLock();
     this.impactShakeRemaining = 0;
     this.updateScopeOverlay(false);
     this.hideArtilleryPreview();
@@ -472,6 +492,7 @@ export class FirstPersonController {
       if (this.possessed.playerControlled) this.possessed.playerControlled.aimYaw = this.lookYaw;
       if (this.possessed.turret) this.possessed.turret.yaw = this.lookYaw;
     }
+    const lockedTarget = slot === 'primary' ? this.lockedTarget() : undefined;
     const reticleAircraft = slot === 'primary' ? this.tankReticleAircraft(this.possessed) : undefined;
     const target = this.possessed.flight
       ? this.flightTarget(this.possessed, slot === 'secondary' ? 'secondary' : 'primary')
@@ -479,6 +500,8 @@ export class FirstPersonController {
         ? this.sniperScopeShotTarget(this.possessed)
         : this.isSniperScoped(this.possessed) && slot === 'special'
           ? this.sniperScopeShotTarget(this.possessed)
+        : lockedTarget
+          ? new Vector3(lockedTarget.transform.x, lockedTarget.transform.y, lockedTarget.transform.z)
         : reticleAircraft
           ? new Vector3(reticleAircraft.transform.x, reticleAircraft.transform.y, reticleAircraft.transform.z)
         : slot === 'secondary'
@@ -498,10 +521,11 @@ export class FirstPersonController {
           z: target.z,
           y: target.y,
           aimYaw: this.currentAimYaw(),
+          targetId: lockedTarget?.id,
         });
       }
     } else {
-      fired = manualFireAt(this.sim, this.possessed, target.x, target.z, slot, target.y);
+      fired = manualFireAt(this.sim, this.possessed, target.x, target.z, slot, target.y, lockedTarget?.id);
       for (const wingman of followers) {
         if (wingman.turret) wingman.turret.yaw = Math.atan2(target.x - wingman.transform.x, target.z - wingman.transform.z);
         manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y);
@@ -515,13 +539,65 @@ export class FirstPersonController {
   private tankReticleAircraft(entity: Entity): Entity | undefined {
     const weaponKind = entity.weapons?.primary.kind ?? entity.weapon?.kind;
     if (entity.flight || !entity.playerControlled || !isTankDirectMissile(weaponKind) || !entity.team) return undefined;
+    return this.reticleTarget(entity, true);
+  }
+
+  private updateTargetLock(dt: number): void {
+    if (!this.possessed || !isTankDirectMissile(this.possessed.weapons?.primary.kind ?? this.possessed.weapon?.kind)) {
+      this.resetTargetLock();
+      return;
+    }
+    const candidate = this.reticleTarget(this.possessed, false);
+    if (!candidate) {
+      this.resetTargetLock();
+      return;
+    }
+    if (candidate.id !== this.lockCandidateId) {
+      this.lockCandidateId = candidate.id;
+      this.lockedTargetId = undefined;
+      this.lockProgress = 0;
+    }
+    this.lockProgress = Math.min(TARGET_LOCK_SECONDS, this.lockProgress + dt);
+    if (this.lockProgress >= TARGET_LOCK_SECONDS) this.lockedTargetId = candidate.id;
+    const locked = this.lockedTargetId === candidate.id;
+    this.lockHud.style.display = 'block';
+    this.lockHud.style.borderColor = locked ? 'rgba(255,82,62,.98)' : 'rgba(240,213,106,.9)';
+    this.lockHud.style.boxShadow = locked
+      ? '0 0 24px rgba(255,70,48,.62),inset 0 0 16px rgba(255,70,48,.16)'
+      : '0 0 16px rgba(240,213,106,.34),inset 0 0 12px rgba(240,213,106,.1)';
+    this.lockHud.style.transform = `translate(-50%,-50%) scale(${locked ? 0.9 : 1.04 - this.lockProgress * 0.04})`;
+    this.lockStatus.style.color = locked ? '#ff6b57' : '#f0d56a';
+    this.lockStatus.textContent = locked ? `LOCKED  ${candidate.name ?? 'TARGET'}` : `TRACKING  ${Math.round(this.lockProgress * 100)}%`;
+  }
+
+  private resetTargetLock(): void {
+    this.lockCandidateId = undefined;
+    this.lockedTargetId = undefined;
+    this.lockProgress = 0;
+    this.lockHud.style.display = 'none';
+  }
+
+  private lockedTarget(): Entity | undefined {
+    if (this.lockedTargetId === undefined) return undefined;
+    const target = this.sim.byId.get(this.lockedTargetId);
+    if (!target || target.destroyed || !target.health || target.health.current <= 0) {
+      this.resetTargetLock();
+      return undefined;
+    }
+    return target;
+  }
+
+  private reticleTarget(entity: Entity, aircraftOnly: boolean): Entity | undefined {
+    if (!entity.playerControlled || !entity.team) return undefined;
     const direction = new Vector3();
     this.camera.getWorldDirection(direction);
     let best: Entity | undefined;
     let bestAlong = Number.POSITIVE_INFINITY;
     for (const candidate of this.sim.world.entities) {
-      if (!candidate.flight || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
+      const tankTarget = candidate.selectable?.type === 'tank' && !!candidate.mover;
+      if ((!candidate.flight && (aircraftOnly || !tankTarget)) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
       if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
+      if (!this.isVisible(candidate.transform.x, candidate.transform.z)) continue;
       const center = new Vector3(candidate.transform.x, candidate.transform.y, candidate.transform.z);
       const offset = center.sub(this.camera.position);
       const along = offset.dot(direction);
@@ -846,6 +922,7 @@ export class FirstPersonController {
   }
 
   private takeControl(entity: Entity): void {
+    this.resetTargetLock();
     if (this.possessed && this.possessed !== entity) {
       if (this.commandSink) this.commandSink.release(this.possessed.id);
       else delete this.possessed.playerControlled;

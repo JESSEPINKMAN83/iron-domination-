@@ -171,10 +171,11 @@ describe('multiplayer lockstep commands', () => {
       playerId: 'guest',
       playerIndex: 2,
       tick: sim.tick,
-      command: { type: 'possess-fire', id: guestTank.id, slot: 'primary', x: hostTank.transform.x, z: hostTank.transform.z, aimYaw: Math.atan2(hostTank.transform.x - guestTank.transform.x, hostTank.transform.z - guestTank.transform.z) },
+      command: { type: 'possess-fire', id: guestTank.id, slot: 'primary', x: hostTank.transform.x, z: hostTank.transform.z, aimYaw: Math.atan2(hostTank.transform.x - guestTank.transform.x, hostTank.transform.z - guestTank.transform.z), targetId: hostTank.id },
     });
     lockstep.tick();
     expect(guestTank.weapons?.primary.cooldown ?? guestTank.weapon?.cooldown ?? 0).toBeGreaterThan(0);
+    expect(sim.projectiles.at(-1)?.homing?.targetId).toBe(hostTank.id);
 
     onEvent?.({
       type: 'command',

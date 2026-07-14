@@ -1335,7 +1335,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   unitView.attach(ctx.scene);
   const buildingView = new BuildingView(sim, hf, ctx, isVisibleToPlayer);
   ctx.scene.add(buildingView.group);
-  const combatView = new CombatView(hf, isVisibleToPlayer);
+  const combatView = new CombatView(hf, isVisibleToPlayer, (id) => sim.byId.get(id));
   ctx.scene.add(combatView.group);
   const economyFx = new EconomyFxView(sim, hf, isVisibleToPlayer);
   ctx.scene.add(economyFx.group);
@@ -1626,6 +1626,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           release: (id) => lockstep.issue({ type: 'possess-release', id }),
         }
       : undefined,
+    isVisibleToPlayer,
   );
   input.onKeyDown('KeyV', () => {
     if (firstPerson.active) firstPerson.exit();

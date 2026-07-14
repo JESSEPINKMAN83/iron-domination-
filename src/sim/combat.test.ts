@@ -490,10 +490,35 @@ describe('phase 4 combat simulation', () => {
 
     const projectile = sim.projectiles.at(-1);
     expect(projectile?.directTargetId).toBe(vulture.id);
+    expect(projectile?.homing).toBeUndefined();
     expect(projectile?.toY).toBe(vulture.transform.y);
     for (let i = 0; i < 30 * 2; i++) stepCombat(sim, 1 / 30, { autoFire: false });
     expect(vulture.health?.current).toBeLessThan(vulture.health?.max ?? 0);
     expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.targetId === vulture.id)).toBe(true);
+  });
+
+  it('turns a locked primary tank missile into a homing shot that follows a moving target', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, -20, -20, 'Player Tank');
+    const target = spawnTankAt(sim, -20, 42, 'Moving Target', 2);
+    tank.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    tank.turret!.yaw = 0;
+    target.weapon = undefined;
+    target.weapons = undefined;
+
+    expect(manualFireAt(sim, tank, target.transform.x, target.transform.z, 'primary', target.transform.y, target.id)).toBe(true);
+
+    const projectile = sim.projectiles.at(-1);
+    expect(projectile?.trajectory).toBe('homing');
+    expect(projectile?.homing?.targetId).toBe(target.id);
+    expect(projectile?.homing?.fizzleRange).toBeGreaterThan(sim.nav.size);
+    target.transform.x += 18;
+    target.previousTransform.x = target.transform.x;
+    for (let i = 0; i < 30 * 3; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    expect(target.health?.current).toBeLessThan(target.health?.max ?? 0);
+    expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.targetId === target.id)).toBe(true);
   });
 
   it('lets ground bomb splash only graze aircraft', () => {
