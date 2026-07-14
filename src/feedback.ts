@@ -1,10 +1,7 @@
 import './feedback.css';
 
 const FEEDBACK_FORM_NAME = 'iron-dominion-game-feedback';
-
-function isLocalPreview(): boolean {
-  return location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-}
+const FEEDBACK_ENDPOINT = 'https://formspree.io/f/xykrzdka';
 
 export function showFeedbackWidget(): void {
   if (document.getElementById('iron-feedback-widget')) return;
@@ -24,8 +21,7 @@ export function showFeedbackWidget(): void {
           <button class="iron-feedback__close" type="button" aria-label="Close feedback">×</button>
         </div>
         <p class="iron-feedback__intro">Tell us what worked, what broke, or what would make the battle better.</p>
-        <form name="${FEEDBACK_FORM_NAME}" method="POST" data-netlify="true" novalidate>
-          <input type="hidden" name="form-name" value="${FEEDBACK_FORM_NAME}">
+        <form name="${FEEDBACK_FORM_NAME}" method="POST" action="${FEEDBACK_ENDPOINT}" novalidate>
           <input type="hidden" name="page" value="">
           <label>
             <span>Your name</span>
@@ -89,18 +85,14 @@ export function showFeedbackWidget(): void {
     message.hidden = true;
     const data = new FormData(form);
     try {
-      if (isLocalPreview()) {
-        message.textContent = 'Preview mode: feedback is saved only on the deployed Netlify site.';
-        message.dataset.state = 'notice';
-        message.hidden = false;
-        submit.disabled = false;
-        return;
-      }
-      const response = await fetch('/', {
+      const response = await fetch(FEEDBACK_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
         body: new URLSearchParams({
-          'form-name': FEEDBACK_FORM_NAME,
+          '_subject': 'New Iron Dominion game feedback',
           name: String(data.get('name') ?? ''),
           rating: String(data.get('rating') ?? ''),
           message: String(data.get('message') ?? ''),
@@ -114,7 +106,7 @@ export function showFeedbackWidget(): void {
       message.hidden = false;
       submit.disabled = false;
     } catch {
-      message.textContent = 'Feedback is not connected on this deployment yet. Enable Netlify form detection and redeploy.';
+      message.textContent = 'We could not send your feedback. Please check your connection and try again.';
       message.dataset.state = 'error';
       message.hidden = false;
       submit.disabled = false;

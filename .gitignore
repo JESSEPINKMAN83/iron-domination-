@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-cloudflare/
 public/libs/
 *.local
 .DS_Store

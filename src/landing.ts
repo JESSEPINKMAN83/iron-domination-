@@ -1,6 +1,7 @@
 import './landing.css';
 
 const FORM_NAME = 'iron-dominion-beta';
+const BETA_SIGNUP_ENDPOINT = 'https://formspree.io/f/xjgnkega';
 const ACCESS_STORAGE_KEY = 'iron-dominion.beta-access.v1';
 
 function encodeForm(data: Record<string, string>): string {
@@ -21,10 +22,6 @@ function rememberBetaAccess(): void {
   } catch {
     // Access still works for this visit when browser storage is unavailable.
   }
-}
-
-function isLocalPreview(): boolean {
-  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 }
 
 export function showLandingScreen(): Promise<void> {
@@ -54,12 +51,7 @@ export function showLandingScreen(): Promise<void> {
             <button class="iron-landing__cta" type="button">Play game</button>
           </div>
         ` : `
-        <form class="iron-landing__form" name="${FORM_NAME}" method="POST" data-netlify="true" data-netlify-honeypot="bot-field" novalidate>
-          <input type="hidden" name="form-name" value="${FORM_NAME}">
-          <label class="iron-landing__honeypot" aria-hidden="true">
-            Leave this empty
-            <input name="bot-field" tabindex="-1" autocomplete="off">
-          </label>
+        <form class="iron-landing__form" name="${FORM_NAME}" method="POST" action="${BETA_SIGNUP_ENDPOINT}" novalidate>
           <div class="iron-landing__fields">
             <label>
               <span>Name</span>
@@ -101,21 +93,17 @@ export function showLandingScreen(): Promise<void> {
       error.hidden = true;
       const formData = new FormData(form);
       try {
-        if (isLocalPreview()) {
-          rememberBetaAccess();
-          root.classList.add('is-setup-open');
-          resolve();
-          return;
-        }
-        const response = await fetch('/', {
+        const response = await fetch(BETA_SIGNUP_ENDPOINT, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
           body: encodeForm({
-            'form-name': FORM_NAME,
-            'bot-field': String(formData.get('bot-field') ?? ''),
+            '_subject': 'New Iron Dominion beta signup',
             name: String(formData.get('name') ?? ''),
             email: String(formData.get('email') ?? ''),
-            'release-updates': formData.get('release-updates') === 'yes' ? 'yes' : 'no',
+            release_updates: formData.get('release-updates') === 'yes' ? 'yes' : 'no',
           }),
         });
         if (!response.ok) throw new Error(`Signup failed (${response.status})`);
@@ -123,7 +111,7 @@ export function showLandingScreen(): Promise<void> {
         root.classList.add('is-setup-open');
         resolve();
       } catch {
-        error.textContent = 'Signup is not connected on this deployment yet. Enable Netlify form detection, redeploy, and try again.';
+        error.textContent = 'We could not save your beta signup. Please check your connection and try again.';
         error.hidden = false;
         cta.disabled = false;
       }

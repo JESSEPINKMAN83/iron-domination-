@@ -94,14 +94,6 @@
 
 .iron-landing__returning { margin-top: 26px; }
 
-.iron-landing__honeypot {
-  position: absolute;
-  left: -10000px;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-}
-
 .iron-landing__fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

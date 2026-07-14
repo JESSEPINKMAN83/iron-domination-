@@ -11,6 +11,7 @@
     "dev:multiplayer": "node scripts/dev-multiplayer.mjs",
     "multiplayer": "node server/multiplayer-server.mjs",
     "build": "tsc && vite build",
+    "build:cloudflare": "tsc && vite build --outDir dist-cloudflare",
     "preview": "vite preview",
     "test": "vitest run",
     "postinstall": "node scripts/copy-decoders.mjs"
