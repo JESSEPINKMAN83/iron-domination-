@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { generateHeightfield } from './heightfield';
-import { createGameSim, hashSim, spawnTankAt, spawnVultureAt } from './world';
+import { createGameSim, hashCriticalSimState, hashSim, spawnTankAt, spawnVultureAt } from './world';
 
 // hashSim is the determinism canary (save/load + future multiplayer). These tests
 // assert it actually reacts to each tracked field — a hash that ignores a field can't
@@ -60,5 +60,22 @@ describe('hashSim sensitivity', () => {
     const seeking = hashSim(sim);
     tank.harvester.state = 'to-node';
     expect(hashSim(sim)).not.toBe(seeking);
+  });
+});
+
+describe('critical multiplayer hash', () => {
+  it('ignores harmless movement drift but catches health and death disagreements', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, 0, 0, 'A');
+    const base = hashCriticalSimState(sim);
+    tank.transform.x += 0.75;
+    tank.transform.rot += 0.1;
+    expect(hashCriticalSimState(sim)).toBe(base);
+    tank.health!.current -= 10;
+    expect(hashCriticalSimState(sim)).not.toBe(base);
+    const damaged = hashCriticalSimState(sim);
+    tank.destroyed = { remaining: 20 };
+    expect(hashCriticalSimState(sim)).not.toBe(damaged);
   });
 });

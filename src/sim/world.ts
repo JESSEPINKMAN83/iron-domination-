@@ -1125,3 +1125,25 @@ export function hashSim(sim: GameSim): number {
   mix(sim.rules.autoDefense ? 1 : 0);
   return h >>> 0;
 }
+
+// First-person movement can accumulate tiny cross-engine floating-point
+// differences even when both players see the same combat outcome. This compact
+// hash intentionally ignores transforms and weapon interpolation while keeping
+// the authoritative facts that must never disagree: which entities exist,
+// their team, health, and whether they are dead. It lets multiplayer verify the
+// tank-death state every second without repeatedly pausing to correct harmless
+// sub-centimetre motion differences.
+export function hashCriticalSimState(sim: GameSim): number {
+  let h = 0x811c9dc5 >>> 0;
+  const mix = (value: number): void => {
+    h = Math.imul(h ^ value, 0x01000193) >>> 0;
+  };
+  const entities = Array.from(sim.world.entities).sort((a, b) => a.id - b.id);
+  for (const entity of entities) {
+    mix(entity.id);
+    mix(entity.team?.id ?? 0);
+    mix(entity.health ? Math.round(entity.health.current * 100) : -1);
+    mix(entity.destroyed ? 1 : 0);
+  }
+  return h >>> 0;
+}

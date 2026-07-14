@@ -17,8 +17,7 @@ import {
 import type { Heightfield } from '../sim/heightfield';
 import { issueAttackOrder, manualFireAt } from '../sim/combat';
 import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
-import { areTeamsHostile, entityById, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
-import { hashSim } from '../sim/world';
+import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from '../sim/serialize';
 import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession, type TacticalPing, type TacticalPingKind } from './multiplayer';
 
@@ -74,10 +73,8 @@ export interface LockstepRuntimeOptions {
 }
 
 const DEFAULT_INPUT_DELAY_TICKS = 8;
-// First-person combat produces the highest command rate and is where even a
-// single late input can change a projectile hit or death. Check every second so
-// a disagreement cannot remain invisible for the rest of the match.
-const HASH_INTERVAL_TICKS = 30;
+const FULL_HASH_INTERVAL_TICKS = 30 * 5;
+const CRITICAL_HASH_INTERVAL_TICKS = 30;
 const HASH_HISTORY_TICKS = 30 * 30;
 
 export class LockstepRuntime {
@@ -88,6 +85,7 @@ export class LockstepRuntime {
   private lastHashSent = 0;
   private recoveryPending = false;
   private peerMissing = false;
+  private connectedPlayerCount = 0;
   private connectionInterrupted = false;
   private readonly hashHistory = new Map<number, number>();
   private estimatedRttMs = 160;
@@ -165,11 +163,13 @@ export class LockstepRuntime {
       this.handleLateRemoteCommand(lateTick);
       return;
     }
-    this.rememberHash(tick, hashSim(this.options.sim));
+    const criticalOnly = hasActivePossession(this.options.sim);
+    this.rememberHash(tick, criticalOnly ? hashCriticalSimState(this.options.sim) : hashSim(this.options.sim));
     for (const queued of due) {
       if (queued.command.type === 'sim-hash') this.apply(queued.playerIndex, queued.command, queued.tick);
     }
-    if (this.connected && tick - this.lastHashSent >= HASH_INTERVAL_TICKS) {
+    const hashInterval = criticalOnly ? CRITICAL_HASH_INTERVAL_TICKS : FULL_HASH_INTERVAL_TICKS;
+    if (this.connected && tick - this.lastHashSent >= hashInterval) {
       this.lastHashSent = tick;
       void this.send({ type: 'sim-hash', hash: this.hashHistory.get(tick)! }, tick);
     }
@@ -229,10 +229,13 @@ export class LockstepRuntime {
       const connected = event.room.players.filter((player) => player.connected).length;
       const localPing = event.room.players.find((player) => player.index === this.localTeam)?.pingMs;
       if (Number.isFinite(localPing)) this.estimatedRttMs = Math.max(20, Math.min(500, Number(localPing)));
+      const previousConnected = this.connectedPlayerCount;
+      this.connectedPlayerCount = connected;
       const peerReconnected = this.peerMissing && !missing;
+      const peerDisconnected = !this.peerMissing && missing;
       this.peerMissing = missing;
       this.roomPaused = missing || this.recoveryPending;
-      if (missing) this.options.onStatus?.('Opponent disconnected — match paused', true);
+      if (peerDisconnected || (missing && previousConnected !== connected)) this.options.onStatus?.('Opponent disconnected — match paused', true);
       else if (peerReconnected) {
         if (this.localTeam === 1) this.sendRecoverySnapshot('Opponent reconnected — synchronizing match state');
         else {
@@ -244,7 +247,9 @@ export class LockstepRuntime {
           );
           this.options.onStatus?.('Reconnected — synchronizing with host');
         }
-      } else if (connected >= event.room.armyCount && !this.recoveryPending) this.options.onStatus?.('All commanders connected');
+      } else if (connected >= event.room.armyCount && previousConnected < event.room.armyCount && !this.recoveryPending) {
+        this.options.onStatus?.('All commanders connected');
+      }
       return;
     }
     if (event.type === 'room-closed') {
@@ -274,7 +279,12 @@ export class LockstepRuntime {
       this.apply(event.playerIndex, command, event.tick);
       return;
     }
-    if (!this.recoveryPending && command.type !== 'sim-hash' && event.tick < this.options.sim.tick) {
+    // Steering is continuous state, not a one-shot action. Applying a delayed
+    // steering update immediately is smoother and safe; the frequent critical
+    // hash still catches any resulting health/death disagreement. Discrete
+    // actions such as firing must continue to trigger authoritative recovery.
+    const latencyTolerantControl = command.type === 'possess-input';
+    if (!this.recoveryPending && command.type !== 'sim-hash' && !latencyTolerantControl && event.tick < this.options.sim.tick) {
       this.lateRemoteCommandTick = this.lateRemoteCommandTick === undefined
         ? event.tick
         : Math.min(this.lateRemoteCommandTick, event.tick);
@@ -502,6 +512,10 @@ function ownedEntities(sim: GameSim, ids: number[], team: number): Entity[] {
 
 function clampUnit(value: number): number {
   return Math.max(-1, Math.min(1, value));
+}
+
+function hasActivePossession(sim: GameSim): boolean {
+  return sim.world.entities.some((entity) => !entity.destroyed && !!entity.playerControlled);
 }
 
 function isNetCommand(value: unknown): value is NetCommand {

@@ -662,7 +662,10 @@ export class FirstPersonController {
       controlled.aimYaw.toFixed(3),
     ].join(':');
     const cadenceTicks = this.possessed.flight ? 1 : 3;
-    if (!force && this.sim.tick - this.lastControlSentTick < cadenceTicks) return;
+    const heartbeatTicks = this.possessed.flight ? 15 : 30;
+    const ticksSinceLastSend = this.sim.tick - this.lastControlSentTick;
+    const changed = signature !== this.lastControlSignature;
+    if (!force && ((!changed && ticksSinceLastSend < heartbeatTicks) || (changed && ticksSinceLastSend < cadenceTicks))) return;
     this.lastControlSentTick = this.sim.tick;
     this.lastControlSignature = signature;
     this.commandSink.control({

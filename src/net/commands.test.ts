@@ -4,7 +4,7 @@ import { advanceTick } from '../match/advanceTick';
 import { createEconomy, createInitialBase } from '../sim/economy';
 import { generateHeightfield } from '../sim/heightfield';
 import { serializeMatchState } from '../sim/serialize';
-import { createGameSim, hashSim, spawnTankAt, type GameSim } from '../sim/world';
+import { createGameSim, hashCriticalSimState, hashSim, spawnTankAt, type GameSim } from '../sim/world';
 import { LockstepRuntime } from './commands';
 import type { MultiplayerClient, MultiplayerSession } from './multiplayer';
 
@@ -259,7 +259,7 @@ describe('multiplayer lockstep commands', () => {
     const currentHealth = tank.health!.current;
     tank.health!.current = 0;
     tank.destroyed = { remaining: 20 };
-    const peerKilledHash = hashSim(match.sim);
+    const peerKilledHash = hashCriticalSimState(match.sim);
     tank.health!.current = currentHealth;
     delete tank.destroyed;
 
@@ -306,6 +306,7 @@ describe('multiplayer lockstep commands', () => {
   it('forces host recovery instead of silently applying a late combat command', () => {
     const hf = generateHeightfield(MAP01);
     const match = testMatch(hf);
+    const hostTank = spawnTankAt(match.sim, 30, 30, 'Host Tank', 1);
     const guestTank = spawnTankAt(match.sim, 42, 42, 'Guest Tank', 2);
     match.sim.tick = 20;
     let onEvent: ((event: unknown) => void) | undefined;
@@ -328,13 +329,56 @@ describe('multiplayer lockstep commands', () => {
       playerId: 'guest',
       playerIndex: 2,
       tick: 12,
-      command: { type: 'possess-input', id: guestTank.id, throttle: 1, turn: 0, aimYaw: 0 },
+      command: {
+        type: 'possess-fire',
+        id: guestTank.id,
+        slot: 'primary',
+        x: hostTank.transform.x,
+        z: hostTank.transform.z,
+        aimYaw: 0,
+        targetId: hostTank.id,
+      },
     });
     lockstep.tick();
 
-    expect(guestTank.playerControlled?.throttle).toBe(1);
+    expect(match.sim.projectiles.length).toBeGreaterThan(0);
     expect(sent.some((command) => isCommandType(command, 'match-snapshot'))).toBe(true);
     expect(lockstep.canAdvance()).toBe(false);
+  });
+
+  it('does not pause for late first-person steering state', () => {
+    const hf = generateHeightfield(MAP01);
+    const match = testMatch(hf);
+    const guestTank = spawnTankAt(match.sim, 42, 42, 'Guest Tank', 2);
+    guestTank.playerControlled = { throttle: 0, turn: 0, aimYaw: 0, climb: 0, strafe: 0, boost: false };
+    match.sim.tick = 20;
+    let onEvent: ((event: unknown) => void) | undefined;
+    const sent: unknown[] = [];
+    const client = {
+      connect: (_room: string, _playerId: string, handler: (event: unknown) => void) => { onEvent = handler; },
+      disconnect: () => undefined,
+      sendCommand: async (_room: string, _playerId: string, _tick: number, command: unknown) => { sent.push(command); },
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({
+      sim: match.sim,
+      hf,
+      economies: { 1: match.economy1, 2: match.economy2 },
+      client,
+      session: sessionFor(1),
+    });
+    lockstep.connect();
+    onEvent?.({
+      type: 'command',
+      playerId: 'guest',
+      playerIndex: 2,
+      tick: 12,
+      command: { type: 'possess-input', id: guestTank.id, throttle: 1, turn: 0, aimYaw: 0, climb: 0, strafe: 0, boost: false },
+    });
+    lockstep.tick();
+
+    expect(guestTank.playerControlled.throttle).toBe(1);
+    expect(sent.some((command) => isCommandType(command, 'match-snapshot'))).toBe(false);
+    expect(lockstep.canAdvance()).toBe(true);
   });
 
   it('compares a delayed peer hash against the same simulation tick instead of the live state', () => {
@@ -495,6 +539,35 @@ describe('multiplayer lockstep commands', () => {
     onEvent?.({ type: 'player-forfeit', playerId: 'guest', playerIndex: 2, name: 'Guest' });
     expect(lockstep.canAdvance()).toBe(false);
     expect(status).toBe('Guest forfeited — victory');
+  });
+
+  it('does not repaint the multiplayer banner for unchanged room heartbeats', () => {
+    const hf = generateHeightfield(MAP01);
+    const match = testMatch(hf);
+    let onEvent: ((event: unknown) => void) | undefined;
+    const statuses: string[] = [];
+    const client = {
+      connect: (_room: string, _playerId: string, handler: (event: unknown) => void) => { onEvent = handler; },
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({
+      sim: match.sim,
+      hf,
+      economies: { 1: match.economy1, 2: match.economy2 },
+      client,
+      session: sessionFor(1),
+      onStatus: (message) => statuses.push(message),
+    });
+    lockstep.connect();
+    const room = {
+      ...sessionFor(1).room,
+      players: [{ id: 'host', index: 1, connected: true }, { id: 'guest', index: 2, connected: true }],
+    };
+    onEvent?.({ type: 'room-state', room });
+    onEvent?.({ type: 'room-state', room });
+
+    expect(statuses.filter((message) => message === 'All commanders connected')).toHaveLength(1);
   });
 });
 

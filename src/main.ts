@@ -1502,6 +1502,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let sidebar!: Sidebar;
   let tacticalPingKind: TacticalPingKind | undefined;
   let networkPaused = false;
+  let lastNetworkStatus = '';
   const setNetworkStatus = (message: string, bad = false): void => {
     if (multiplayerMode) {
       const shouldPause =
@@ -1509,6 +1510,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       const shouldResume = !bad && (/connected/i.test(message) || /online/i.test(message));
       if (shouldPause) networkPaused = true;
       if (shouldResume) networkPaused = false;
+      const statusKey = `${bad ? 'warning' : 'online'}:${networkPaused ? 'paused' : 'running'}:${message}`;
+      if (statusKey === lastNetworkStatus) return;
+      lastNetworkStatus = statusKey;
       hud.setMultiplayerStatus(message, bad, networkPaused);
     }
     console[bad ? 'warn' : 'info'](`[mp] ${message}`);
