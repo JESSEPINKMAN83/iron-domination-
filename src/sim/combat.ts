@@ -229,7 +229,7 @@ export function manualFireAt(
   const target = lockedTarget ?? acquireLineTarget(sim, attacker, weapon, ux, uz, range, aimRay, isTankDirectMissile(def.kind) && !!attacker.playerControlled);
   const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
   const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
-  if (def.projectile) {
+  if (def.projectile || lockedTarget) {
     launchWeaponProjectile(sim, attacker, weapon, target, hitX, targetYForEvent(target, targetY), hitZ, lockedTarget?.id === target?.id);
     return true;
   }
@@ -347,26 +347,30 @@ function launchWeaponProjectile(
 ): void {
   if (!attacker.team) return;
   const def = WEAPONS[weapon.kind as WeaponKind];
-  if (!def?.projectile) return;
+  if (!def) return;
+  const projectileDef = def.projectile ?? (forceHoming && isManualTargetLockWeapon(def.kind)
+    ? { kind: 'atRocket' as const, speed: 96, trajectory: 'flat' as const, impactRadius: 2.2 }
+    : undefined);
+  if (!projectileDef) return;
   const fromY = directMuzzleY(attacker);
   const dx = targetX - attacker.transform.x;
   const dz = targetZ - attacker.transform.z;
   const distanceToAim = Math.max(0.001, Math.hypot(dx, dz));
-  const speed = def.projectile.speed;
+  const speed = projectileDef.speed;
   const duration = Math.min(3.2, Math.max(0.08, distanceToAim / speed));
   const homing =
-    (def.projectile.trajectory === 'homing' || forceHoming) && target?.id
+    (projectileDef.trajectory === 'homing' || forceHoming) && target?.id
       ? {
           targetId: target.id,
           speed,
           fizzleRange: forceHoming
-            ? Math.max(def.projectile.fizzleRange ?? 0, sim.nav.size * Math.SQRT2 + 64)
-            : def.projectile.fizzleRange ?? def.range * 1.15,
+            ? Math.max(projectileDef.fizzleRange ?? 0, sim.nav.size * Math.SQRT2 + 64)
+            : projectileDef.fizzleRange ?? def.range * 1.15,
         }
       : undefined;
-  const trajectory = homing ? 'homing' : def.projectile.trajectory;
+  const trajectory = homing ? 'homing' : projectileDef.trajectory;
   sim.projectiles.push({
-    kind: def.projectile.kind,
+    kind: projectileDef.kind,
     weaponKind: def.kind,
     fromX: attacker.transform.x,
     fromY,
@@ -380,7 +384,7 @@ function launchWeaponProjectile(
     elapsed: 0,
     duration,
     speed,
-    maxDistance: def.projectile.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
+    maxDistance: projectileDef.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
     directTargetId: target?.id,
     trajectory,
     homing,
@@ -389,7 +393,7 @@ function launchWeaponProjectile(
   });
   weapon.cooldown = weaponCooldown(def.cooldown, attacker);
   sim.events.push({
-    kind: def.projectile.kind,
+    kind: projectileDef.kind,
     fromX: attacker.transform.x,
     fromY,
     fromZ: attacker.transform.z,
@@ -407,11 +411,21 @@ function launchWeaponProjectile(
 }
 
 function validManualLockTarget(sim: GameSim, attacker: Entity, weapon: Weapon, targetId: number | undefined): Entity | undefined {
-  if (targetId === undefined || !attacker.playerControlled || !isTankDirectMissile(weapon.kind as WeaponKind) || !attacker.team) return undefined;
+  if (targetId === undefined || !attacker.playerControlled || !isManualTargetLockWeapon(weapon.kind) || !attacker.team) return undefined;
   const target = entityById(sim, targetId);
   if (!target || (!target.flight && target.selectable?.type !== 'tank')) return undefined;
   if (!targetableByTeam(sim, attacker.team.id, target)) return undefined;
   return target;
+}
+
+export function isManualTargetLockWeapon(kind: string | undefined): boolean {
+  return kind === 'scoutMissile'
+    || kind === 'tankMissile'
+    || kind === 'siegeMissile'
+    || kind === 'rocketLauncher'
+    || kind === 'rocketPod'
+    || kind === 'agMissile'
+    || kind === 'aaMissile';
 }
 
 function isTankDirectMissile(kind: WeaponKind): boolean {

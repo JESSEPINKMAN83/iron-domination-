@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
-import { damageForArmor, issueAttackOrder, manualFireAt, stepCombat } from './combat';
+import { damageForArmor, isManualTargetLockWeapon, issueAttackOrder, manualFireAt, stepCombat } from './combat';
 import { createEconomy, createInitialBase, placeStructure, spawnInfantryAt, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
@@ -519,6 +519,49 @@ describe('phase 4 combat simulation', () => {
 
     expect(target.health?.current).toBeLessThan(target.health?.max ?? 0);
     expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.targetId === target.id)).toBe(true);
+  });
+
+  it('lets missile infantry lock a moving vehicle with its primary rocket', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const rockets = spawnInfantryAt(sim, -20, -20, 1, 'rocket-infantry');
+    const target = spawnTankAt(sim, -20, 42, 'Moving Target', 2);
+    rockets.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    rockets.turret!.yaw = 0;
+    target.weapon = undefined;
+    target.weapons = undefined;
+
+    expect(isManualTargetLockWeapon(rockets.weapons?.primary.kind)).toBe(true);
+    expect(manualFireAt(sim, rockets, target.transform.x, target.transform.z, 'primary', target.transform.y, target.id)).toBe(true);
+    expect(sim.projectiles.at(-1)?.homing?.targetId).toBe(target.id);
+    target.transform.x += 12;
+    target.previousTransform.x = target.transform.x;
+    for (let i = 0; i < 30 * 3; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    expect(target.health?.current).toBeLessThan(target.health?.max ?? 0);
+  });
+
+  it('lets aircraft rocket pods create a guided primary shot after target lock', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vulture = spawnVultureAt(sim, hf, -20, -20, 'Vulture');
+    const target = spawnTankAt(sim, -20, 58, 'Moving Target', 2);
+    vulture.playerControlled = { throttle: 0, turn: 0, aimYaw: 0, climb: 0 };
+    vulture.turret!.yaw = 0;
+    target.weapon = undefined;
+    target.weapons = undefined;
+
+    expect(isManualTargetLockWeapon(vulture.weapons?.primary.kind)).toBe(true);
+    expect(manualFireAt(sim, vulture, target.transform.x, target.transform.z, 'primary', target.transform.y, target.id)).toBe(true);
+    const projectile = sim.projectiles.at(-1);
+    expect(projectile?.weaponKind).toBe('rocketPod');
+    expect(projectile?.trajectory).toBe('homing');
+    expect(projectile?.homing?.targetId).toBe(target.id);
+    target.transform.x += 14;
+    target.previousTransform.x = target.transform.x;
+    for (let i = 0; i < 30 * 3; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    expect(target.health?.current).toBeLessThan(target.health?.max ?? 0);
   });
 
   it('lets ground bomb splash only graze aircraft', () => {

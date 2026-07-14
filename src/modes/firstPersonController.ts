@@ -2,7 +2,7 @@ import { MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
-import { manualFireAt } from '../sim/combat';
+import { isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
 import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
@@ -494,14 +494,14 @@ export class FirstPersonController {
     }
     const lockedTarget = slot === 'primary' ? this.lockedTarget() : undefined;
     const reticleAircraft = slot === 'primary' ? this.tankReticleAircraft(this.possessed) : undefined;
-    const target = this.possessed.flight
-      ? this.flightTarget(this.possessed, slot === 'secondary' ? 'secondary' : 'primary')
+    const target = lockedTarget
+      ? new Vector3(lockedTarget.transform.x, lockedTarget.transform.y, lockedTarget.transform.z)
+      : this.possessed.flight
+        ? this.flightTarget(this.possessed, slot === 'secondary' ? 'secondary' : 'primary')
       : this.isSniperScoped(this.possessed) && slot === 'primary'
         ? this.sniperScopeShotTarget(this.possessed)
         : this.isSniperScoped(this.possessed) && slot === 'special'
           ? this.sniperScopeShotTarget(this.possessed)
-        : lockedTarget
-          ? new Vector3(lockedTarget.transform.x, lockedTarget.transform.y, lockedTarget.transform.z)
         : reticleAircraft
           ? new Vector3(reticleAircraft.transform.x, reticleAircraft.transform.y, reticleAircraft.transform.z)
         : slot === 'secondary'
@@ -543,7 +543,7 @@ export class FirstPersonController {
   }
 
   private updateTargetLock(dt: number): void {
-    if (!this.possessed || !isTankDirectMissile(this.possessed.weapons?.primary.kind ?? this.possessed.weapon?.kind)) {
+    if (!this.possessed || !isManualTargetLockWeapon(this.possessed.weapons?.primary.kind ?? this.possessed.weapon?.kind)) {
       this.resetTargetLock();
       return;
     }
