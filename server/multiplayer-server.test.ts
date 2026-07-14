@@ -72,13 +72,13 @@ describe('multiplayer relay', () => {
 
     const synchronizedSettings = nextMessage(
       guest,
-      (message) => message.type === 'room-state' && message.room.mapId === 'crater-oasis' && message.room.seed === 246810,
+      (message) => message.type === 'room-state' && message.room.mapId === 'crater-oasis' && message.room.mapSize === 'large' && message.room.seed === 246810,
     );
     host.send(JSON.stringify({
       type: 'settings',
       roomCode,
       playerId: hostId,
-      settings: { mapId: 'crater-oasis', seed: 246810, combatMode: 'manual', armySides: [1, 1] },
+      settings: { mapId: 'crater-oasis', mapSize: 'large', seed: 246810, combatMode: 'manual', armySides: [1, 1] },
     }));
     await synchronizedSettings;
 
@@ -108,6 +108,8 @@ describe('multiplayer relay', () => {
     ]);
     expect(hostStart.room.mapId).toBe('crater-oasis');
     expect(guestStart.room.mapId).toBe('crater-oasis');
+    expect(hostStart.room.mapSize).toBe('large');
+    expect(guestStart.room.mapSize).toBe('large');
     expect(hostStart.room.seed).toBe(246810);
     expect(guestStart.room.seed).toBe(246810);
 
@@ -224,6 +226,7 @@ describe('multiplayer relay', () => {
     const room = {
       code: 'RESUME',
       mapId: 'frostbite-pass',
+      mapSize: 'small',
       seed: 771204,
       ai: 'easy',
       aiStyle: 'balanced',
@@ -243,6 +246,7 @@ describe('multiplayer relay', () => {
     expect(restored.room.code).toBe('RESUME');
     expect(restored.room.status).toBe('in-game');
     expect(restored.room.mapId).toBe('frostbite-pass');
+    expect(restored.room.mapSize).toBe('small');
     expect(restored.player.id).toBe(hostId);
 
     const guest = await connect(port);

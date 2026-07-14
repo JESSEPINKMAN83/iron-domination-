@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { MAP_PRESETS } from '../content/maps';
+import { MAP_PRESETS, mapConfig } from '../content/maps';
 import { generateHeightfield, hashHeightfield, type MapConfig } from './heightfield';
 
 const cfg: MapConfig = { seed: 1337, cells: 128, cellSize: 2, waterLevel: 2, oreFieldCount: 3 };
 const phase1MapCfg: MapConfig = { seed: 1337, cells: 512, cellSize: 2, waterLevel: 2, oreFieldCount: 5 };
 
 describe('heightfield generation', () => {
+  it('scales terrain and ore fields across setup map sizes while preserving the medium default', () => {
+    const small = mapConfig('highlands', 'small');
+    const medium = mapConfig('highlands', 'medium');
+    const large = mapConfig('highlands', 'large');
+
+    expect(small).toMatchObject({ cells: 384, cellSize: 2, oreFieldCount: 4 });
+    expect(medium).toEqual(MAP_PRESETS.highlands.config);
+    expect(large).toMatchObject({ cells: 640, cellSize: 2, oreFieldCount: 6 });
+  });
+
   it('is deterministic: same seed → identical data hash', () => {
     const a = hashHeightfield(generateHeightfield(cfg));
     const b = hashHeightfield(generateHeightfield({ ...cfg }));

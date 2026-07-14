@@ -4,6 +4,16 @@ export type MapId = 'highlands' | 'crater-oasis' | 'frostbite-pass';
 
 export type MapBiome = 'temperate' | 'desert' | 'snow';
 
+export type MapSize = 'small' | 'medium' | 'large';
+
+export interface MapSizePreset {
+  id: MapSize;
+  label: string;
+  cells: number;
+  oreMultiplier: number;
+  description: string;
+}
+
 export interface MapAtmosphere {
   sky: string;
   fogNear: number;
@@ -105,12 +115,47 @@ export const MAP_PRESETS = {
 
 export const MAP_IDS = Object.keys(MAP_PRESETS) as MapId[];
 export const DEFAULT_MAP_ID: MapId = 'highlands';
+export const MAP_SIZE_PRESETS = {
+  small: {
+    id: 'small',
+    label: 'SMALL',
+    cells: 384,
+    oreMultiplier: 0.75,
+    description: '768m battlefield. Faster contact and focused 1v1 matches.',
+  },
+  medium: {
+    id: 'medium',
+    label: 'MEDIUM',
+    cells: 512,
+    oreMultiplier: 1,
+    description: '1024m battlefield. The current balanced default for 1v1 or 2v2.',
+  },
+  large: {
+    id: 'large',
+    label: 'LARGE',
+    cells: 640,
+    oreMultiplier: 1.25,
+    description: '1280m battlefield. More expansion space and longer four-army wars.',
+  },
+} as const satisfies Record<MapSize, MapSizePreset>;
+export const MAP_SIZE_IDS = Object.keys(MAP_SIZE_PRESETS) as MapSize[];
+export const DEFAULT_MAP_SIZE: MapSize = 'medium';
 export const MAP01: MapConfig = MAP_PRESETS.highlands.config;
 
 export function sanitizeMapId(value: unknown): MapId | undefined {
   return typeof value === 'string' && value in MAP_PRESETS ? (value as MapId) : undefined;
 }
 
-export function mapConfig(id: MapId): MapConfig {
-  return MAP_PRESETS[id]?.config ?? MAP_PRESETS[DEFAULT_MAP_ID].config;
+export function sanitizeMapSize(value: unknown): MapSize | undefined {
+  return typeof value === 'string' && value in MAP_SIZE_PRESETS ? (value as MapSize) : undefined;
+}
+
+export function mapConfig(id: MapId, size: MapSize = DEFAULT_MAP_SIZE): MapConfig {
+  const base = MAP_PRESETS[id]?.config ?? MAP_PRESETS[DEFAULT_MAP_ID].config;
+  const selectedSize = MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
+  return {
+    ...base,
+    cells: selectedSize.cells,
+    oreFieldCount: Math.max(3, Math.round(base.oreFieldCount * selectedSize.oreMultiplier)),
+  };
 }

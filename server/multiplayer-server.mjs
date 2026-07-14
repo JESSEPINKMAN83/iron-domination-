@@ -24,6 +24,7 @@ const rooms = new Map();
  * @typedef {{
  *   code: string;
  *   mapId: string;
+ *   mapSize: 'small' | 'medium' | 'large';
  *   seed: number;
  *   ai: string;
  *   aiStyle: string;
@@ -193,11 +194,12 @@ function handleSettings(socket, body) {
   if (!room || !player || player.index !== 1 || room.status !== 'waiting') return;
   const next = body.settings ?? {};
   room.mapId = normalizeMapId(next.mapId ?? room.mapId);
+  room.mapSize = normalizeMapSize(next.mapSize ?? room.mapSize);
   room.seed = Math.max(1, Math.floor(Number(next.seed) || room.seed));
   room.ai = String(next.ai ?? room.ai);
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
-  room.armySides = normalizeArmySides(next.armySides, 2);
+  room.armySides = normalizeArmySides(next.armySides, room.armyCount);
   for (const candidate of room.players) candidate.ready = false;
   room.updatedAt = Date.now();
   broadcast(room, roomState(room));
@@ -295,6 +297,7 @@ function createRoom(body) {
   return {
     code,
     mapId: normalizeMapId(body?.mapId),
+    mapSize: normalizeMapSize(body?.mapSize),
     seed: Math.max(1, Math.floor(Number(body?.seed) || 1)),
     ai: String(body?.ai ?? 'normal'),
     aiStyle: String(body?.aiStyle ?? 'balanced'),
@@ -316,6 +319,7 @@ function restoreRoom(snapshot) {
   const room = {
     code: normalizeRoomCode(snapshot?.code),
     mapId: normalizeMapId(snapshot?.mapId),
+    mapSize: normalizeMapSize(snapshot?.mapSize),
     seed: Math.max(1, Math.floor(Number(snapshot?.seed) || 1)),
     ai: String(snapshot?.ai ?? 'normal'),
     aiStyle: String(snapshot?.aiStyle ?? 'balanced'),
@@ -464,6 +468,7 @@ function publicRoom(room) {
   return {
     code: room.code,
     mapId: room.mapId,
+    mapSize: room.mapSize,
     seed: room.seed,
     ai: room.ai,
     aiStyle: room.aiStyle,
@@ -553,6 +558,10 @@ function normalizeCombatMode(value) {
 
 function normalizeMapId(value) {
   return value === 'crater-oasis' || value === 'frostbite-pass' ? value : 'highlands';
+}
+
+function normalizeMapSize(value) {
+  return value === 'small' || value === 'large' ? value : 'medium';
 }
 
 function normalizeTacticalPingKind(value) {

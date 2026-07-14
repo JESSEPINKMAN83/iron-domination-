@@ -1,7 +1,20 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
+import { showLandingScreen } from './landing';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
-import { DEFAULT_MAP_ID, MAP_IDS, MAP_PRESETS, mapConfig, sanitizeMapId, type MapId } from './content/maps';
+import {
+  DEFAULT_MAP_ID,
+  DEFAULT_MAP_SIZE,
+  MAP_IDS,
+  MAP_PRESETS,
+  MAP_SIZE_IDS,
+  MAP_SIZE_PRESETS,
+  mapConfig,
+  sanitizeMapId,
+  sanitizeMapSize,
+  type MapId,
+  type MapSize,
+} from './content/maps';
 import type { StructureKind } from './content/phase3';
 import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phase6';
 import { COMBAT_MODE_DESCRIPTIONS, COMBAT_MODES, type CombatMode } from './content/rules';
@@ -77,6 +90,7 @@ const MATCH_HISTORY_STORAGE_KEY = 'iron-dominion.match-history.v1';
 
 interface SkirmishSettings {
   mapId: MapId;
+  mapSize: MapSize;
   seed: number;
   ai: Difficulty;
   aiStyle: Personality;
@@ -113,6 +127,9 @@ const PERSONALITY_DESCRIPTIONS: Record<Personality, string> = {
 const MAP_DESCRIPTIONS: Record<MapId, string> = Object.fromEntries(
   MAP_IDS.map((id) => [id, MAP_PRESETS[id].description]),
 ) as Record<MapId, string>;
+const MAP_SIZE_DESCRIPTIONS: Record<MapSize, string> = Object.fromEntries(
+  MAP_SIZE_IDS.map((id) => [id, MAP_SIZE_PRESETS[id].description]),
+) as Record<MapSize, string>;
 const LOBBY_COLORS = {
   jade: '#67d59b',
   crimson: '#ed6a5c',
@@ -124,7 +141,7 @@ function mapChoiceLabel(id: MapId): string {
   return MAP_PRESETS[id].shortLabel;
 }
 
-function renderLobbyMapPreview(root: HTMLDivElement, map: (typeof MAP_PRESETS)[MapId], seed: number): void {
+function renderLobbyMapPreview(root: HTMLDivElement, map: (typeof MAP_PRESETS)[MapId], seed: number, mapSize: MapSize): void {
   root.replaceChildren();
   const colors =
     map.biome === 'desert'
@@ -142,7 +159,7 @@ function renderLobbyMapPreview(root: HTMLDivElement, map: (typeof MAP_PRESETS)[M
   label.textContent = map.label.toUpperCase();
   const details = document.createElement('div');
   details.style.cssText = 'position:absolute;right:14px;top:12px;color:#f0d56a;font:10px ui-monospace,Menlo,monospace;letter-spacing:.1em;text-shadow:0 1px 4px #000;';
-  details.textContent = `SEED ${seed}`;
+  details.textContent = `${MAP_SIZE_PRESETS[mapSize].label} · SEED ${seed}`;
   root.append(terrain, label, details);
 }
 
@@ -248,6 +265,7 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
     const parsed = JSON.parse(raw) as Partial<SkirmishSettings>;
     return {
       mapId: sanitizeMapId(parsed.mapId),
+      mapSize: sanitizeMapSize(parsed.mapSize),
       seed: Number.isFinite(parsed.seed) ? Math.floor(Number(parsed.seed)) : undefined,
       ai: DIFFICULTIES.includes(parsed.ai as Difficulty) ? parsed.ai : undefined,
       aiStyle: PERSONALITIES.includes(parsed.aiStyle as Personality) ? parsed.aiStyle : undefined,
@@ -268,6 +286,7 @@ function saveSkirmishSettings(settings: SkirmishSettings): void {
 function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
   const seed = Number(params.get('seed'));
   const mapId = sanitizeMapId(params.get('map'));
+  const mapSize = sanitizeMapSize(params.get('size'));
   const ai = params.get('ai');
   const aiStyle = params.get('ai-style');
   const combat = params.get('combat');
@@ -275,6 +294,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
   const sides = params.get('sides');
   return {
     mapId,
+    mapSize,
     seed: Number.isFinite(seed) && seed > 0 ? Math.floor(seed) : undefined,
     ai: DIFFICULTIES.includes(ai as Difficulty) ? (ai as Difficulty) : undefined,
     aiStyle: PERSONALITIES.includes(aiStyle as Personality) ? (aiStyle as Personality) : undefined,
@@ -290,6 +310,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
   const fromUrl = settingsFromUrl(params);
   return {
     mapId: fromUrl.mapId ?? stored.mapId ?? DEFAULT_MAP_ID,
+    mapSize: fromUrl.mapSize ?? stored.mapSize ?? DEFAULT_MAP_SIZE,
     seed: fromUrl.seed ?? stored.seed ?? randomSeed(),
     ai: fromUrl.ai ?? stored.ai ?? 'normal',
     aiStyle: fromUrl.aiStyle ?? stored.aiStyle ?? 'balanced',
@@ -388,7 +409,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
   return new Promise((resolve) => {
     const el = document.createElement('div');
     el.style.cssText =
-      'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box;background:#0a0d10;color:#cfd8e3;' +
+      'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box;background:rgba(3,6,7,.62);backdrop-filter:blur(10px) saturate(.75);color:#cfd8e3;' +
       'font:13px ui-monospace,Menlo,monospace;z-index:120;letter-spacing:.08em;';
     const panel = document.createElement('div');
     panel.style.cssText =
@@ -426,6 +447,15 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     mapChoice.root.style.border = '1px solid #303936';
     mapChoice.root.style.background = 'rgba(9,13,13,.7)';
 
+    const mapSizeChoice = createSegmentedControl('Map size', MAP_SIZE_IDS, defaults.mapSize, MAP_SIZE_DESCRIPTIONS, (size) => MAP_SIZE_PRESETS[size].label);
+    mapSizeChoice.root.style.padding = '11px';
+    mapSizeChoice.root.style.border = '1px solid #303936';
+    mapSizeChoice.root.style.background = 'rgba(9,13,13,.7)';
+    const mapSettingsRow = document.createElement('div');
+    mapSettingsRow.style.cssText =
+      'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px;min-width:0;align-items:stretch;';
+    mapSettingsRow.append(mapChoice.root, mapSizeChoice.root);
+
     const seedRow = document.createElement('div');
     seedRow.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;';
     const seedWrap = document.createElement('label');
@@ -460,6 +490,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       const seed = Math.max(1, Math.floor(Number(seedInput.value) || randomSeed()));
       return {
         mapId: mapChoice.value(),
+        mapSize: mapSizeChoice.value(),
         seed,
         ai: difficulty.value(),
         aiStyle: commander.value(),
@@ -481,6 +512,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       commander.setValue(room.aiStyle);
       combatMode.setValue(room.combatMode ?? 'assisted');
       mapChoice.setValue(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID);
+      mapSizeChoice.setValue(sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE);
       seedInput.value = String(room.seed);
       armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
       const guestLocked = playerIndex !== 1;
@@ -488,6 +520,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       commander.setDisabled(guestLocked);
       combatMode.setDisabled(guestLocked);
       mapChoice.setDisabled(guestLocked);
+      mapSizeChoice.setDisabled(guestLocked);
       armies.setDisabled(guestLocked);
       seedInput.disabled = guestLocked;
       randomize.disabled = guestLocked;
@@ -546,8 +579,8 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     if (multiplayerSession) setMultiplayerLaunchOnly();
     window.addEventListener('keydown', onKeyDown);
 
-    leftColumn.append(form, createMatchHistoryPanel());
-    rightColumn.append(mapChoice.root, seedRow, caption, multiplayer, controls, start);
+    leftColumn.append(form, createMatchHistoryPanel(), controls);
+    rightColumn.append(mapSettingsRow, seedRow, caption, multiplayer, start);
     layout.append(leftColumn, rightColumn);
     panel.append(title, layout);
     el.appendChild(panel);
@@ -966,8 +999,10 @@ function createRoomLobbyView(
     title.textContent = `ROOM ${room.code}`;
     role.textContent = playerIndex === 1 ? 'HOST COMMANDER' : 'JOINED COMMANDER';
     const map = MAP_PRESETS[sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID];
+    const mapSize = sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE;
     const values = [
       ['MAP', map.label],
+      ['SIZE', MAP_SIZE_PRESETS[mapSize].label],
       ['SEED', String(room.seed)],
       ['COMBAT', room.combatMode === 'manual' ? 'MANUAL' : 'ASSISTED'],
     ];
@@ -983,7 +1018,7 @@ function createRoomLobbyView(
       item.append(key, text);
       return item;
     }));
-    renderLobbyMapPreview(mapPreview, map, room.seed);
+    renderLobbyMapPreview(mapPreview, map, room.seed, mapSize);
     const playerSlots = Array.from({ length: room.armyCount }, (_, offset) => offset + 1).map((index) => {
       const player = room.players.find((candidate) => candidate.index === index);
       const row = document.createElement('div');
@@ -1054,6 +1089,7 @@ function renderRoomStatus(room: MultiplayerRoom, playerIndex: number, setStatus:
   const connected = room.players.filter((player) => player.connected).length;
   const team = `army ${playerIndex} / side ${room.armySides[playerIndex - 1] ?? playerIndex}`;
   const map = MAP_PRESETS[sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID].shortLabel;
+  const mapSize = MAP_SIZE_PRESETS[sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE].label;
   const countdown =
     room.status === 'starting' && room.startsAt ? `starting in ${Math.max(1, Math.ceil((room.startsAt - Date.now()) / 1000))}s` : undefined;
   const waiting = countdown ?? (connected < room.armyCount ? `waiting for commanders ${connected}/${room.armyCount}` : room.status === 'waiting' ? playerIndex === 1 ? 'host can launch' : 'waiting for host' : room.status);
@@ -1063,7 +1099,7 @@ function renderRoomStatus(room: MultiplayerRoom, playerIndex: number, setStatus:
   const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
   const engineWarning = engines.size > 1 ? ' · different browsers — desync likely, best played on the same browser' : '';
   setStatus(
-    `Room ${room.code} · ${map} · you are ${team} · ${connected}/2 connected · ${combat} · ${waiting} · ping ${ping} · delay ${room.inputDelay ?? 8}t${engineWarning}`,
+    `Room ${room.code} · ${map} ${mapSize} · you are ${team} · ${connected}/${room.armyCount} connected · ${combat} · ${waiting} · ping ${ping} · delay ${room.inputDelay ?? 8}t${engineWarning}`,
     engines.size > 1,
   );
 }
@@ -1071,6 +1107,7 @@ function renderRoomStatus(room: MultiplayerRoom, playerIndex: number, setStatus:
 function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
   return {
     mapId: sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID,
+    mapSize: sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE,
     seed: room.seed,
     ai: room.ai,
     aiStyle: room.aiStyle,
@@ -1210,8 +1247,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const t0 = performance.now();
   const selectedMap = MAP_PRESETS[settings.mapId] ?? MAP_PRESETS[DEFAULT_MAP_ID];
-  const hf = generateHeightfield({ ...mapConfig(settings.mapId), seed: settings.seed });
-  console.info(`[map] ${selectedMap.label} · seed ${settings.seed} · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
+  const hf = generateHeightfield({ ...mapConfig(settings.mapId, settings.mapSize), seed: settings.seed });
+  console.info(`[map] ${selectedMap.label} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
 
   const ctx = new RenderContext(app, { multiplayer: multiplayerMode });
   applyMapAtmosphere(ctx, selectedMap);
@@ -1902,7 +1939,7 @@ function showMatchMenu(
   title.textContent = 'MATCH MENU';
   title.style.cssText = 'color:#d2b15f;font-size:13px;margin-bottom:2px;';
   const status = document.createElement('div');
-  status.textContent = `${MAP_PRESETS[settings.mapId].shortLabel} · seed ${settings.seed} · ${settings.ai}/${settings.aiStyle}`;
+  status.textContent = `${MAP_PRESETS[settings.mapId].shortLabel} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${settings.ai}/${settings.aiStyle}`;
   status.style.cssText = 'color:#8d9a96;font-size:10px;line-height:1.4;margin-bottom:4px;';
   const snapshot = options.snapshot?.();
   const details = document.createElement('div');
@@ -2026,6 +2063,7 @@ function copyMatchLink(settings: SkirmishSettings, status: HTMLElement): void {
   const url = new URL(window.location.href);
   url.search = '';
   url.searchParams.set('map', settings.mapId);
+  url.searchParams.set('size', settings.mapSize);
   url.searchParams.set('seed', String(settings.seed));
   url.searchParams.set('ai', settings.ai);
   url.searchParams.set('ai-style', settings.aiStyle);
@@ -2439,7 +2477,9 @@ async function start(): Promise<void> {
     await boot(settings);
     return;
   }
+  await showLandingScreen();
   const chosen = await showSetupScreen(settings);
+  document.getElementById('iron-landing')?.remove();
   await boot(chosen);
 }
 
