@@ -3,7 +3,7 @@ import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { manualFireAt } from '../sim/combat';
-import { issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
+import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
 
@@ -472,12 +472,15 @@ export class FirstPersonController {
       if (this.possessed.playerControlled) this.possessed.playerControlled.aimYaw = this.lookYaw;
       if (this.possessed.turret) this.possessed.turret.yaw = this.lookYaw;
     }
+    const reticleAircraft = slot === 'primary' ? this.tankReticleAircraft(this.possessed) : undefined;
     const target = this.possessed.flight
       ? this.flightTarget(this.possessed, slot === 'secondary' ? 'secondary' : 'primary')
       : this.isSniperScoped(this.possessed) && slot === 'primary'
         ? this.sniperScopeShotTarget(this.possessed)
         : this.isSniperScoped(this.possessed) && slot === 'special'
           ? this.sniperScopeShotTarget(this.possessed)
+        : reticleAircraft
+          ? new Vector3(reticleAircraft.transform.x, reticleAircraft.transform.y, reticleAircraft.transform.z)
         : slot === 'secondary'
           ? this.bombTarget(this.possessed)
           : this.tmpAimTarget;
@@ -507,6 +510,29 @@ export class FirstPersonController {
     }
     if (slot === 'special') this.flashAbilityStatus(fired ? 'SPECIAL DEPLOYED' : 'ALIGN WEAPON WITH TARGET');
     return fired;
+  }
+
+  private tankReticleAircraft(entity: Entity): Entity | undefined {
+    const weaponKind = entity.weapons?.primary.kind ?? entity.weapon?.kind;
+    if (entity.flight || !entity.playerControlled || !isTankDirectMissile(weaponKind) || !entity.team) return undefined;
+    const direction = new Vector3();
+    this.camera.getWorldDirection(direction);
+    let best: Entity | undefined;
+    let bestAlong = Number.POSITIVE_INFINITY;
+    for (const candidate of this.sim.world.entities) {
+      if (!candidate.flight || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
+      if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
+      const center = new Vector3(candidate.transform.x, candidate.transform.y, candidate.transform.z);
+      const offset = center.sub(this.camera.position);
+      const along = offset.dot(direction);
+      if (along <= 0 || along >= bestAlong) continue;
+      const perpendicular = Math.sqrt(Math.max(0, offset.lengthSq() - along * along));
+      const tolerance = (candidate.collider?.radius ?? candidate.selectable?.radius ?? 3.5) + 1.6;
+      if (perpendicular > tolerance) continue;
+      best = candidate;
+      bestAlong = along;
+    }
+    return best;
   }
 
   private sniperBikeMoving(entity: Entity | undefined): boolean {
@@ -952,6 +978,10 @@ export class FirstPersonController {
     }
     this.camera.updateMatrixWorld();
   }
+}
+
+function isTankDirectMissile(kind: string | undefined): boolean {
+  return kind === 'scoutMissile' || kind === 'tankMissile' || kind === 'siegeMissile';
 }
 
 function lerpPose(from: CameraPose | undefined, to: CameraPose | undefined, t: number): CameraPose {

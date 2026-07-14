@@ -476,6 +476,26 @@ describe('phase 4 combat simulation', () => {
     expect(sim.events.some((event) => event.kind === 'cannon' && event.targetId === vulture.id)).toBe(false);
   });
 
+  it('lets a manually controlled tank fire its direct missile along the 3D aim ray at an aircraft', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, -20, -20, 'Player Tank');
+    const vulture = spawnVultureAt(sim, hf, -20, 36, 'Air Target', 2);
+    vulture.weapon = undefined;
+    vulture.weapons = undefined;
+    tank.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    tank.turret!.yaw = 0;
+
+    expect(manualFireAt(sim, tank, vulture.transform.x, vulture.transform.z, 'primary', vulture.transform.y)).toBe(true);
+
+    const projectile = sim.projectiles.at(-1);
+    expect(projectile?.directTargetId).toBe(vulture.id);
+    expect(projectile?.toY).toBe(vulture.transform.y);
+    for (let i = 0; i < 30 * 2; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+    expect(vulture.health?.current).toBeLessThan(vulture.health?.max ?? 0);
+    expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.targetId === vulture.id)).toBe(true);
+  });
+
   it('lets ground bomb splash only graze aircraft', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

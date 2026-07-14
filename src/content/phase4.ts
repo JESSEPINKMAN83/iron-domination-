@@ -97,7 +97,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     range: 72,
     splashRadius: 1.6,
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
-    vs: { infantry: 0.82, light: 0.88, heavy: 0.48, building: 0.32, air: 0 },
+    vs: { infantry: 0.82, light: 0.88, heavy: 0.48, building: 0.32, air: 0.28 },
     projectile: { kind: 'scoutMissile', speed: 104, trajectory: 'flat', impactRadius: 1.5 },
   },
   tankMissile: {
@@ -108,7 +108,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     range: 92,
     splashRadius: 2.6,
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
-    vs: { infantry: 0.9, light: 0.96, heavy: 0.72, building: 0.5, air: 0 },
+    vs: { infantry: 0.9, light: 0.96, heavy: 0.72, building: 0.5, air: 0.42 },
     projectile: { kind: 'tankMissile', speed: 96, trajectory: 'flat', impactRadius: 2.1 },
   },
   siegeMissile: {
@@ -119,7 +119,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     range: 118,
     splashRadius: 3.9,
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
-    vs: { infantry: 0.82, light: 1.02, heavy: 1.0, building: 0.72, air: 0 },
+    vs: { infantry: 0.82, light: 1.02, heavy: 1.0, building: 0.72, air: 0.58 },
     projectile: { kind: 'siegeMissile', speed: 86, trajectory: 'flat', impactRadius: 3.0 },
   },
   autocannon: {

@@ -219,7 +219,7 @@ export function manualFireAt(
   // uses each tank's normal acquisition range before it reaches this path.
   const range = isTankDirectMissile(def.kind) ? len : Math.min(weapon.range || def.range, len);
   if (def.minRange !== undefined && len < def.minRange) return false;
-  const target = acquireLineTarget(sim, attacker, weapon, ux, uz, range, aimRay);
+  const target = acquireLineTarget(sim, attacker, weapon, ux, uz, range, aimRay, isTankDirectMissile(def.kind) && !!attacker.playerControlled);
   const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
   const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
   if (def.projectile) {
@@ -630,12 +630,18 @@ function acquireLineTarget(
   uz: number,
   range: number,
   aimRay?: ManualAimRay,
+  allowManualTankAir = false,
 ): Entity | undefined {
   let best: Entity | undefined;
   let bestAlong = Number.POSITIVE_INFINITY;
   const visionCap = attacker.vision?.radius ?? range;
   for (const candidate of sim.world.entities) {
-    if (!isWeaponTargetable(sim, attacker, weapon, candidate)) continue;
+    const manualTankAirTarget =
+      allowManualTankAir &&
+      candidate.armor?.kind === 'air' &&
+      attacker.team !== undefined &&
+      targetableByTeam(sim, attacker.team.id, candidate);
+    if (!manualTankAirTarget && !isWeaponTargetable(sim, attacker, weapon, candidate)) continue;
     const dx = candidate.transform.x - attacker.transform.x;
     const dz = candidate.transform.z - attacker.transform.z;
     const horizontalAlong = dx * ux + dz * uz;
