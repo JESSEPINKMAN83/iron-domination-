@@ -35,6 +35,8 @@ export interface Mover {
   radius: number;
   target?: { x: number; z: number };
   formationOffset?: { x: number; z: number };
+  /** assigned formation destination retained after arrival so separation cannot drift the unit away */
+  holdPosition?: { x: number; z: number };
   flow?: FlowField;
   attackMove?: boolean;
   /** explicit player-issued target; unlike attack-move this must not be replaced by a nearer foe */

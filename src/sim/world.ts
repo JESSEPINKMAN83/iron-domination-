@@ -446,10 +446,17 @@ export function issueMoveOrder(
       const requestedSlot = { x: targetPoint.x + offset.x, z: targetPoint.z + offset.z };
       const slot = walkableOrderPoint(sim, requestedSlot.x, requestedSlot.z);
       if (!slot) return;
-      entity.mover.target = { x: targetPoint.x, z: targetPoint.z };
-      entity.mover.formationOffset = { x: slot.x - targetPoint.x, z: slot.z - targetPoint.z };
-      entity.mover.flow = flow;
+      if (faceYaw !== undefined) {
+        entity.mover.target = { x: slot.x, z: slot.z };
+        entity.mover.formationOffset = undefined;
+        entity.mover.flow = new FlowField(sim.nav, slot.x, slot.z);
+      } else {
+        entity.mover.target = { x: targetPoint.x, z: targetPoint.z };
+        entity.mover.formationOffset = { x: slot.x - targetPoint.x, z: slot.z - targetPoint.z };
+        entity.mover.flow = flow;
+      }
     }
+    entity.mover.holdPosition = undefined;
     entity.mover.attackMove = attackMove;
     entity.mover.attackTargetId = undefined;
     entity.mover.faceYaw = faceYaw;
@@ -503,6 +510,7 @@ export function stopEntities(entities: Entity[]): void {
     if (!entity.mover || !entity.velocity) continue;
     entity.mover.target = undefined;
     entity.mover.formationOffset = undefined;
+    entity.mover.holdPosition = { x: entity.transform.x, z: entity.transform.z };
     entity.mover.flow = undefined;
     entity.mover.attackMove = false;
     entity.mover.attackTargetId = undefined;
@@ -551,6 +559,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     transform.y ??= sampleHeight(hf, transform.x, transform.z);
     let desiredX = 0;
     let desiredZ = 0;
+    let desiredSpeed = mover.speed;
     let orientToMovement = false;
 
     if (entity.flight) {
@@ -561,6 +570,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     if (entity.playerControlled) {
       mover.target = undefined;
       mover.formationOffset = undefined;
+      mover.holdPosition = undefined;
       mover.flow = undefined;
       mover.attackMove = false;
       mover.attackTargetId = undefined;
@@ -581,6 +591,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       const finalDz = finalZ - transform.z;
       const finalDist = Math.hypot(finalDx, finalDz);
       if (finalDist < Math.max(ARRIVAL_EPSILON, mover.radius * 0.72)) {
+        mover.holdPosition = { x: finalX, z: finalZ };
         mover.target = undefined;
         mover.formationOffset = undefined;
         mover.flow = undefined;
@@ -595,6 +606,24 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         desiredX = dir.x;
         desiredZ = dir.z;
         orientToMovement = true;
+      }
+    } else if (mover.holdPosition && !mover.engage) {
+      const dx = mover.holdPosition.x - transform.x;
+      const dz = mover.holdPosition.z - transform.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > ARRIVAL_EPSILON) {
+        desiredX = dx / distance;
+        desiredZ = dz / distance;
+        desiredSpeed = Math.min(mover.speed, Math.max(1.2, distance * 3.2));
+      } else {
+        transform.x = mover.holdPosition.x;
+        transform.z = mover.holdPosition.z;
+        velocity.x = 0;
+        velocity.z = 0;
+        if (mover.faceYaw !== undefined) {
+          transform.rot = slewAngle(transform.rot, mover.faceYaw, 2.8, dt);
+          if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, mover.faceYaw, entity.turret.turnRate, dt);
+        }
       }
     } else if (mover.engage) {
       // guard response set by combat: advance until back in weapon range
@@ -612,7 +641,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, mover.faceYaw, entity.turret.turnRate, dt);
     }
 
-    for (let j = 0; j < movers.length; j++) {
+    for (let j = 0; j < movers.length && !mover.holdPosition; j++) {
       if (i === j) continue;
       const other = movers[j];
       if (!!entity.flight !== !!other.flight) continue;
@@ -629,8 +658,8 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
     const desiredLen = Math.hypot(desiredX, desiredZ);
     if (desiredLen > 0 && !entity.playerControlled) {
-      desiredX = (desiredX / desiredLen) * mover.speed;
-      desiredZ = (desiredZ / desiredLen) * mover.speed;
+      desiredX = (desiredX / desiredLen) * desiredSpeed;
+      desiredZ = (desiredZ / desiredLen) * desiredSpeed;
     }
     velocity.x += (desiredX - velocity.x) * Math.min(1, dt * 8);
     velocity.z += (desiredZ - velocity.z) * Math.min(1, dt * 8);
@@ -793,7 +822,7 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, movers: MovingEntity[],
 
   limitBodyFlightVelocity(velocity, transform.rot, maxSpeed, maxReverse, maxStrafe);
 
-  for (let j = 0; j < movers.length; j++) {
+  for (let j = 0; j < movers.length && !mover.holdPosition; j++) {
     if (j === index) continue;
     const other = movers[j];
     if (!other.flight) continue;
@@ -854,6 +883,7 @@ function possessedFlightCommand(entity: MovingEntity): FlightCommand {
   const mover = entity.mover;
   mover.target = undefined;
   mover.formationOffset = undefined;
+  mover.holdPosition = undefined;
   mover.flow = undefined;
   mover.attackMove = false;
   mover.attackTargetId = undefined;
@@ -870,16 +900,20 @@ function possessedFlightCommand(entity: MovingEntity): FlightCommand {
 function aiFlightCommand(entity: MovingEntity): FlightCommand {
   const { transform, velocity, mover } = entity;
   const command: FlightCommand = { throttle: 0, turn: 0, strafe: 0, climb: 0 };
-  const target = mover.target ?? mover.engage;
+  const target = mover.target ?? mover.engage ?? mover.holdPosition;
   if (target) {
     const dx = target.x - transform.x;
     const dz = target.z - transform.z;
     const dist = Math.hypot(dx, dz);
-    if (dist < mover.radius * 2.2) {
-      if (mover.target) mover.target = undefined;
+    const arrivalRadius = mover.faceYaw !== undefined ? Math.max(0.8, mover.radius * 0.35) : mover.radius * 2.2;
+    if (dist < arrivalRadius) {
+      if (mover.target) {
+        mover.holdPosition = { x: mover.target.x, z: mover.target.z };
+        mover.target = undefined;
+      }
       velocity.x *= 0.9;
       velocity.z *= 0.9;
-      command.throttle = -0.35;
+      command.throttle = mover.holdPosition ? 0 : -0.35;
     } else if (dist > 0.001) {
       const dirX = dx / dist;
       const dirZ = dz / dist;
@@ -1024,6 +1058,8 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.target ? Math.round(entity.mover.target.z * 10) : 0);
       mix(entity.mover.engage ? Math.round(entity.mover.engage.x * 10) : 0);
       mix(entity.mover.engage ? Math.round(entity.mover.engage.z * 10) : 0);
+      mix(entity.mover.holdPosition ? Math.round(entity.mover.holdPosition.x * 10) : 0);
+      mix(entity.mover.holdPosition ? Math.round(entity.mover.holdPosition.z * 10) : 0);
       mix(entity.mover.attackTargetId ?? 0);
     }
     if (entity.weapon) {

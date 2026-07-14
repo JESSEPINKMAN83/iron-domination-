@@ -259,10 +259,10 @@ describe('phase 2 movement simulation', () => {
 
     expect(issueMoveOrder(sim, tanks, p.x, p.z, false, faceYaw)).toBe(true);
 
-    const offsets = tanks.map((tank) => tank.mover?.formationOffset);
-    expect(offsets.every(Boolean)).toBe(true);
-    const spanX = Math.max(...offsets.map((offset) => offset!.x)) - Math.min(...offsets.map((offset) => offset!.x));
-    const spanZ = Math.max(...offsets.map((offset) => offset!.z)) - Math.min(...offsets.map((offset) => offset!.z));
+    const destinations = tanks.map((tank) => tank.mover?.target);
+    expect(destinations.every(Boolean)).toBe(true);
+    const spanX = Math.max(...destinations.map((point) => point!.x)) - Math.min(...destinations.map((point) => point!.x));
+    const spanZ = Math.max(...destinations.map((point) => point!.z)) - Math.min(...destinations.map((point) => point!.z));
     expect(spanZ).toBeGreaterThan(spanX);
 
     for (let i = 0; i < 30 * 12; i++) stepSim(sim, hf, 1 / 30);
@@ -281,13 +281,13 @@ describe('phase 2 movement simulation', () => {
     const faceYaw = Math.PI / 2;
 
     expect(issueMoveOrder(sim, tanks, p.x, p.z, false, faceYaw, 18)).toBe(true);
-    const tightOffsets = tanks.map((tank) => tank.mover?.formationOffset);
-    const tightSpan = Math.max(...tightOffsets.map((offset) => offset!.z)) - Math.min(...tightOffsets.map((offset) => offset!.z));
+    const tightDestinations = tanks.map((tank) => tank.mover?.target);
+    const tightSpan = Math.max(...tightDestinations.map((point) => point!.z)) - Math.min(...tightDestinations.map((point) => point!.z));
 
     expect(issueMoveOrder(sim, tanks, p.x, p.z, false, faceYaw, 72)).toBe(true);
-    const wideOffsets = tanks.map((tank) => tank.mover?.formationOffset);
-    const wideSpanZ = Math.max(...wideOffsets.map((offset) => offset!.z)) - Math.min(...wideOffsets.map((offset) => offset!.z));
-    const wideSpanX = Math.max(...wideOffsets.map((offset) => offset!.x)) - Math.min(...wideOffsets.map((offset) => offset!.x));
+    const wideDestinations = tanks.map((tank) => tank.mover?.target);
+    const wideSpanZ = Math.max(...wideDestinations.map((point) => point!.z)) - Math.min(...wideDestinations.map((point) => point!.z));
+    const wideSpanX = Math.max(...wideDestinations.map((point) => point!.x)) - Math.min(...wideDestinations.map((point) => point!.x));
 
     expect(wideSpanZ).toBeGreaterThan(tightSpan * 1.7);
     expect(wideSpanX).toBeLessThan(0.001);
@@ -318,6 +318,12 @@ describe('phase 2 movement simulation', () => {
     tanks.forEach((tank, index) => {
       expect(Math.hypot(tank.transform.x - destinations[index].x, tank.transform.z - destinations[index].z)).toBeLessThan(2.5);
       expect(Math.abs(angleDelta(tank.transform.rot, faceYaw))).toBeLessThan(0.2);
+    });
+
+    for (let i = 0; i < 30 * 8; i++) stepSim(sim, hf, 1 / 30);
+    tanks.forEach((tank, index) => {
+      expect(Math.hypot(tank.transform.x - destinations[index].x, tank.transform.z - destinations[index].z)).toBeLessThan(0.5);
+      expect(tank.mover?.holdPosition).toEqual(destinations[index]);
     });
   });
 
