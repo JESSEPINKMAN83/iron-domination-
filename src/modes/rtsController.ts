@@ -8,6 +8,7 @@ import type { Entity } from '../sim/components';
 import type { OrderMarkerKind } from '../render/orderMarkerView';
 import type { UnitView } from '../render/unitView';
 import type { Input } from '../engine/input';
+import { ControlGroups, controlGroupIndex } from './controlGroups';
 
 export interface PlacementControls {
   isPlacing(): boolean;
@@ -60,7 +61,9 @@ export class RtsController {
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
   private readonly selectionBox: HTMLDivElement;
-  private readonly controlGroups = new Map<number, Entity[]>();
+  private readonly controlGroups = new ControlGroups();
+  private readonly controlGroupToast: HTMLDivElement;
+  private controlGroupToastTimer?: number;
   private pointerDown?: PointerState;
   private rightOrderStart?: { x: number; z: number };
   private rightCameraLookCandidate = false;
@@ -87,6 +90,13 @@ export class RtsController {
     this.selectionBox.style.cssText =
       'position:fixed;border:1px solid rgba(125,242,125,.9);background:rgba(125,242,125,.12);display:none;pointer-events:none;z-index:20;';
     document.body.appendChild(this.selectionBox);
+    this.controlGroupToast = document.createElement('div');
+    this.controlGroupToast.style.cssText =
+      'position:fixed;left:50%;top:76px;transform:translate(-50%,-8px);z-index:58;pointer-events:none;opacity:0;' +
+      'padding:8px 13px;border:1px solid rgba(114,230,208,.72);background:rgba(7,14,14,.9);color:#72e6d0;' +
+      'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;box-shadow:0 6px 22px rgba(0,0,0,.4),0 0 14px rgba(114,230,208,.13);' +
+      'transition:opacity .14s,transform .14s;';
+    document.body.appendChild(this.controlGroupToast);
 
     dom.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     window.addEventListener('pointermove', (e) => this.onPointerMove(e));
@@ -368,19 +378,34 @@ export class RtsController {
       e.preventDefault();
       return;
     }
-    if (!e.code.startsWith('Digit')) return;
-    const n = Number(e.code.slice(5));
-    if (n < 1 || n > 9) return;
+    const n = controlGroupIndex(e.code);
+    if (n === undefined || isTextEntryTarget(e.target)) return;
     if (e.ctrlKey || e.metaKey) {
-      this.controlGroups.set(n, selectedEntities(this.sim, this.localTeam));
+      const members = this.controlGroups.assign(n, selectedEntities(this.sim, this.localTeam), this.localTeam);
+      this.flashControlGroup(members.length > 0 ? `GROUP ${n} SAVED  ·  ${members.length} ${members.length === 1 ? 'UNIT' : 'UNITS'}` : `GROUP ${n} CLEARED`);
       e.preventDefault();
+      e.stopPropagation();
     } else {
-      const group = this.controlGroups.get(n);
-      if (group) {
-        setSelected(this.sim, group.filter((entity) => this.sim.world.has(entity)), false, this.localTeam);
+      const group = this.controlGroups.recall(n, this.sim, this.localTeam);
+      if (group !== undefined) {
+        setSelected(this.sim, group, false, this.localTeam);
+        this.flashControlGroup(group.length > 0 ? `GROUP ${n} SELECTED  ·  ${group.length} ${group.length === 1 ? 'UNIT' : 'UNITS'}` : `GROUP ${n} EMPTY`);
         e.preventDefault();
+        e.stopPropagation();
       }
     }
+  }
+
+  private flashControlGroup(message: string): void {
+    this.controlGroupToast.textContent = message;
+    this.controlGroupToast.style.opacity = '1';
+    this.controlGroupToast.style.transform = 'translate(-50%,0)';
+    if (this.controlGroupToastTimer !== undefined) window.clearTimeout(this.controlGroupToastTimer);
+    this.controlGroupToastTimer = window.setTimeout(() => {
+      this.controlGroupToast.style.opacity = '0';
+      this.controlGroupToast.style.transform = 'translate(-50%,-8px)';
+      this.controlGroupToastTimer = undefined;
+    }, 1350);
   }
 
   private terrainPoint(clientX: number, clientY: number): { x: number; z: number } | undefined {
@@ -453,4 +478,9 @@ export class RtsController {
     const selected = selectedEntities(this.sim, this.localTeam);
     return selected.length === 1 && selected[0].producer ? selected[0] : undefined;
   }
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
