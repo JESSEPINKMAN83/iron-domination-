@@ -29,6 +29,25 @@ import {
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
 
+export type VisualQualityTier = 0 | 1 | 2;
+
+export function suggestedInitialVisualQuality(
+  multiplayer: boolean,
+  hardwareConcurrency?: number,
+  deviceMemory?: number,
+): VisualQualityTier {
+  if (!multiplayer) return 0;
+  const limitedCpu = Number.isFinite(hardwareConcurrency) && Number(hardwareConcurrency) <= 4;
+  const limitedMemory = Number.isFinite(deviceMemory) && Number(deviceMemory) <= 4;
+  return limitedCpu || limitedMemory ? 1 : 0;
+}
+
+export function degradedVisualQualityTier(current: VisualQualityTier, averageFrameSeconds: number): VisualQualityTier {
+  if (averageFrameSeconds > 0.055) return 2;
+  if (averageFrameSeconds > 0.03) return Math.min(2, current + 1) as VisualQualityTier;
+  return current;
+}
+
 export class RenderContext {
   readonly renderer: WebGLRenderer;
   readonly scene: Scene;
@@ -48,10 +67,22 @@ export class RenderContext {
   // Map construction and the first shader compilation can briefly spike frame time.
   // Give those one-off costs time to settle before adapting persistent quality.
   private qualityCooldownSeconds: number;
+  private adaptiveQualityTier: VisualQualityTier;
+  private appliedQualityTier: VisualQualityTier | -1 = -1;
+  private recoveryWindows = 0;
+  private directRender = false;
   private fastMotionMode = false;
 
-  constructor(container: HTMLElement, options: { multiplayer?: boolean } = {}) {
+  constructor(container: HTMLElement, options: { multiplayer?: boolean; initialQualityTier?: VisualQualityTier } = {}) {
     this.multiplayerMode = options.multiplayer === true;
+    const browserNavigator = typeof navigator === 'undefined'
+      ? undefined
+      : navigator as Navigator & { deviceMemory?: number };
+    this.adaptiveQualityTier = options.initialQualityTier ?? suggestedInitialVisualQuality(
+      this.multiplayerMode,
+      browserNavigator?.hardwareConcurrency,
+      browserNavigator?.deviceMemory,
+    );
     this.renderer = new WebGLRenderer({ antialias: false, stencil: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
@@ -61,7 +92,7 @@ export class RenderContext {
     // Multiplayer commonly runs beside voice chat and sometimes a second test
     // browser. Start slightly leaner there, then let adaptive quality recover.
     this.maxPixelRatio = Math.min(window.devicePixelRatio, this.multiplayerMode ? 0.9 : 1.25);
-    this.pixelRatio = this.maxPixelRatio;
+    this.pixelRatio = this.targetPixelRatio(this.adaptiveQualityTier);
     this.qualityCooldownSeconds = options.multiplayer ? 1.25 : 3;
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -113,6 +144,7 @@ export class RenderContext {
         new VignetteEffect({ offset: 0.26, darkness: 0.55 }),
       ),
     );
+    this.applyQualityTier();
 
     window.addEventListener('resize', () => this.onResize());
   }
@@ -131,24 +163,34 @@ export class RenderContext {
     return this.pixelRatio;
   }
 
+  get visualQuality(): VisualQualityTier {
+    return Math.max(this.adaptiveQualityTier, this.fastMotionMode ? 1 : 0) as VisualQualityTier;
+  }
+
+  get visualQualityLabel(): string {
+    return this.visualQuality === 0 ? 'FULL' : this.visualQuality === 1 ? 'BALANCED' : 'PERFORMANCE';
+  }
+
+  get visualUpdateDivisor(): number {
+    return this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 2 : 3;
+  }
+
   setFastMotionMode(active: boolean): void {
     if (this.fastMotionMode === active) return;
     this.fastMotionMode = active;
     this.qualitySampleSeconds = 0;
     this.qualityFrameCount = 0;
-    if (active) {
-      this.n8ao.enabled = false;
-      if (this.pixelRatio > 0.8) this.setPixelRatio(0.8);
-      return;
-    }
-    this.qualityCooldownSeconds = 2;
+    this.recoveryWindows = 0;
+    this.qualityCooldownSeconds = active ? 0.5 : 2;
+    this.applyQualityTier();
   }
 
   render(dt: number): void {
     this.updateAdaptiveQuality(dt);
     this.renderer.info.reset();
-    this.csm.update();
-    this.composer.render(dt);
+    if (this.renderer.shadowMap.enabled) this.csm.update();
+    if (this.directRender) this.renderer.render(this.scene, this.camera);
+    else this.composer.render(dt);
   }
 
   private onResize(): void {
@@ -157,40 +199,66 @@ export class RenderContext {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.csm.updateFrustums();
+    this.renderer.setSize(w, h);
     this.composer.setSize(w, h);
   }
 
-  /** Keep the full visual stack while it fits, then reduce GPU fill-rate only under sustained pressure. */
+  /** Keep the full visual stack while it fits, then shed GPU and animation cost under sustained pressure. */
   private updateAdaptiveQuality(dt: number): void {
-    if (this.fastMotionMode) return;
-    if (!Number.isFinite(dt) || dt <= 0 || dt > 0.1) return;
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    // Slow machines regularly exceed 100ms. Ignoring those frames prevents the
+    // quality system from ever responding on the computers that need it most.
+    const sampleDt = Math.min(dt, 0.25);
     if (this.qualityCooldownSeconds > 0) {
-      this.qualityCooldownSeconds = Math.max(0, this.qualityCooldownSeconds - dt);
+      this.qualityCooldownSeconds = Math.max(0, this.qualityCooldownSeconds - sampleDt);
       this.qualitySampleSeconds = 0;
       this.qualityFrameCount = 0;
       return;
     }
-    this.qualitySampleSeconds += dt;
+    this.qualitySampleSeconds += sampleDt;
     this.qualityFrameCount++;
     if (this.qualitySampleSeconds < 0.75) return;
 
     const averageFrameSeconds = this.qualitySampleSeconds / Math.max(1, this.qualityFrameCount);
     this.qualitySampleSeconds = 0;
     this.qualityFrameCount = 0;
-    if (averageFrameSeconds > 0.025) {
-      if (averageFrameSeconds > 0.04 && this.n8ao.enabled) this.n8ao.enabled = false;
-      else if (this.pixelRatio > 0.71) this.setPixelRatio(Math.max(0.7, this.pixelRatio - 0.18));
-      else if (this.n8ao.enabled) this.n8ao.enabled = false;
-      else return;
-      this.qualityCooldownSeconds = 1.5;
+    const degraded = degradedVisualQualityTier(this.adaptiveQualityTier, averageFrameSeconds);
+    if (degraded !== this.adaptiveQualityTier) {
+      this.adaptiveQualityTier = degraded;
+      this.recoveryWindows = 0;
+      this.applyQualityTier();
+      this.qualityCooldownSeconds = 1;
       return;
     }
-    if (averageFrameSeconds < 0.019) {
-      if (!this.n8ao.enabled && !this.multiplayerMode) this.n8ao.enabled = true;
-      else if (this.pixelRatio < this.maxPixelRatio - 0.01) this.setPixelRatio(Math.min(this.maxPixelRatio, this.pixelRatio + 0.1));
-      else return;
-      this.qualityCooldownSeconds = 4;
+    if (averageFrameSeconds < 0.018 && this.adaptiveQualityTier > 0 && !this.fastMotionMode) {
+      this.recoveryWindows++;
+      if (this.recoveryWindows >= 6) {
+        this.adaptiveQualityTier = Math.max(0, this.adaptiveQualityTier - 1) as VisualQualityTier;
+        this.recoveryWindows = 0;
+        this.applyQualityTier();
+        this.qualityCooldownSeconds = 5;
+      }
+    } else {
+      this.recoveryWindows = 0;
     }
+  }
+
+  private applyQualityTier(): void {
+    const tier = this.visualQuality;
+    if (this.appliedQualityTier === tier) return;
+    this.appliedQualityTier = tier;
+    this.directRender = tier >= 2;
+    const shadows = tier < 2;
+    this.renderer.shadowMap.enabled = shadows;
+    if (shadows) this.renderer.shadowMap.needsUpdate = true;
+    this.n8ao.enabled = !this.multiplayerMode && tier === 0;
+    this.setPixelRatio(this.targetPixelRatio(tier));
+  }
+
+  private targetPixelRatio(tier: VisualQualityTier): number {
+    if (tier === 0) return this.maxPixelRatio;
+    if (tier === 1) return Math.min(this.maxPixelRatio, this.multiplayerMode ? 0.65 : 0.72);
+    return Math.min(this.maxPixelRatio, 0.5);
   }
 
   private setPixelRatio(value: number): void {

@@ -1563,7 +1563,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const hf = generateHeightfield({ ...mapConfig(settings.mapId, settings.mapSize), seed: settings.seed });
   console.info(`[map] ${selectedMap.label} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
 
-  const ctx = new RenderContext(app, { multiplayer: multiplayerMode });
+  const params = new URLSearchParams(location.search);
+  const requestedQuality = params.get('quality');
+  const initialQualityTier = requestedQuality === 'performance' || requestedQuality === 'low'
+    ? 2 as const
+    : requestedQuality === 'balanced'
+      ? 1 as const
+      : undefined;
+  const ctx = new RenderContext(app, { multiplayer: multiplayerMode, initialQualityTier });
   applyMapAtmosphere(ctx, selectedMap);
   const input = new Input();
   input.attach(ctx.renderer.domElement);
@@ -1590,7 +1597,6 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const snowfall = settings.mapId === 'frostbite-pass' ? new SnowfallView(hf, settings.seed) : undefined;
   if (snowfall) ctx.scene.add(snowfall.points);
 
-  const params = new URLSearchParams(location.search);
   const startMode = params.get('start');
   const lineupStart = startMode === 'lineup';
   const testStart = startMode === 'test' || startMode === 'sandbox';
@@ -2041,6 +2047,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let simHz = SIM_HZ;
   let lastSimSample = performance.now();
   let lastUiRefreshTick = -999;
+  let renderFrame = 0;
 
   const loop = new GameLoop({
     simTick: () => {
@@ -2079,7 +2086,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       simTicks++;
     },
     render: (alpha, dt, time) => {
+      renderFrame++;
       ctx.setFastMotionMode(multiplayerMode && firstPerson.flying);
+      unitView.setVisualQuality(ctx.visualQuality);
       if (firstPerson.active) firstPerson.update(dt, alpha);
       else {
         rig.setGrabSuppressed(controller.isRightOrderGestureActive());
@@ -2093,7 +2102,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.update();
         sidebar.update();
       }
-      buildingView.update(economy, ctx.camera);
+      if (renderFrame % ctx.visualUpdateDivisor === 0) buildingView.update(economy, ctx.camera);
       combatView.update(dt);
       economyFx.update(dt);
       orderMarkers.update(dt);
@@ -2118,6 +2127,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         drawCalls: ctx.renderer.info.render.calls,
         triangles: ctx.renderer.info.render.triangles,
         renderScale: ctx.renderScale,
+        visualQuality: ctx.visualQualityLabel,
         simHz,
         instances: registry.totalInstances,
         zoom: rig.distance,

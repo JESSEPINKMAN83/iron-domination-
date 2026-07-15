@@ -6,6 +6,7 @@ export interface HudStats {
   drawCalls: number;
   triangles: number;
   renderScale: number;
+  visualQuality: string;
   simHz: number;
   instances: number;
   zoom: number;
@@ -169,7 +170,7 @@ export class Hud {
     this.stats.textContent = [
       `FPS ${s.fps.toFixed(1)}  (${s.frameMs.toFixed(1)} ms)`,
       `draw calls ${s.drawCalls} · tris ${tris}`,
-      `render scale ${s.renderScale.toFixed(2)}x`,
+      `render scale ${s.renderScale.toFixed(2)}x · ${s.visualQuality}`,
       `sim ${s.simHz} Hz · instances ${s.instances}`,
       `units ${s.units} · selected ${s.selected}`,
       `mode ${s.mode}`,

@@ -28,7 +28,7 @@ import type { Entity } from '../sim/components';
 import type { CombatEvent } from '../sim/world';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { factionId, FACTION, type FactionId } from './palette';
-import type { RenderContext } from './renderer';
+import type { RenderContext, VisualQualityTier } from './renderer';
 import { buildSoldier, type SoldierMaterials, type SoldierRig } from './soldier';
 import { unitVisualKind, type UnitVisualKind } from './unitKinds';
 import { hasUnitUpgrade } from '../sim/upgrades';
@@ -84,6 +84,13 @@ interface FriendlyGlowMesh {
   count: number;
 }
 
+type LowDetailKind = 'infantry' | 'vehicle' | 'aircraft';
+
+interface LowDetailMesh {
+  mesh: InstancedMesh;
+  count: number;
+}
+
 interface BikeDustParticle {
   x: number;
   y: number;
@@ -127,6 +134,7 @@ const FRIENDLY_GLOW_GEOM = new SphereGeometry(1, 16, 10);
 const MAX_FRIENDLY_GLOWS = 1024;
 const BIKE_DUST_GEOM = new SphereGeometry(1, 8, 5);
 const MAX_BIKE_DUST_PARTICLES = 256;
+const MAX_LOW_DETAIL_UNITS = 1024;
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
@@ -180,11 +188,15 @@ export class UnitView {
   private readonly teamMaterials: Record<FactionId, TeamMaterials>;
   private readonly friendlyGlow: FriendlyGlowMesh;
   private readonly glowTransform = new Object3D();
+  private readonly lowDetailMeshes: Record<FactionId, Record<LowDetailKind, LowDetailMesh>>;
+  private readonly lowDetailTransform = new Object3D();
   private readonly bikeDustMesh: InstancedMesh;
   private readonly bikeDustTransform = new Object3D();
   private readonly bikeDustParticles: BikeDustParticle[] = [];
   private readonly bikeDustSpawn = new Map<Entity, number>();
   private bikeDustSerial = 0;
+  private visualQuality: VisualQualityTier = 0;
+  private visualFrame = 0;
   private readonly wreckMaterial: Material;
   private readonly vehicleScorchMaterial: Material;
   private readonly vehicleCrackMaterial: Material;
@@ -220,6 +232,15 @@ export class UnitView {
       3: createTeamMaterials(ctx, 3, localTeam === 3),
       4: createTeamMaterials(ctx, 4, localTeam === 4),
     };
+    this.lowDetailMeshes = {
+      1: createLowDetailMeshes(1),
+      2: createLowDetailMeshes(2),
+      3: createLowDetailMeshes(3),
+      4: createLowDetailMeshes(4),
+    };
+    for (const meshes of Object.values(this.lowDetailMeshes)) {
+      for (const proxy of Object.values(meshes)) this.group.add(proxy.mesh);
+    }
     this.friendlyGlow = createFriendlyGlowMesh(factionId(localTeam));
     this.group.add(this.friendlyGlow.mesh);
     this.bikeDustMesh = createBikeDustMesh(hf.kind);
@@ -452,6 +473,21 @@ export class UnitView {
     }
   }
 
+  setVisualQuality(tier: VisualQualityTier): void {
+    if (this.visualQuality === tier) return;
+    this.visualQuality = tier;
+    const proxiesVisible = tier >= 2;
+    for (const meshes of Object.values(this.lowDetailMeshes)) {
+      for (const proxy of Object.values(meshes)) proxy.mesh.visible = proxiesVisible;
+    }
+    this.friendlyGlow.mesh.visible = !proxiesVisible;
+    this.bikeDustMesh.visible = !proxiesVisible;
+    if (proxiesVisible) {
+      this.bikeDustParticles.length = 0;
+      this.bikeDustMesh.count = 0;
+    }
+  }
+
   update(alpha: number, dt: number, camera: Camera): void {
     // Evict entities the sim has finished with (wreck window expired). The possessed
     // unit is only hidden, never evicted here — it's reclaimed when possession ends.
@@ -462,7 +498,14 @@ export class UnitView {
         this.entities.splice(i, 1);
       }
     }
-    this.friendlyGlow.count = 0;
+    this.visualFrame++;
+    if (this.visualQuality >= 2) {
+      this.updateLowDetail(alpha, dt, camera);
+      return;
+    }
+    const detailInterval = this.visualQuality === 0 ? 1 : 2;
+    const updateDetails = this.visualFrame % detailInterval === 0;
+    if (updateDetails) this.friendlyGlow.count = 0;
     const glowTime = performance.now() * 0.0026;
     for (const entity of this.entities) {
       const obj = this.objects.get(entity);
@@ -489,18 +532,20 @@ export class UnitView {
       const y = entity.flight ? lerp(entity.previousTransform.y ?? entity.transform.y ?? groundY, entity.transform.y ?? groundY, alpha) : groundY + 0.35;
       obj.position.set(x, y, z);
       obj.rotation.y = rot;
-      if (!entity.destroyed) this.updateFriendlyGlow(entity, x, y, z, glowTime);
+      if (updateDetails && !entity.destroyed) this.updateFriendlyGlow(entity, x, y, z, glowTime);
       this.applyPose(entity, obj, dt);
       this.applyHitReaction(entity, obj, dt);
-      this.updateUnitDamage(entity, obj);
+      if (updateDetails) this.updateUnitDamage(entity, obj);
       const turret = this.refs.get(entity)?.turretPivot;
       if (turret && entity.turret && !entity.destroyed) turret.rotation.y = entity.turret.yaw - rot;
       ring.position.set(x, groundY + 0.08, z);
       const selected = this.selectionOverlayVisible && !entity.destroyed && (entity.selectable?.selected ?? false);
       ring.visible = selected;
       if (selected) {
-        const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.008 + entity.id);
-        ring.scale.setScalar(1 + pulse * 0.075);
+        if (updateDetails) {
+          const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.008 + entity.id);
+          ring.scale.setScalar(1 + pulse * 0.075);
+        }
       } else {
         ring.scale.setScalar(1);
       }
@@ -513,6 +558,7 @@ export class UnitView {
       }
       const wash = this.rotorWashes.get(entity);
       if (wash) {
+        if (!updateDetails) continue;
         const agl = Math.max(0, y - groundY);
         const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
         const lowAir = Math.max(0, 1 - agl / 30);
@@ -525,11 +571,83 @@ export class UnitView {
           wash.material.opacity = lowAir * (0.08 + pulse * 0.08);
         }
       }
-      this.updateHealthBar(entity, x, y, z, camera);
+      if (updateDetails) this.updateHealthBar(entity, x, y, z, camera);
     }
-    this.friendlyGlow.mesh.count = this.friendlyGlow.count;
-    this.friendlyGlow.mesh.instanceMatrix.needsUpdate = true;
-    this.updateBikeDust(dt);
+    if (updateDetails) {
+      this.friendlyGlow.mesh.count = this.friendlyGlow.count;
+      this.friendlyGlow.mesh.instanceMatrix.needsUpdate = true;
+      this.updateBikeDust(dt * detailInterval);
+    }
+  }
+
+  private updateLowDetail(alpha: number, dt: number, camera: Camera): void {
+    for (const meshes of Object.values(this.lowDetailMeshes)) {
+      for (const proxy of Object.values(meshes)) proxy.count = 0;
+    }
+    for (const entity of this.entities) {
+      const obj = this.objects.get(entity);
+      const ring = this.selectedRings.get(entity);
+      if (!obj || !ring) continue;
+      const keepDetailed = Boolean(entity.playerControlled) && !entity.destroyed;
+      obj.visible = false;
+      const shadow = this.airShadows.get(entity);
+      if (shadow) shadow.visible = false;
+      const wash = this.rotorWashes.get(entity);
+      if (wash) wash.mesh.visible = false;
+      const gone = entity === this.hiddenEntity;
+      const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
+      if (gone || fogged) {
+        ring.visible = false;
+        const healthBar = this.healthBars.get(entity);
+        if (healthBar) healthBar.root.visible = false;
+        continue;
+      }
+      const x = lerp(entity.previousTransform.x, entity.transform.x, alpha);
+      const z = lerp(entity.previousTransform.z, entity.transform.z, alpha);
+      const rot = lerpAngle(entity.previousTransform.rot, entity.transform.rot, alpha);
+      const groundY = sampleHeight(this.hf, x, z);
+      const y = entity.flight
+        ? lerp(entity.previousTransform.y ?? entity.transform.y ?? groundY, entity.transform.y ?? groundY, alpha)
+        : groundY + 0.35;
+      if (keepDetailed) {
+        obj.visible = true;
+        obj.position.set(x, y, z);
+        obj.rotation.y = rot;
+        this.applyPose(entity, obj, dt);
+        this.applyHitReaction(entity, obj, dt);
+        this.updateUnitDamage(entity, obj);
+        const turret = this.refs.get(entity)?.turretPivot;
+        if (turret && entity.turret) turret.rotation.y = entity.turret.yaw - rot;
+      } else {
+        this.addLowDetailInstance(entity, x, y, z, rot);
+      }
+      ring.position.set(x, groundY + 0.08, z);
+      const selected = this.selectionOverlayVisible && !entity.destroyed && (entity.selectable?.selected ?? false);
+      ring.visible = selected;
+      ring.scale.setScalar(1);
+      this.updateHealthBar(entity, x, y, z, camera, true);
+    }
+    for (const meshes of Object.values(this.lowDetailMeshes)) {
+      for (const proxy of Object.values(meshes)) {
+        proxy.mesh.count = proxy.count;
+        proxy.mesh.instanceMatrix.needsUpdate = true;
+      }
+    }
+  }
+
+  private addLowDetailInstance(entity: Entity, x: number, y: number, z: number, rot: number): void {
+    const kind: LowDetailKind = entity.flight ? 'aircraft' : entity.selectable?.type === 'infantry' ? 'infantry' : 'vehicle';
+    const proxy = this.lowDetailMeshes[factionId(entity.team?.id)][kind];
+    if (proxy.count >= MAX_LOW_DETAIL_UNITS) return;
+    const radius = Math.max(0.65, entity.selectable?.radius ?? 1.5);
+    const destroyedScale = entity.destroyed ? 0.32 : 1;
+    this.lowDetailTransform.position.set(x, y + (kind === 'infantry' ? 0.85 : kind === 'vehicle' ? 0.62 : 0), z);
+    this.lowDetailTransform.rotation.set(0, rot, entity.destroyed ? Math.PI * 0.38 : 0);
+    if (kind === 'infantry') this.lowDetailTransform.scale.set(0.78, 1.75 * destroyedScale, 0.78);
+    else if (kind === 'aircraft') this.lowDetailTransform.scale.set(radius * 1.55, 0.75 * destroyedScale, radius * 1.15);
+    else this.lowDetailTransform.scale.set(radius * 1.35, Math.max(0.55, radius * 0.58) * destroyedScale, radius * 1.75);
+    this.lowDetailTransform.updateMatrix();
+    proxy.mesh.setMatrixAt(proxy.count++, this.lowDetailTransform.matrix);
   }
 
   private updateFriendlyGlow(entity: Entity, x: number, y: number, z: number, time: number): void {
@@ -910,12 +1028,15 @@ export class UnitView {
     return true;
   }
 
-  private updateHealthBar(entity: Entity, x: number, y: number, z: number, camera: Camera): void {
+  private updateHealthBar(entity: Entity, x: number, y: number, z: number, camera: Camera, compact = false): void {
     const healthBar = this.healthBars.get(entity);
     if (!healthBar || !entity.health) return;
     const pct = Math.max(0, Math.min(1, entity.health.current / entity.health.max));
     const selected = entity.selectable?.selected ?? false;
-    healthBar.root.visible = !entity.destroyed && ((this.selectionOverlayVisible && selected) || pct < 0.995);
+    const nearCamera = !compact || camera.position.distanceToSquared(this.lowDetailTransform.position.set(x, y, z)) < 90_000;
+    healthBar.root.visible = !entity.destroyed && (compact
+      ? (this.selectionOverlayVisible && selected) || (pct < 0.65 && nearCamera)
+      : (this.selectionOverlayVisible && selected) || pct < 0.995);
     if (!healthBar.root.visible) return;
     healthBar.root.position.set(x, y + (entity.selectable?.type === 'infantry' ? 2.6 : entity.selectable?.type === 'vulture' ? 3.2 : 4.9), z);
     healthBar.root.lookAt(camera.position);
@@ -1025,6 +1146,30 @@ function createFriendlyGlowMesh(id: FactionId): FriendlyGlowMesh {
   mesh.frustumCulled = false;
   mesh.renderOrder = 22;
   return { mesh, count: 0 };
+}
+
+function createLowDetailMeshes(id: FactionId): Record<LowDetailKind, LowDetailMesh> {
+  const palette = FACTION[id];
+  const make = (kind: LowDetailKind, color: number): LowDetailMesh => {
+    const material = new MeshBasicMaterial({ color, toneMapped: true });
+    const geometry = kind === 'infantry'
+      ? sharedBoxGeometry(1, 1, 1)
+      : kind === 'aircraft'
+        ? sharedBoxGeometry(1, 1, 1.35)
+        : sharedBoxGeometry(1, 1, 1);
+    const mesh = new InstancedMesh(geometry, material, MAX_LOW_DETAIL_UNITS);
+    mesh.count = 0;
+    mesh.visible = false;
+    mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 20;
+    return { mesh, count: 0 };
+  };
+  return {
+    infantry: make('infantry', palette.accent),
+    vehicle: make('vehicle', palette.hull),
+    aircraft: make('aircraft', palette.lightBar),
+  };
 }
 
 function createBikeDustMesh(kind: Heightfield['kind']): InstancedMesh {
