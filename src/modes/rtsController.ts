@@ -210,7 +210,7 @@ export class RtsController {
           this.rightOrderStart.z,
           this.rightOrderStart.x + dx * scale,
           this.rightOrderStart.z + dz * scale,
-          this.isAttackMoveQueued() ? 'attack' : 'move',
+          this.isAttackMoveQueued() ? 'attack-move' : 'move',
           movers.length,
         );
       }
@@ -327,9 +327,9 @@ export class RtsController {
             (this.commandSink?.move?.(moverIds, destination.x, destination.z, attackMove, faceYaw, formationSpread) ??
               issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, faceYaw, formationSpread))
           ) {
-            this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack' : 'move');
+            this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack-move' : 'move');
             if (faceYaw !== undefined) {
-              this.orderFeedback?.showFacingOrder?.(destination.x, destination.z, faceYaw, attackMove ? 'attack' : 'move', formationSpread, movers.length);
+              this.orderFeedback?.showFacingOrder?.(destination.x, destination.z, faceYaw, attackMove ? 'attack-move' : 'move', formationSpread, movers.length);
             }
           }
         }

@@ -12,7 +12,7 @@ import {
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
 
-export type OrderMarkerKind = 'move' | 'attack' | 'rally';
+export type OrderMarkerKind = 'move' | 'attack-move' | 'attack' | 'rally';
 
 interface Marker {
   root: Group;
@@ -42,6 +42,12 @@ const FORMATION_BASE_SPACING = 5.2;
 const FORMATION_MIN_SPACING = FORMATION_BASE_SPACING * 0.75;
 const FORMATION_MAX_SPACING = FORMATION_BASE_SPACING * 3.5;
 const TARGET_HOVER_LIFT = 3.15;
+
+function orderMarkerColor(kind: OrderMarkerKind): number {
+  if (kind === 'attack') return 0xff543e;
+  if (kind === 'attack-move' || kind === 'rally') return 0xf0d56a;
+  return 0x7df27d;
+}
 
 interface FormationSlot {
   root: Group;
@@ -79,7 +85,7 @@ export class OrderMarkerView {
 
   push(x: number, z: number, kind: OrderMarkerKind): void {
     const y = sampleHeight(this.hf, x, z);
-    const color = kind === 'attack' ? 0xff543e : kind === 'rally' ? 0xf0d56a : 0x7df27d;
+    const color = orderMarkerColor(kind);
     const core = new MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false });
     const ringMaterial = new MeshBasicMaterial({
       color,
@@ -148,7 +154,7 @@ export class OrderMarkerView {
     this.preview.anchorRing.rotation.z += 0.08;
     this.preview.direction.position.set(Math.sin(yaw) * 2.2, FORMATION_SLOT_LIFT + 0.18, Math.cos(yaw) * 2.2);
     this.preview.direction.rotation.y = yaw;
-    const color = kind === 'attack' ? 0xff543e : kind === 'rally' ? 0xf0d56a : 0x7df27d;
+    const color = orderMarkerColor(kind);
     this.preview.materials.forEach((material) => material.color.setHex(color));
     this.layoutFormationSlots(this.preview.slots, fromX, fromZ, yaw, distance, count, 1, true);
   }
@@ -202,7 +208,7 @@ export class OrderMarkerView {
     const dz = toZ - fromZ;
     const distance = Math.hypot(dx, dz);
     if (distance < 2) return;
-    const color = kind === 'attack' ? 0xff543e : kind === 'rally' ? 0xf0d56a : 0x7df27d;
+    const color = orderMarkerColor(kind);
     const core = new MeshBasicMaterial({ color, transparent: true, opacity: 0.78, depthWrite: false });
     const ringMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.48, depthWrite: false, side: DoubleSide });
     const dark = new MeshBasicMaterial({ color: 0x06110b, transparent: true, opacity: 0.62, depthWrite: false });
@@ -244,7 +250,7 @@ export class OrderMarkerView {
   }
 
   private pushFormationSlots(x: number, z: number, yaw: number, kind: OrderMarkerKind, spread: number, count: number, ttl: number): void {
-    const color = kind === 'attack' ? 0xff543e : kind === 'rally' ? 0xf0d56a : 0x7df27d;
+    const color = orderMarkerColor(kind);
     const core = new MeshBasicMaterial({ color, transparent: true, opacity: 0.82, depthWrite: false, depthTest: false });
     const ringMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.54, depthWrite: false, depthTest: false, side: DoubleSide });
     const dark = new MeshBasicMaterial({ color: 0x06110b, transparent: true, opacity: 0.46, depthWrite: false, depthTest: false });
@@ -275,7 +281,7 @@ export class OrderMarkerView {
   }
 
   private createPreview(kind: OrderMarkerKind): FacingPreview {
-    const color = kind === 'attack' ? 0xff543e : kind === 'rally' ? 0xf0d56a : 0x7df27d;
+    const color = orderMarkerColor(kind);
     const core = new MeshBasicMaterial({ color, transparent: true, opacity: 0.82, depthWrite: false, depthTest: false });
     const ringMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.54, depthWrite: false, depthTest: false, side: DoubleSide });
     const dark = new MeshBasicMaterial({ color: 0x06110b, transparent: true, opacity: 0.46, depthWrite: false, depthTest: false });

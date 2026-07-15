@@ -426,9 +426,21 @@ export function issueMoveOrder(
   const baseSpacing = formationBaseSpacing(movers);
   const spacing = formationSpacing(baseSpacing, movers.length, effectiveSpread);
   const width = formationWidth(movers.length, faceYaw, effectiveSpread);
-  const hasGroundUnits = movers.some((entity) => !entity.flight);
-  const targetPoint = hasGroundUnits ? walkableOrderPoint(sim, targetX, targetZ) : undefined;
-  const flow = targetPoint ? new FlowField(sim.nav, targetPoint.x, targetPoint.z) : undefined;
+  const groundReference = movers.find((entity) => !entity.flight);
+  let targetPoint = groundReference ? walkableOrderPoint(sim, targetX, targetZ) : undefined;
+  let flow = targetPoint ? new FlowField(sim.nav, targetPoint.x, targetPoint.z) : undefined;
+  if (groundReference && targetPoint && flow) {
+    const referenceCell = sim.nav.worldToCell(groundReference.transform.x, groundReference.transform.z);
+    if (flow.distance[sim.nav.index(referenceCell.x, referenceCell.y)] < 0) {
+      const originCell = sim.nav.nearestWalkableCellGlobal(groundReference.transform.x, groundReference.transform.z);
+      if (originCell) {
+        const origin = sim.nav.cellCenter(originCell.x, originCell.y);
+        const component = new FlowField(sim.nav, origin.x, origin.z);
+        targetPoint = connectedWalkableOrderPoint(sim, targetX, targetZ, component);
+        flow = targetPoint ? new FlowField(sim.nav, targetPoint.x, targetPoint.z) : undefined;
+      }
+    }
+  }
 
   movers.forEach((entity, i) => {
     const col = i % width;
@@ -443,17 +455,30 @@ export function issueMoveOrder(
       entity.mover.flow = undefined;
     } else {
       if (!targetPoint || !flow) return;
-      const requestedSlot = { x: targetPoint.x + offset.x, z: targetPoint.z + offset.z };
-      const slot = walkableOrderPoint(sim, requestedSlot.x, requestedSlot.z);
+      let entityTarget = targetPoint;
+      let entityFlow = flow;
+      const entityCell = sim.nav.worldToCell(entity.transform.x, entity.transform.z);
+      if (flow.distance[sim.nav.index(entityCell.x, entityCell.y)] < 0) {
+        const originCell = sim.nav.nearestWalkableCellGlobal(entity.transform.x, entity.transform.z);
+        if (!originCell) return;
+        const origin = sim.nav.cellCenter(originCell.x, originCell.y);
+        const component = new FlowField(sim.nav, origin.x, origin.z);
+        const reachableTarget = connectedWalkableOrderPoint(sim, targetX, targetZ, component);
+        if (!reachableTarget) return;
+        entityTarget = reachableTarget;
+        entityFlow = new FlowField(sim.nav, entityTarget.x, entityTarget.z);
+      }
+      const requestedSlot = { x: entityTarget.x + offset.x, z: entityTarget.z + offset.z };
+      const slot = connectedWalkableOrderPoint(sim, requestedSlot.x, requestedSlot.z, entityFlow);
       if (!slot) return;
       if (faceYaw !== undefined) {
         entity.mover.target = { x: slot.x, z: slot.z };
         entity.mover.formationOffset = undefined;
         entity.mover.flow = new FlowField(sim.nav, slot.x, slot.z);
       } else {
-        entity.mover.target = { x: targetPoint.x, z: targetPoint.z };
-        entity.mover.formationOffset = { x: slot.x - targetPoint.x, z: slot.z - targetPoint.z };
-        entity.mover.flow = flow;
+        entity.mover.target = { x: entityTarget.x, z: entityTarget.z };
+        entity.mover.formationOffset = { x: slot.x - entityTarget.x, z: slot.z - entityTarget.z };
+        entity.mover.flow = entityFlow;
       }
     }
     entity.mover.holdPosition = undefined;
@@ -527,8 +552,38 @@ function walkableOrderPoint(sim: GameSim, x: number, z: number): { x: number; z:
   const clampedZ = clamp(z, -sim.nav.size / 2, sim.nav.size / 2);
   const clicked = sim.nav.worldToCell(clampedX, clampedZ);
   if (sim.nav.isWalkableCell(clicked.x, clicked.y)) return { x: clampedX, z: clampedZ };
-  const fallback = sim.nav.nearestWalkableCell(clampedX, clampedZ, 96);
+  const fallback = sim.nav.nearestWalkableCellGlobal(clampedX, clampedZ);
   return fallback ? sim.nav.cellCenter(fallback.x, fallback.y) : undefined;
+}
+
+function connectedWalkableOrderPoint(
+  sim: GameSim,
+  x: number,
+  z: number,
+  component: FlowField,
+): { x: number; z: number } | undefined {
+  const clampedX = clamp(x, -sim.nav.size / 2, sim.nav.size / 2);
+  const clampedZ = clamp(z, -sim.nav.size / 2, sim.nav.size / 2);
+  const clicked = sim.nav.worldToCell(clampedX, clampedZ);
+  const isReachable = (cx: number, cy: number): boolean =>
+    sim.nav.inBounds(cx, cy) && component.distance[sim.nav.index(cx, cy)] >= 0;
+  if (isReachable(clicked.x, clicked.y)) return { x: clampedX, z: clampedZ };
+
+  // Search outward from the player's click until we find terrain connected to
+  // the selected unit. This makes water, cliffs and isolated islands behave as
+  // intent targets: units move as close as they physically can instead of
+  // accepting an unreachable destination and standing still.
+  for (let radius = 1; radius < sim.nav.cells; radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+        const cx = clicked.x + dx;
+        const cy = clicked.y + dy;
+        if (isReachable(cx, cy)) return sim.nav.cellCenter(cx, cy);
+      }
+    }
+  }
+  return undefined;
 }
 
 export function selectedEntities(sim: GameSim, team = 1): Entity[] {

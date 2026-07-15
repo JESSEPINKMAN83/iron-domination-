@@ -192,6 +192,39 @@ describe('phase 2 movement simulation', () => {
     expect(tanks.every((tank) => tank.mover?.target && tank.mover.flow)).toBe(true);
   });
 
+  it('moves toward the nearest reachable shore when the clicked land is disconnected', () => {
+    const hf = generateHeightfield(MAP01);
+    hf.walkable.fill(1);
+    const dividerX = Math.floor(hf.cells / 2);
+    for (let y = 0; y < hf.cells; y++) hf.walkable[y * hf.cells + dividerX] = 0;
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, -80, 0, 'Reachability Tank');
+
+    expect(issueMoveOrder(sim, [tank], 80, 0)).toBe(true);
+
+    expect(tank.mover?.target?.x).toBeLessThan(0);
+    expect(tank.mover?.flow?.directionAt(tank.transform.x, tank.transform.z).distance).toBeGreaterThan(0);
+    stepSim(sim, hf, 1 / 30);
+    expect(Math.hypot(tank.velocity?.x ?? 0, tank.velocity?.z ?? 0)).toBeGreaterThan(0);
+  });
+
+  it('gives each selected unit a reachable fallback when the group spans disconnected terrain', () => {
+    const hf = generateHeightfield(MAP01);
+    hf.walkable.fill(1);
+    const dividerX = Math.floor(hf.cells / 2);
+    for (let y = 0; y < hf.cells; y++) hf.walkable[y * hf.cells + dividerX] = 0;
+    const sim = createGameSim(hf);
+    const left = spawnTankAt(sim, -80, 0, 'Left Tank');
+    const right = spawnTankAt(sim, 80, 0, 'Right Tank');
+
+    expect(issueMoveOrder(sim, [left, right], 0, 0)).toBe(true);
+
+    expect(left.mover?.target?.x).toBeLessThan(0);
+    expect(right.mover?.target?.x).toBeGreaterThan(0);
+    expect(left.mover?.flow?.directionAt(left.transform.x, left.transform.z).distance).toBeGreaterThan(0);
+    expect(right.mover?.flow?.directionAt(right.transform.x, right.transform.z).distance).toBeGreaterThan(0);
+  });
+
   it('keeps exact walkable click positions instead of snapping every order to cell centers', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
