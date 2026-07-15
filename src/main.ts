@@ -1925,7 +1925,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         controller.setEnabled(false);
         unitView.setHiddenEntity(undefined);
         unitView.setSelectionOverlayVisible(false);
-        sidebar.setVisible(false);
+        sidebar.setFirstPerson(true);
         selectionBar.setVisible(false);
         hud.setFirstPerson(true);
       },
@@ -1933,7 +1933,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         controller.setEnabled(true);
         unitView.setHiddenEntity(undefined);
         unitView.setSelectionOverlayVisible(true);
-        sidebar.setVisible(true);
+        sidebar.setFirstPerson(false);
         selectionBar.setVisible(true);
         hud.setFirstPerson(false);
         if (entity) rig.jumpTo(entity.transform.x, entity.transform.z);

@@ -41,9 +41,11 @@ const TAB_LABELS: Record<Tab, string> = {
 
 export class Sidebar {
   private readonly root: HTMLDivElement;
+  private readonly radarWrap: HTMLDivElement;
   private readonly radar: HTMLCanvasElement;
   private readonly radarCtx: CanvasRenderingContext2D;
   private readonly radarTerrain: HTMLCanvasElement;
+  private readonly firstPersonStatus: HTMLDivElement;
   private readonly tabs: HTMLDivElement;
   private readonly body: HTMLDivElement;
   private readonly status: HTMLDivElement;
@@ -58,9 +60,11 @@ export class Sidebar {
   private radarFocus?: { x: number; z: number; ttl: number };
   private readonly fogCanvas: HTMLCanvasElement;
   private readonly tacticalButtons = new Map<TacticalPingKind, HTMLButtonElement>();
+  private tacticalControls?: HTMLDivElement;
   private tacticalPings: Array<TacticalPing & { expiresAt: number }> = [];
   private selectedTacticalPing?: TacticalPingKind;
   private notice?: { text: string; untilTick: number };
+  private firstPersonMode = false;
 
   constructor(
     private readonly sim: GameSim,
@@ -80,8 +84,8 @@ export class Sidebar {
     this.root.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
 
-    const radarWrap = document.createElement('div');
-    radarWrap.style.cssText =
+    this.radarWrap = document.createElement('div');
+    this.radarWrap.style.cssText =
       'position:relative;display:grid;grid-template-rows:18px auto;gap:6px;padding:7px;background:#060908;border:2px solid #151817;' +
       'border-top-color:#66706a;border-left-color:#66706a;box-shadow:inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75);overflow:hidden;';
     this.radar = document.createElement('canvas');
@@ -99,14 +103,21 @@ export class Sidebar {
     this.status.style.cssText =
       'height:18px;padding:0 6px;background:#101514;border:1px solid #424a47;box-sizing:border-box;' +
       'box-shadow:inset 0 0 12px rgba(0,0,0,.55);color:#d2b15f;font-size:10px;line-height:16px;white-space:pre;overflow:hidden;';
-    radarWrap.append(this.status, this.radar);
-    if (this.actions.beginTacticalPing) radarWrap.append(this.createTacticalControls());
+    this.firstPersonStatus = document.createElement('div');
+    this.firstPersonStatus.style.cssText =
+      'display:none;padding:5px 6px;border:1px solid #313936;background:rgba(13,19,18,.94);color:#cfd9d3;' +
+      'font:700 8px/1.45 ui-monospace,Menlo,monospace;letter-spacing:.03em;white-space:pre;';
+    this.radarWrap.append(this.status, this.radar, this.firstPersonStatus);
+    if (this.actions.beginTacticalPing) {
+      this.tacticalControls = this.createTacticalControls();
+      this.radarWrap.append(this.tacticalControls);
+    }
 
     this.tabs = document.createElement('div');
     this.tabs.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:4px;';
     this.body = document.createElement('div');
     this.body.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:6px;overflow:auto;padding-right:1px;';
-    this.root.append(radarWrap, this.tabs, this.body);
+    this.root.append(this.radarWrap, this.tabs, this.body);
     document.body.appendChild(this.root);
     this.renderTabs();
   }
@@ -125,19 +136,32 @@ export class Sidebar {
       }
     }
 
+    const possessed = this.firstPersonMode ? this.possessedUnit() : undefined;
     const powerDelta = this.economy.powerProduced - this.economy.powerUsed;
     if (this.notice && this.sim.tick >= this.notice.untilTick) this.notice = undefined;
     const placing = this.economy.selectedStructure ? `placing ${STRUCTURES[this.economy.selectedStructure].label}` : undefined;
     const latest = placing ?? this.notice?.text ?? this.economy.ledger.slice(-1)[0]?.label ?? 'ready';
-    const statusText = [
-      `$${Math.floor(this.economy.credits)}`,
-      `PWR ${powerDelta >= 0 ? '+' : ''}${powerDelta}${powerDelta < 0 ? ' LOW POWER' : ''}`,
-      latest,
-    ].join('   ');
+    const healthPct = possessed?.health ? Math.max(0, possessed.health.current / Math.max(1, possessed.health.max)) : 1;
+    const speed = possessed?.velocity ? Math.hypot(possessed.velocity.x, possessed.velocity.z) : 0;
+    const statusText = possessed
+      ? `${(possessed.name ?? possessed.selectable?.type ?? 'UNIT').toUpperCase()}   HP ${Math.round(healthPct * 100)}%   SPD ${Math.round(speed)}`
+      : [
+          `$${Math.floor(this.economy.credits)}`,
+          `PWR ${powerDelta >= 0 ? '+' : ''}${powerDelta}${powerDelta < 0 ? ' LOW POWER' : ''}`,
+          latest,
+        ].join('   ');
     if (statusText !== this.lastStatusText) {
       this.status.textContent = statusText;
-      this.status.style.color = powerDelta < 0 ? '#ff7666' : '#d2b15f';
+      this.status.style.color = possessed ? healthPct < 0.3 ? '#ff7666' : '#d2b15f' : powerDelta < 0 ? '#ff7666' : '#d2b15f';
       this.lastStatusText = statusText;
+    }
+    if (possessed) {
+      const primary = possessed.weapons?.primary ?? possessed.weapon;
+      const secondary = possessed.weapons?.secondary;
+      const ready = (cooldown = 0): string => cooldown <= 0 ? 'READY' : `${cooldown.toFixed(1)}s`;
+      this.firstPersonStatus.textContent =
+        `LMB  ${(primary?.kind ?? 'NO PRIMARY').toUpperCase()}  ${ready(primary?.cooldown)}\n` +
+        `RMB  ${(secondary?.kind ?? 'NO SECONDARY').toUpperCase()}  ${ready(secondary?.cooldown)}   ·   V EXIT`;
     }
     if (this.sim.tick - this.lastRadarTick >= 3) {
       this.lastRadarTick = this.sim.tick;
@@ -146,7 +170,7 @@ export class Sidebar {
     // the body is a pure function of sim state, which only advances per tick — skip the
     // expensive bodyKey scan on frames where the tick hasn't changed (tab switches call
     // renderBody directly, so they stay responsive)
-    if (this.sim.tick !== this.lastBodyTick) {
+    if (!this.firstPersonMode && this.sim.tick !== this.lastBodyTick) {
       this.lastBodyTick = this.sim.tick;
       const bodyKey = this.bodyKey();
       if (bodyKey !== this.lastBodyKey) {
@@ -162,6 +186,25 @@ export class Sidebar {
 
   setVisible(visible: boolean): void {
     this.root.style.display = visible ? 'flex' : 'none';
+  }
+
+  setFirstPerson(active: boolean): void {
+    this.firstPersonMode = active;
+    this.root.style.display = 'flex';
+    this.root.style.width = active ? '218px' : '322px';
+    this.root.style.padding = active ? '7px' : '10px';
+    this.root.style.gap = active ? '0' : '7px';
+    this.radarWrap.style.gridTemplateRows = active ? '18px auto auto' : '18px auto';
+    this.radarWrap.style.gap = active ? '4px' : '6px';
+    this.radarWrap.style.padding = active ? '5px' : '7px';
+    this.radar.style.pointerEvents = active ? 'none' : 'auto';
+    this.firstPersonStatus.style.display = active ? 'block' : 'none';
+    this.tacticalControls?.style.setProperty('display', active ? 'none' : 'grid');
+    this.tabs.style.display = active ? 'none' : 'grid';
+    this.body.style.display = active ? 'none' : 'grid';
+    this.lastStatusText = '';
+    this.lastRadarTick = -3;
+    this.drawRadar();
   }
 
   setTacticalPing(kind?: TacticalPingKind): void {
@@ -833,6 +876,12 @@ export class Sidebar {
     return root;
   }
 
+  private possessedUnit(): Entity | undefined {
+    return Array.from(this.sim.world.entities).find(
+      (entity) => entity.playerControlled && entity.team?.id === this.economy.team && !entity.destroyed,
+    );
+  }
+
   private drawRadar(): void {
     const now = performance.now();
     this.tacticalPings = this.tacticalPings.filter((ping) => ping.expiresAt > now);
@@ -915,6 +964,29 @@ export class Sidebar {
   }
 
   private drawRadarViewport(): void {
+    if (this.firstPersonMode) {
+      const entity = this.possessedUnit();
+      if (!entity) return;
+      const p = this.worldToRadar(entity.transform.x, entity.transform.z);
+      const yaw = entity.playerControlled?.aimYaw ?? entity.transform.rot;
+      const dx = Math.sin(yaw);
+      const dy = -Math.cos(yaw);
+      const sideX = -dy;
+      const sideY = dx;
+      this.radarCtx.save();
+      this.radarCtx.beginPath();
+      this.radarCtx.moveTo(p.x + dx * 11, p.y + dy * 11);
+      this.radarCtx.lineTo(p.x - dx * 5 + sideX * 5, p.y - dy * 5 + sideY * 5);
+      this.radarCtx.lineTo(p.x - dx * 5 - sideX * 5, p.y - dy * 5 - sideY * 5);
+      this.radarCtx.closePath();
+      this.radarCtx.fillStyle = '#f0d56a';
+      this.radarCtx.strokeStyle = '#111714';
+      this.radarCtx.lineWidth = 2;
+      this.radarCtx.fill();
+      this.radarCtx.stroke();
+      this.radarCtx.restore();
+      return;
+    }
     const footprint = this.actions.radarViewport();
     if (footprint.length < 4) return;
     const points = footprint.map((point) => this.worldToRadar(point.x, point.z));

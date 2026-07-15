@@ -289,11 +289,12 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
   const projectileKind = weaponKind === 'tankBomb' ? 'tankBomb' : 'bomb';
   const range = Math.hypot(targetX - attacker.transform.x, targetZ - attacker.transform.z);
   const salvoCount = Math.max(1, Math.min(4, Math.round(weapon.salvoCount ?? 1)));
-  const baseImpact = scatterBombImpact(sim, attacker, targetX, targetZ, range, maxRange);
+  const manuallyAimed = Boolean(attacker.playerControlled);
+  const baseImpact = manuallyAimed ? { x: targetX, z: targetZ } : scatterBombImpact(sim, attacker, targetX, targetZ, range, maxRange);
   const aimYaw = Math.atan2(targetX - attacker.transform.x, targetZ - attacker.transform.z);
   const impactLimit = sim.nav.size / 2 - 2;
   for (let i = 0; i < salvoCount; i++) {
-    const salvoImpact = offsetSalvoImpact(baseImpact.x, baseImpact.z, aimYaw, salvoCount, i);
+    const salvoImpact = manuallyAimed ? baseImpact : offsetSalvoImpact(baseImpact.x, baseImpact.z, aimYaw, salvoCount, i);
     const impact = {
       x: Math.max(-impactLimit, Math.min(impactLimit, salvoImpact.x)),
       z: Math.max(-impactLimit, Math.min(impactLimit, salvoImpact.z)),

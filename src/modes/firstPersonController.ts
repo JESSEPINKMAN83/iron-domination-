@@ -16,11 +16,6 @@ const FLIGHT_LOOK_DOWN_MIN = MathUtils.degToRad(-86);
 const FLIGHT_LOOK_UP_MAX = MathUtils.degToRad(56);
 const GROUND_LOOK_DOWN_MIN = MathUtils.degToRad(-82);
 const GROUND_LOOK_UP_MAX = MathUtils.degToRad(86);
-const ARTILLERY_MIN_RANGE = 34;
-const ARTILLERY_FULL_RANGE_PITCH = MathUtils.degToRad(68);
-const ARTILLERY_MIN_RANGE_PITCH = MathUtils.degToRad(-12);
-const ARTILLERY_SPEED = 95;
-const ARTILLERY_MAX_FLIGHT_TIME = 8;
 const AIM_DELTA_X_LIMIT = 140;
 const AIM_DELTA_Y_LIMIT = 90;
 const SNIPER_SCOPE_FOV_WIDE = 30;
@@ -80,7 +75,6 @@ export class FirstPersonController {
   private savedCursor = '';
   private readonly scopeOverlay: HTMLDivElement;
   private readonly scopeStatus: HTMLDivElement;
-  private readonly artilleryPreview: HTMLCanvasElement;
   private readonly abilityStatus: HTMLDivElement;
   private readonly abilityHud: HTMLDivElement;
   private readonly impactOverlay: HTMLDivElement;
@@ -126,10 +120,6 @@ export class FirstPersonController {
       'position:fixed;left:50%;bottom:18%;transform:translateX(-50%);display:none;pointer-events:none;z-index:13;' +
       'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.18em;color:rgba(216,255,208,.9);text-shadow:0 1px 2px #000;';
     document.body.appendChild(this.scopeStatus);
-    this.artilleryPreview = document.createElement('canvas');
-    this.artilleryPreview.style.cssText =
-      'position:fixed;inset:0;width:100vw;height:100vh;display:none;pointer-events:none;z-index:11;';
-    document.body.appendChild(this.artilleryPreview);
     this.abilityStatus = document.createElement('div');
     this.abilityStatus.style.cssText =
       'position:fixed;left:50%;bottom:11%;transform:translateX(-50%);display:none;pointer-events:none;z-index:14;' +
@@ -341,7 +331,6 @@ export class FirstPersonController {
       this.transitionT = Math.min(1, this.transitionT + dt / 0.6);
       this.toPose = this.poseFor(this.possessed, this.lookYaw, this.lookPitch, 62, alpha, dt);
       this.applyPose(lerpPose(this.fromPose, this.toPose, ease(this.transitionT)), dt);
-      this.updateArtilleryPreview();
       if (this.transitionT >= 1) this.mode = 'fps';
       return;
     }
@@ -350,7 +339,6 @@ export class FirstPersonController {
       this.updateScopeOverlay(false);
       this.transitionT = Math.min(1, this.transitionT + dt / 0.58);
       this.applyPose(lerpPose(this.fromPose, this.toPose, easeOutCubic(this.transitionT)), dt);
-      this.hideArtilleryPreview();
       if (this.transitionT >= 1) this.finishExit();
       return;
     }
@@ -360,7 +348,6 @@ export class FirstPersonController {
     const baseFov = this.possessed.flight ? MathUtils.lerp(62, 70, Math.min(1, speed / maxSpeed)) : 62;
     this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.zoomedFov(baseFov), alpha, dt), dt);
     this.updateTargetLock(dt);
-    this.updateArtilleryPreview();
   }
 
   private beginExit(): void {
@@ -397,7 +384,6 @@ export class FirstPersonController {
     this.resetTargetLock();
     this.impactShakeRemaining = 0;
     this.updateScopeOverlay(false);
-    this.hideArtilleryPreview();
     this.mode = 'rts';
     this.camera.fov = 50;
     this.camera.updateProjectionMatrix();
@@ -492,21 +478,23 @@ export class FirstPersonController {
       if (this.possessed.playerControlled) this.possessed.playerControlled.aimYaw = this.lookYaw;
       if (this.possessed.turret) this.possessed.turret.yaw = this.lookYaw;
     }
-    const lockedTarget = slot === 'primary' ? this.lockedTarget() : undefined;
-    const reticleAircraft = slot === 'primary' ? this.tankReticleAircraft(this.possessed) : undefined;
-    const target = lockedTarget
+    const lockedTarget = this.lockedTarget();
+    const reticleAircraft = this.tankReticleAircraft(this.possessed);
+    const sharedGroundTarget = lockedTarget
       ? new Vector3(lockedTarget.transform.x, lockedTarget.transform.y, lockedTarget.transform.z)
+      : reticleAircraft
+        ? new Vector3(reticleAircraft.transform.x, reticleAircraft.transform.y, reticleAircraft.transform.z)
+        : this.tmpAimTarget;
+    const target = lockedTarget
+      && slot === 'primary'
+      ? sharedGroundTarget
       : this.possessed.flight
         ? this.flightTarget(this.possessed, slot === 'secondary' ? 'secondary' : 'primary')
       : this.isSniperScoped(this.possessed) && slot === 'primary'
         ? this.sniperScopeShotTarget(this.possessed)
         : this.isSniperScoped(this.possessed) && slot === 'special'
           ? this.sniperScopeShotTarget(this.possessed)
-        : reticleAircraft
-          ? new Vector3(reticleAircraft.transform.x, reticleAircraft.transform.y, reticleAircraft.transform.z)
-        : slot === 'secondary'
-          ? this.bombTarget(this.possessed)
-          : this.tmpAimTarget;
+        : sharedGroundTarget;
     const followers = this.squadFollowers();
     let fired = false;
     if (this.commandSink) {
@@ -704,136 +692,6 @@ export class FirstPersonController {
     const target = origin.addScaledVector(horizontal, range);
     target.y = sampleHeight(this.hf, target.x, target.z);
     return target;
-  }
-
-  private bombTarget(entity: Entity): Vector3 {
-    const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
-    const origin = new Vector3(entity.transform.x, groundY + 2.4, entity.transform.z);
-    const horizontal = new Vector3(Math.sin(this.lookYaw), 0, Math.cos(this.lookYaw));
-    const pitchT = MathUtils.smoothstep(this.lookPitch, ARTILLERY_MIN_RANGE_PITCH, ARTILLERY_FULL_RANGE_PITCH);
-    const maxRange = this.artilleryRangeToMapEdge(entity, horizontal.x, horizontal.z);
-    const range = MathUtils.lerp(Math.min(ARTILLERY_MIN_RANGE, maxRange), maxRange, pitchT);
-    const target = origin.addScaledVector(horizontal, range);
-    target.y = sampleHeight(this.hf, target.x, target.z);
-    return target;
-  }
-
-  private artilleryRangeToMapEdge(entity: Entity, dirX: number, dirZ: number): number {
-    const half = this.hf.size / 2 - 5;
-    const xDistance = dirX > 0.0001
-      ? (half - entity.transform.x) / dirX
-      : dirX < -0.0001
-        ? (-half - entity.transform.x) / dirX
-        : Number.POSITIVE_INFINITY;
-    const zDistance = dirZ > 0.0001
-      ? (half - entity.transform.z) / dirZ
-      : dirZ < -0.0001
-        ? (-half - entity.transform.z) / dirZ
-        : Number.POSITIVE_INFINITY;
-    return Math.max(1, Math.min(xDistance, zDistance));
-  }
-
-  private updateArtilleryPreview(): void {
-    const entity = this.possessed;
-    const secondary = entity?.weapons?.secondary;
-    if (this.mode !== 'fps' || !entity || entity.flight || secondary?.kind !== 'tankBomb') {
-      this.hideArtilleryPreview();
-      return;
-    }
-    const dpr = Math.min(window.devicePixelRatio, 1.5);
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    const pixelWidth = Math.round(width * dpr);
-    const pixelHeight = Math.round(height * dpr);
-    if (this.artilleryPreview.width !== pixelWidth || this.artilleryPreview.height !== pixelHeight) {
-      this.artilleryPreview.width = pixelWidth;
-      this.artilleryPreview.height = pixelHeight;
-    }
-    const ctx = this.artilleryPreview.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
-    this.artilleryPreview.style.display = 'block';
-
-    const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
-    const from = new Vector3(entity.transform.x, groundY + 3.1, entity.transform.z);
-    const to = this.bombTarget(entity);
-    to.y = sampleHeight(this.hf, to.x, to.z) + 0.4;
-    const distance = Math.hypot(to.x - from.x, to.z - from.z);
-    const control = new Vector3((from.x + to.x) / 2, Math.max(from.y, to.y) + Math.min(190, distance * 0.24), (from.z + to.z) / 2);
-    const points: Array<{ x: number; y: number; visible: boolean }> = [];
-    for (let i = 0; i <= 28; i++) {
-      const t = i / 28;
-      const a = (1 - t) * (1 - t);
-      const b = 2 * (1 - t) * t;
-      const c = t * t;
-      const point = new Vector3(from.x * a + control.x * b + to.x * c, from.y * a + control.y * b + to.y * c, from.z * a + control.z * b + to.z * c);
-      point.project(this.camera);
-      points.push({ x: (point.x * 0.5 + 0.5) * width, y: (-point.y * 0.5 + 0.5) * height, visible: point.z >= -1 && point.z <= 1 });
-    }
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(255,196,78,.82)';
-    ctx.setLineDash([7, 7]);
-    ctx.beginPath();
-    let drawing = false;
-    for (const point of points) {
-      if (!point.visible) {
-        drawing = false;
-        continue;
-      }
-      if (!drawing) ctx.moveTo(point.x, point.y);
-      else ctx.lineTo(point.x, point.y);
-      drawing = true;
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-    const landing = points[points.length - 1];
-    if (landing.visible) {
-      const pulse = 9 + Math.sin(performance.now() * 0.008) * 2;
-      const maxRange = this.artilleryRangeToMapEdge(entity, Math.sin(this.lookYaw), Math.cos(this.lookYaw));
-      const scatterT = MathUtils.smoothstep(distance, 135, Math.max(136, maxRange));
-      const scatterWorld = scatterT * scatterT * 58;
-      if (scatterWorld > 0.5) {
-        const right = new Vector3(Math.cos(this.lookYaw) * scatterWorld, 0, -Math.sin(this.lookYaw) * scatterWorld);
-        const edge = to.clone().add(right).project(this.camera);
-        const radiusPx = Math.abs((edge.x * 0.5 + 0.5) * width - landing.x);
-        ctx.strokeStyle = 'rgba(255,170,65,.38)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 5]);
-        ctx.beginPath();
-        ctx.arc(landing.x, landing.y, Math.max(12, radiusPx), 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-      ctx.strokeStyle = 'rgba(255,92,62,.95)';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(landing.x, landing.y, pulse, 0, Math.PI * 2);
-      ctx.moveTo(landing.x - pulse - 5, landing.y);
-      ctx.lineTo(landing.x + pulse + 5, landing.y);
-      ctx.moveTo(landing.x, landing.y - pulse - 5);
-      ctx.lineTo(landing.x, landing.y + pulse + 5);
-      ctx.stroke();
-
-      const flightTime = Math.min(ARTILLERY_MAX_FLIGHT_TIME, Math.max(0.85, distance / ARTILLERY_SPEED));
-      const label = `ARC ${Math.round(distance)}m  ${flightTime.toFixed(1)}s`;
-      ctx.font = '700 11px ui-monospace, Menlo, monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      const labelWidth = ctx.measureText(label).width + 12;
-      const labelX = MathUtils.clamp(landing.x, labelWidth / 2 + 4, width - labelWidth / 2 - 4);
-      const labelY = MathUtils.clamp(landing.y + pulse + 10, 4, height - 24);
-      ctx.fillStyle = 'rgba(7,10,10,.78)';
-      ctx.fillRect(labelX - labelWidth / 2, labelY - 2, labelWidth, 18);
-      ctx.fillStyle = 'rgba(255,208,103,.95)';
-      ctx.fillText(label, labelX, labelY);
-    }
-  }
-
-  private hideArtilleryPreview(): void {
-    if (this.artilleryPreview.style.display === 'none') return;
-    this.artilleryPreview.style.display = 'none';
-    this.artilleryPreview.getContext('2d')?.clearRect(0, 0, this.artilleryPreview.width, this.artilleryPreview.height);
   }
 
   private sniperScopeShotTarget(entity: Entity): Vector3 {

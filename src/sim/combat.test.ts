@@ -296,7 +296,7 @@ describe('phase 4 combat simulation', () => {
     expect(Math.abs(aircraft.flight?.rollAttitude ?? 0)).toBeGreaterThan(0);
   });
 
-  it('lets player-controlled bombs cross the battlefield with deterministic scatter', () => {
+  it('lands every manually aimed artillery missile on the requested reticle point', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const attacker = spawnTankAt(sim, -480, -480, 'A');
@@ -308,7 +308,7 @@ describe('phase 4 combat simulation', () => {
     expect(sim.events).toHaveLength(2);
     expect(Math.hypot(sim.events[0].toX - attacker.transform.x, sim.events[0].toZ - attacker.transform.z)).toBeGreaterThan(1200);
     expect(sim.events[0].duration).toBe(8);
-    expect(sim.events[0].toX).not.toBeCloseTo(480);
+    expect(sim.events.every((event) => event.toX === 480 && event.toZ === 480)).toBe(true);
     expect(sim.events.every((event) => event.kind === 'tankBomb')).toBe(true);
   });
 
