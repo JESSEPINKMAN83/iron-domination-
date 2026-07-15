@@ -973,8 +973,8 @@ function createMultiplayerSetupPanel(
     rememberSession(client, session);
     applyRoomSettings(session.room, session.player.index);
     lobbyView?.root.remove();
-    lobbyView = createRoomLobbyView(client, session);
-    root.appendChild(lobbyView.root);
+    lobbyView = createRoomLobbyView(client, session, settings);
+    root.insertBefore(lobbyView.root, status);
     lobbyView.update(session.room, session.player.index);
     codeLabel.input.value = session.room.code;
     renderRoomStatus(session.room, session.player.index, setStatus);
@@ -1066,7 +1066,7 @@ function createMultiplayerSetupPanel(
   const advancedSummary = document.createElement('summary');
   advancedSummary.textContent = 'ADVANCED CONNECTION';
   advanced.append(advancedSummary, serverLabel.root);
-  root.append(hostEntry, joinEntry, advanced, status);
+  root.append(hostEntry, joinEntry, status, advanced);
   if (normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? '') && !currentSession()) {
     setStatus('Joining invitation...');
     void joinRoom();
@@ -1101,6 +1101,7 @@ function createMultiplayerSetupPanel(
 function createRoomLobbyView(
   client: MultiplayerClient,
   session: MultiplayerSession,
+  settings: () => SkirmishSettings,
 ): { root: HTMLDivElement; update: (room: MultiplayerRoom, playerIndex: number) => void } {
   const root = document.createElement('div');
   root.className = 'war-lobby';
@@ -1118,136 +1119,186 @@ function createRoomLobbyView(
   const share = document.createElement('div');
   share.className = 'war-lobby__share';
   const shareCopy = document.createElement('div');
-  shareCopy.innerHTML = '<span>ROOM CODE</span><strong></strong><small>Share this code or copy the invitation link.</small>';
+  shareCopy.innerHTML = '<span>ROOM</span><strong></strong>';
   const copy = document.createElement('button');
   copy.type = 'button';
-  copy.textContent = 'COPY INVITE';
-  copy.className = 'war-button war-button--quiet';
+  copy.textContent = 'COPY';
+  copy.className = 'war-button war-button--quiet war-lobby__copy';
   share.append(shareCopy, copy);
-  const players = document.createElement('div');
-  players.className = 'war-lobby__players';
+
   const status = document.createElement('div');
   status.className = 'war-lobby__status';
   status.setAttribute('aria-live', 'polite');
 
-  const profile = document.createElement('div');
-  profile.className = 'war-lobby__profile';
-  const nameLabel = setupTextInput('Commander name', session.player.name);
-  nameLabel.input.maxLength = 28;
-  const sideLabel = document.createElement('label');
-  sideLabel.className = 'war-input';
-  sideLabel.append('Team side');
-  const side = document.createElement('select');
-  for (let index = 1; index <= 4; index++) {
-    const option = document.createElement('option');
-    option.value = String(index);
-    option.textContent = `SIDE ${index}`;
-    side.appendChild(option);
-  }
-  sideLabel.append(side);
-  const colors = document.createElement('div');
-  colors.className = 'war-lobby__colors';
-  const colorButtons = new Map<string, HTMLButtonElement>();
-  const colorRow = document.createElement('div');
-  colorRow.className = 'war-lobby__color-row';
-  for (const [color, value] of Object.entries(LOBBY_COLORS)) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.title = color;
-    button.className = 'war-lobby__color';
-    button.style.background = value;
-    button.onclick = () => client.updatePlayerProfile(session.room.code, session.player.id, { color: color as keyof typeof LOBBY_COLORS });
-    colorButtons.set(color, button);
-    colorRow.appendChild(button);
-  }
-  colors.append('Army colour', colorRow);
-  nameLabel.input.onchange = () => client.updatePlayerProfile(session.room.code, session.player.id, { name: nameLabel.input.value });
-  side.onchange = () => client.updatePlayerProfile(session.room.code, session.player.id, { side: Number(side.value) });
-  profile.append(nameLabel.root, sideLabel, colors);
+  let latestRoom = session.room;
+  const players = document.createElement('div');
+  players.className = 'war-lobby__players';
+  const tableHead = document.createElement('div');
+  tableHead.className = 'war-lobby__table-head';
+  tableHead.innerHTML = '<span>PLAYER</span><span>TEAM</span><span>COLOUR</span>';
+  const defaultColors = ['jade', 'crimson', 'azure', 'amber'] as const;
+  const playerRows = Array.from({ length: 4 }, (_, offset) => {
+    const index = offset + 1;
+    const row = document.createElement('div');
+    row.className = 'war-lobby__player';
+    const slot = document.createElement('div');
+    slot.className = 'war-lobby__slot';
+    slot.textContent = `P${index}`;
+    const identity = document.createElement('div');
+    identity.className = 'war-lobby__identity';
+    const nameInput = document.createElement('input');
+    nameInput.className = 'war-lobby__name-input';
+    nameInput.maxLength = 28;
+    nameInput.setAttribute('aria-label', `Player ${index} commander name`);
+    const nameText = document.createElement('div');
+    nameText.className = 'war-lobby__player-name';
+    const connection = document.createElement('div');
+    connection.className = 'war-lobby__connection';
+    identity.append(nameInput, nameText, connection);
+    const team = document.createElement('select');
+    team.className = 'war-lobby__team';
+    team.setAttribute('aria-label', `Player ${index} team`);
+    for (let side = 1; side <= 4; side++) {
+      const option = document.createElement('option');
+      option.value = String(side);
+      option.textContent = `SIDE ${side}`;
+      team.appendChild(option);
+    }
+    const colorPicker = document.createElement('div');
+    colorPicker.className = 'war-lobby__color-picker';
+    const colorButtons = new Map<keyof typeof LOBBY_COLORS, HTMLButtonElement>();
+    for (const [color, value] of Object.entries(LOBBY_COLORS) as [keyof typeof LOBBY_COLORS, string][]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'war-lobby__color';
+      button.title = color;
+      button.setAttribute('aria-label', `Player ${index} colour ${color}`);
+      button.style.background = value;
+      button.onclick = () => client.updatePlayerProfile(latestRoom.code, session.player.id, { color });
+      colorButtons.set(color, button);
+      colorPicker.appendChild(button);
+    }
+    const colorDisplay = document.createElement('div');
+    colorDisplay.className = 'war-lobby__color-display';
+    let nameSaveTimer: number | undefined;
+    const saveName = (): void => {
+      if (nameSaveTimer !== undefined) window.clearTimeout(nameSaveTimer);
+      nameSaveTimer = undefined;
+      client.updatePlayerProfile(latestRoom.code, session.player.id, { name: nameInput.value });
+    };
+    nameInput.oninput = () => {
+      if (nameSaveTimer !== undefined) window.clearTimeout(nameSaveTimer);
+      nameSaveTimer = window.setTimeout(saveName, 250);
+    };
+    nameInput.onchange = saveName;
+    team.onchange = () => {
+      const player = latestRoom.players.find((candidate) => candidate.index === index);
+      const nextSide = Number(team.value);
+      if (player?.id === session.player.id) {
+        client.updatePlayerProfile(latestRoom.code, session.player.id, { side: nextSide });
+      } else if (session.player.index === 1) {
+        const armySides = [...latestRoom.armySides] as ArmySides;
+        armySides[index - 1] = nextSide;
+        client.updateSettings(latestRoom.code, session.player.id, { ...settings(), armySides });
+      }
+    };
+    row.append(slot, identity, team, colorPicker, colorDisplay);
+    return { row, slot, nameInput, nameText, connection, team, colorPicker, colorButtons, colorDisplay, defaultColor: defaultColors[offset] };
+  });
+  players.append(tableHead, ...playerRows.map((view) => view.row));
 
   const actions = document.createElement('div');
   actions.className = 'war-lobby__actions';
   copy.onclick = async () => {
     const url = new URL(location.href);
-    url.searchParams.set('room', session.room.code);
+    url.searchParams.set('room', latestRoom.code);
     await navigator.clipboard?.writeText(url.toString());
-    status.textContent = `Room link copied · ${session.room.code}`;
+    status.textContent = `Invite copied · ${latestRoom.code}`;
     copy.blur();
   };
   const ready = document.createElement('button');
   ready.type = 'button';
   ready.className = 'war-button war-button--primary war-lobby__cta';
-  ready.onclick = () => client.setReady(session.room.code, session.player.id, !session.player.ready);
+  ready.onclick = () => client.setReady(latestRoom.code, session.player.id, !session.player.ready);
   const launch = document.createElement('button');
   launch.type = 'button';
   launch.className = 'war-button war-button--primary war-lobby__cta';
   launch.onclick = () => {
     if (session.player.index !== 1) return;
-    client.startMatch(session.room.code, session.player.id);
+    client.startMatch(latestRoom.code, session.player.id);
     launch.disabled = true;
     launch.textContent = 'STARTING MATCH...';
   };
   actions.append(ready, launch);
+
   const roster = document.createElement('div');
   roster.className = 'war-lobby__roster';
   const rosterTitle = document.createElement('div');
   rosterTitle.className = 'war-lobby__section-title';
-  rosterTitle.textContent = 'COMMANDER ROSTER';
-  roster.append(rosterTitle, players, profile);
-  panel.append(heading, share, roster, status, actions);
+  rosterTitle.textContent = 'PLAYERS';
+  roster.append(rosterTitle, players);
+  panel.append(heading, share, roster, actions, status);
   root.appendChild(panel);
 
   let hostReadyRequestPending = false;
   const update = (room: MultiplayerRoom, playerIndex: number): void => {
+    latestRoom = room;
     session.room = room;
     title.textContent = playerIndex === 1 ? 'YOUR BATTLE ROOM' : 'BATTLE ROOM';
-    role.textContent = playerIndex === 1 ? 'HOST COMMANDER' : 'JOINED COMMANDER';
+    role.textContent = playerIndex === 1 ? 'HOST' : 'JOINED';
     const roomCode = shareCopy.querySelector('strong');
     if (roomCode) roomCode.textContent = room.code;
-    const playerSlots = Array.from({ length: room.armyCount }, (_, offset) => offset + 1).map((index) => {
+    const isHost = playerIndex === 1;
+    for (let offset = 0; offset < playerRows.length; offset++) {
+      const index = offset + 1;
+      const view = playerRows[offset];
       const player = room.players.find((candidate) => candidate.index === index);
-      const row = document.createElement('div');
-      row.className = 'war-lobby__player';
-      const number = document.createElement('div');
-      number.textContent = `P${index}`;
-      number.style.color = player ? LOBBY_COLORS[player.color ?? (index === 1 ? 'jade' : 'crimson')] : '#6f7b78';
-      const swatch = document.createElement('div');
-      swatch.className = 'war-lobby__swatch';
-      swatch.style.background = player ? LOBBY_COLORS[player.color ?? 'jade'] : '#222';
-      const name = document.createElement('div');
-      name.textContent = player ? `${player.name} · SIDE ${room.armySides[index - 1] ?? index}` : index === 1 ? 'Host slot' : `OPEN TO PLAYER · SIDE ${room.armySides[index - 1] ?? index}`;
-      name.className = 'war-lobby__player-name';
-      const connection = document.createElement('div');
-      connection.textContent = player?.connected ? player.ready ? 'READY' : `${player.pingMs ?? '...'} ms · NOT READY` : index === 1 ? 'OPEN SLOT' : 'AI IF STARTED';
-      connection.className = 'war-lobby__connection';
-      connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : '#6f7b78';
-      row.append(number, swatch, name, connection);
-      return row;
-    });
-    players.replaceChildren(...playerSlots);
+      const isLocal = player?.id === session.player.id;
+      const color = player?.color ?? view.defaultColor;
+      view.row.hidden = index > room.armyCount;
+      view.row.classList.toggle('is-local', isLocal);
+      view.row.classList.toggle('is-open', !player?.connected);
+      view.slot.style.color = LOBBY_COLORS[color];
+      view.nameInput.hidden = !isLocal;
+      view.nameText.hidden = isLocal;
+      if (isLocal && document.activeElement !== view.nameInput) view.nameInput.value = player?.name ?? session.player.name;
+      view.nameInput.disabled = room.status !== 'waiting';
+      view.nameText.textContent = player?.name ?? (index === 1 ? 'HOST SLOT' : 'OPEN / AI');
+      view.connection.textContent = player?.connected
+        ? player.ready ? 'READY' : `${player.pingMs ?? '...'}ms · NOT READY`
+        : player ? 'DISCONNECTED · AI ON START' : 'AI FILLS IF EMPTY';
+      view.connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : '#6f7b78';
+      view.team.value = String(room.armySides[index - 1] ?? index);
+      view.team.disabled = room.status !== 'waiting' || (!isLocal && !isHost);
+      view.colorPicker.hidden = !isLocal;
+      view.colorDisplay.hidden = isLocal;
+      view.colorDisplay.style.background = LOBBY_COLORS[color];
+      view.colorDisplay.title = color;
+      for (const [buttonColor, button] of view.colorButtons) {
+        const selected = buttonColor === color;
+        button.classList.toggle('is-active', selected);
+        button.disabled = !isLocal || room.status !== 'waiting';
+      }
+    }
     const localPlayer = room.players.find((player) => player.id === session.player.id) ?? session.player;
     session.player = localPlayer;
-    if (document.activeElement !== nameLabel.input) nameLabel.input.value = localPlayer.name;
-    side.value = String(room.armySides[playerIndex - 1] ?? playerIndex);
-    for (const [color, button] of colorButtons) button.style.outline = color === (localPlayer.color ?? 'jade') ? '2px solid #f0d56a' : 'none';
     const connectedPlayers = room.players.filter((player) => player.connected);
     const connected = connectedPlayers.length;
     const openSlots = Math.max(0, room.armyCount - connected);
     const allConnectedReady = connected > 0 && connectedPlayers.every((player) => player.ready);
     const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
-    if (room.status === 'starting') status.textContent = 'Host launched the match · synchronizing commanders and AI forces...';
-    else if (engines.size > 1) status.textContent = 'Different browsers detected · matching browser engines are recommended.';
-    else if (!allConnectedReady) status.textContent = playerIndex === 1 ? 'Waiting for every joined commander to confirm READY.' : 'Choose your profile, then confirm when you are READY.';
+    if (room.status === 'starting') status.textContent = 'Launching · synchronizing commanders and AI forces...';
+    else if (engines.size > 1) status.textContent = 'Different browsers detected · matching browsers are recommended.';
+    else if (!allConnectedReady) status.textContent = playerIndex === 1 ? 'Waiting for joined commanders to confirm READY.' : 'Set your preferences, then confirm READY.';
     else if (openSlots > 0) status.textContent = playerIndex === 1
-      ? `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} · start now with AI or wait for more commanders.`
-      : `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI · waiting for the host.`;
-    else status.textContent = playerIndex === 1 ? 'All commanders ready · host can launch.' : 'All commanders ready · waiting for the host.';
-    const isHost = playerIndex === 1;
+      ? `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI.`
+      : `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI · waiting for host.`;
+    else status.textContent = playerIndex === 1 ? 'All commanders ready.' : 'Ready · waiting for host.';
     ready.hidden = isHost;
     launch.hidden = !isHost;
     if (isHost && room.status === 'waiting' && !localPlayer.ready && !hostReadyRequestPending) {
       hostReadyRequestPending = true;
-      client.setReady(session.room.code, session.player.id, true);
+      client.setReady(room.code, session.player.id, true);
     }
     if (localPlayer.ready || room.status !== 'waiting') hostReadyRequestPending = false;
     ready.disabled = room.status !== 'waiting';
