@@ -286,6 +286,7 @@
 .war-mode-card--primary { border-color: rgba(223, 189, 100, .42); background: linear-gradient(135deg, rgba(223, 189, 100, .09), rgba(0, 0, 0, .18)); }
 .war-mode-card h3 { margin-top: 7px; font-size: 22px; }
 .war-mode-card p { margin: 7px 0 0; color: var(--war-muted); font-size: 10px; }
+.war-mode-card__actions { display: grid; gap: 8px; }
 .war-operation > .war-multiplayer__advanced { margin-top: auto; }
 
 .war-lobby {

@@ -63,6 +63,10 @@ export interface MultiplayerSession {
   player: MultiplayerPlayer;
 }
 
+export function shouldLaunchLocalSkirmish(room: MultiplayerRoom, localPlayerId: string): boolean {
+  return !room.players.some((player) => player.connected && player.id !== localPlayerId);
+}
+
 type RelayMessage =
   | MultiplayerEvent
   | { type: 'session'; requestId?: string; room: MultiplayerRoom; player: MultiplayerPlayer }

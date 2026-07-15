@@ -29,7 +29,7 @@ import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
 import { LockstepRuntime } from './net/commands';
-import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, waitForMultiplayerServer, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession, type TacticalPingKind } from './net/multiplayer';
+import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, shouldLaunchLocalSkirmish, waitForMultiplayerServer, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession, type TacticalPingKind } from './net/multiplayer';
 import { AssetPipeline } from './render/assets';
 import { BuildingView } from './render/buildingView';
 import { CombatView } from './render/combatView';
@@ -434,7 +434,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     const tabs = document.createElement('div');
     tabs.className = 'war-tabs';
     tabs.setAttribute('role', 'tablist');
-    const hostTab = createSetupTab('HOST', 'Configure and launch a battle');
+    const hostTab = createSetupTab('HOST', 'Start a skirmish or open an online room');
     const joinTab = createSetupTab('JOIN', 'Enter an existing room');
     tabs.append(hostTab, joinTab);
 
@@ -547,12 +547,16 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       refresh();
       applyingRoomSettings = false;
     };
-    const beginWithSettings = (settings: SkirmishSettings, fromMultiplayerRoom = false): void => {
-      if (multiplayerStarted || (multiplayerSession && !fromMultiplayerRoom)) return;
+    const beginWithSettings = (settings: SkirmishSettings, matchMode: 'skirmish' | 'multiplayer'): void => {
+      if (multiplayerStarted) return;
       multiplayerStarted = true;
       saveSkirmishSettings(settings);
-      if (multiplayerClient && multiplayerSession) pendingMultiplayer = { client: multiplayerClient, session: multiplayerSession };
-      else multiplayerClient?.disconnect();
+      if (matchMode === 'multiplayer' && multiplayerClient && multiplayerSession) {
+        pendingMultiplayer = { client: multiplayerClient, session: multiplayerSession };
+      } else {
+        pendingMultiplayer = undefined;
+        multiplayerClient?.disconnect();
+      }
       root.remove();
       resolve(settings);
     };
@@ -594,7 +598,8 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     let multiplayer: ReturnType<typeof createMultiplayerSetupPanel>;
     multiplayer = createMultiplayerSetupPanel(
       currentSettings,
-      (settings) => beginWithSettings(settings, true),
+      (settings) => beginWithSettings(settings, 'skirmish'),
+      (settings) => beginWithSettings(settings, 'multiplayer'),
       (client, session) => {
         multiplayerClient = client;
         multiplayerSession = session;
@@ -635,7 +640,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
         ? hosting
           ? 'HOST SETTINGS · CHANGES SYNC TO EVERY JOINED COMMANDER'
           : 'HOST CONFIGURATION · VIEW ONLY'
-        : 'HOST SETTINGS · OPENING YOUR BATTLE ROOM';
+        : 'HOST SETTINGS · LOCAL SKIRMISH READY';
     }
     function setMode(next: 'host' | 'join'): void {
       mode = next;
@@ -870,7 +875,8 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
 
 function createMultiplayerSetupPanel(
   settings: () => SkirmishSettings,
-  startMatch: (settings: SkirmishSettings) => void,
+  startSkirmish: (settings: SkirmishSettings) => void,
+  startMultiplayerMatch: (settings: SkirmishSettings) => void,
   rememberSession: (client: MultiplayerClient | undefined, session: MultiplayerSession | undefined) => void,
   currentSession: () => MultiplayerSession | undefined,
   applyRoomSettings: (room: MultiplayerRoom, playerIndex: number) => void,
@@ -886,13 +892,13 @@ function createMultiplayerSetupPanel(
   hostEntry.className = 'war-operation__entry';
   hostEntry.innerHTML =
     '<div class="war-aside__kicker">HOST COMMAND</div>' +
-    '<h2>OPENING BATTLE ROOM</h2>' +
-    '<p>Your room opens automatically. Start at any time—unfilled army slots deploy under AI command.</p>';
+    '<h2>START YOUR BATTLE</h2>' +
+    '<p>Launch an instant skirmish against AI, or open an online room when another commander is joining.</p>';
 
   const hostCard = document.createElement('section');
   hostCard.className = 'war-mode-card war-mode-card--primary';
   const hostCopy = document.createElement('div');
-  hostCopy.innerHTML = '<span class="war-multiplayer__step">OPEN COMMAND CHANNEL</span><h3>PREPARING ROOM</h3><p>Connecting to the battle relay and reserving your commander slot.</p>';
+  hostCopy.innerHTML = '<span class="war-multiplayer__step">BATTLE MODE</span><h3>SKIRMISH READY</h3><p>Starts locally with no network delay. Open a room only if you want another player to join.</p>';
 
   const joinEntry = document.createElement('div');
   joinEntry.className = 'war-operation__entry war-operation__entry--join';
@@ -908,10 +914,16 @@ function createMultiplayerSetupPanel(
 
   const host = document.createElement('button');
   host.type = 'button';
-  host.textContent = 'OPENING ROOM...';
-  host.className = 'war-button war-button--primary';
-  host.disabled = true;
-  hostCard.append(hostCopy, host);
+  host.textContent = 'OPEN ONLINE ROOM';
+  host.className = 'war-button war-button--secondary';
+  const skirmish = document.createElement('button');
+  skirmish.type = 'button';
+  skirmish.textContent = 'START SKIRMISH';
+  skirmish.className = 'war-button war-button--primary';
+  const hostActions = document.createElement('div');
+  hostActions.className = 'war-mode-card__actions';
+  hostActions.append(skirmish, host);
+  hostCard.append(hostCopy, hostActions);
   hostEntry.append(hostCard);
 
   const joinCard = document.createElement('section');
@@ -929,9 +941,7 @@ function createMultiplayerSetupPanel(
   const status = document.createElement('div');
   status.className = 'war-multiplayer__status';
   status.setAttribute('aria-live', 'polite');
-  status.textContent = defaultMultiplayerServer() === 'http://127.0.0.1:8787'
-    ? 'Run `npm run dev:multiplayer`, then host here and share the room code.'
-    : 'Use the public relay URL below, then host here and share the room code.';
+  status.textContent = 'Local skirmish ready · no multiplayer connection is active.';
 
   const setStatus = (message: string, bad = false): void => {
     status.textContent = message;
@@ -974,7 +984,7 @@ function createMultiplayerSetupPanel(
     rememberSession(client, session);
     applyRoomSettings(session.room, session.player.index);
     lobbyView?.root.remove();
-    lobbyView = createRoomLobbyView(client, session, settings);
+    lobbyView = createRoomLobbyView(client, session, settings, startSkirmish);
     root.insertBefore(lobbyView.root, status);
     lobbyView.update(session.room, session.player.index);
     codeLabel.input.value = session.room.code;
@@ -992,7 +1002,7 @@ function createMultiplayerSetupPanel(
           applyRoomSettings(event.room, session.player.index);
           lobbyView?.update(event.room, session.player.index);
         }
-        handleMultiplayerEvent(event, session.player.index, setStatus, startMatch);
+        handleMultiplayerEvent(event, session.player.index, setStatus, startMultiplayerMatch);
       },
       () => {
         if (activeClient === client && activeSession === session) {
@@ -1005,6 +1015,7 @@ function createMultiplayerSetupPanel(
   const openHostRoom = async (): Promise<void> => {
     if (openingHostRoom || activeSession || activeMode !== 'host') return;
     openingHostRoom = true;
+    skirmish.disabled = true;
     host.disabled = true;
     host.textContent = 'OPENING ROOM...';
     setStatus('Waking the battle server · first connection can take up to a minute...', false);
@@ -1027,13 +1038,18 @@ function createMultiplayerSetupPanel(
     } finally {
       openingHostRoom = false;
       if (!activeSession && activeMode === 'host') {
+        skirmish.disabled = false;
         host.disabled = false;
-        host.textContent = 'RETRY OPEN ROOM';
+        host.textContent = 'OPEN ONLINE ROOM';
       }
       host.blur();
     }
   };
   host.onclick = () => void openHostRoom();
+  skirmish.onclick = () => {
+    skirmish.disabled = true;
+    startSkirmish(settings());
+  };
 
   const joinRoom = async (): Promise<void> => {
     try {
@@ -1071,8 +1087,6 @@ function createMultiplayerSetupPanel(
   if (normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? '') && !currentSession()) {
     setStatus('Joining invitation...');
     void joinRoom();
-  } else if (activeMode === 'host') {
-    void openHostRoom();
   }
   render();
   return {
@@ -1085,7 +1099,7 @@ function createMultiplayerSetupPanel(
       }
       activeMode = nextMode;
       render();
-      if (nextMode === 'host') void openHostRoom();
+      if (nextMode === 'host') setStatus('Local skirmish ready · no multiplayer connection is active.', false);
       else setStatus('Enter the room code shared by the host.', false);
     },
     syncHostSettings: () => {
@@ -1103,6 +1117,7 @@ function createRoomLobbyView(
   client: MultiplayerClient,
   session: MultiplayerSession,
   settings: () => SkirmishSettings,
+  startSkirmish: (settings: SkirmishSettings) => void,
 ): { root: HTMLDivElement; update: (room: MultiplayerRoom, playerIndex: number) => void } {
   const root = document.createElement('div');
   root.className = 'war-lobby';
@@ -1260,6 +1275,13 @@ function createRoomLobbyView(
   launch.className = 'war-button war-button--primary war-lobby__cta';
   launch.onclick = () => {
     if (session.player.index !== 1) return;
+    if (shouldLaunchLocalSkirmish(latestRoom, session.player.id)) {
+      launch.disabled = true;
+      launch.textContent = 'STARTING SKIRMISH...';
+      status.textContent = 'No guest connected · closing the room and starting locally.';
+      startSkirmish(settingsFromRoom(latestRoom));
+      return;
+    }
     client.startMatch(latestRoom.code, session.player.id);
     launch.disabled = true;
     launch.textContent = 'STARTING MATCH...';
@@ -1331,7 +1353,9 @@ function createRoomLobbyView(
     else if (engines.size > 1) status.textContent = 'Different browsers detected · matching browsers are recommended.';
     else if (!allConnectedReady) status.textContent = playerIndex === 1 ? 'Waiting for joined commanders to confirm READY.' : 'Set your preferences, then confirm READY.';
     else if (openSlots > 0) status.textContent = playerIndex === 1
-      ? `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI.`
+      ? shouldLaunchLocalSkirmish(room, session.player.id)
+        ? 'No guest connected · Start launches a local skirmish with AI.'
+        : `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI.`
       : `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI · waiting for host.`;
     else status.textContent = playerIndex === 1 ? 'All commanders ready.' : 'Ready · waiting for host.';
     ready.hidden = isHost;
@@ -1345,7 +1369,13 @@ function createRoomLobbyView(
     ready.textContent = localPlayer.ready ? 'NOT READY' : 'READY';
     const canLaunch = isHost && allConnectedReady && room.status === 'waiting';
     launch.disabled = !canLaunch;
-    launch.textContent = room.status === 'starting' ? 'STARTING GAME...' : !allConnectedReady ? 'WAITING FOR READY' : 'START GAME';
+    launch.textContent = room.status === 'starting'
+      ? 'STARTING GAME...'
+      : !allConnectedReady
+        ? 'WAITING FOR READY'
+        : shouldLaunchLocalSkirmish(room, session.player.id)
+          ? 'START SKIRMISH'
+          : 'START MULTIPLAYER GAME';
   };
 
   return { root, update };
