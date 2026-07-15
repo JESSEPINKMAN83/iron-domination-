@@ -29,7 +29,7 @@ import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
 import { LockstepRuntime } from './net/commands';
-import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession, type TacticalPingKind } from './net/multiplayer';
+import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, waitForMultiplayerServer, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession, type TacticalPingKind } from './net/multiplayer';
 import { AssetPipeline } from './render/assets';
 import { BuildingView } from './render/buildingView';
 import { CombatView } from './render/combatView';
@@ -1006,11 +1006,14 @@ function createMultiplayerSetupPanel(
     openingHostRoom = true;
     host.disabled = true;
     host.textContent = 'OPENING ROOM...';
-    setStatus('Opening your battle room...', false);
+    setStatus('Waking the battle server · first connection can take up to a minute...', false);
     let client: MultiplayerClient | undefined;
     try {
       const server = normalizedBaseUrl(serverLabel.input.value);
       window.localStorage.setItem(MULTIPLAYER_SERVER_STORAGE_KEY, server);
+      await waitForMultiplayerServer(server);
+      if (activeMode !== 'host' || activeSession) return;
+      setStatus('Battle server online · opening your room...', false);
       client = new MultiplayerClient(server);
       const session = await client.host({ ...settings(), name: 'Host', playerId: rememberedPlayerId(server, 'HOST') });
       if (activeMode !== 'host' || activeSession) {
@@ -1038,6 +1041,10 @@ function createMultiplayerSetupPanel(
       if (!code) throw new Error('enter-room-code');
       const server = normalizedBaseUrl(serverLabel.input.value);
       window.localStorage.setItem(MULTIPLAYER_SERVER_STORAGE_KEY, server);
+      setStatus('Waking the battle server · first connection can take up to a minute...', false);
+      await waitForMultiplayerServer(server);
+      if (activeMode !== 'join' || activeSession) return;
+      setStatus('Battle server online · joining room...', false);
       const existing = currentSession();
       const client = new MultiplayerClient(server);
       const session = await client.join(code, 'Guest', existing?.player.id ?? rememberedPlayerId(server, code));
@@ -1374,6 +1381,9 @@ function rememberPlayerId(server: string, roomCode: string, playerId: string): v
 function friendlyMultiplayerError(err: unknown): string {
   const message = String((err as Error).message ?? err);
   if (message === 'Failed to fetch') return 'server unreachable. Check the relay URL and that the Node server is awake.';
+  if (message === 'server-unreachable' || message === 'connection-closed' || message === 'request-timeout') {
+    return 'the battle server did not wake in time. Please retry in a moment.';
+  }
   if (message === 'room-not-found') return 'room not found or expired. Ask the host for a fresh code.';
   if (message === 'room-full') return 'room is full. Start a new room for another match.';
   if (message === 'match-in-progress') return 'this match has already started. Ask the host for a new room.';

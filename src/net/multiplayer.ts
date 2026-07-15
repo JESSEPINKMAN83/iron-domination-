@@ -31,6 +31,12 @@ export interface MultiplayerPlayer {
 
 export type MultiplayerColor = 'jade' | 'crimson' | 'azure' | 'amber';
 
+export interface MultiplayerWakeOptions {
+  timeoutMs?: number;
+  retryDelayMs?: number;
+  attemptTimeoutMs?: number;
+}
+
 export type TacticalPingKind = 'attack' | 'help' | 'defend' | 'good-game';
 
 export interface TacticalPing {
@@ -187,7 +193,7 @@ export class MultiplayerClient {
         cleanup();
         socket.close();
         reject(new Error('server-unreachable'));
-      }, 8000);
+      }, 20000);
       const open = (): void => {
         cleanup();
         resolve();
@@ -345,6 +351,31 @@ export function normalizedBaseUrl(value: string): string {
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (/^wss?:\/\//i.test(trimmed)) return trimmed.replace(/^ws/i, 'http');
   return `http://${trimmed}`;
+}
+
+export async function waitForMultiplayerServer(value: string, options: MultiplayerWakeOptions = {}): Promise<void> {
+  const timeoutMs = Math.max(1000, options.timeoutMs ?? 55_000);
+  const retryDelayMs = Math.max(0, options.retryDelayMs ?? 1_500);
+  const attemptTimeoutMs = Math.max(500, options.attemptTimeoutMs ?? 15_000);
+  const deadline = Date.now() + timeoutMs;
+  const healthUrl = new URL('/health', normalizedBaseUrl(value)).toString();
+
+  while (Date.now() < deadline) {
+    const remaining = deadline - Date.now();
+    const controller = new AbortController();
+    const attemptTimeout = globalThis.setTimeout(() => controller.abort(), Math.min(attemptTimeoutMs, remaining));
+    try {
+      const response = await fetch(healthUrl, { cache: 'no-store', mode: 'cors', signal: controller.signal });
+      if (response.ok) return;
+    } catch {
+      // A sleeping free relay can briefly reject requests while its container starts.
+    } finally {
+      globalThis.clearTimeout(attemptTimeout);
+    }
+    const delay = Math.min(retryDelayMs, Math.max(0, deadline - Date.now()));
+    if (delay > 0) await new Promise((resolve) => globalThis.setTimeout(resolve, delay));
+  }
+  throw new Error('server-unreachable');
 }
 
 function webSocketUrl(value: string): string {
