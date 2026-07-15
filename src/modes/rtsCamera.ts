@@ -15,9 +15,9 @@ const PITCH_OFFSET_MIN = MathUtils.degToRad(-58);
 const PITCH_OFFSET_MAX = MathUtils.degToRad(28);
 const PITCH_STORAGE_KEY = 'iron-dominion.rtsCamera.pitchOffset';
 const YAW_STORAGE_KEY = 'iron-dominion.rtsCamera.yaw';
-const EDGE_ZONE_MIN = 40;
-const EDGE_ZONE_MAX = 72;
-const EDGE_ZONE_VIEWPORT_RATIO = 0.065;
+const EDGE_ZONE_MIN = 80;
+const EDGE_ZONE_MAX = 144;
+const EDGE_ZONE_VIEWPORT_RATIO = 0.13;
 
 export interface EdgePanInput {
   x: number;
