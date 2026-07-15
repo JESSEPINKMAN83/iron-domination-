@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { degradedVisualQualityTier, suggestedInitialVisualQuality } from './renderer';
+import { degradedVisualQualityTier, suggestedInitialVisualQuality, visualPixelRatioForTier } from './renderer';
 
 describe('adaptive render quality', () => {
   it('starts multiplayer conservatively on limited hardware', () => {
@@ -18,5 +18,11 @@ describe('adaptive render quality', () => {
     expect(degradedVisualQualityTier(0, 0.036)).toBe(1);
     expect(degradedVisualQualityTier(1, 0.036)).toBe(2);
     expect(degradedVisualQualityTier(0, 0.02)).toBe(0);
+  });
+
+  it('keeps low-end multiplayer readable while respecting the device cap', () => {
+    expect(visualPixelRatioForTier(1, 0.9, true)).toBe(0.75);
+    expect(visualPixelRatioForTier(2, 0.9, true)).toBe(0.68);
+    expect(visualPixelRatioForTier(2, 0.6, true)).toBe(0.6);
   });
 });

@@ -62,9 +62,16 @@ export class FirstPersonController {
   private readonly tmpAimTarget = new Vector3();
   private readonly tmpCameraTarget = new Vector3();
   private readonly tmpEntityCenter = new Vector3();
+  private readonly tmpFlightTarget = new Vector3();
+  private readonly tmpFlightPosition = new Vector3();
   private readonly tmpVelocityDir = new Vector3();
+  private readonly tmpCameraDirection = new Vector3();
   private readonly tmpShakeRight = new Vector3();
   private readonly tmpShakeUp = new Vector3();
+  private readonly tmpAppliedPosition = new Vector3();
+  private readonly tmpAppliedQuaternion = new Quaternion();
+  private readonly tmpYawKick = new Quaternion();
+  private readonly tmpPitchKick = new Quaternion();
   private readonly smoothFlightCenter = new Vector3();
   private hasSmoothFlightCenter = false;
   private chaseZoom = 0;
@@ -439,7 +446,7 @@ export class FirstPersonController {
     const lookBackT = MathUtils.smoothstep(Math.abs(normalizeAngle(yaw - velocityYaw)), 0.8, 2.35);
     const driftBlend = Math.min(0.65, (speed / 8) * 0.65) * (1 - lookBackT * 0.88);
     this.tmpVelocityDir.lerp(this.tmpHorizontal, 1 - driftBlend).normalize();
-    const targetCenter = new Vector3(aircraftCenter.x, aircraftCenter.y + 1.3, aircraftCenter.z);
+    const targetCenter = this.tmpFlightTarget.set(aircraftCenter.x, aircraftCenter.y + 1.3, aircraftCenter.z);
     if (!this.hasSmoothFlightCenter) {
       this.smoothFlightCenter.copy(targetCenter);
       this.hasSmoothFlightCenter = true;
@@ -454,7 +461,7 @@ export class FirstPersonController {
     const flightOrbitPitch = MathUtils.clamp(this.orbitPitch, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
     const horizontalDistance = chaseDistance * Math.cos(flightOrbitPitch * 0.72);
     const chaseHeight = MathUtils.lerp(5.2, 7.1, speedT) + Math.sin(flightOrbitPitch) * chaseDistance * 0.72;
-    const position = center.clone().addScaledVector(this.tmpVelocityDir, -horizontalDistance);
+    const position = this.tmpFlightPosition.copy(center).addScaledVector(this.tmpVelocityDir, -horizontalDistance);
     position.y += Math.max(2.6, chaseHeight);
     this.tmpAimTarget.copy(center).addScaledVector(this.tmpForward, 170);
     this.tmpCameraTarget.copy(center).addScaledVector(this.tmpForward, 80);
@@ -577,8 +584,7 @@ export class FirstPersonController {
 
   private reticleTarget(entity: Entity, aircraftOnly: boolean): Entity | undefined {
     if (!entity.playerControlled || !entity.team) return undefined;
-    const direction = new Vector3();
-    this.camera.getWorldDirection(direction);
+    const direction = this.camera.getWorldDirection(this.tmpCameraDirection);
     let best: Entity | undefined;
     let bestAlong = Number.POSITIVE_INFINITY;
     for (const candidate of this.sim.world.entities) {
@@ -586,11 +592,13 @@ export class FirstPersonController {
       if ((!candidate.flight && (aircraftOnly || !tankTarget)) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
       if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
       if (!this.isVisible(candidate.transform.x, candidate.transform.z)) continue;
-      const center = new Vector3(candidate.transform.x, candidate.transform.y, candidate.transform.z);
-      const offset = center.sub(this.camera.position);
-      const along = offset.dot(direction);
+      const offsetX = candidate.transform.x - this.camera.position.x;
+      const candidateY = candidate.transform.y ?? sampleHeight(this.hf, candidate.transform.x, candidate.transform.z) + (candidate.flight?.cruiseAltitude ?? 1.5);
+      const offsetY = candidateY - this.camera.position.y;
+      const offsetZ = candidate.transform.z - this.camera.position.z;
+      const along = offsetX * direction.x + offsetY * direction.y + offsetZ * direction.z;
       if (along <= 0 || along >= bestAlong) continue;
-      const perpendicular = Math.sqrt(Math.max(0, offset.lengthSq() - along * along));
+      const perpendicular = Math.sqrt(Math.max(0, offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ - along * along));
       const tolerance = (candidate.collider?.radius ?? candidate.selectable?.radius ?? 3.5) + 1.6;
       if (perpendicular > tolerance) continue;
       best = candidate;
@@ -883,8 +891,8 @@ export class FirstPersonController {
   }
 
   private applyPose(pose: CameraPose, dt: number): void {
-    const position = pose.position.clone();
-    const quaternion = pose.quaternion.clone();
+    const position = this.tmpAppliedPosition.copy(pose.position);
+    const quaternion = this.tmpAppliedQuaternion.copy(pose.quaternion);
     if (this.impactShakeRemaining > 0 && this.impactShakeDuration > 0) {
       this.impactShakeRemaining = Math.max(0, this.impactShakeRemaining - dt);
       const envelope = this.impactShakeRemaining / this.impactShakeDuration;
@@ -897,8 +905,8 @@ export class FirstPersonController {
       this.tmpShakeUp.set(0, 1, 0).applyQuaternion(quaternion);
       position.addScaledVector(this.tmpShakeRight, lateral * 0.34 + this.impactSide * kick * 0.18);
       position.addScaledVector(this.tmpShakeUp, vertical * 0.23);
-      const yawKick = new Quaternion().setFromAxisAngle(this.tmpShakeUp, (lateral + this.impactSide * kick * 0.55) * 0.018);
-      const pitchKick = new Quaternion().setFromAxisAngle(this.tmpShakeRight, vertical * 0.014);
+      const yawKick = this.tmpYawKick.setFromAxisAngle(this.tmpShakeUp, (lateral + this.impactSide * kick * 0.55) * 0.018);
+      const pitchKick = this.tmpPitchKick.setFromAxisAngle(this.tmpShakeRight, vertical * 0.014);
       quaternion.premultiply(yawKick).premultiply(pitchKick);
     }
     this.impactOverlayOpacity = Math.max(0, this.impactOverlayOpacity - dt * 1.75);

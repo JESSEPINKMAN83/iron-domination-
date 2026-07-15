@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { advanceTick } from '../match/advanceTick';
-import { createEconomy, createInitialBase } from '../sim/economy';
+import { buildings, createEconomy, createInitialBase } from '../sim/economy';
 import { generateHeightfield } from '../sim/heightfield';
 import { serializeMatchState } from '../sim/serialize';
 import { createGameSim, hashCriticalSimState, hashSim, spawnTankAt, type GameSim } from '../sim/world';
@@ -41,6 +41,32 @@ describe('multiplayer lockstep commands', () => {
     }
     expect(guestTank.mover?.target).toEqual({ x: 80, z: 76 });
     expect(hostTank.mover?.target).toBeUndefined();
+  });
+
+  it('consumes a purchased structure once when placement commands are repeated', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1);
+    const economy2 = createEconomy(2);
+    const base = createInitialBase(sim, hf, economy1);
+    createInitialBase(sim, hf, economy2);
+    economy1.readyStructure = 'power-plant';
+    const client = {
+      connect: () => undefined,
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session: sessionFor(1) });
+
+    lockstep.issue({ type: 'place-structure', kind: 'power-plant', x: base.transform.x - 28, z: base.transform.z });
+    lockstep.issue({ type: 'place-structure', kind: 'power-plant', x: base.transform.x + 28, z: base.transform.z });
+    for (let i = 0; i < 8; i++) {
+      sim.tick++;
+      lockstep.tick();
+    }
+
+    expect(buildings(sim, 1).filter((entity) => entity.building?.kind === 'power-plant')).toHaveLength(1);
+    expect(economy1.readyStructure).toBeUndefined();
   });
 
   it('applies a delayed explicit attack target without allowing a nearer enemy to replace it', () => {

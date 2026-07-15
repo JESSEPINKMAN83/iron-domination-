@@ -349,7 +349,6 @@ export class LockstepRuntime {
       cancelStructureBuild(this.options.sim, economy);
     } else if (command.type === 'place-structure') {
       economy.selectedStructure = command.kind;
-      economy.readyStructure = command.kind;
       const placement = updatePlacement(this.options.sim, this.options.hf, command.kind, command.x, command.z, economy.team, economy);
       placeStructure(this.options.sim, this.options.hf, economy, placement);
       economy.selectedStructure = undefined;

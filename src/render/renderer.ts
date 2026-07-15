@@ -48,6 +48,19 @@ export function degradedVisualQualityTier(current: VisualQualityTier, averageFra
   return current;
 }
 
+export function visualPixelRatioForTier(
+  tier: VisualQualityTier,
+  maxPixelRatio: number,
+  multiplayer: boolean,
+): number {
+  if (tier === 0) return maxPixelRatio;
+  // Keep text, terrain and unit silhouettes legible on old machines. The
+  // performance tiers save most of their cost through batching and effects,
+  // rather than reducing the entire scene to a very low-resolution image.
+  if (tier === 1) return Math.min(maxPixelRatio, multiplayer ? 0.75 : 0.8);
+  return Math.min(maxPixelRatio, multiplayer ? 0.68 : 0.7);
+}
+
 export class RenderContext {
   readonly renderer: WebGLRenderer;
   readonly scene: Scene;
@@ -256,9 +269,7 @@ export class RenderContext {
   }
 
   private targetPixelRatio(tier: VisualQualityTier): number {
-    if (tier === 0) return this.maxPixelRatio;
-    if (tier === 1) return Math.min(this.maxPixelRatio, this.multiplayerMode ? 0.65 : 0.72);
-    return Math.min(this.maxPixelRatio, 0.5);
+    return visualPixelRatioForTier(tier, this.maxPixelRatio, this.multiplayerMode);
   }
 
   private setPixelRatio(value: number): void {

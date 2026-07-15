@@ -2048,6 +2048,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastSimSample = performance.now();
   let lastUiRefreshTick = -999;
   let renderFrame = 0;
+  let deferredEffectDt = 0;
 
   const loop = new GameLoop({
     simTick: () => {
@@ -2103,15 +2104,24 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         sidebar.update();
       }
       if (renderFrame % ctx.visualUpdateDivisor === 0) buildingView.update(economy, ctx.camera);
-      combatView.update(dt);
-      economyFx.update(dt);
-      orderMarkers.update(dt);
+      // Keep camera and unit motion at the browser's full frame rate in
+      // multiplayer flight. Battlefield particles and order decorations can
+      // update at the adaptive cadence without making aircraft controls feel
+      // sticky on older CPUs/GPUs.
+      deferredEffectDt += dt;
+      const effectDivisor = multiplayerMode && firstPerson.flying ? ctx.visualUpdateDivisor : 1;
+      if (renderFrame % effectDivisor === 0) {
+        combatView.update(deferredEffectDt);
+        economyFx.update(deferredEffectDt);
+        orderMarkers.update(deferredEffectDt);
+        snowfall?.update(deferredEffectDt, time);
+        deferredEffectDt = 0;
+      }
       if (sim.tick !== lastResourceVisualTick) {
         lastResourceVisualTick = sim.tick;
         terrain.updateResources(sim.resourceNodes);
       }
       water.update(time);
-      snowfall?.update(dt, time);
       ctx.render(dt);
 
       fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;

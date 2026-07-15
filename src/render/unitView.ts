@@ -24,6 +24,7 @@ import {
   type Scene,
   type Vector3,
 } from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Entity } from '../sim/components';
 import type { CombatEvent } from '../sim/world';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
@@ -87,7 +88,9 @@ interface FriendlyGlowMesh {
 type LowDetailKind = 'infantry' | 'vehicle' | 'aircraft';
 
 interface LowDetailMesh {
-  mesh: InstancedMesh;
+  body: InstancedMesh;
+  color: InstancedMesh;
+  detail: InstancedMesh;
   count: number;
 }
 
@@ -239,7 +242,7 @@ export class UnitView {
       4: createLowDetailMeshes(4),
     };
     for (const meshes of Object.values(this.lowDetailMeshes)) {
-      for (const proxy of Object.values(meshes)) this.group.add(proxy.mesh);
+      for (const proxy of Object.values(meshes)) this.group.add(proxy.body, proxy.color, proxy.detail);
     }
     this.friendlyGlow = createFriendlyGlowMesh(factionId(localTeam));
     this.group.add(this.friendlyGlow.mesh);
@@ -478,7 +481,11 @@ export class UnitView {
     this.visualQuality = tier;
     const proxiesVisible = tier >= 2;
     for (const meshes of Object.values(this.lowDetailMeshes)) {
-      for (const proxy of Object.values(meshes)) proxy.mesh.visible = proxiesVisible;
+      for (const proxy of Object.values(meshes)) {
+        proxy.body.visible = proxiesVisible;
+        proxy.color.visible = proxiesVisible;
+        proxy.detail.visible = proxiesVisible;
+      }
     }
     this.friendlyGlow.mesh.visible = !proxiesVisible;
     this.bikeDustMesh.visible = !proxiesVisible;
@@ -629,8 +636,12 @@ export class UnitView {
     }
     for (const meshes of Object.values(this.lowDetailMeshes)) {
       for (const proxy of Object.values(meshes)) {
-        proxy.mesh.count = proxy.count;
-        proxy.mesh.instanceMatrix.needsUpdate = true;
+        proxy.body.count = proxy.count;
+        proxy.color.count = proxy.count;
+        proxy.detail.count = proxy.count;
+        proxy.body.instanceMatrix.needsUpdate = true;
+        proxy.color.instanceMatrix.needsUpdate = true;
+        proxy.detail.instanceMatrix.needsUpdate = true;
       }
     }
   }
@@ -647,7 +658,10 @@ export class UnitView {
     else if (kind === 'aircraft') this.lowDetailTransform.scale.set(radius * 1.55, 0.75 * destroyedScale, radius * 1.15);
     else this.lowDetailTransform.scale.set(radius * 1.35, Math.max(0.55, radius * 0.58) * destroyedScale, radius * 1.75);
     this.lowDetailTransform.updateMatrix();
-    proxy.mesh.setMatrixAt(proxy.count++, this.lowDetailTransform.matrix);
+    proxy.body.setMatrixAt(proxy.count, this.lowDetailTransform.matrix);
+    proxy.color.setMatrixAt(proxy.count, this.lowDetailTransform.matrix);
+    proxy.detail.setMatrixAt(proxy.count, this.lowDetailTransform.matrix);
+    proxy.count++;
   }
 
   private updateFriendlyGlow(entity: Entity, x: number, y: number, z: number, time: number): void {
@@ -1150,27 +1164,81 @@ function createFriendlyGlowMesh(id: FactionId): FriendlyGlowMesh {
 
 function createLowDetailMeshes(id: FactionId): Record<LowDetailKind, LowDetailMesh> {
   const palette = FACTION[id];
-  const make = (kind: LowDetailKind, color: number): LowDetailMesh => {
-    const material = new MeshBasicMaterial({ color, toneMapped: true });
-    const geometry = kind === 'infantry'
-      ? sharedBoxGeometry(1, 1, 1)
-      : kind === 'aircraft'
-        ? sharedBoxGeometry(1, 1, 1.35)
-        : sharedBoxGeometry(1, 1, 1);
-    const mesh = new InstancedMesh(geometry, material, MAX_LOW_DETAIL_UNITS);
-    mesh.count = 0;
-    mesh.visible = false;
-    mesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    mesh.frustumCulled = false;
-    mesh.renderOrder = 20;
-    return { mesh, count: 0 };
+  const make = (kind: LowDetailKind): LowDetailMesh => {
+    const body = new InstancedMesh(LOW_DETAIL_GEOMETRY[kind].body, new MeshBasicMaterial({ color: palette.hullDark, toneMapped: true }), MAX_LOW_DETAIL_UNITS);
+    const color = new InstancedMesh(LOW_DETAIL_GEOMETRY[kind].color, new MeshBasicMaterial({ color: palette.hull, toneMapped: true }), MAX_LOW_DETAIL_UNITS);
+    const detail = new InstancedMesh(LOW_DETAIL_GEOMETRY[kind].detail, new MeshBasicMaterial({ color: palette.lightBar, toneMapped: true }), MAX_LOW_DETAIL_UNITS);
+    for (const mesh of [body, color, detail]) {
+      mesh.count = 0;
+      mesh.visible = false;
+      mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 20;
+    }
+    color.renderOrder = 21;
+    detail.renderOrder = 21;
+    return { body, color, detail, count: 0 };
   };
   return {
-    infantry: make('infantry', palette.accent),
-    vehicle: make('vehicle', palette.hull),
-    aircraft: make('aircraft', palette.lightBar),
+    infantry: make('infantry'),
+    vehicle: make('vehicle'),
+    aircraft: make('aircraft'),
   };
 }
+
+type LowDetailBox = [width: number, height: number, depth: number, x: number, y: number, z: number];
+
+function mergeLowDetailBoxes(boxes: LowDetailBox[]): BufferGeometry {
+  const pieces = boxes.map(([width, height, depth, x, y, z]) => {
+    const geometry = new BoxGeometry(width, height, depth);
+    geometry.translate(x, y, z);
+    return geometry;
+  });
+  const merged = mergeGeometries(pieces, false);
+  for (const piece of pieces) piece.dispose();
+  if (!merged) throw new Error('Could not create low-detail unit geometry');
+  return markShared(merged);
+}
+
+// Performance mode still uses only three batched draw calls per faction and
+// unit category, but each category keeps a recognizable layered silhouette
+// instead of the old single-colour box.
+const LOW_DETAIL_GEOMETRY: Record<LowDetailKind, { body: BufferGeometry; color: BufferGeometry; detail: BufferGeometry }> = {
+  infantry: {
+    body: mergeLowDetailBoxes([
+      [0.2, 0.62, 0.2, -0.18, -0.55, 0],
+      [0.2, 0.62, 0.2, 0.18, -0.55, 0],
+      [0.18, 0.18, 0.92, 0.32, 0.18, 0.25],
+    ]),
+    color: mergeLowDetailBoxes([[0.56, 0.72, 0.42, 0, 0.08, 0]]),
+    detail: mergeLowDetailBoxes([
+      [0.43, 0.4, 0.43, 0, 0.65, 0],
+      [0.36, 0.12, 0.12, 0, 0.3, 0.24],
+    ]),
+  },
+  vehicle: {
+    body: mergeLowDetailBoxes([
+      [0.23, 0.34, 1.58, -0.43, -0.23, 0],
+      [0.23, 0.34, 1.58, 0.43, -0.23, 0],
+    ]),
+    color: mergeLowDetailBoxes([[0.82, 0.46, 1.38, 0, -0.03, 0]]),
+    detail: mergeLowDetailBoxes([
+      [0.62, 0.34, 0.62, 0, 0.34, 0.08],
+      [0.15, 0.14, 0.9, 0, 0.38, 0.66],
+    ]),
+  },
+  aircraft: {
+    body: mergeLowDetailBoxes([
+      [0.5, 0.48, 1.72, 0, 0, 0],
+      [0.22, 0.28, 0.86, 0, 0.08, -1.12],
+    ]),
+    color: mergeLowDetailBoxes([
+      [2.25, 0.12, 0.62, 0, -0.03, 0.08],
+      [0.92, 0.1, 0.34, 0, 0.08, -1.42],
+    ]),
+    detail: mergeLowDetailBoxes([[0.34, 0.28, 0.58, 0, 0.27, 0.46]]),
+  },
+};
 
 function createBikeDustMesh(kind: Heightfield['kind']): InstancedMesh {
   const color = kind === 'frostbite-pass' ? 0xaebdc3 : kind === 'crater-oasis' ? 0xc69458 : 0x9b8965;
