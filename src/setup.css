@@ -302,14 +302,24 @@
   font: inherit;
 }
 .war-lobby__panel { width: 100%; max-height: none; padding: 0; overflow: visible; display: grid; gap: 9px; background: transparent; border: 0; box-shadow: none; }
-.war-lobby__header { align-items: center; padding-bottom: 8px; }
-.war-lobby__title { max-width: none; color: #f2d77a; font-size: 24px; line-height: 1; white-space: nowrap; }
-.war-lobby__role { flex: 0 0 auto; padding: 5px 7px; font-size: 7px; }
-.war-lobby__share { min-height: 34px; padding: 7px 9px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; border: 1px solid rgba(223, 189, 100, .34); background: linear-gradient(135deg, rgba(223, 189, 100, .08), rgba(0, 0, 0, .12)); }
-.war-lobby__share > div { min-width: 0; display: flex; gap: 9px; align-items: baseline; }
-.war-lobby__share span { color: var(--war-dim); font: 7px/1.2 ui-monospace, monospace; letter-spacing: .1em; }
-.war-lobby__share strong { color: var(--war-gold-bright); font: 21px/1 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; letter-spacing: .16em; }
-.war-lobby__copy { min-height: 30px; padding: 5px 9px; font-size: 8px; }
+.war-lobby__header { min-width: 0; gap: 7px; align-items: center; padding-bottom: 7px; }
+.war-lobby__title { min-width: 0; max-width: none; color: #f2d77a; font-size: 18px; line-height: 1; white-space: nowrap; }
+.war-lobby__header-tools { min-width: 0; display: flex; gap: 5px; align-items: center; }
+.war-lobby__room-code { min-width: 0; display: flex; gap: 5px; align-items: baseline; }
+.war-lobby__room-code span { color: var(--war-dim); font: 6px/1.2 ui-monospace, monospace; letter-spacing: .08em; }
+.war-lobby__room-code strong { color: var(--war-gold-bright); font: 14px/1 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; letter-spacing: .08em; }
+.war-lobby__copy { min-height: 24px; padding: 3px 7px; font-size: 7px; }
+.war-lobby__army-bar { min-height: 38px; padding: 5px 7px; display: flex; gap: 8px; align-items: center; justify-content: space-between; border: 1px solid rgba(223, 189, 100, .25); background: linear-gradient(135deg, rgba(223, 189, 100, .07), rgba(0, 0, 0, .12)); }
+.war-lobby__army-label { min-width: 0; display: grid; gap: 1px; }
+.war-lobby__army-label strong { color: #e2c768; font: 700 8px/1.2 ui-monospace, monospace; letter-spacing: .08em; }
+.war-lobby__army-label span { overflow: hidden; color: var(--war-dim); font: 6px/1.2 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.war-lobby__army-choices { flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, 31px); }
+.war-lobby__army-choice { min-height: 27px; padding: 0; border: 1px solid var(--war-line-strong); color: #aeb7b2; background: #121819; font: 700 9px/1 ui-monospace, monospace; cursor: pointer; }
+.war-lobby__army-choice + .war-lobby__army-choice { margin-left: -1px; }
+.war-lobby__army-choice:hover:not(:disabled) { color: #f2d77a; border-color: rgba(223, 189, 100, .65); }
+.war-lobby__army-choice.is-active { position: relative; z-index: 1; color: #111; border-color: #f0d56a; background: linear-gradient(#f2d77a, #b99333); }
+.war-lobby__army-choice:disabled { cursor: default; opacity: .62; }
+.war-lobby__army-choice.is-active:disabled { opacity: 1; }
 .war-lobby__roster { min-width: 0; display: grid; gap: 5px; align-content: start; }
 .war-lobby__players { gap: 4px; }
 .war-lobby__table-head { display: grid; grid-template-columns: minmax(0, 1fr) 68px 72px; gap: 6px; padding: 0 7px; color: var(--war-dim); font: 700 7px/1.4 ui-monospace, monospace; letter-spacing: .1em; }
@@ -363,7 +373,6 @@
   .war-lobby__grid { grid-template-columns: 1fr; }
   .war-lobby__map { min-height: 190px; }
   .war-lobby__actions { grid-template-columns: 1fr; }
-  .war-lobby__share { grid-template-columns: minmax(0, 1fr) auto; }
 }
 
 @media (max-width: 430px) {

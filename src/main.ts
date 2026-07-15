@@ -504,7 +504,6 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     rules.className = 'war-rules-grid';
     rules.append(difficulty.root, commander.root, combatMode.root);
     config.append(createSetupSection('02', 'BATTLE RULES', 'Set enemy pressure and how directly you control combat.', rules));
-    config.append(createSetupSection('03', 'FORCES & ALLIANCES', 'Choose army count and group armies onto shared sides to create alliances.', armies.root));
 
     let multiplayerClient: MultiplayerClient | undefined;
     let multiplayerSession: MultiplayerSession | undefined;
@@ -588,7 +587,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     const brief = document.createElement('div');
     brief.className = 'war-brief';
     brief.append(summaryGrid, history, controlsHeading, controls);
-    config.append(createSetupSection('04', 'OPERATION BRIEF', 'Review the active battlefield settings and field controls.', brief));
+    config.append(createSetupSection('03', 'OPERATION BRIEF', 'Review the active battlefield settings and field controls.', brief));
 
     let multiplayer: ReturnType<typeof createMultiplayerSetupPanel>;
     multiplayer = createMultiplayerSetupPanel(
@@ -1112,25 +1111,55 @@ function createRoomLobbyView(
   heading.className = 'war-lobby__header';
   const title = document.createElement('div');
   title.className = 'war-lobby__title';
-  const role = document.createElement('div');
-  role.className = 'war-lobby__role';
-  heading.append(title, role);
-
-  const share = document.createElement('div');
-  share.className = 'war-lobby__share';
+  const headerTools = document.createElement('div');
+  headerTools.className = 'war-lobby__header-tools';
   const shareCopy = document.createElement('div');
+  shareCopy.className = 'war-lobby__room-code';
   shareCopy.innerHTML = '<span>ROOM</span><strong></strong>';
   const copy = document.createElement('button');
   copy.type = 'button';
   copy.textContent = 'COPY';
   copy.className = 'war-button war-button--quiet war-lobby__copy';
-  share.append(shareCopy, copy);
+  headerTools.append(shareCopy, copy);
+  heading.append(title, headerTools);
+
+  let latestRoom = session.room;
+
+  const armyBar = document.createElement('div');
+  armyBar.className = 'war-lobby__army-bar';
+  const armyLabel = document.createElement('div');
+  armyLabel.className = 'war-lobby__army-label';
+  armyLabel.innerHTML = '<strong>ARMIES IN BATTLE</strong><span>Empty slots deploy as AI</span>';
+  const armyChoices = document.createElement('div');
+  armyChoices.className = 'war-lobby__army-choices';
+  const armyButtons = new Map<ArmyCount, HTMLButtonElement>();
+  for (const count of [2, 3, 4] as ArmyCount[]) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'war-lobby__army-choice';
+    button.textContent = String(count);
+    button.setAttribute('aria-label', `${count} armies in battle`);
+    button.onclick = () => {
+      if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
+      const armySides = [...latestRoom.armySides] as ArmySides;
+      if (count === 4 && armySides.join(',') === '1,2,3,4') {
+        armySides[0] = 1;
+        armySides[1] = 1;
+        armySides[2] = 2;
+        armySides[3] = 2;
+      }
+      client.updateSettings(latestRoom.code, session.player.id, { ...settings(), armyCount: count, armySides });
+      button.blur();
+    };
+    armyButtons.set(count, button);
+    armyChoices.appendChild(button);
+  }
+  armyBar.append(armyLabel, armyChoices);
 
   const status = document.createElement('div');
   status.className = 'war-lobby__status';
   status.setAttribute('aria-live', 'polite');
 
-  let latestRoom = session.room;
   const players = document.createElement('div');
   players.className = 'war-lobby__players';
   const tableHead = document.createElement('div');
@@ -1237,7 +1266,7 @@ function createRoomLobbyView(
   rosterTitle.className = 'war-lobby__section-title';
   rosterTitle.textContent = 'PLAYERS';
   roster.append(rosterTitle, players);
-  panel.append(heading, share, roster, actions, status);
+  panel.append(heading, armyBar, roster, actions, status);
   root.appendChild(panel);
 
   let hostReadyRequestPending = false;
@@ -1245,10 +1274,15 @@ function createRoomLobbyView(
     latestRoom = room;
     session.room = room;
     title.textContent = playerIndex === 1 ? 'YOUR BATTLE ROOM' : 'BATTLE ROOM';
-    role.textContent = playerIndex === 1 ? 'HOST' : 'JOINED';
     const roomCode = shareCopy.querySelector('strong');
     if (roomCode) roomCode.textContent = room.code;
     const isHost = playerIndex === 1;
+    for (const [count, button] of armyButtons) {
+      const selected = room.armyCount === count;
+      button.classList.toggle('is-active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+      button.disabled = !isHost || room.status !== 'waiting';
+    }
     for (let offset = 0; offset < playerRows.length; offset++) {
       const index = offset + 1;
       const view = playerRows[offset];
