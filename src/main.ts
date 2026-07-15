@@ -24,7 +24,7 @@ import { startPosition } from './content/startPositions';
 import { Input } from './engine/input';
 import { GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
 import { advanceTick } from './match/advanceTick';
-import { shouldAutostartFromUrl } from './match/startup';
+import { aiControlledTeams, shouldAutostartFromUrl } from './match/startup';
 import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
@@ -529,6 +529,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       mapSizeChoice.setValue(sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE);
       seedInput.value = String(room.seed);
       armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
+      armies.setPlayerIndex(playerIndex);
       const guestLocked = playerIndex !== 1;
       difficulty.setDisabled(guestLocked);
       commander.setDisabled(guestLocked);
@@ -551,7 +552,6 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       saveSkirmishSettings(settings);
       if (multiplayerClient && multiplayerSession) pendingMultiplayer = { client: multiplayerClient, session: multiplayerSession };
       else multiplayerClient?.disconnect();
-      window.removeEventListener('keydown', onKeyDown);
       root.remove();
       resolve(settings);
     };
@@ -590,16 +590,14 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     brief.append(summaryGrid, history, controlsHeading, controls);
     config.append(createSetupSection('04', 'OPERATION BRIEF', 'Review the active battlefield settings and field controls.', brief));
 
-    const begin = (): void => beginWithSettings(currentSettings());
     let multiplayer: ReturnType<typeof createMultiplayerSetupPanel>;
     multiplayer = createMultiplayerSetupPanel(
       currentSettings,
-      begin,
       (settings) => beginWithSettings(settings, true),
       (client, session) => {
         multiplayerClient = client;
         multiplayerSession = session;
-        mode = session.player.index === 1 ? 'host' : 'join';
+        if (session) mode = session.player.index === 1 ? 'host' : 'join';
         renderMode();
       },
       () => multiplayerSession,
@@ -607,12 +605,6 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     );
     syncMultiplayerSettings = () => multiplayer.syncHostSettings();
     context.appendChild(multiplayer.root);
-
-    const onKeyDown = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null;
-      if (event.key === 'Enter' && mode === 'host' && !multiplayer.hasSession() && !target?.matches('input, select, textarea, button')) begin();
-    };
-    window.addEventListener('keydown', onKeyDown);
 
     refresh = (): void => {
       const seed = Math.max(1, Math.floor(Number(seedInput.value) || defaults.seed));
@@ -633,8 +625,8 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       joinTab.classList.toggle('is-active', !hosting);
       hostTab.setAttribute('aria-selected', String(hosting));
       joinTab.setAttribute('aria-selected', String(!hosting));
-      hostTab.disabled = sessionRole === 'join';
-      joinTab.disabled = sessionRole === 'host';
+      hostTab.disabled = false;
+      joinTab.disabled = false;
       config.hidden = joinEntry;
       layout.classList.toggle('is-join-entry', joinEntry);
       multiplayer.setMode(mode);
@@ -642,11 +634,11 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
         ? hosting
           ? 'HOST SETTINGS · CHANGES SYNC TO EVERY JOINED COMMANDER'
           : 'HOST CONFIGURATION · VIEW ONLY'
-        : 'HOST SETTINGS · CONFIGURE A SKIRMISH OR CREATE AN ONLINE ROOM';
+        : 'HOST SETTINGS · OPENING YOUR BATTLE ROOM';
     }
     function setMode(next: 'host' | 'join'): void {
-      if (multiplayerSession) return;
       mode = next;
+      multiplayer.setMode(next);
       renderMode();
     }
     hostTab.onclick = () => {
@@ -768,9 +760,11 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   armyCount: () => ArmyCount;
   armySides: () => ArmySides;
   setState: (count: ArmyCount, sides: ArmySides) => void;
+  setPlayerIndex: (playerIndex: number) => void;
   setDisabled: (disabled: boolean) => void;
 } {
   let count: ArmyCount = initialCount;
+  let playerIndex = 1;
   let disabled = false;
   const sides: ArmySides = [...initialSides] as ArmySides;
   const root = document.createElement('div');
@@ -794,6 +788,8 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
     for (const row of Array.from(sideRows.children) as HTMLElement[]) {
       const army = Number(row.dataset.army);
       row.style.display = army <= count ? 'grid' : 'none';
+      const label = row.querySelector('.war-army-row__label');
+      if (label) label.textContent = army === playerIndex ? `ARMY ${army} YOU` : `ARMY ${army} PLAYER / AI`;
       for (const button of Array.from(row.querySelectorAll('button')) as HTMLButtonElement[]) {
         const active = Number(button.dataset.side) === sides[army - 1];
         button.classList.toggle('is-active', active);
@@ -829,7 +825,6 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
     row.dataset.army = String(army);
     row.className = 'war-army-row';
     const label = document.createElement('div');
-    label.textContent = army === 1 ? 'ARMY 1 YOU' : `ARMY ${army} AI`;
     label.className = 'war-army-row__label';
     row.appendChild(label);
     for (let side = 1; side <= 4; side++) {
@@ -861,6 +856,10 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
       render();
       onChange();
     },
+    setPlayerIndex: (nextPlayerIndex) => {
+      playerIndex = Math.max(1, Math.min(4, Math.floor(nextPlayerIndex) || 1));
+      render();
+    },
     setDisabled: (value) => {
       disabled = value;
       render();
@@ -870,16 +869,14 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
 
 function createMultiplayerSetupPanel(
   settings: () => SkirmishSettings,
-  startSkirmish: () => void,
   startMatch: (settings: SkirmishSettings) => void,
-  rememberSession: (client: MultiplayerClient, session: MultiplayerSession) => void,
+  rememberSession: (client: MultiplayerClient | undefined, session: MultiplayerSession | undefined) => void,
   currentSession: () => MultiplayerSession | undefined,
   applyRoomSettings: (room: MultiplayerRoom, playerIndex: number) => void,
 ): {
   root: HTMLDivElement;
   setMode: (mode: 'host' | 'join') => void;
   syncHostSettings: () => void;
-  hasSession: () => boolean;
 } {
   const root = document.createElement('div');
   root.className = 'war-operation';
@@ -888,24 +885,13 @@ function createMultiplayerSetupPanel(
   hostEntry.className = 'war-operation__entry';
   hostEntry.innerHTML =
     '<div class="war-aside__kicker">HOST COMMAND</div>' +
-    '<h2>CHOOSE YOUR BATTLE</h2>' +
-    '<p>Launch immediately against the AI or open this setup as an online room.</p>';
-
-  const skirmishCard = document.createElement('section');
-  skirmishCard.className = 'war-mode-card';
-  const skirmishCopy = document.createElement('div');
-  skirmishCopy.innerHTML = '<span class="war-multiplayer__step">SOLO OPERATION</span><h3>PLAY SKIRMISH</h3><p>Deploy the configuration on the left against an AI commander.</p>';
-  const skirmishButton = document.createElement('button');
-  skirmishButton.type = 'button';
-  skirmishButton.textContent = 'START SKIRMISH';
-  skirmishButton.className = 'war-button war-button--secondary';
-  skirmishButton.onclick = startSkirmish;
-  skirmishCard.append(skirmishCopy, skirmishButton);
+    '<h2>OPENING BATTLE ROOM</h2>' +
+    '<p>Your room opens automatically. Start at any time—unfilled army slots deploy under AI command.</p>';
 
   const hostCard = document.createElement('section');
   hostCard.className = 'war-mode-card war-mode-card--primary';
   const hostCopy = document.createElement('div');
-  hostCopy.innerHTML = '<span class="war-multiplayer__step">ONLINE OPERATION</span><h3>HOST MULTIPLAYER</h3><p>Create a room, share its code, and watch commanders join the roster.</p>';
+  hostCopy.innerHTML = '<span class="war-multiplayer__step">OPEN COMMAND CHANNEL</span><h3>PREPARING ROOM</h3><p>Connecting to the battle relay and reserving your commander slot.</p>';
 
   const joinEntry = document.createElement('div');
   joinEntry.className = 'war-operation__entry war-operation__entry--join';
@@ -921,10 +907,11 @@ function createMultiplayerSetupPanel(
 
   const host = document.createElement('button');
   host.type = 'button';
-  host.textContent = 'CREATE ROOM';
+  host.textContent = 'OPENING ROOM...';
   host.className = 'war-button war-button--primary';
+  host.disabled = true;
   hostCard.append(hostCopy, host);
-  hostEntry.append(skirmishCard, hostCard);
+  hostEntry.append(hostCard);
 
   const joinCard = document.createElement('section');
   joinCard.className = 'war-mode-card war-mode-card--primary';
@@ -945,10 +932,6 @@ function createMultiplayerSetupPanel(
     ? 'Run `npm run dev:multiplayer`, then host here and share the room code.'
     : 'Use the public relay URL below, then host here and share the room code.';
 
-  const setBusy = (busy: boolean): void => {
-    host.disabled = busy;
-    join.disabled = busy;
-  };
   const setStatus = (message: string, bad = false): void => {
     status.textContent = message;
     status.classList.toggle('is-error', bad);
@@ -957,6 +940,7 @@ function createMultiplayerSetupPanel(
   let activeMode: 'host' | 'join' = new URLSearchParams(location.search).has('room') ? 'join' : 'host';
   let activeClient: MultiplayerClient | undefined;
   let activeSession: MultiplayerSession | undefined;
+  let openingHostRoom = false;
   let settingsSyncTimer: number | undefined;
   let lobbyView: ReturnType<typeof createRoomLobbyView> | undefined;
 
@@ -966,6 +950,18 @@ function createMultiplayerSetupPanel(
     joinEntry.hidden = connected || activeMode !== 'join';
     if (lobbyView) lobbyView.root.hidden = !connected;
     if (connected) status.hidden = true;
+  };
+
+  const leaveActiveSession = (): void => {
+    const wasHost = activeSession?.player.index === 1;
+    const client = activeClient;
+    activeClient = undefined;
+    activeSession = undefined;
+    client?.disconnect();
+    lobbyView?.root.remove();
+    lobbyView = undefined;
+    if (wasHost) codeLabel.input.value = '';
+    rememberSession(undefined, undefined);
   };
 
   const connectSession = (client: MultiplayerClient, session: MultiplayerSession): void => {
@@ -997,29 +993,47 @@ function createMultiplayerSetupPanel(
         }
         handleMultiplayerEvent(event, session.player.index, setStatus, startMatch);
       },
-      () => setStatus('Connection interrupted. Check the multiplayer server is still running.', true),
+      () => {
+        if (activeClient === client && activeSession === session) {
+          setStatus('Connection interrupted. Check the multiplayer server is still running.', true);
+        }
+      },
     );
   };
 
-  host.onclick = async () => {
+  const openHostRoom = async (): Promise<void> => {
+    if (openingHostRoom || activeSession || activeMode !== 'host') return;
+    openingHostRoom = true;
+    host.disabled = true;
+    host.textContent = 'OPENING ROOM...';
+    setStatus('Opening your battle room...', false);
+    let client: MultiplayerClient | undefined;
     try {
-      setBusy(true);
       const server = normalizedBaseUrl(serverLabel.input.value);
       window.localStorage.setItem(MULTIPLAYER_SERVER_STORAGE_KEY, server);
-      const client = new MultiplayerClient(server);
+      client = new MultiplayerClient(server);
       const session = await client.host({ ...settings(), name: 'Host', playerId: rememberedPlayerId(server, 'HOST') });
+      if (activeMode !== 'host' || activeSession) {
+        client.disconnect();
+        return;
+      }
       connectSession(client, session);
     } catch (err) {
-      setStatus(`Could not host room: ${friendlyMultiplayerError(err)}`, true);
+      if (activeMode === 'host') setStatus(`Could not open room: ${friendlyMultiplayerError(err)}`, true);
     } finally {
-      setBusy(false);
+      openingHostRoom = false;
+      if (!activeSession && activeMode === 'host') {
+        host.disabled = false;
+        host.textContent = 'RETRY OPEN ROOM';
+      }
       host.blur();
     }
   };
+  host.onclick = () => void openHostRoom();
 
   const joinRoom = async (): Promise<void> => {
     try {
-      setBusy(true);
+      join.disabled = true;
       const code = normalizeRoomCode(codeLabel.input.value);
       if (!code) throw new Error('enter-room-code');
       const server = normalizedBaseUrl(serverLabel.input.value);
@@ -1031,7 +1045,7 @@ function createMultiplayerSetupPanel(
     } catch (err) {
       setStatus(`Could not join room: ${friendlyMultiplayerError(err)}`, true);
     } finally {
-      setBusy(false);
+      join.disabled = false;
       join.blur();
     }
   };
@@ -1049,14 +1063,22 @@ function createMultiplayerSetupPanel(
   if (normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? '') && !currentSession()) {
     setStatus('Joining invitation...');
     void joinRoom();
+  } else if (activeMode === 'host') {
+    void openHostRoom();
   }
   render();
   return {
     root,
     setMode: (nextMode) => {
-      if (activeSession) return;
+      if (activeSession) {
+        const currentMode = activeSession.player.index === 1 ? 'host' : 'join';
+        if (currentMode === nextMode) return;
+        leaveActiveSession();
+      }
       activeMode = nextMode;
       render();
+      if (nextMode === 'host') void openHostRoom();
+      else setStatus('Enter the room code shared by the host.', false);
     },
     syncHostSettings: () => {
       if (!activeClient || !activeSession || activeSession.player.index !== 1 || activeSession.room.status !== 'waiting') return;
@@ -1066,7 +1088,6 @@ function createMultiplayerSetupPanel(
         activeClient.updateSettings(activeSession.room.code, activeSession.player.id, settings());
       }, 90);
     },
-    hasSession: () => Boolean(activeSession),
   };
 }
 
@@ -1187,10 +1208,10 @@ function createRoomLobbyView(
       swatch.className = 'war-lobby__swatch';
       swatch.style.background = player ? LOBBY_COLORS[player.color ?? 'jade'] : '#222';
       const name = document.createElement('div');
-      name.textContent = player ? `${player.name} · SIDE ${room.armySides[index - 1] ?? index}` : index === 1 ? 'Host slot' : 'Waiting for player...';
+      name.textContent = player ? `${player.name} · SIDE ${room.armySides[index - 1] ?? index}` : index === 1 ? 'Host slot' : `OPEN TO PLAYER · SIDE ${room.armySides[index - 1] ?? index}`;
       name.className = 'war-lobby__player-name';
       const connection = document.createElement('div');
-      connection.textContent = player?.connected ? player.ready ? 'READY' : `${player.pingMs ?? '...'} ms · NOT READY` : 'OPEN SLOT';
+      connection.textContent = player?.connected ? player.ready ? 'READY' : `${player.pingMs ?? '...'} ms · NOT READY` : index === 1 ? 'OPEN SLOT' : 'AI IF STARTED';
       connection.className = 'war-lobby__connection';
       connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : '#6f7b78';
       row.append(number, swatch, name, connection);
@@ -1202,13 +1223,17 @@ function createRoomLobbyView(
     if (document.activeElement !== nameLabel.input) nameLabel.input.value = localPlayer.name;
     side.value = String(room.armySides[playerIndex - 1] ?? playerIndex);
     for (const [color, button] of colorButtons) button.style.outline = color === (localPlayer.color ?? 'jade') ? '2px solid #f0d56a' : 'none';
-    const connected = room.players.filter((player) => player.connected).length;
-    const allReady = connected === room.armyCount && room.players.filter((player) => player.connected).every((player) => player.ready);
+    const connectedPlayers = room.players.filter((player) => player.connected);
+    const connected = connectedPlayers.length;
+    const openSlots = Math.max(0, room.armyCount - connected);
+    const allConnectedReady = connected > 0 && connectedPlayers.every((player) => player.ready);
     const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
-    if (room.status === 'starting') status.textContent = 'Host launched the match · synchronizing both players...';
+    if (room.status === 'starting') status.textContent = 'Host launched the match · synchronizing commanders and AI forces...';
     else if (engines.size > 1) status.textContent = 'Different browsers detected · matching browser engines are recommended.';
-    else if (connected < room.armyCount) status.textContent = playerIndex === 1 ? `Waiting for commanders (${connected}/${room.armyCount})...` : `Connected · waiting for room (${connected}/${room.armyCount}).`;
-    else if (!allReady) status.textContent = playerIndex === 1 ? 'Waiting for every joined commander to confirm READY.' : 'Choose your profile, then confirm when you are READY.';
+    else if (!allConnectedReady) status.textContent = playerIndex === 1 ? 'Waiting for every joined commander to confirm READY.' : 'Choose your profile, then confirm when you are READY.';
+    else if (openSlots > 0) status.textContent = playerIndex === 1
+      ? `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} · start now with AI or wait for more commanders.`
+      : `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI · waiting for the host.`;
     else status.textContent = playerIndex === 1 ? 'All commanders ready · host can launch.' : 'All commanders ready · waiting for the host.';
     const isHost = playerIndex === 1;
     ready.hidden = isHost;
@@ -1220,9 +1245,9 @@ function createRoomLobbyView(
     if (localPlayer.ready || room.status !== 'waiting') hostReadyRequestPending = false;
     ready.disabled = room.status !== 'waiting';
     ready.textContent = localPlayer.ready ? 'NOT READY' : 'READY';
-    const canLaunch = isHost && allReady && room.status === 'waiting';
+    const canLaunch = isHost && allConnectedReady && room.status === 'waiting';
     launch.disabled = !canLaunch;
-    launch.textContent = room.status === 'starting' ? 'STARTING GAME...' : !allReady ? 'WAITING FOR PLAYERS' : 'START GAME';
+    launch.textContent = room.status === 'starting' ? 'STARTING GAME...' : !allConnectedReady ? 'WAITING FOR READY' : 'START GAME';
   };
 
   return { root, update };
@@ -1246,13 +1271,21 @@ function handleMultiplayerEvent(
 }
 
 function renderRoomStatus(room: MultiplayerRoom, playerIndex: number, setStatus: (message: string, bad?: boolean) => void): void {
-  const connected = room.players.filter((player) => player.connected).length;
+  const connectedPlayers = room.players.filter((player) => player.connected);
+  const connected = connectedPlayers.length;
+  const openSlots = Math.max(0, room.armyCount - connected);
   const team = `army ${playerIndex} / side ${room.armySides[playerIndex - 1] ?? playerIndex}`;
   const map = MAP_PRESETS[sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID].shortLabel;
   const mapSize = MAP_SIZE_PRESETS[sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE].label;
   const countdown =
     room.status === 'starting' && room.startsAt ? `starting in ${Math.max(1, Math.ceil((room.startsAt - Date.now()) / 1000))}s` : undefined;
-  const waiting = countdown ?? (connected < room.armyCount ? `waiting for commanders ${connected}/${room.armyCount}` : room.status === 'waiting' ? playerIndex === 1 ? 'host can launch' : 'waiting for host' : room.status);
+  const waiting = countdown ?? (room.status === 'waiting'
+    ? playerIndex === 1
+      ? connectedPlayers.every((player) => player.ready)
+        ? openSlots > 0 ? `ready to launch · ${openSlots} AI ${openSlots === 1 ? 'slot' : 'slots'}` : 'host can launch'
+        : 'waiting for joined commanders to ready'
+      : 'waiting for host'
+    : room.status);
   const combat = room.combatMode === 'manual' ? 'manual combat' : 'assisted combat';
   const pings = room.players.map((player) => player.pingMs).filter((ping): ping is number => Number.isFinite(ping));
   const ping = pings.length ? `${Math.max(...pings)}ms` : 'measuring ping';
@@ -1343,6 +1376,7 @@ function friendlyMultiplayerError(err: unknown): string {
   if (message === 'Failed to fetch') return 'server unreachable. Check the relay URL and that the Node server is awake.';
   if (message === 'room-not-found') return 'room not found or expired. Ask the host for a fresh code.';
   if (message === 'room-full') return 'room is full. Start a new room for another match.';
+  if (message === 'match-in-progress') return 'this match has already started. Ask the host for a new room.';
   if (message === 'enter-room-code') return 'enter a room code first.';
   if (message === 'unknown-player') return 'player session expired. Join the room again.';
   if (message === 'origin-not-allowed') return 'relay rejected this site origin. Add this site URL to ALLOWED_ORIGINS.';
@@ -1385,6 +1419,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       : {},
   );
   const localTeam = multiplayer?.session.player.index ?? 1;
+  const humanTeams = multiplayer ? multiplayer.session.room.players.map((player) => player.index) : [localTeam];
+  const aiTeams = new Set(aiControlledTeams(settings.armyCount, humanTeams));
   const app = document.getElementById('app');
   if (!app) throw new Error('#app missing');
   const overlay = showLoadingOverlay();
@@ -1439,7 +1475,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   sim.rules.allianceSides = Object.fromEntries(teams.map((team) => [team, settings.armySides[team - 1] ?? team]));
   const armies: ArmyRuntime[] = teams.map((team) => {
     const isLocal = team === localTeam;
-    const credits = isLocal && (testStart || lineupStart) ? 15000 : multiplayerMode ? 4600 : isLocal ? 4600 : AI_DIFFICULTY[aiDifficulty].startCredits;
+    const credits = isLocal && (testStart || lineupStart) ? 15000 : aiTeams.has(team) ? AI_DIFFICULTY[aiDifficulty].startCredits : 4600;
     const economy = createEconomy(team, credits);
     const start = startPosition(hf.size, team);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
@@ -1472,14 +1508,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   if (testStart && !multiplayerMode && !loadedFromSave) seedTestStartBase(sim, hf, economy, localBase);
   const isVisibleToPlayer = lineupStart ? () => true : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
-  if (!multiplayerMode) {
-    for (const army of armies) {
-      if (army.team === localTeam) continue;
-      const hints = armies
-        .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
-        .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
-      army.commander = new EnemyCommander(sim, hf, army.economy, army.vision, aiPersonality, aiDifficulty, hints);
-    }
+  for (const army of armies) {
+    if (!aiTeams.has(army.team)) continue;
+    const hints = armies
+      .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
+      .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
+    army.commander = new EnemyCommander(sim, hf, army.economy, army.vision, aiPersonality, aiDifficulty, hints);
   }
   const commanders = armies.map((army) => army.commander).filter((commander): commander is EnemyCommander => !!commander);
   const matchSnapshot = (): MatchSnapshot => {

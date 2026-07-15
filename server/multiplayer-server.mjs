@@ -145,6 +145,7 @@ function handleJoin(socket, body) {
   const room = rooms.get(normalizeRoomCode(body.code));
   if (!room) return send(socket, { type: 'error', requestId: body.requestId, error: 'room-not-found' });
   const existing = typeof body.playerId === 'string' ? room.players.find((player) => player.id === body.playerId) : undefined;
+  if (!existing && room.status !== 'waiting') return send(socket, { type: 'error', requestId: body.requestId, error: 'match-in-progress' });
   const player = existing ?? addPlayer(room, body.name ?? `Commander ${room.players.length + 1}`, body.playerId, body.engine);
   player.connected = true;
   player.disconnectedAt = undefined;
@@ -185,7 +186,7 @@ function handleStartMatch(socket, body) {
   const { room, player } = roomAndPlayer(body, socket);
   if (!room || !player || player.index !== 1 || room.status !== 'waiting') return;
   const connected = room.players.filter((candidate) => candidate.connected);
-  if (connected.length !== room.armyCount || !connected.every((candidate) => candidate.ready)) return;
+  if (connected.length === 0 || !connected.every((candidate) => candidate.ready)) return;
   startRoom(room);
 }
 
@@ -233,7 +234,7 @@ function handleRequestRematch(socket, body) {
   player.rematchReady = true;
   room.updatedAt = Date.now();
   const connected = room.players.filter((candidate) => candidate.connected);
-  if (connected.length === room.armyCount && connected.every((candidate) => candidate.rematchReady)) startRematch(room);
+  if (connected.length > 0 && connected.every((candidate) => candidate.rematchReady)) startRematch(room);
   else broadcast(room, roomState(room));
 }
 
@@ -410,6 +411,7 @@ function detachSocket(socket) {
 
 function startRoom(room) {
   if (room.status !== 'waiting') return;
+  room.players = room.players.filter((player) => player.connected);
   room.inputDelay = inputDelayForRoom(room);
   room.status = 'starting';
   room.rematchStarting = false;

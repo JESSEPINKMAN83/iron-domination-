@@ -179,6 +179,39 @@ describe('multiplayer relay', () => {
     expect(closed.reason).toBe('disconnect-timeout:2');
   }, 5000);
 
+  it('lets a ready host launch alone with open AI slots and blocks late joins', async () => {
+    const port = await availablePort();
+    const child = spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, PORT: String(port), HEARTBEAT_MS: '50', START_COUNTDOWN_MS: '20' },
+      stdio: 'ignore',
+    });
+    children.push(child);
+    await waitForHealth(port);
+
+    const host = await connect(port);
+    host.send(JSON.stringify({ type: 'host', requestId: 'solo-host', name: 'Host', settings: { armyCount: 2, seed: 9191 } }));
+    const session = await nextMessage(host, (message) => message.type === 'session');
+    const roomCode = session.room.code as string;
+    const hostId = session.player.id as string;
+
+    const started = nextMessage(host, (message) => message.type === 'match-start');
+    host.send(JSON.stringify({ type: 'set-ready', roomCode, playerId: hostId, ready: true }));
+    host.send(JSON.stringify({ type: 'start-match', roomCode, playerId: hostId }));
+    const startEvent = await started;
+    expect(startEvent.room.armyCount).toBe(2);
+    expect(startEvent.room.players.map((player: any) => player.index)).toEqual([1]);
+
+    const lateGuest = await connect(port);
+    lateGuest.send(JSON.stringify({ type: 'join', requestId: 'late-guest', code: roomCode, name: 'Late Guest' }));
+    const rejected = await nextMessage(lateGuest, (message) => message.type === 'error' && message.requestId === 'late-guest');
+    expect(rejected.error).toBe('match-in-progress');
+
+    const rematch = nextMessage(host, (message) => message.type === 'match-start' && message.rematch === true, 1200);
+    host.send(JSON.stringify({ type: 'request-rematch', roomCode, playerId: hostId }));
+    await rematch;
+  }, 5000);
+
   it('starts a four-player 2v2 only after every commander is ready', async () => {
     const port = await availablePort();
     const child = spawn(process.execPath, ['server/multiplayer-server.mjs'], {
