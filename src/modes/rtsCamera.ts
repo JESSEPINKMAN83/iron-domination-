@@ -15,7 +15,50 @@ const PITCH_OFFSET_MIN = MathUtils.degToRad(-58);
 const PITCH_OFFSET_MAX = MathUtils.degToRad(28);
 const PITCH_STORAGE_KEY = 'iron-dominion.rtsCamera.pitchOffset';
 const YAW_STORAGE_KEY = 'iron-dominion.rtsCamera.yaw';
-const EDGE_MARGIN = 14;
+const EDGE_ZONE_MIN = 40;
+const EDGE_ZONE_MAX = 72;
+const EDGE_ZONE_VIEWPORT_RATIO = 0.065;
+
+export interface EdgePanInput {
+  x: number;
+  forward: number;
+}
+
+/**
+ * Returns a graduated screen-edge pan input in the range -1..1.
+ * The inner edge of the zone starts at zero and the outermost pixel reaches
+ * full speed, so corners retain a useful diagonal direction without a sudden
+ * on/off camera jump.
+ */
+export function getEdgePanInput(
+  mouseX: number,
+  mouseY: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): EdgePanInput {
+  if (viewportWidth <= 0 || viewportHeight <= 0) return { x: 0, forward: 0 };
+  const zone = MathUtils.clamp(
+    Math.min(viewportWidth, viewportHeight) * EDGE_ZONE_VIEWPORT_RATIO,
+    EDGE_ZONE_MIN,
+    EDGE_ZONE_MAX,
+  );
+  const vertical = edgeAxis(mouseY, viewportHeight, zone);
+  return {
+    x: edgeAxis(mouseX, viewportWidth, zone),
+    forward: vertical === 0 ? 0 : -vertical,
+  };
+}
+
+function edgeAxis(position: number, viewportSize: number, desiredZone: number): number {
+  if (position <= 0) return -1;
+  if (position >= viewportSize) return 1;
+  const zone = Math.min(desiredZone, viewportSize / 2);
+  if (position < zone) return -MathUtils.clamp((zone - position) / zone, 0, 1);
+  if (position > viewportSize - zone) {
+    return MathUtils.clamp((position - (viewportSize - zone)) / zone, 0, 1);
+  }
+  return 0;
+}
 
 function damp(current: number, goal: number, lambda: number, dt: number): number {
   return goal + (current - goal) * Math.exp(-lambda * dt);
@@ -148,23 +191,30 @@ export class RtsCameraRig {
       this.goal.addScaledVector(this.fwd, delta.dy * worldPerPixel);
     }
 
-    // keyboard + screen-edge pan
-    let mx = 0;
-    let my = 0;
-    if (input.isDown('KeyW') || input.isDown('ArrowUp')) my += 1;
-    if (input.isDown('KeyS') || input.isDown('ArrowDown')) my -= 1;
-    if (input.isDown('KeyA') || input.isDown('ArrowLeft')) mx -= 1;
-    if (input.isDown('KeyD') || input.isDown('ArrowRight')) mx += 1;
+    // Keyboard and classic graduated screen-edge pan. Edge speed increases as
+    // the pointer approaches the outermost pixel; corners move diagonally.
+    let keyboardX = 0;
+    let keyboardForward = 0;
+    if (input.isDown('KeyW') || input.isDown('ArrowUp')) keyboardForward += 1;
+    if (input.isDown('KeyS') || input.isDown('ArrowDown')) keyboardForward -= 1;
+    if (input.isDown('KeyA') || input.isDown('ArrowLeft')) keyboardX -= 1;
+    if (input.isDown('KeyD') || input.isDown('ArrowRight')) keyboardX += 1;
+    let edgeX = 0;
+    let edgeForward = 0;
     if (!grabbing && !lookAdjusting && input.pointerInWindow && document.hasFocus()) {
-      if (input.mouseX <= EDGE_MARGIN) mx -= 1;
-      if (input.mouseX >= window.innerWidth - EDGE_MARGIN) mx += 1;
-      if (input.mouseY <= EDGE_MARGIN) my += 1;
-      if (input.mouseY >= window.innerHeight - EDGE_MARGIN) my -= 1;
+      const edge = getEdgePanInput(input.mouseX, input.mouseY, window.innerWidth, window.innerHeight);
+      edgeX = edge.x;
+      edgeForward = edge.forward;
     }
-    if (mx !== 0 || my !== 0) {
-      const speed = (this.dist * 0.9 + 12) / Math.hypot(mx, my);
-      this.goal.addScaledVector(this.right, mx * speed * dt);
-      this.goal.addScaledVector(this.fwd, my * speed * dt);
+    const mx = MathUtils.clamp(keyboardX + edgeX, -1, 1);
+    const my = MathUtils.clamp(keyboardForward + edgeForward, -1, 1);
+    const panMagnitude = Math.hypot(mx, my);
+    if (panMagnitude > 0) {
+      const usingKeyboard = keyboardX !== 0 || keyboardForward !== 0;
+      const edgeStrength = Math.max(Math.abs(edgeX), Math.abs(edgeForward));
+      const speed = (this.dist * 0.9 + 12) * (usingKeyboard ? 1 : edgeStrength);
+      this.goal.addScaledVector(this.right, (mx / panMagnitude) * speed * dt);
+      this.goal.addScaledVector(this.fwd, (my / panMagnitude) * speed * dt);
     }
 
     const bound = this.hf.size / 2 - 10;
