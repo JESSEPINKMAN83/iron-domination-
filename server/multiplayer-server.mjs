@@ -187,6 +187,7 @@ function handleStartMatch(socket, body) {
   if (!room || !player || player.index !== 1 || room.status !== 'waiting') return;
   const connected = room.players.filter((candidate) => candidate.connected);
   if (connected.length === 0 || !connected.every((candidate) => candidate.ready)) return;
+  ensureOpenAiOpponent(room, connected);
   startRoom(room);
 }
 
@@ -586,6 +587,16 @@ function normalizeArmySides(value, armyCount) {
     const side = Math.floor(Number(input[index]) || index + 1);
     return index < armyCount ? Math.max(1, Math.min(4, side)) : index + 1;
   });
+}
+
+function ensureOpenAiOpponent(room, connectedPlayers) {
+  const activeSides = room.armySides.slice(0, room.armyCount);
+  if (new Set(activeSides).size > 1) return;
+  const occupied = new Set(connectedPlayers.map((player) => player.index));
+  const openArmy = Array.from({ length: room.armyCount }, (_, index) => index + 1).find((index) => !occupied.has(index));
+  if (!openArmy) return;
+  const alliedSide = activeSides[0] ?? 1;
+  room.armySides[openArmy - 1] = alliedSide === 1 ? 2 : 1;
 }
 
 function normalizeArmyCount(value) {

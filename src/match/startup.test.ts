@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiControlledTeams, shouldAutostartFromUrl } from './startup';
+import { aiControlledTeams, ensureOpposingSides, isVictoryFromHostileBuildingCounts, shouldAutostartFromUrl } from './startup';
 
 describe('match startup routing', () => {
   it('keeps multiplayer invite links on the setup lobby', () => {
@@ -19,5 +19,16 @@ describe('match startup routing', () => {
     expect(aiControlledTeams(2, [1])).toEqual([2]);
     expect(aiControlledTeams(4, [1, 3])).toEqual([2, 4]);
     expect(aiControlledTeams(3, [1, 2, 3])).toEqual([]);
+  });
+
+  it('keeps at least one opposing side when reducing an allied 2v2 to two armies', () => {
+    expect(ensureOpposingSides(2, [1, 1, 2, 2])).toEqual([1, 2, 2, 2]);
+    expect(ensureOpposingSides(4, [1, 1, 2, 2])).toEqual([1, 1, 2, 2]);
+  });
+
+  it('does not declare victory when the match has no hostile team', () => {
+    expect(isVictoryFromHostileBuildingCounts([])).toBe(false);
+    expect(isVictoryFromHostileBuildingCounts([0])).toBe(true);
+    expect(isVictoryFromHostileBuildingCounts([0, 1])).toBe(false);
   });
 });

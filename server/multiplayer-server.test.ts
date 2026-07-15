@@ -190,7 +190,7 @@ describe('multiplayer relay', () => {
     await waitForHealth(port);
 
     const host = await connect(port);
-    host.send(JSON.stringify({ type: 'host', requestId: 'solo-host', name: 'Host', settings: { armyCount: 2, seed: 9191 } }));
+    host.send(JSON.stringify({ type: 'host', requestId: 'solo-host', name: 'Host', settings: { armyCount: 2, armySides: [1, 1], seed: 9191 } }));
     const session = await nextMessage(host, (message) => message.type === 'session');
     const roomCode = session.room.code as string;
     const hostId = session.player.id as string;
@@ -200,6 +200,7 @@ describe('multiplayer relay', () => {
     host.send(JSON.stringify({ type: 'start-match', roomCode, playerId: hostId }));
     const startEvent = await started;
     expect(startEvent.room.armyCount).toBe(2);
+    expect(startEvent.room.armySides.slice(0, 2)).toEqual([1, 2]);
     expect(startEvent.room.players.map((player: any) => player.index)).toEqual([1]);
 
     const lateGuest = await connect(port);

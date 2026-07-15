@@ -24,7 +24,7 @@ import { startPosition } from './content/startPositions';
 import { Input } from './engine/input';
 import { GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
 import { advanceTick } from './match/advanceTick';
-import { aiControlledTeams, shouldAutostartFromUrl } from './match/startup';
+import { aiControlledTeams, ensureOpposingSides, isVictoryFromHostileBuildingCounts, shouldAutostartFromUrl } from './match/startup';
 import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
@@ -310,6 +310,8 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
 function initialSettings(params: URLSearchParams): SkirmishSettings {
   const stored = loadStoredSettings();
   const fromUrl = settingsFromUrl(params);
+  const armyCount = fromUrl.armyCount ?? stored.armyCount ?? 2;
+  const armySides = fromUrl.armySides ?? stored.armySides ?? defaultArmySides();
   return {
     mapId: fromUrl.mapId ?? stored.mapId ?? DEFAULT_MAP_ID,
     mapSize: fromUrl.mapSize ?? stored.mapSize ?? DEFAULT_MAP_SIZE,
@@ -318,8 +320,8 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     aiStyle: fromUrl.aiStyle ?? stored.aiStyle ?? 'balanced',
     debug: fromUrl.debug ?? stored.debug ?? false,
     combatMode: fromUrl.combatMode ?? stored.combatMode ?? 'assisted',
-    armyCount: fromUrl.armyCount ?? stored.armyCount ?? 2,
-    armySides: fromUrl.armySides ?? stored.armySides ?? defaultArmySides(),
+    armyCount,
+    armySides: ensureOpposingSides(armyCount, armySides),
   };
 }
 
@@ -1148,7 +1150,11 @@ function createRoomLobbyView(
         armySides[2] = 2;
         armySides[3] = 2;
       }
-      client.updateSettings(latestRoom.code, session.player.id, { ...settings(), armyCount: count, armySides });
+      client.updateSettings(latestRoom.code, session.player.id, {
+        ...settings(),
+        armyCount: count,
+        armySides: ensureOpposingSides(count, armySides),
+      });
       button.blur();
     };
     armyButtons.set(count, button);
@@ -1976,7 +1982,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (outcome || sim.tick < 60) return;
     const alive = (team: number) => buildings(sim, team).filter((entity) => !entity.destroyed).length;
     const hostileTeams = teams.filter((team) => areTeamsHostile(sim, localTeam, team));
-    if (hostileTeams.every((team) => alive(team) === 0)) outcome = 'victory';
+    if (isVictoryFromHostileBuildingCounts(hostileTeams.map(alive))) outcome = 'victory';
     else if (alive(localTeam) === 0) outcome = 'defeat';
     if (outcome) {
       const snapshot = matchSnapshot();
