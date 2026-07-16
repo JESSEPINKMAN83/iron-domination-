@@ -83,6 +83,7 @@ export class Hud {
     container.appendChild(this.reticle);
 
     this.modeBanner = document.createElement('div');
+    this.modeBanner.className = 'game-mode-banner';
     this.modeBanner.style.cssText =
       'position:fixed;left:50%;top:12px;transform:translate(-50%,-135%);opacity:0;z-index:13;pointer-events:none;' +
       'min-width:260px;padding:10px 18px;text-align:center;font:12px/1.25 ui-monospace,Menlo,monospace;color:#f0f3e8;' +

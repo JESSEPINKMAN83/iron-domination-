@@ -25,6 +25,8 @@ export class MobileGameControls {
   private readonly buildButton: HTMLButtonElement;
   private readonly climbControls: HTMLDivElement;
   private readonly possessedLabel: HTMLDivElement;
+  private readonly nextUnitButton: HTMLButtonElement;
+  private readonly resetSpeedHold: () => void;
   private lastState = '';
   private firstPerson = false;
 
@@ -66,17 +68,18 @@ export class MobileGameControls {
     fire.classList.add('mobile-fire-button');
     const secondary = button('MISSILE', 'Fire secondary weapon or use scope');
     const special = button('SPECIAL', 'Use special ability');
+    const speed = button('SPEED', 'Hold for maximum movement speed');
+    this.nextUnitButton = button('NEXT UNIT', 'Control the next unit in the selected group');
+    secondary.classList.add('mobile-secondary-button');
+    special.classList.add('mobile-special-button');
+    speed.classList.add('mobile-speed-button');
+    this.nextUnitButton.classList.add('mobile-next-unit-button');
     bindRepeatAction(fire, () => this.actions.firePrimary(), 115);
     bindRepeatAction(secondary, () => this.actions.fireSecondary());
     bindRepeatAction(special, () => this.actions.useSpecial());
-    weaponCluster.append(fire, secondary, special);
-
-    const utilityCluster = div('mobile-fps-utility');
-    const swap = button('SWAP', 'Control another selected unit');
-    const boost = button('BOOST', 'Hold to boost');
-    swap.onclick = () => this.actions.cyclePossessed();
-    bindHold(boost, (held) => this.input.setMobileDrive({ boost: held }));
-    utilityCluster.append(swap, boost);
+    this.nextUnitButton.onclick = () => this.actions.cyclePossessed();
+    this.resetSpeedHold = bindHold(speed, (held) => this.input.setMobileDrive({ boost: held }));
+    weaponCluster.append(fire, secondary, special, speed, this.nextUnitButton);
 
     this.climbControls = div('mobile-climb-controls');
     const climb = button('UP', 'Climb');
@@ -86,7 +89,7 @@ export class MobileGameControls {
     this.climbControls.append(climb, descend);
 
     this.possessedLabel = div('mobile-possessed-label');
-    this.fps.append(lookPad, dpad, weaponCluster, utilityCluster, this.climbControls, this.possessedLabel);
+    this.fps.append(lookPad, dpad, weaponCluster, this.climbControls, this.possessedLabel);
     this.root.append(this.rts, this.fps, this.modeButton);
     document.body.appendChild(this.root);
     this.update({ firstPerson: false, flying: false, selectedCount: 0 });
@@ -105,9 +108,15 @@ export class MobileGameControls {
       ? '<span aria-hidden="true">⌃</span><small>STRATEGY</small>'
       : '<span aria-hidden="true">◎</span><small>CONTROL</small>';
     this.modeButton.setAttribute('aria-label', state.firstPerson ? 'Return to strategy view' : 'Take direct control of the selected unit');
+    const canCycleUnits = state.firstPerson && state.selectedCount > 1;
+    this.nextUnitButton.hidden = !canCycleUnits;
+    this.nextUnitButton.parentElement?.classList.toggle('has-next-unit', canCycleUnits);
     this.climbControls.hidden = !state.flying;
     this.possessedLabel.textContent = state.possessedName?.toUpperCase() ?? '';
-    if (!state.firstPerson) this.input.resetMobileDrive();
+    if (!state.firstPerson) {
+      this.resetSpeedHold();
+      this.input.resetMobileDrive();
+    }
     if (state.firstPerson) {
       this.buildButton.classList.remove('is-active');
       this.buildButton.textContent = 'BUILD';
@@ -181,7 +190,7 @@ function bindLookPad(pad: HTMLElement, onMove: (dx: number, dy: number) => void)
   pad.addEventListener('pointercancel', release);
 }
 
-function bindHold(element: HTMLElement, onChange: (held: boolean) => void): void {
+function bindHold(element: HTMLElement, onChange: (held: boolean) => void): () => void {
   let pointerId: number | undefined;
   element.addEventListener('pointerdown', (event) => {
     pointerId = event.pointerId;
@@ -189,14 +198,19 @@ function bindHold(element: HTMLElement, onChange: (held: boolean) => void): void
     element.classList.add('is-active');
     onChange(true);
   });
-  const release = (event: PointerEvent) => {
-    if (pointerId !== event.pointerId) return;
+  const release = (event?: PointerEvent) => {
+    if (event && pointerId !== event.pointerId) return;
+    if (pointerId === undefined) return;
     pointerId = undefined;
     element.classList.remove('is-active');
     onChange(false);
   };
   element.addEventListener('pointerup', release);
   element.addEventListener('pointercancel', release);
+  element.addEventListener('lostpointercapture', release);
+  window.addEventListener('pointerup', release, { capture: true });
+  window.addEventListener('pointercancel', release, { capture: true });
+  return () => release();
 }
 
 function bindRepeatAction(element: HTMLElement, action: () => unknown, cadence?: number): void {

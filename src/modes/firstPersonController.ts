@@ -128,12 +128,14 @@ export class FirstPersonController {
       'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.18em;color:rgba(216,255,208,.9);text-shadow:0 1px 2px #000;';
     document.body.appendChild(this.scopeStatus);
     this.abilityStatus = document.createElement('div');
+    this.abilityStatus.className = 'game-first-person-ability-status';
     this.abilityStatus.style.cssText =
       'position:fixed;left:50%;bottom:11%;transform:translateX(-50%);display:none;pointer-events:none;z-index:14;' +
       'padding:7px 11px;border:1px solid rgba(210,177,95,.72);background:rgba(8,12,12,.86);color:#f0d56a;' +
       'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-shadow:0 1px 2px #000;';
     document.body.appendChild(this.abilityStatus);
     this.abilityHud = document.createElement('div');
+    this.abilityHud.className = 'game-first-person-ability-hud';
     this.abilityHud.style.cssText =
       'position:fixed;right:20px;bottom:58px;display:none;pointer-events:none;z-index:13;padding:7px 10px;' +
       'border-left:3px solid #d2b15f;background:rgba(8,12,12,.76);color:#dbe5df;font:700 10px ui-monospace,Menlo,monospace;letter-spacing:.08em;';
