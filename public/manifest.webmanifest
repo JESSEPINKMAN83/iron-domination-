@@ -1,0 +1,11 @@
+{
+  "name": "Iron Domination",
+  "short_name": "Iron Domination",
+  "description": "Command armies from above, then take control of a unit on the battlefield.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#070a0b",
+  "theme_color": "#0a0d10"
+}

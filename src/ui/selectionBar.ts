@@ -34,6 +34,7 @@ export class SelectionBar {
     private readonly localTeam = 1,
   ) {
     this.root = document.createElement('div');
+    this.root.className = 'game-selection-bar';
     this.root.style.cssText =
       'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:13;display:none;' +
       'width:min(720px,calc(100vw - 36px));pointer-events:auto;color:#e0e7dd;font:12px/1.35 ui-monospace,Menlo,monospace;' +

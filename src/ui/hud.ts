@@ -89,9 +89,10 @@ export class Hud {
       'background:linear-gradient(180deg,rgba(30,40,40,.94),rgba(8,12,13,.88));border:1px solid rgba(240,213,106,.58);border-radius:3px;' +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 10px 28px rgba(0,0,0,.42),0 0 18px rgba(240,213,106,.16);' +
       'transition:transform 260ms cubic-bezier(.2,.8,.2,1),opacity 180ms ease;';
+    const mobileTouch = typeof document !== 'undefined' && document.documentElement.classList.contains('mobile-touch-device');
     this.modeBanner.innerHTML =
       '<div style="font-size:13px;color:#f0d56a;letter-spacing:.08em;">FIRST-PERSON VIEW</div>' +
-      '<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">Press V or Escape to return to command view</div>';
+      `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${mobileTouch ? 'Use the left stick to move and drag the right side to aim' : 'Press V or Escape to return to command view'}</div>`;
     container.appendChild(this.modeBanner);
 
     this.multiplayer = document.createElement('div');

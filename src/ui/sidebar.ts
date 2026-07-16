@@ -76,6 +76,7 @@ export class Sidebar {
     this.fogCanvas = document.createElement('canvas');
     this.fogCanvas.width = this.fogCanvas.height = this.fog.res;
     this.root = document.createElement('div');
+    this.root.className = 'game-sidebar';
     this.root.style.cssText =
       'position:fixed;top:10px;right:10px;width:322px;max-height:calc(100vh - 20px);display:flex;flex-direction:column;gap:7px;' +
       'font:12px/1.35 ui-monospace,Menlo,monospace;color:#e0e7dd;background:linear-gradient(180deg,rgba(31,35,36,.96),rgba(10,13,14,.93));' +
@@ -85,10 +86,12 @@ export class Sidebar {
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
 
     this.radarWrap = document.createElement('div');
+    this.radarWrap.className = 'game-sidebar__radar-wrap';
     this.radarWrap.style.cssText =
       'position:relative;display:grid;grid-template-rows:18px auto;gap:6px;padding:7px;background:#060908;border:2px solid #151817;' +
       'border-top-color:#66706a;border-left-color:#66706a;box-shadow:inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75);overflow:hidden;';
     this.radar = document.createElement('canvas');
+    this.radar.className = 'game-sidebar__radar';
     this.radar.dataset.role = 'radar-map';
     this.radar.width = 298;
     this.radar.height = 298;
@@ -114,8 +117,10 @@ export class Sidebar {
     }
 
     this.tabs = document.createElement('div');
+    this.tabs.className = 'game-sidebar__tabs';
     this.tabs.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:4px;';
     this.body = document.createElement('div');
+    this.body.className = 'game-sidebar__body';
     this.body.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:6px;overflow:auto;padding-right:1px;';
     this.root.append(this.radarWrap, this.tabs, this.body);
     document.body.appendChild(this.root);
@@ -188,8 +193,20 @@ export class Sidebar {
     this.root.style.display = visible ? 'flex' : 'none';
   }
 
+  setMobileExpanded(expanded: boolean): void {
+    this.root.classList.toggle('is-mobile-expanded', expanded);
+  }
+
+  toggleMobileExpanded(): boolean {
+    const expanded = !this.root.classList.contains('is-mobile-expanded');
+    this.setMobileExpanded(expanded);
+    return expanded;
+  }
+
   setFirstPerson(active: boolean): void {
     this.firstPersonMode = active;
+    this.root.classList.toggle('is-first-person', active);
+    if (active) this.setMobileExpanded(false);
     this.root.style.display = 'flex';
     this.root.style.width = active ? '218px' : '322px';
     this.root.style.padding = active ? '7px' : '10px';

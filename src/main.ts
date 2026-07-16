@@ -2,6 +2,7 @@ import { Color, Fog, MeshStandardMaterial } from 'three';
 import { showLandingScreen } from './landing';
 import { showFeedbackWidget } from './feedback';
 import './setup.css';
+import './mobile.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
 import {
@@ -28,6 +29,8 @@ import { aiControlledTeams, ensureOpposingSides, isVictoryFromHostileBuildingCou
 import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
+import { MobileGameControls } from './mobile/gameControls';
+import { isMobileTouchDevice, MobileLandscapeGate } from './mobile/platform';
 import { LockstepRuntime } from './net/commands';
 import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, shouldLaunchLocalSkirmish, waitForMultiplayerServer, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession, type TacticalPingKind } from './net/multiplayer';
 import { AssetPipeline } from './render/assets';
@@ -1564,15 +1567,18 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   console.info(`[map] ${selectedMap.label} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
 
   const params = new URLSearchParams(location.search);
+  const mobileTouch = isMobileTouchDevice();
   const requestedQuality = params.get('quality');
   const initialQualityTier = requestedQuality === 'performance' || requestedQuality === 'low'
     ? 2 as const
     : requestedQuality === 'balanced'
       ? 1 as const
-      : undefined;
+      : mobileTouch
+        ? 1 as const
+        : undefined;
   const ctx = new RenderContext(app, { multiplayer: multiplayerMode, initialQualityTier });
   applyMapAtmosphere(ctx, selectedMap);
-  const input = new Input();
+  const input = new Input(mobileTouch);
   input.attach(ctx.renderer.domElement);
 
   // GLB/KTX2/Draco pipeline — no models yet, but wired for the content phases.
@@ -1924,8 +1930,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let uiPaused = false;
   const setUiPaused = (paused: boolean): void => {
     uiPaused = paused;
-    input.keys.clear();
-    input.buttons = 0;
+    input.resetTransientInputs();
   };
   createGameMenu(settings, {
     setPaused: setUiPaused,
@@ -1950,6 +1955,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         }
       : undefined,
   });
+  let mobileControls: MobileGameControls | undefined;
   const firstPerson = new FirstPersonController(
     ctx.renderer.domElement,
     ctx.camera,
@@ -1986,6 +1992,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       : undefined,
     isVisibleToPlayer,
   );
+  if (mobileTouch) {
+    mobileControls = new MobileGameControls(input, controller, sidebar, {
+      enterFirstPerson: () => firstPerson.enter(selectedEntities(sim, localTeam)),
+      exitFirstPerson: () => firstPerson.exit(),
+      cyclePossessed: () => firstPerson.cyclePossessed(1),
+      firePrimary: () => firstPerson.firePrimary(),
+      fireSecondary: () => firstPerson.fireSecondary(),
+      useSpecial: () => firstPerson.useSpecialAbility(),
+    });
+  }
   input.onKeyDown('KeyV', () => {
     if (firstPerson.active) firstPerson.exit();
     else firstPerson.enter(selectedEntities(sim, localTeam));
@@ -2088,7 +2104,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     },
     render: (alpha, dt, time) => {
       renderFrame++;
-      ctx.setFastMotionMode(multiplayerMode && firstPerson.flying);
+      ctx.setFastMotionMode((multiplayerMode || mobileTouch) && firstPerson.flying);
       unitView.setVisualQuality(ctx.visualQuality);
       if (firstPerson.active) firstPerson.update(dt, alpha);
       else {
@@ -2103,6 +2119,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.update();
         sidebar.update();
       }
+      mobileControls?.update({
+        firstPerson: firstPerson.active,
+        flying: firstPerson.flying,
+        selectedCount: controller.selectedCount(),
+        possessedName: firstPerson.possessedName,
+      });
       if (renderFrame % ctx.visualUpdateDivisor === 0) buildingView.update(economy, ctx.camera);
       // Keep camera and unit motion at the browser's full frame rate in
       // multiplayer flight. Battlefield particles and order decorations can
@@ -2251,6 +2273,7 @@ function showMatchMenu(
   if (existing) existing.remove();
   const overlay = document.createElement('div');
   overlay.id = 'skirmish-restart-dialog';
+  overlay.className = 'game-menu-overlay';
   overlay.style.cssText =
     'position:fixed;inset:0;z-index:70;display:grid;place-items:center;background:rgba(0,0,0,.25);pointer-events:auto;';
   overlay.onpointerdown = (event) => {
@@ -2267,6 +2290,7 @@ function showMatchMenu(
   };
   window.addEventListener('keydown', onKeyDown);
   const panel = document.createElement('div');
+  panel.className = 'game-menu-panel';
   panel.style.cssText =
     'width:300px;display:grid;gap:8px;padding:14px;background:rgba(8,12,14,.94);border:1px solid #596260;border-radius:3px;' +
     'box-shadow:0 18px 60px rgba(0,0,0,.55);font:11px ui-monospace,Menlo,monospace;color:#d7e0e7;letter-spacing:.08em;';
@@ -2338,6 +2362,7 @@ function showHelpDialog(options: { onClose: () => void }): void {
   if (existing) existing.remove();
   const overlay = document.createElement('div');
   overlay.id = 'skirmish-help-dialog';
+  overlay.className = 'game-help-overlay';
   overlay.style.cssText =
     'position:fixed;inset:0;z-index:75;display:grid;place-items:center;background:rgba(0,0,0,.32);pointer-events:auto;';
   overlay.onpointerdown = (event) => {
@@ -2355,6 +2380,7 @@ function showHelpDialog(options: { onClose: () => void }): void {
   window.addEventListener('keydown', onKeyDown);
 
   const panel = document.createElement('div');
+  panel.className = 'game-help-panel';
   panel.style.cssText =
     'width:min(760px,calc(100vw - 36px));max-height:calc(100vh - 36px);overflow:auto;display:grid;gap:14px;padding:20px 22px;' +
     'background:linear-gradient(180deg,rgba(18,24,25,.97),rgba(7,10,11,.96));border:1px solid #596260;border-radius:4px;' +
@@ -2365,7 +2391,17 @@ function showHelpDialog(options: { onClose: () => void }): void {
     '<div style="margin-top:5px;color:#8d9a96;">Destroy the enemy command yard while keeping your base alive.</div>';
   const grid = document.createElement('div');
   grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;';
-  const sections = [
+  const mobileTouch = isMobileTouchDevice();
+  const sections = mobileTouch ? [
+    ['Start', 'Build Power Plant -> Refinery -> Barracks/Factory. Oil collectors bring credits back to refineries.'],
+    ['Command', 'Tap a friendly unit to select it. Tap the battlefield to move or attack. Use SELECT to drag a selection box.'],
+    ['Camera', 'Drag the battlefield to pan. Pinch to zoom. Twist two fingers to rotate the camera.'],
+    ['Build', 'Tap BUILD to open construction and production. Tap CLOSE to return to the full battlefield.'],
+    ['Fight', 'Tap ATTACK before a destination for attack-move. STOP immediately cancels the selected force order.'],
+    ['First person', 'Tap CONTROL. Use the left stick to move, drag the right side to aim, then use FIRE, ALT and SPECIAL.'],
+    ['Aircraft', 'The left stick controls thrust and yaw. Hold BOOST and use UP/DOWN for altitude.'],
+    ['Return', 'Tap RTS to leave first-person mode. MENU pauses the match and keeps save/restart/setup actions available.'],
+  ] : [
     ['Start', 'Build Power Plant -> Refinery -> Barracks/Factory. Oil collectors bring credits back to refineries.'],
     ['Command', 'Select with click or drag. Right-click ground to move. Right-click and hold to set facing and spread.'],
     ['Build', 'Use the right panel tabs. Structure cards become READY, then place them on terrain. Unit queues keep producing.'],
@@ -2384,7 +2420,7 @@ function showHelpDialog(options: { onClose: () => void }): void {
   const footer = document.createElement('div');
   footer.style.cssText = 'display:flex;justify-content:space-between;gap:10px;align-items:center;';
   const hint = document.createElement('div');
-  hint.textContent = 'F1 opens this guide. F2 toggles debug stats. MENU pauses the match.';
+  hint.textContent = mobileTouch ? 'MENU pauses the match.' : 'F1 opens this guide. F2 toggles debug stats. MENU pauses the match.';
   hint.style.cssText = 'color:#8d9a96;font-size:10px;';
   const closeButton = dialogButton('Close', close);
   closeButton.style.minWidth = '120px';
@@ -2796,6 +2832,8 @@ function findValidTestPlacement(
 async function start(): Promise<void> {
   showFeedbackWidget();
   const params = new URLSearchParams(location.search);
+  const mobileLandscape = new MobileLandscapeGate();
+  mobileLandscape.activate();
   const settings = initialSettings(params);
   const rematch = consumeMultiplayerRematch();
   if (rematch) {

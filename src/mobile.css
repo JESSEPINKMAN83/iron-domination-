@@ -1,0 +1,263 @@
+.mobile-landscape-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  box-sizing: border-box;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background: radial-gradient(circle at center, #18201e, #050708 68%);
+  color: #eff3ea;
+  text-align: center;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.mobile-landscape-gate[hidden] { display: none; }
+.mobile-landscape-gate p { margin: 8px 0 0; color: #f0d56a; font: 400 30px/1 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; letter-spacing: .12em; }
+.mobile-landscape-gate strong { font-size: 13px; }
+.mobile-landscape-gate small { color: #9eaaa4; font-size: 11px; }
+.mobile-landscape-gate__device { width: 78px; height: 44px; padding: 4px; border: 3px solid #d7bd66; border-radius: 9px; transform: rotate(-90deg); animation: mobile-device-turn 1.8s ease-in-out infinite; }
+.mobile-landscape-gate__device span { display: block; width: 6px; height: 6px; margin: 19px 0 0 64px; border-radius: 50%; background: #d7bd66; }
+@keyframes mobile-device-turn { 0%,20% { transform:rotate(-90deg) } 65%,100% { transform:rotate(0) } }
+
+@media (orientation: landscape) {
+  .mobile-touch-device .war-setup { padding: 0; }
+  .mobile-touch-device .war-setup__shell { width: 100%; min-height: 100dvh; height: 100dvh; border: 0; grid-template-rows: auto auto minmax(0,1fr); }
+  .mobile-touch-device .war-setup__header { padding: 8px max(12px,env(safe-area-inset-right)) 7px max(12px,env(safe-area-inset-left)); }
+  .mobile-touch-device .war-setup__title { margin-top: 2px; font-size: 30px; }
+  .mobile-touch-device .war-setup__intro, .mobile-touch-device .war-setup__badge { display: none; }
+  .mobile-touch-device .war-tabs { min-height: 42px; }
+  .mobile-touch-device .war-tab { min-height: 42px; padding: 4px 8px; }
+  .mobile-touch-device .war-tab span { font-size: 16px; }
+  .mobile-touch-device .war-tab small { font-size: 8px; }
+  .mobile-touch-device .war-setup__body { grid-template-columns: minmax(0,1.55fr) minmax(250px,.72fr); overflow: hidden; }
+  .mobile-touch-device .war-config, .mobile-touch-device .war-aside, .mobile-touch-device .war-operation { min-height: 0; padding: 12px max(12px,env(safe-area-inset-right)) 18px max(12px,env(safe-area-inset-left)); overflow: auto; }
+  .mobile-touch-device .war-config { border-right: 1px solid var(--war-line); border-bottom: 0; }
+  .mobile-touch-device .war-section { padding: 11px 0; }
+  .mobile-touch-device .war-section h2, .mobile-touch-device .war-aside h2, .mobile-touch-device .war-operation h2 { font-size: 24px; }
+  .mobile-touch-device .war-map-preview { min-height: 118px; }
+  .mobile-touch-device .war-battlefield { grid-template-columns: minmax(170px,.7fr) minmax(0,1.3fr); gap: 12px; }
+  .mobile-touch-device .war-settings-grid, .mobile-touch-device .war-rules-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .mobile-touch-device .war-start, .mobile-touch-device .war-lobby__cta { position: sticky; bottom: max(6px,env(safe-area-inset-bottom)); min-height: 48px; z-index: 4; }
+}
+
+.mobile-game-controls { display:none; }
+
+@media (orientation: landscape) {
+  .mobile-touch-device body { -webkit-user-select:none; user-select:none; }
+  .mobile-touch-device canvas { touch-action:none; }
+  .mobile-touch-device .mobile-game-controls {
+    position:fixed;
+    inset:0;
+    z-index:40;
+    display:block;
+    pointer-events:none;
+    font:700 10px/1 ui-monospace,Menlo,monospace;
+    letter-spacing:.06em;
+  }
+  .mobile-game-controls button {
+    min-width:48px;
+    min-height:46px;
+    padding:5px 8px;
+    border:1px solid rgba(174,190,181,.58);
+    border-top-color:rgba(238,242,225,.75);
+    border-left-color:rgba(238,242,225,.75);
+    border-radius:3px;
+    background:linear-gradient(180deg,rgba(39,49,48,.95),rgba(12,18,17,.96));
+    color:#eef3e9;
+    font:700 10px/1 ui-monospace,Menlo,monospace;
+    letter-spacing:.05em;
+    box-shadow:0 4px 12px rgba(0,0,0,.35),inset 0 0 0 1px rgba(0,0,0,.4);
+    pointer-events:auto;
+    touch-action:none;
+  }
+  .mobile-game-controls button:disabled { opacity:.38; }
+  .mobile-game-controls button.is-active { border-color:#f0d56a; background:linear-gradient(180deg,#72602b,#28220f); color:#fff4b8; }
+  .mobile-command-strip {
+    position:fixed;
+    left:max(8px,env(safe-area-inset-left));
+    bottom:max(8px,env(safe-area-inset-bottom));
+    display:flex;
+    gap:5px;
+    pointer-events:auto;
+  }
+  .mobile-build-button {
+    position:fixed;
+    right:max(8px,env(safe-area-inset-right));
+    bottom:max(58px,calc(env(safe-area-inset-bottom) + 52px));
+    min-width:72px !important;
+    border-color:#d2b15f !important;
+    color:#f0d56a !important;
+  }
+  .mobile-game-controls__fps[hidden], .mobile-game-controls__rts[hidden] { display:none; }
+  .mobile-look-pad {
+    position:fixed;
+    top:0;
+    right:0;
+    width:56vw;
+    height:100dvh;
+    pointer-events:auto;
+    touch-action:none;
+  }
+  .mobile-joystick {
+    position:fixed;
+    left:max(16px,env(safe-area-inset-left));
+    bottom:max(13px,env(safe-area-inset-bottom));
+    width:126px;
+    height:126px;
+    border:2px solid rgba(210,177,95,.58);
+    border-radius:50%;
+    background:radial-gradient(circle,rgba(35,45,43,.45),rgba(5,9,8,.7));
+    box-shadow:inset 0 0 25px rgba(0,0,0,.5),0 5px 20px rgba(0,0,0,.28);
+    pointer-events:auto;
+    touch-action:none;
+  }
+  .mobile-joystick::after { content:'MOVE'; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); color:rgba(222,230,219,.34); font-size:9px; }
+  .mobile-joystick__stick {
+    position:absolute;
+    left:50%;
+    top:50%;
+    width:52px;
+    height:52px;
+    transform:translate(-50%,-50%);
+    border:2px solid rgba(245,223,135,.82);
+    border-radius:50%;
+    background:rgba(93,77,33,.75);
+    box-shadow:0 4px 12px rgba(0,0,0,.45);
+    pointer-events:none;
+  }
+  .mobile-weapon-cluster {
+    position:fixed;
+    right:max(12px,env(safe-area-inset-right));
+    bottom:max(58px,calc(env(safe-area-inset-bottom) + 52px));
+    display:grid;
+    grid-template-columns:58px 58px;
+    gap:6px;
+    pointer-events:auto;
+  }
+  .mobile-fire-button { grid-row:1 / span 2; min-width:68px !important; min-height:104px !important; border-color:#d2b15f !important; color:#fff0a1 !important; }
+  .mobile-fps-utility {
+    position:fixed;
+    left:max(156px,calc(env(safe-area-inset-left) + 148px));
+    bottom:max(14px,env(safe-area-inset-bottom));
+    display:flex;
+    gap:5px;
+    pointer-events:auto;
+  }
+  .mobile-climb-controls {
+    position:fixed;
+    right:max(150px,calc(env(safe-area-inset-right) + 142px));
+    bottom:max(14px,env(safe-area-inset-bottom));
+    display:flex;
+    gap:5px;
+    pointer-events:auto;
+  }
+  .mobile-climb-controls[hidden] { display:none; }
+  .mobile-possessed-label {
+    position:fixed;
+    left:50%;
+    bottom:max(68px,calc(env(safe-area-inset-bottom) + 64px));
+    transform:translateX(-50%);
+    padding:5px 9px;
+    color:#f0d56a;
+    background:rgba(8,12,12,.62);
+    pointer-events:none;
+  }
+
+  .mobile-touch-device .game-sidebar {
+    top:max(7px,env(safe-area-inset-top)) !important;
+    right:max(7px,env(safe-area-inset-right)) !important;
+    width:148px !important;
+    max-height:calc(100dvh - 14px) !important;
+    padding:5px !important;
+    gap:0 !important;
+    box-sizing:border-box !important;
+  }
+  .mobile-touch-device .game-sidebar__radar-wrap { padding:4px !important; gap:3px !important; grid-template-rows:16px auto !important; }
+  .mobile-touch-device .game-sidebar__radar { max-height:118px; object-fit:contain; }
+  .mobile-touch-device .game-sidebar__tabs,
+  .mobile-touch-device .game-sidebar__body { display:none !important; }
+  .mobile-touch-device .game-sidebar.is-mobile-expanded {
+    width:min(390px,48vw) !important;
+    padding:7px !important;
+    gap:5px !important;
+  }
+  .mobile-touch-device .game-sidebar.is-mobile-expanded .game-sidebar__radar-wrap { grid-template-columns:110px 1fr; grid-template-rows:auto !important; }
+  .mobile-touch-device .game-sidebar.is-mobile-expanded .game-sidebar__radar { max-height:110px; grid-row:1 / span 2; }
+  .mobile-touch-device .game-sidebar.is-mobile-expanded .game-sidebar__tabs { display:grid !important; }
+  .mobile-touch-device .game-sidebar.is-mobile-expanded .game-sidebar__body { display:grid !important; max-height:calc(100dvh - 180px); }
+  .mobile-touch-device .game-sidebar.is-first-person { width:140px !important; }
+  .mobile-touch-device .game-sidebar.is-first-person .game-sidebar__radar { max-height:105px; }
+  .mobile-touch-device .game-selection-bar {
+    bottom:max(64px,calc(env(safe-area-inset-bottom) + 58px)) !important;
+    width:min(330px,42vw) !important;
+    padding:5px 6px !important;
+    font-size:10px !important;
+  }
+  .mobile-touch-device .game-selection-bar > div:first-child { display:none !important; }
+  .mobile-touch-device .game-selection-bar [role='button'] { flex-basis:90px !important; min-height:58px !important; grid-template-rows:32px auto !important; }
+  .mobile-touch-device .game-selection-bar [role='button'] > div:first-child { min-height:32px !important; }
+  .mobile-touch-device .iron-feedback__trigger {
+    left:max(8px,env(safe-area-inset-left));
+    right:auto;
+    top:max(8px,env(safe-area-inset-top));
+    bottom:auto;
+    min-height:44px;
+  }
+  .mobile-touch-device .iron-feedback__dialog { max-height:calc(100dvh - 18px); overflow:auto; padding:14px; }
+  .mobile-touch-device body:has(.war-setup) .iron-feedback__trigger {
+    left:auto;
+    right:max(8px,env(safe-area-inset-right));
+  }
+  .mobile-touch-device .iron-landing__hero {
+    width:min(760px,calc(100vw - 120px));
+    max-height:100dvh;
+    padding:8px 12px 10px;
+  }
+  .mobile-touch-device .iron-landing__eyebrow { margin:0 0 6px; font-size:10px; }
+  .mobile-touch-device .iron-landing__hero h1 { font-size:clamp(42px,8.4vw,68px); line-height:.9; }
+  .mobile-touch-device .iron-landing__copy { margin-top:9px; font-size:clamp(11px,1.7vw,15px); }
+  .mobile-touch-device .iron-landing__detail { margin-top:6px; font-size:11px; line-height:1.35; }
+  .mobile-touch-device .iron-landing__form, .mobile-touch-device .iron-landing__returning { margin-top:10px; }
+  .mobile-touch-device .iron-landing__fields input { height:38px; font-size:12px; }
+  .mobile-touch-device .iron-landing__consent { margin-top:7px; font-size:9px; line-height:1.25; }
+  .mobile-touch-device .iron-landing__cta { min-width:210px; min-height:44px; margin-top:8px; padding:9px 20px; font-size:16px; }
+  .mobile-touch-device body:has(#skirmish-restart-dialog,#skirmish-help-dialog) .iron-feedback__trigger { display:none; }
+  .mobile-touch-device .game-menu-overlay,
+  .mobile-touch-device .game-help-overlay { padding:7px; box-sizing:border-box; }
+  .mobile-touch-device .game-menu-panel {
+    width:min(380px,calc(100vw - 20px)) !important;
+    max-height:calc(100dvh - 14px);
+    box-sizing:border-box;
+    overflow:auto;
+    gap:6px !important;
+    padding:10px !important;
+  }
+  .mobile-touch-device .game-menu-panel button { min-height:44px; }
+  .mobile-touch-device .game-help-panel {
+    width:min(760px,calc(100vw - 14px)) !important;
+    max-height:calc(100dvh - 14px) !important;
+    box-sizing:border-box;
+    padding:12px 14px !important;
+    gap:9px !important;
+  }
+  .mobile-touch-device .game-help-panel > div:nth-child(2) { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:6px !important; }
+  .mobile-touch-device .game-help-panel button { min-height:44px; }
+}
+
+@media (orientation: landscape) and (max-height: 430px) {
+  .mobile-joystick { width:108px; height:108px; }
+  .mobile-joystick__stick { width:46px; height:46px; }
+  .mobile-fps-utility { left:max(132px,calc(env(safe-area-inset-left) + 126px)); }
+  .mobile-game-controls button { min-height:42px; }
+  .mobile-fire-button { min-height:90px !important; }
+  .mobile-touch-device .game-selection-bar { max-height:72px; overflow:hidden; }
+  .mobile-touch-device .war-aside > p,
+  .mobile-touch-device .war-mode-card > p { display:none; }
+  .mobile-touch-device .war-aside h2 { font-size:20px; margin-bottom:5px; }
+  .mobile-touch-device .war-mode-card { padding:9px; gap:5px; }
+  .mobile-touch-device .war-mode-card h3 { font-size:22px; }
+  .mobile-touch-device .war-mode-card__actions .war-button { min-height:44px; }
+  .mobile-touch-device .war-mode-card__actions { margin-top:-5px; }
+}

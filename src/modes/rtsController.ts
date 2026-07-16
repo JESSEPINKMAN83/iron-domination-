@@ -71,6 +71,9 @@ export class RtsController {
   private lastClick = { time: 0, entity: undefined as Entity | undefined };
   private attackMoveQueued = false;
   private enabled = true;
+  private mobileSelectionMode = false;
+  private readonly activeTouchPointers = new Set<number>();
+  private touchGestureCancelled = false;
 
   constructor(
     private readonly dom: HTMLElement,
@@ -108,6 +111,31 @@ export class RtsController {
     return selectedEntities(this.sim, this.localTeam).length;
   }
 
+  setMobileSelectionMode(active: boolean): void {
+    this.mobileSelectionMode = active;
+    this.input.setTouchCameraSuppressed(active);
+    if (!active) this.selectionBox.style.display = 'none';
+  }
+
+  isMobileSelectionMode(): boolean {
+    return this.mobileSelectionMode;
+  }
+
+  toggleMobileAttackMove(): boolean {
+    this.attackMoveQueued = !this.attackMoveQueued;
+    return this.attackMoveQueued;
+  }
+
+  mobileAttackMoveQueued(): boolean {
+    return this.attackMoveQueued;
+  }
+
+  stopSelected(): void {
+    const selected = selectedEntities(this.sim, this.localTeam);
+    const ids = selected.map((entity) => entity.id).filter((id): id is number => id !== undefined);
+    if (!(this.commandSink?.stop?.(ids) ?? false)) stopEntities(selected);
+  }
+
   isRightOrderGestureActive(): boolean {
     return this.enabled && this.pointerDown?.button === 2 && this.rightOrderStart !== undefined;
   }
@@ -127,11 +155,23 @@ export class RtsController {
       this.orderFeedback?.clearFacingPreview?.();
       this.orderFeedback?.clearTargetHover?.();
       this.attackMoveQueued = false;
+      this.activeTouchPointers.clear();
+      this.touchGestureCancelled = false;
+      this.setMobileSelectionMode(false);
     }
   }
 
   private onPointerDown(e: PointerEvent): void {
     if (!this.enabled) return;
+    if (e.pointerType === 'touch') {
+      this.activeTouchPointers.add(e.pointerId);
+      if (this.activeTouchPointers.size > 1) {
+        this.pointerDown = undefined;
+        this.selectionBox.style.display = 'none';
+        this.touchGestureCancelled = true;
+        return;
+      }
+    }
     this.orderFeedback?.clearTargetHover?.();
     if (e.metaKey && e.button === 0) return;
     if ((e.button === 0 || e.button === 2) && this.input.isDown('Space')) {
@@ -180,9 +220,10 @@ export class RtsController {
       return;
     }
     if (!this.pointerDown) {
-      this.updateTargetHover(e);
+      if (e.pointerType !== 'touch') this.updateTargetHover(e);
       return;
     }
+    if (e.pointerType === 'touch' && !this.mobileSelectionMode) return;
     this.orderFeedback?.clearTargetHover?.();
     if (this.pointerDown.button === 2 && this.rightCameraLookCandidate) {
       const dx = e.clientX - this.pointerDown.x;
@@ -233,6 +274,15 @@ export class RtsController {
 
   private onPointerUp(e: PointerEvent): void {
     if (!this.enabled) return;
+    if (e.pointerType === 'touch') {
+      this.activeTouchPointers.delete(e.pointerId);
+      if (this.touchGestureCancelled) {
+        if (this.activeTouchPointers.size === 0) this.touchGestureCancelled = false;
+        this.pointerDown = undefined;
+        this.selectionBox.style.display = 'none';
+        return;
+      }
+    }
     if (!this.pointerDown) return;
     const down = this.pointerDown;
     this.pointerDown = undefined;
@@ -244,6 +294,7 @@ export class RtsController {
     const dy = e.clientY - down.y;
     const pointerDistance = Math.hypot(dx, dy);
     const dragged = pointerDistance > (down.button === 2 ? RIGHT_ORDER_DRAG_THRESHOLD : LEFT_DRAG_THRESHOLD);
+    const touch = e.pointerType === 'touch';
     if (down.button === 2 && this.rightCameraLookActive) {
       this.rightCameraLookCandidate = false;
       this.rightCameraLookActive = false;
@@ -257,7 +308,13 @@ export class RtsController {
       if (down.button === 2) this.placement.cancel();
       return;
     }
-    if (down.button === 0 && !e.metaKey) {
+    let effectiveButton = down.button;
+    if (touch && down.button === 0 && !dragged && !this.mobileSelectionMode && !this.placement?.isPlacing()) {
+      const hit = this.entityAt(e.clientX, e.clientY);
+      if (hit?.team?.id === this.localTeam) this.selectClick(e);
+      else if (selectedEntities(this.sim, this.localTeam).length > 0) effectiveButton = 2;
+      else this.selectClick(e);
+    } else if (down.button === 0 && !e.metaKey && (!touch || this.mobileSelectionMode)) {
       if (dragged) {
         const minX = Math.min(down.x, e.clientX);
         const minY = Math.min(down.y, e.clientY);
@@ -270,7 +327,7 @@ export class RtsController {
       }
     }
 
-    if (down.button === 2) {
+    if (effectiveButton === 2) {
       const attackTarget = !dragged && this.selectedAttackers().length > 0 ? this.enemyTargetAt(e.clientX, e.clientY) : undefined;
       const selectedMovers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover);
       const destinationPoint = attackTarget
@@ -339,9 +396,7 @@ export class RtsController {
   }
 
   private selectClick(e: PointerEvent): void {
-    const p = this.terrainPoint(e.clientX, e.clientY);
-    const screenHit = this.units.pickAtScreen(this.camera, e.clientX, e.clientY, window.innerWidth, window.innerHeight);
-    const hit = screenHit ?? (p ? this.buildings?.pickAt(p.x, p.z) ?? this.units.pickAt(p.x, p.z) : undefined);
+    const hit = this.entityAt(e.clientX, e.clientY);
     if (!hit) {
       if (!e.shiftKey) setSelected(this.sim, [], false, this.localTeam);
       return;
@@ -353,6 +408,12 @@ export class RtsController {
       setSelected(this.sim, [hit], e.shiftKey, this.localTeam);
     }
     this.lastClick = { time: now, entity: hit };
+  }
+
+  private entityAt(clientX: number, clientY: number): Entity | undefined {
+    const p = this.terrainPoint(clientX, clientY);
+    const screenHit = this.units.pickAtScreen(this.camera, clientX, clientY, window.innerWidth, window.innerHeight);
+    return screenHit ?? (p ? this.buildings?.pickAt(p.x, p.z) ?? this.units.pickAt(p.x, p.z) : undefined);
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -368,9 +429,7 @@ export class RtsController {
       return;
     }
     if (e.code === 'KeyS' && selectedEntities(this.sim, this.localTeam).length > 0) {
-      const selected = selectedEntities(this.sim, this.localTeam);
-      const ids = selected.map((entity) => entity.id).filter((id): id is number => id !== undefined);
-      if (!(this.commandSink?.stop?.(ids) ?? false)) stopEntities(selected);
+      this.stopSelected();
       e.preventDefault();
     }
     if (e.code === 'KeyA' && selectedEntities(this.sim, this.localTeam).some((entity) => entity.weapon)) {

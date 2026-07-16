@@ -159,6 +159,7 @@ export class FirstPersonController {
     dom.addEventListener(
       'pointerdown',
       (event) => {
+        if (event.pointerType === 'touch') return;
         if (this.mode !== 'fps' || (event.button !== 0 && event.button !== 2)) return;
         event.preventDefault();
         event.stopPropagation();
@@ -235,9 +236,9 @@ export class FirstPersonController {
     this.toPose = this.poseFor(entity, this.lookYaw, this.lookPitch, 62, 1, 1 / 60);
     this.mode = 'entering';
     this.savedCursor = this.dom.style.cursor;
-    this.dom.style.cursor = 'none';
+    if (!this.input.isTouchDevice) this.dom.style.cursor = 'none';
     this.callbacks.onEnter?.();
-    this.ensurePointerLock();
+    if (!this.input.isTouchDevice) this.ensurePointerLock();
     return true;
   }
 
@@ -270,15 +271,20 @@ export class FirstPersonController {
       if (!this.cyclePossessed(1)) this.beginExit();
       return;
     }
-    const forward = (this.input.isDown('KeyW') ? 1 : 0) - (this.input.isDown('KeyS') ? 1 : 0);
+    const mobile = this.input.getMobileDrive();
+    const forward = MathUtils.clamp((this.input.isDown('KeyW') ? 1 : 0) - (this.input.isDown('KeyS') ? 1 : 0) + mobile.throttle, -1, 1);
     // heading uses (sin rot, cos rot): positive turn rotates toward -screen-right,
     // so D (turn right) must apply negative turn — matches mouse-look direction
     const baseTurn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
     const hardTurn = this.possessed.flight ? (this.input.isDown('KeyQ') ? 1 : 0) - (this.input.isDown('KeyE') ? 1 : 0) : 0;
-    const turn = baseTurn + hardTurn * 1.55;
+    const turn = MathUtils.clamp(baseTurn + hardTurn * 1.55 + mobile.turn, -1.75, 1.75);
     const strafe = 0;
-    const climb = (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('ControlLeft') || this.input.isDown('ControlRight') ? 1 : 0);
-    const boost = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
+    const climb = MathUtils.clamp(
+      (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('ControlLeft') || this.input.isDown('ControlRight') ? 1 : 0) + mobile.climb,
+      -1,
+      1,
+    );
+    const boost = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') || mobile.boost;
     const control = { throttle: forward, turn, aimYaw: this.currentAimYaw(), climb, strafe, boost };
     if (this.commandSink) this.publishControlState(control);
     else if (this.possessed.playerControlled) Object.assign(this.possessed.playerControlled, control);
@@ -300,6 +306,24 @@ export class FirstPersonController {
       return false;
     }
     return this.fire('special');
+  }
+
+  firePrimary(): boolean {
+    return this.mode === 'fps' ? this.fire('primary') : false;
+  }
+
+  fireSecondary(): boolean {
+    if (this.mode !== 'fps') return false;
+    if (this.isSniper(this.possessed)) {
+      if (this.sniperBikeMoving(this.possessed)) {
+        this.flashAbilityStatus('STOP COMBAT BIKE TO AIM');
+        return false;
+      }
+      this.sniperScopeActive = !this.sniperScopeActive;
+      this.updateScopeOverlay(this.sniperScopeActive);
+      return true;
+    }
+    return this.fire('secondary');
   }
 
   update(dt: number, alpha = 1): void {
@@ -364,7 +388,8 @@ export class FirstPersonController {
     this.transitionT = 0;
     this.mode = 'exiting';
     this.dom.style.cursor = this.savedCursor;
-    document.exitPointerLock?.();
+    this.input.resetMobileDrive();
+    if (!this.input.isTouchDevice) document.exitPointerLock?.();
   }
 
   private finishExit(): void {
@@ -791,6 +816,7 @@ export class FirstPersonController {
   }
 
   private takeControl(entity: Entity): void {
+    this.input.resetMobileDrive();
     this.resetTargetLock();
     if (this.possessed && this.possessed !== entity) {
       if (this.commandSink) this.commandSink.release(this.possessed.id);
@@ -809,6 +835,7 @@ export class FirstPersonController {
   }
 
   private ensurePointerLock(): void {
+    if (this.input.isTouchDevice) return;
     if (document.pointerLockElement === this.dom) return;
     void this.dom.requestPointerLock?.();
   }

@@ -191,6 +191,22 @@ export class RtsCameraRig {
       this.goal.addScaledVector(this.fwd, delta.dy * worldPerPixel);
     }
 
+    if (input.isTouchDevice && !grabbing && !lookAdjusting) {
+      const touch = input.consumeTouchCameraGesture();
+      if (touch.panX !== 0 || touch.panY !== 0) {
+        const worldPerPixel = (2 * this.dist * Math.tan(MathUtils.degToRad(this.camera.fov) / 2)) / window.innerHeight;
+        this.goal.addScaledVector(this.right, -touch.panX * worldPerPixel);
+        this.goal.addScaledVector(this.fwd, touch.panY * worldPerPixel);
+      }
+      if (touch.pinch !== 0) {
+        this.distGoal = MathUtils.clamp(this.distGoal * Math.exp(-touch.pinch * 0.008), ZOOM_MIN, ZOOM_MAX);
+      }
+      if (touch.twist !== 0) {
+        this.yawGoal = normalizeAngle(this.yawGoal - touch.twist);
+        this.yaw = this.yawGoal;
+      }
+    }
+
     // Keyboard and classic graduated screen-edge pan. Edge speed increases as
     // the pointer approaches the outermost pixel; corners move diagonally.
     let keyboardX = 0;
@@ -201,7 +217,7 @@ export class RtsCameraRig {
     if (input.isDown('KeyD') || input.isDown('ArrowRight')) keyboardX += 1;
     let edgeX = 0;
     let edgeForward = 0;
-    if (!grabbing && !lookAdjusting && input.pointerInWindow && document.hasFocus()) {
+    if (!input.isTouchDevice && !grabbing && !lookAdjusting && input.pointerInWindow && document.hasFocus()) {
       const edge = getEdgePanInput(input.mouseX, input.mouseY, window.innerWidth, window.innerHeight);
       edgeX = edge.x;
       edgeForward = edge.forward;

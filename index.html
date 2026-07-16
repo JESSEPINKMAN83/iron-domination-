@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="description" content="Play the Iron Dominion beta — a hybrid strategy war game where you command armies from above or fight alongside them in first-person mode." />
     <meta name="theme-color" content="#0a0d10" />
     <meta property="og:title" content="Iron Dominion — command the battlefield" />
@@ -15,6 +16,7 @@
         margin: 0;
         height: 100%;
         overflow: hidden;
+        overscroll-behavior: none;
         background: #0a0d10;
       }
       #app {
@@ -23,6 +25,7 @@
       }
       canvas {
         display: block;
+        touch-action: none;
         user-select: none;
         -webkit-user-select: none;
         outline: none;
