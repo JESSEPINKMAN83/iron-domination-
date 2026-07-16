@@ -57,6 +57,10 @@ const LEFT_DRAG_THRESHOLD = 6;
 const RIGHT_ORDER_DRAG_THRESHOLD = 18;
 const CAMERA_LOOK_DRAG_THRESHOLD = 4;
 
+export function shouldUseTouchCommand(selectedCount: number, touchedTeam: number | undefined, localTeam: number): boolean {
+  return selectedCount > 0 && touchedTeam !== localTeam;
+}
+
 export class RtsController {
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
@@ -71,7 +75,6 @@ export class RtsController {
   private lastClick = { time: 0, entity: undefined as Entity | undefined };
   private attackMoveQueued = false;
   private enabled = true;
-  private mobileSelectionMode = false;
   private readonly activeTouchPointers = new Set<number>();
   private touchGestureCancelled = false;
 
@@ -104,30 +107,12 @@ export class RtsController {
     dom.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     window.addEventListener('pointermove', (e) => this.onPointerMove(e));
     window.addEventListener('pointerup', (e) => this.onPointerUp(e));
+    window.addEventListener('pointercancel', (e) => this.onPointerUp(e));
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
   }
 
   selectedCount(): number {
     return selectedEntities(this.sim, this.localTeam).length;
-  }
-
-  setMobileSelectionMode(active: boolean): void {
-    this.mobileSelectionMode = active;
-    this.input.setTouchCameraSuppressed(active);
-    if (!active) this.selectionBox.style.display = 'none';
-  }
-
-  isMobileSelectionMode(): boolean {
-    return this.mobileSelectionMode;
-  }
-
-  toggleMobileAttackMove(): boolean {
-    this.attackMoveQueued = !this.attackMoveQueued;
-    return this.attackMoveQueued;
-  }
-
-  mobileAttackMoveQueued(): boolean {
-    return this.attackMoveQueued;
   }
 
   stopSelected(): void {
@@ -157,7 +142,6 @@ export class RtsController {
       this.attackMoveQueued = false;
       this.activeTouchPointers.clear();
       this.touchGestureCancelled = false;
-      this.setMobileSelectionMode(false);
     }
   }
 
@@ -167,7 +151,11 @@ export class RtsController {
       this.activeTouchPointers.add(e.pointerId);
       if (this.activeTouchPointers.size > 1) {
         this.pointerDown = undefined;
+        this.rightOrderStart = undefined;
+        this.rightCameraLookCandidate = false;
+        this.rightCameraLookActive = false;
         this.selectionBox.style.display = 'none';
+        this.orderFeedback?.clearFacingPreview?.();
         this.touchGestureCancelled = true;
         return;
       }
@@ -196,16 +184,20 @@ export class RtsController {
       e.preventDefault();
       return;
     }
-    this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
+    const selected = selectedEntities(this.sim, this.localTeam);
+    const touched = e.pointerType === 'touch' ? this.entityAt(e.clientX, e.clientY) : undefined;
+    const touchCommand = e.pointerType === 'touch' && shouldUseTouchCommand(selected.length, touched?.team?.id, this.localTeam);
+    const interactionButton = touchCommand ? 2 : e.button;
+    this.pointerDown = { x: e.clientX, y: e.clientY, button: interactionButton, time: performance.now() };
     this.rightOrderStart = undefined;
     this.rightCameraLookCandidate = false;
     this.rightCameraLookActive = false;
-    if (e.button === 2) {
+    if (interactionButton === 2) {
       const hasSelectedMovers = selectedEntities(this.sim, this.localTeam).some((entity) => entity.mover);
-      if (hasSelectedMovers) this.rightOrderStart = this.terrainPoint(e.clientX, e.clientY);
+      if (hasSelectedMovers || touchCommand) this.rightOrderStart = this.terrainPoint(e.clientX, e.clientY);
       else this.rightCameraLookCandidate = true;
     }
-    if (e.button === 0 || e.button === 2) {
+    if (interactionButton === 0 || interactionButton === 2) {
       e.preventDefault();
       this.dom.setPointerCapture?.(e.pointerId);
     }
@@ -223,7 +215,6 @@ export class RtsController {
       if (e.pointerType !== 'touch') this.updateTargetHover(e);
       return;
     }
-    if (e.pointerType === 'touch' && !this.mobileSelectionMode) return;
     this.orderFeedback?.clearTargetHover?.();
     if (this.pointerDown.button === 2 && this.rightCameraLookCandidate) {
       const dx = e.clientX - this.pointerDown.x;
@@ -294,7 +285,6 @@ export class RtsController {
     const dy = e.clientY - down.y;
     const pointerDistance = Math.hypot(dx, dy);
     const dragged = pointerDistance > (down.button === 2 ? RIGHT_ORDER_DRAG_THRESHOLD : LEFT_DRAG_THRESHOLD);
-    const touch = e.pointerType === 'touch';
     if (down.button === 2 && this.rightCameraLookActive) {
       this.rightCameraLookCandidate = false;
       this.rightCameraLookActive = false;
@@ -308,13 +298,7 @@ export class RtsController {
       if (down.button === 2) this.placement.cancel();
       return;
     }
-    let effectiveButton = down.button;
-    if (touch && down.button === 0 && !dragged && !this.mobileSelectionMode && !this.placement?.isPlacing()) {
-      const hit = this.entityAt(e.clientX, e.clientY);
-      if (hit?.team?.id === this.localTeam) this.selectClick(e);
-      else if (selectedEntities(this.sim, this.localTeam).length > 0) effectiveButton = 2;
-      else this.selectClick(e);
-    } else if (down.button === 0 && !e.metaKey && (!touch || this.mobileSelectionMode)) {
+    if (down.button === 0 && !e.metaKey) {
       if (dragged) {
         const minX = Math.min(down.x, e.clientX);
         const minY = Math.min(down.y, e.clientY);
@@ -327,7 +311,7 @@ export class RtsController {
       }
     }
 
-    if (effectiveButton === 2) {
+    if (down.button === 2) {
       const attackTarget = !dragged && this.selectedAttackers().length > 0 ? this.enemyTargetAt(e.clientX, e.clientY) : undefined;
       const selectedMovers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover);
       const destinationPoint = attackTarget

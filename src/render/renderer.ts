@@ -4,6 +4,7 @@
 import {
   ACESFilmicToneMapping,
   Color,
+  DirectionalLight,
   Fog,
   HalfFloatType,
   HemisphereLight,
@@ -61,19 +62,24 @@ export function visualPixelRatioForTier(
   return Math.min(maxPixelRatio, multiplayer ? 0.68 : 0.7);
 }
 
+export function mobileSafePixelRatio(maxPixelRatio: number): number {
+  return Math.min(maxPixelRatio, 0.85);
+}
+
 export class RenderContext {
   readonly renderer: WebGLRenderer;
   readonly scene: Scene;
   readonly camera: PerspectiveCamera;
   readonly hemisphere: HemisphereLight;
-  readonly csm: CSM;
+  readonly csm?: CSM;
   /** direction light travels (from sun toward ground), normalized */
   readonly sunDirection = new Vector3(-0.5, -0.85, -0.32).normalize();
 
-  private readonly composer: EffectComposer;
-  private readonly n8ao: N8AOPostPass;
+  private readonly composer?: EffectComposer;
+  private readonly n8ao?: N8AOPostPass;
   private readonly maxPixelRatio: number;
   private readonly multiplayerMode: boolean;
+  private readonly mobileSafeMode: boolean;
   private pixelRatio: number;
   private qualitySampleSeconds = 0;
   private qualityFrameCount = 0;
@@ -86,8 +92,9 @@ export class RenderContext {
   private directRender = false;
   private fastMotionMode = false;
 
-  constructor(container: HTMLElement, options: { multiplayer?: boolean; initialQualityTier?: VisualQualityTier } = {}) {
+  constructor(container: HTMLElement, options: { multiplayer?: boolean; initialQualityTier?: VisualQualityTier; mobileSafeMode?: boolean } = {}) {
     this.multiplayerMode = options.multiplayer === true;
+    this.mobileSafeMode = options.mobileSafeMode === true;
     const browserNavigator = typeof navigator === 'undefined'
       ? undefined
       : navigator as Navigator & { deviceMemory?: number };
@@ -96,15 +103,20 @@ export class RenderContext {
       browserNavigator?.hardwareConcurrency,
       browserNavigator?.deviceMemory,
     );
-    this.renderer = new WebGLRenderer({ antialias: false, stencil: false, powerPreference: 'high-performance' });
+    this.renderer = new WebGLRenderer({
+      antialias: false,
+      stencil: false,
+      powerPreference: this.mobileSafeMode ? 'default' : 'high-performance',
+      precision: this.mobileSafeMode ? 'mediump' : 'highp',
+    });
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = !this.mobileSafeMode;
     this.renderer.shadowMap.type = PCFSoftShadowMap;
     // Multiplayer commonly runs beside voice chat and sometimes a second test
     // browser. Start slightly leaner there, then let adaptive quality recover.
-    this.maxPixelRatio = Math.min(window.devicePixelRatio, this.multiplayerMode ? 0.9 : 1.25);
+    this.maxPixelRatio = Math.min(window.devicePixelRatio, this.mobileSafeMode ? 0.9 : this.multiplayerMode ? 0.9 : 1.25);
     this.pixelRatio = this.targetPixelRatio(this.adaptiveQualityTier);
     this.qualityCooldownSeconds = options.multiplayer ? 1.25 : 3;
     this.renderer.setPixelRatio(this.pixelRatio);
@@ -122,41 +134,49 @@ export class RenderContext {
     this.hemisphere = new HemisphereLight(0xcfe0f2, 0x8a795d, 0.75);
     this.scene.add(this.hemisphere);
 
-    this.csm = new CSM({
-      camera: this.camera,
-      parent: this.scene,
-      cascades: 2,
-      maxFar: 620,
-      mode: 'practical',
-      shadowMapSize: 1024,
-      shadowBias: -0.0002,
-      lightDirection: this.sunDirection.clone(),
-      lightIntensity: 2.4,
-    });
-    this.csm.fade = true;
+    if (this.mobileSafeMode) {
+      const sun = new DirectionalLight(0xfff3d2, 2.15);
+      sun.position.copy(this.sunDirection).multiplyScalar(-420);
+      sun.target.position.set(0, 0, 0);
+      this.scene.add(sun, sun.target);
+      this.directRender = true;
+    } else {
+      this.csm = new CSM({
+        camera: this.camera,
+        parent: this.scene,
+        cascades: 2,
+        maxFar: 620,
+        mode: 'practical',
+        shadowMapSize: 1024,
+        shadowBias: -0.0002,
+        lightDirection: this.sunDirection.clone(),
+        lightIntensity: 2.4,
+      });
+      this.csm.fade = true;
 
-    this.composer = new EffectComposer(this.renderer, { frameBufferType: HalfFloatType });
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.composer = new EffectComposer(this.renderer, { frameBufferType: HalfFloatType });
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
 
-    this.n8ao = new N8AOPostPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
-    this.n8ao.configuration.aoRadius = 2.2;
-    this.n8ao.configuration.intensity = 2.4;
-    this.n8ao.configuration.distanceFalloff = 4;
-    this.n8ao.setQualityMode('Low');
-    if (this.multiplayerMode) this.n8ao.enabled = false;
-    this.composer.addPass(this.n8ao);
+      this.n8ao = new N8AOPostPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+      this.n8ao.configuration.aoRadius = 2.2;
+      this.n8ao.configuration.intensity = 2.4;
+      this.n8ao.configuration.distanceFalloff = 4;
+      this.n8ao.setQualityMode('Low');
+      if (this.multiplayerMode) this.n8ao.enabled = false;
+      this.composer.addPass(this.n8ao);
 
-    const lut = LookupTexture.createNeutral(32);
-    gradeLut(lut);
-    this.composer.addPass(
-      new EffectPass(
-        this.camera,
-        new SMAAEffect({ preset: SMAAPreset.MEDIUM }),
-        new BloomEffect({ mipmapBlur: true, intensity: 0.4, luminanceThreshold: 0.8, luminanceSmoothing: 0.25 }),
-        new LUT3DEffect(lut),
-        new VignetteEffect({ offset: 0.26, darkness: 0.55 }),
-      ),
-    );
+      const lut = LookupTexture.createNeutral(32);
+      gradeLut(lut);
+      this.composer.addPass(
+        new EffectPass(
+          this.camera,
+          new SMAAEffect({ preset: SMAAPreset.MEDIUM }),
+          new BloomEffect({ mipmapBlur: true, intensity: 0.4, luminanceThreshold: 0.8, luminanceSmoothing: 0.25 }),
+          new LUT3DEffect(lut),
+          new VignetteEffect({ offset: 0.26, darkness: 0.55 }),
+        ),
+      );
+    }
     this.applyQualityTier();
 
     window.addEventListener('resize', () => this.onResize());
@@ -164,7 +184,7 @@ export class RenderContext {
 
   /** Patch a lit material for cascaded shadow maps. All lit scene materials must go through this. */
   setupLitMaterial<T extends Material>(material: T): T {
-    this.csm.setupMaterial(material);
+    this.csm?.setupMaterial(material);
     return material;
   }
 
@@ -201,8 +221,8 @@ export class RenderContext {
   render(dt: number): void {
     this.updateAdaptiveQuality(dt);
     this.renderer.info.reset();
-    if (this.renderer.shadowMap.enabled) this.csm.update();
-    if (this.directRender) this.renderer.render(this.scene, this.camera);
+    if (this.renderer.shadowMap.enabled) this.csm?.update();
+    if (this.directRender || !this.composer) this.renderer.render(this.scene, this.camera);
     else this.composer.render(dt);
   }
 
@@ -211,13 +231,14 @@ export class RenderContext {
     const h = window.innerHeight;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.csm.updateFrustums();
+    this.csm?.updateFrustums();
     this.renderer.setSize(w, h);
-    this.composer.setSize(w, h);
+    this.composer?.setSize(w, h);
   }
 
   /** Keep the full visual stack while it fits, then shed GPU and animation cost under sustained pressure. */
   private updateAdaptiveQuality(dt: number): void {
+    if (this.mobileSafeMode) return;
     if (!Number.isFinite(dt) || dt <= 0) return;
     // Slow machines regularly exceed 100ms. Ignoring those frames prevents the
     // quality system from ever responding on the computers that need it most.
@@ -260,22 +281,23 @@ export class RenderContext {
     const tier = this.visualQuality;
     if (this.appliedQualityTier === tier) return;
     this.appliedQualityTier = tier;
-    this.directRender = tier >= 2;
-    const shadows = tier < 2;
+    this.directRender = this.mobileSafeMode || tier >= 2;
+    const shadows = !this.mobileSafeMode && tier < 2;
     this.renderer.shadowMap.enabled = shadows;
     if (shadows) this.renderer.shadowMap.needsUpdate = true;
-    this.n8ao.enabled = !this.multiplayerMode && tier === 0;
+    if (this.n8ao) this.n8ao.enabled = !this.multiplayerMode && tier === 0;
     this.setPixelRatio(this.targetPixelRatio(tier));
   }
 
   private targetPixelRatio(tier: VisualQualityTier): number {
+    if (this.mobileSafeMode) return mobileSafePixelRatio(this.maxPixelRatio);
     return visualPixelRatioForTier(tier, this.maxPixelRatio, this.multiplayerMode);
   }
 
   private setPixelRatio(value: number): void {
     this.pixelRatio = value;
     this.renderer.setPixelRatio(value);
-    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.composer?.setSize(window.innerWidth, window.innerHeight);
   }
 }
 

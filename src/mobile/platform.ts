@@ -16,6 +16,27 @@ export function isMobileTouchDevice(): boolean {
   });
 }
 
+export function isStandaloneMobileExperience(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const iosNavigator = navigator as Navigator & { standalone?: boolean };
+  return iosNavigator.standalone === true || window.matchMedia?.('(display-mode: fullscreen), (display-mode: standalone)').matches === true;
+}
+
+export async function requestFullscreenExperience(): Promise<void> {
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    }
+  } catch {
+    // iPhone Safari normally requires Add to Home Screen for true fullscreen.
+  }
+  try {
+    await (screen.orientation as ScreenOrientationWithLock | undefined)?.lock?.('landscape');
+  } catch {
+    // The portrait gate remains the cross-browser fallback.
+  }
+}
+
 type ScreenOrientationWithLock = ScreenOrientation & {
   lock?: (orientation: 'landscape') => Promise<void>;
 };
@@ -41,7 +62,7 @@ export class MobileLandscapeGate {
     window.addEventListener('orientationchange', () => this.refresh());
     document.addEventListener('pointerdown', (event) => {
       const target = event.target instanceof Element ? event.target : undefined;
-      if (target?.closest('.iron-landing__cta,.war-start,.war-lobby__cta')) void this.requestLandscape();
+      if (target?.closest('.iron-landing__cta,.war-start,.war-lobby__cta,.war-button--primary,.mobile-mode-toggle')) void this.requestLandscape();
     }, { capture: true, passive: true });
   }
 
@@ -58,19 +79,7 @@ export class MobileLandscapeGate {
 
   async requestLandscape(): Promise<void> {
     if (!this.enabled) return;
-    try {
-      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-      }
-    } catch {
-      // Fullscreen is a progressive enhancement. The portrait gate remains the
-      // reliable cross-browser enforcement mechanism.
-    }
-    try {
-      await (screen.orientation as ScreenOrientationWithLock | undefined)?.lock?.('landscape');
-    } catch {
-      // Safari and some embedded browsers do not expose orientation locking.
-    }
+    await requestFullscreenExperience();
     this.refresh();
   }
 

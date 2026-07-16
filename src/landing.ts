@@ -1,4 +1,5 @@
 import './landing.css';
+import { isMobileTouchDevice, isStandaloneMobileExperience } from './mobile/platform';
 
 const FORM_NAME = 'iron-dominion-beta';
 const BETA_SIGNUP_ENDPOINT = 'https://formspree.io/f/xjgnkega';
@@ -27,6 +28,9 @@ function rememberBetaAccess(): void {
 export function showLandingScreen(): Promise<void> {
   return new Promise((resolve) => {
     const returningPlayer = hasBetaAccess();
+    const fullscreenHint = isMobileTouchDevice() && !isStandaloneMobileExperience()
+      ? '<p class="iron-landing__fullscreen-hint">For true fullscreen on iPhone: tap Share → Add to Home Screen, then launch the game from its icon.</p>'
+      : '';
     const root = document.createElement('main');
     root.id = 'iron-landing';
     root.className = 'iron-landing';
@@ -70,6 +74,7 @@ export function showLandingScreen(): Promise<void> {
           <button class="iron-landing__cta" type="submit">Play game</button>
         </form>
         `}
+        ${fullscreenHint}
       </section>
     `;
 

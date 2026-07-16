@@ -1574,9 +1574,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     : requestedQuality === 'balanced'
       ? 1 as const
       : mobileTouch
-        ? 1 as const
+        ? 2 as const
         : undefined;
-  const ctx = new RenderContext(app, { multiplayer: multiplayerMode, initialQualityTier });
+  const ctx = new RenderContext(app, { multiplayer: multiplayerMode, initialQualityTier, mobileSafeMode: mobileTouch });
   applyMapAtmosphere(ctx, selectedMap);
   const input = new Input(mobileTouch);
   input.attach(ctx.renderer.domElement);
@@ -1993,7 +1993,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     isVisibleToPlayer,
   );
   if (mobileTouch) {
-    mobileControls = new MobileGameControls(input, controller, sidebar, {
+    mobileControls = new MobileGameControls(input, sidebar, {
       enterFirstPerson: () => firstPerson.enter(selectedEntities(sim, localTeam)),
       exitFirstPerson: () => firstPerson.exit(),
       cyclePossessed: () => firstPerson.cyclePossessed(1),
@@ -2394,12 +2394,12 @@ function showHelpDialog(options: { onClose: () => void }): void {
   const mobileTouch = isMobileTouchDevice();
   const sections = mobileTouch ? [
     ['Start', 'Build Power Plant -> Refinery -> Barracks/Factory. Oil collectors bring credits back to refineries.'],
-    ['Command', 'Tap a friendly unit to select it. Tap the battlefield to move or attack. Use SELECT to drag a selection box.'],
+    ['Command', 'Tap a friendly unit, or drag a lasso around several units. Tap ground to move and tap an enemy to attack.'],
     ['Camera', 'Drag the battlefield to pan. Pinch to zoom. Twist two fingers to rotate the camera.'],
     ['Build', 'Tap BUILD to open construction and production. Tap CLOSE to return to the full battlefield.'],
-    ['Fight', 'Tap ATTACK before a destination for attack-move. STOP immediately cancels the selected force order.'],
-    ['First person', 'Tap CONTROL. Use the left stick to move, drag the right side to aim, then use FIRE, ALT and SPECIAL.'],
-    ['Aircraft', 'The left stick controls thrust and yaw. Hold BOOST and use UP/DOWN for altitude.'],
+    ['Formation', 'With units selected, hold and drag on the battlefield to place them in a spread line facing your drag direction.'],
+    ['First person', 'Tap the crosshair toggle. Use the left arrows to move, drag the right side to aim, then use FIRE, MISSILE and SPECIAL.'],
+    ['Aircraft', 'The left arrows control thrust and yaw. Hold BOOST and use UP/DOWN for altitude.'],
     ['Return', 'Tap RTS to leave first-person mode. MENU pauses the match and keeps save/restart/setup actions available.'],
   ] : [
     ['Start', 'Build Power Plant -> Refinery -> Barracks/Factory. Oil collectors bring credits back to refineries.'],

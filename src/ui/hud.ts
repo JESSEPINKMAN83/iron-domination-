@@ -92,7 +92,7 @@ export class Hud {
     const mobileTouch = typeof document !== 'undefined' && document.documentElement.classList.contains('mobile-touch-device');
     this.modeBanner.innerHTML =
       '<div style="font-size:13px;color:#f0d56a;letter-spacing:.08em;">FIRST-PERSON VIEW</div>' +
-      `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${mobileTouch ? 'Use the left stick to move and drag the right side to aim' : 'Press V or Escape to return to command view'}</div>`;
+      `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${mobileTouch ? 'Use the left arrows to move and drag the right side to aim' : 'Press V or Escape to return to command view'}</div>`;
     container.appendChild(this.modeBanner);
 
     this.multiplayer = document.createElement('div');

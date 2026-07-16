@@ -132,6 +132,7 @@
 }
 .iron-landing__consent input { width: 15px; height: 15px; margin: 1px 0 0; flex: none; accent-color: #d4ae50; }
 .iron-landing__error { margin: 10px 0 0; color: #ffb09f; font-size: 12px; }
+.iron-landing__fullscreen-hint { margin:10px auto 0; color:rgba(245,241,230,.68); font-size:10px; line-height:1.35; }
 
 .iron-landing__cta {
   min-width: 250px;

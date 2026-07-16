@@ -106,7 +106,7 @@ export class TerrainView {
   private readonly oreGlowGroup = new Group();
   private readonly oreGlows: OreGlow[] = [];
 
-  constructor(hf: Heightfield, csm: CSM, maxAnisotropy: number) {
+  constructor(hf: Heightfield, csm: CSM | undefined, maxAnisotropy: number) {
     const material = createSplatMaterial(hf, csm, maxAnisotropy);
     const overlayMaterial = createWalkOverlayMaterial(hf);
 
@@ -325,7 +325,7 @@ function hashAngle(x: number, z: number): number {
   return (n - Math.floor(n)) * Math.PI * 2;
 }
 
-function createSplatMaterial(hf: Heightfield, csm: CSM, maxAnisotropy: number): MeshStandardMaterial {
+function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotropy: number): MeshStandardMaterial {
   const style = terrainTextureStyle(hf);
   const grass = createGrassTexture(style);
   const dirt = createDirtTexture(style);
@@ -343,7 +343,7 @@ function createSplatMaterial(hf: Heightfield, csm: CSM, maxAnisotropy: number): 
   material.defines = { USE_UV: '' };
 
   // CSM patches shadows via onBeforeCompile; wrap it so our splat patch composes.
-  csm.setupMaterial(material);
+  csm?.setupMaterial(material);
   const csmCompile = material.onBeforeCompile;
   const tiling = hf.size / 9; // one detail tile every 9 m
 

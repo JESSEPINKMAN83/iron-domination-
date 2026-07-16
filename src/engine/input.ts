@@ -28,7 +28,6 @@ export class Input {
   private wheelAcc = 0;
   private dxAcc = 0;
   private dyAcc = 0;
-  private touchCameraSuppressed = false;
   private readonly touchPointers = new Map<number, { x: number; y: number }>();
   private touchCamera: TouchCameraGesture = { panX: 0, panY: 0, pinch: 0, twist: 0 };
   private mobileDrive: MobileDriveState = { throttle: 0, turn: 0, climb: 0, boost: false };
@@ -165,11 +164,6 @@ export class Input {
     this.wheelAcc += delta;
   }
 
-  setTouchCameraSuppressed(suppressed: boolean): void {
-    this.touchCameraSuppressed = suppressed;
-    if (suppressed) this.clearTouchCameraGesture();
-  }
-
   consumeTouchCameraGesture(): TouchCameraGesture {
     const gesture = this.touchCamera;
     this.touchCamera = { panX: 0, panY: 0, pinch: 0, twist: 0 };
@@ -213,11 +207,10 @@ export class Input {
     const before = touchMetrics(this.touchPointers);
     const previous = this.touchPointers.get(e.pointerId);
     this.touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (this.touchCameraSuppressed || !previous) return;
+    if (!previous) return;
     const after = touchMetrics(this.touchPointers);
     if (this.touchPointers.size === 1) {
-      this.touchCamera.panX += e.clientX - previous.x;
-      this.touchCamera.panY += e.clientY - previous.y;
+      // One finger belongs to selection/orders. Two fingers control the RTS camera.
       return;
     }
     if (!before || !after) return;
