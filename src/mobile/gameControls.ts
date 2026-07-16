@@ -80,7 +80,10 @@ export class MobileGameControls {
     bindRepeatAction(secondary, () => this.actions.fireSecondary());
     bindRepeatAction(special, () => this.actions.useSpecial());
     this.nextUnitButton.onclick = () => this.actions.cyclePossessed();
-    this.resetSpeedHold = bindHold(speed, (held) => this.input.setMobileDrive({ boost: held }));
+    this.resetSpeedHold = bindHold(speed, (held) => {
+      this.input.setMobileDrive({ boost: held });
+      joystick.setSpeedHeld(held);
+    });
     weaponCluster.append(fire, secondary, special, speed, this.nextUnitButton);
 
     this.climbControls = div('mobile-climb-controls');
@@ -148,18 +151,47 @@ function button(label: string, description: string): HTMLButtonElement {
   return element;
 }
 
-export function joystickDriveAxes(dx: number, dy: number, deadZone = 0.12): { throttle: number; turn: number } {
+interface JoystickDriveOptions {
+  deadZone?: number;
+  fullStrength?: boolean;
+  minimumStrength?: number;
+}
+
+const JOYSTICK_DEAD_ZONE = 0.1;
+const JOYSTICK_MINIMUM_STRENGTH = 0.32;
+const JOYSTICK_CENTER_CROSSING_GRACE_MS = 180;
+
+export function joystickDriveAxes(dx: number, dy: number, options: JoystickDriveOptions = {}): { throttle: number; turn: number } {
+  const deadZone = Math.max(0, Math.min(0.9, options.deadZone ?? JOYSTICK_DEAD_ZONE));
+  const minimumStrength = Math.max(0, Math.min(1, options.minimumStrength ?? JOYSTICK_MINIMUM_STRENGTH));
   const magnitude = Math.hypot(dx, dy);
   if (!Number.isFinite(magnitude) || magnitude <= deadZone) return { throttle: 0, turn: 0 };
   const clampedMagnitude = Math.min(1, magnitude);
-  const strength = (clampedMagnitude - deadZone) / Math.max(0.001, 1 - deadZone);
+  const analogStrength = (clampedMagnitude - deadZone) / Math.max(0.001, 1 - deadZone);
+  const strength = options.fullStrength ? 1 : minimumStrength + analogStrength * (1 - minimumStrength);
   return {
     throttle: -(dy / magnitude) * strength,
     turn: -(dx / magnitude) * strength,
   };
 }
 
-function createJoystick(onChange: (throttle: number, turn: number) => void): { root: HTMLDivElement; reset: () => void } {
+export function retainedJoystickDrive(
+  lastDrive: { throttle: number; turn: number },
+  lastDirection: { throttle: number; turn: number },
+  speedHeld: boolean,
+  centerCrossingExpired: boolean,
+): { throttle: number; turn: number } {
+  if (Math.hypot(lastDirection.throttle, lastDirection.turn) === 0) return { throttle: 0, turn: 0 };
+  if (speedHeld) return { ...lastDirection };
+  if (centerCrossingExpired) return { throttle: 0, turn: 0 };
+  return { ...lastDrive };
+}
+
+function createJoystick(onChange: (throttle: number, turn: number) => void): {
+  root: HTMLDivElement;
+  reset: () => void;
+  setSpeedHeld: (held: boolean) => void;
+} {
   const root = div('mobile-joystick');
   const track = div('mobile-joystick__track');
   const knob = div('mobile-joystick__knob');
@@ -171,9 +203,68 @@ function createJoystick(onChange: (throttle: number, turn: number) => void): { r
   root.appendChild(track);
 
   let pointerId: number | undefined;
+  let currentDx = 0;
+  let currentDy = 0;
+  let speedHeld = false;
+  let centerCrossingTimer: number | undefined;
+  let centerCrossingExpired = false;
+  let lastDirection = { throttle: 0, turn: 0 };
+  let lastDrive = { throttle: 0, turn: 0 };
+
+  const clearCenterCrossingTimer = () => {
+    if (centerCrossingTimer !== undefined) window.clearTimeout(centerCrossingTimer);
+    centerCrossingTimer = undefined;
+  };
+  const emitDrive = () => {
+    if (pointerId === undefined) {
+      clearCenterCrossingTimer();
+      onChange(0, 0);
+      return;
+    }
+    const drive = joystickDriveAxes(currentDx, currentDy, { fullStrength: speedHeld });
+    const driveMagnitude = Math.hypot(drive.throttle, drive.turn);
+    if (driveMagnitude > 0) {
+      clearCenterCrossingTimer();
+      centerCrossingExpired = false;
+      lastDirection = { throttle: drive.throttle / driveMagnitude, turn: drive.turn / driveMagnitude };
+      lastDrive = drive;
+      onChange(drive.throttle, drive.turn);
+      return;
+    }
+    const retainedDrive = retainedJoystickDrive(lastDrive, lastDirection, speedHeld, centerCrossingExpired);
+    if (Math.hypot(retainedDrive.throttle, retainedDrive.turn) === 0) {
+      onChange(0, 0);
+      return;
+    }
+    if (speedHeld) {
+      clearCenterCrossingTimer();
+      lastDrive = retainedDrive;
+      onChange(retainedDrive.throttle, retainedDrive.turn);
+      return;
+    }
+    // A quick left-to-right thumb sweep necessarily crosses the physical
+    // center. Preserve the previous command briefly so that crossing does not
+    // feel like braking; resting at center still settles to a stop.
+    onChange(retainedDrive.throttle, retainedDrive.turn);
+    if (centerCrossingTimer === undefined) {
+      centerCrossingTimer = window.setTimeout(() => {
+        centerCrossingTimer = undefined;
+        const stillCentered = Math.hypot(currentDx, currentDy) <= JOYSTICK_DEAD_ZONE;
+        if (pointerId !== undefined && !speedHeld && stillCentered) {
+          centerCrossingExpired = true;
+          onChange(0, 0);
+        }
+      }, JOYSTICK_CENTER_CROSSING_GRACE_MS);
+    }
+  };
   const reset = () => {
-    if (pointerId === undefined && !root.classList.contains('is-active')) return;
+    clearCenterCrossingTimer();
     pointerId = undefined;
+    currentDx = 0;
+    currentDy = 0;
+    centerCrossingExpired = false;
+    lastDirection = { throttle: 0, turn: 0 };
+    lastDrive = { throttle: 0, turn: 0 };
     root.classList.remove('is-active');
     knob.style.transform = '';
     onChange(0, 0);
@@ -184,15 +275,14 @@ function createJoystick(onChange: (throttle: number, turn: number) => void): { r
     event.stopPropagation();
     const rect = root.getBoundingClientRect();
     const radius = Math.min(rect.width, rect.height) * 0.36;
-    const dx = (event.clientX - (rect.left + rect.width / 2)) / Math.max(1, radius);
-    const dy = (event.clientY - (rect.top + rect.height / 2)) / Math.max(1, radius);
-    const magnitude = Math.hypot(dx, dy);
+    currentDx = (event.clientX - (rect.left + rect.width / 2)) / Math.max(1, radius);
+    currentDy = (event.clientY - (rect.top + rect.height / 2)) / Math.max(1, radius);
+    const magnitude = Math.hypot(currentDx, currentDy);
     const scale = magnitude > 1 ? 1 / magnitude : 1;
-    const visualX = dx * scale;
-    const visualY = dy * scale;
+    const visualX = currentDx * scale;
+    const visualY = currentDy * scale;
     knob.style.transform = `translate(calc(-50% + ${visualX * radius}px),calc(-50% + ${visualY * radius}px))`;
-    const drive = joystickDriveAxes(dx, dy);
-    onChange(drive.throttle, drive.turn);
+    emitDrive();
   };
   root.addEventListener('pointerdown', (event) => {
     if (pointerId !== undefined) return;
@@ -210,7 +300,14 @@ function createJoystick(onChange: (throttle: number, turn: number) => void): { r
   root.addEventListener('lostpointercapture', release);
   window.addEventListener('pointerup', release, { capture: true });
   window.addEventListener('pointercancel', release, { capture: true });
-  return { root, reset };
+  return {
+    root,
+    reset,
+    setSpeedHeld: (held: boolean) => {
+      speedHeld = held;
+      emitDrive();
+    },
+  };
 }
 
 function bindLookPad(pad: HTMLElement, onMove: (dx: number, dy: number) => void): void {
