@@ -106,8 +106,12 @@ export class RtsController {
 
     dom.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     window.addEventListener('pointermove', (e) => this.onPointerMove(e));
-    window.addEventListener('pointerup', (e) => this.onPointerUp(e));
-    window.addEventListener('pointercancel', (e) => this.onPointerUp(e));
+    window.addEventListener('pointerup', (e) => this.onPointerUp(e), { capture: true });
+    window.addEventListener('pointercancel', (e) => this.onPointerUp(e), { capture: true });
+    window.addEventListener('blur', () => this.resetTouchGesture());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.resetTouchGesture();
+    });
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
   }
 
@@ -132,6 +136,12 @@ export class RtsController {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) {
+      this.resetTouchGesture();
+      this.attackMoveQueued = false;
+    }
+  }
+
+  private resetTouchGesture(): void {
       this.pointerDown = undefined;
       this.rightOrderStart = undefined;
       this.rightCameraLookCandidate = false;
@@ -139,15 +149,16 @@ export class RtsController {
       this.selectionBox.style.display = 'none';
       this.orderFeedback?.clearFacingPreview?.();
       this.orderFeedback?.clearTargetHover?.();
-      this.attackMoveQueued = false;
       this.activeTouchPointers.clear();
       this.touchGestureCancelled = false;
-    }
   }
 
   private onPointerDown(e: PointerEvent): void {
     if (!this.enabled) return;
     if (e.pointerType === 'touch') {
+      // The first contact identifies a new Safari touch sequence. Clear any
+      // orphaned pointer left behind when the browser swallowed the prior up.
+      if (e.isPrimary) this.resetTouchGesture();
       this.activeTouchPointers.add(e.pointerId);
       if (this.activeTouchPointers.size > 1) {
         this.pointerDown = undefined;
@@ -264,9 +275,12 @@ export class RtsController {
   }
 
   private onPointerUp(e: PointerEvent): void {
-    if (!this.enabled) return;
     if (e.pointerType === 'touch') {
       this.activeTouchPointers.delete(e.pointerId);
+      if (!this.enabled) {
+        if (this.activeTouchPointers.size === 0) this.touchGestureCancelled = false;
+        return;
+      }
       if (this.touchGestureCancelled) {
         if (this.activeTouchPointers.size === 0) this.touchGestureCancelled = false;
         this.pointerDown = undefined;
@@ -274,6 +288,7 @@ export class RtsController {
         return;
       }
     }
+    if (!this.enabled) return;
     if (!this.pointerDown) return;
     const down = this.pointerDown;
     this.pointerDown = undefined;

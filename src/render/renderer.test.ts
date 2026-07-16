@@ -26,8 +26,10 @@ describe('adaptive render quality', () => {
     expect(visualPixelRatioForTier(2, 0.6, true)).toBe(0.6);
   });
 
-  it('keeps the direct mobile renderer readable without exceeding its safe scale', () => {
-    expect(mobileSafePixelRatio(3)).toBe(0.85);
-    expect(mobileSafePixelRatio(0.7)).toBe(0.7);
+  it('starts strong phones at desktop sharpness and degrades only under measured pressure', () => {
+    expect(mobileSafePixelRatio(0, 3)).toBe(1.25);
+    expect(mobileSafePixelRatio(1, 3)).toBe(1);
+    expect(mobileSafePixelRatio(2, 3)).toBe(0.85);
+    expect(mobileSafePixelRatio(0, 0.7)).toBe(0.7);
   });
 });

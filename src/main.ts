@@ -1574,7 +1574,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     : requestedQuality === 'balanced'
       ? 1 as const
       : mobileTouch
-        ? 2 as const
+        ? 0 as const
         : undefined;
   const ctx = new RenderContext(app, { multiplayer: multiplayerMode, initialQualityTier, mobileSafeMode: mobileTouch });
   applyMapAtmosphere(ctx, selectedMap);

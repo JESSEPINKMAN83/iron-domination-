@@ -62,7 +62,12 @@ export function visualPixelRatioForTier(
   return Math.min(maxPixelRatio, multiplayer ? 0.68 : 0.7);
 }
 
-export function mobileSafePixelRatio(maxPixelRatio: number): number {
+export function mobileSafePixelRatio(tier: VisualQualityTier, maxPixelRatio: number): number {
+  // Modern phones can render the direct (post-processing-free) mobile path at
+  // the same sharp scale as desktop. Only reduce resolution after measured,
+  // sustained frame pressure instead of assuming every phone is low-end.
+  if (tier === 0) return Math.min(maxPixelRatio, 1.25);
+  if (tier === 1) return Math.min(maxPixelRatio, 1);
   return Math.min(maxPixelRatio, 0.85);
 }
 
@@ -116,7 +121,7 @@ export class RenderContext {
     this.renderer.shadowMap.type = PCFSoftShadowMap;
     // Multiplayer commonly runs beside voice chat and sometimes a second test
     // browser. Start slightly leaner there, then let adaptive quality recover.
-    this.maxPixelRatio = Math.min(window.devicePixelRatio, this.mobileSafeMode ? 0.9 : this.multiplayerMode ? 0.9 : 1.25);
+    this.maxPixelRatio = Math.min(window.devicePixelRatio, this.mobileSafeMode ? 1.25 : this.multiplayerMode ? 0.9 : 1.25);
     this.pixelRatio = this.targetPixelRatio(this.adaptiveQualityTier);
     this.qualityCooldownSeconds = options.multiplayer ? 1.25 : 3;
     this.renderer.setPixelRatio(this.pixelRatio);
@@ -238,7 +243,6 @@ export class RenderContext {
 
   /** Keep the full visual stack while it fits, then shed GPU and animation cost under sustained pressure. */
   private updateAdaptiveQuality(dt: number): void {
-    if (this.mobileSafeMode) return;
     if (!Number.isFinite(dt) || dt <= 0) return;
     // Slow machines regularly exceed 100ms. Ignoring those frames prevents the
     // quality system from ever responding on the computers that need it most.
@@ -290,7 +294,7 @@ export class RenderContext {
   }
 
   private targetPixelRatio(tier: VisualQualityTier): number {
-    if (this.mobileSafeMode) return mobileSafePixelRatio(this.maxPixelRatio);
+    if (this.mobileSafeMode) return mobileSafePixelRatio(tier, this.maxPixelRatio);
     return visualPixelRatioForTier(tier, this.maxPixelRatio, this.multiplayerMode);
   }
 

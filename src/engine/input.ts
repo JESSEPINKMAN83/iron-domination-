@@ -81,6 +81,12 @@ export class Input {
       this.mouseX = e.clientX;
       this.mouseY = e.clientY;
       if (e instanceof PointerEvent && e.pointerType === 'touch') {
+        // A fresh primary contact begins a new gesture. This also recovers from
+        // Safari occasionally omitting pointerup after browser/UI interruption.
+        if (e.isPrimary) {
+          this.touchPointers.clear();
+          this.clearTouchCameraGesture();
+        }
         this.touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       }
     };
@@ -97,8 +103,8 @@ export class Input {
     if (supportsPointerEvents) {
       window.addEventListener('pointermove', move);
       target.addEventListener('pointerdown', down);
-      window.addEventListener('pointerup', up);
-      window.addEventListener('pointercancel', up);
+      window.addEventListener('pointerup', up, { capture: true });
+      window.addEventListener('pointercancel', up, { capture: true });
     } else {
       window.addEventListener('mousemove', move);
       target.addEventListener('mousedown', down);
