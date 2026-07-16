@@ -27,6 +27,7 @@ export class MobileGameControls {
   private readonly possessedLabel: HTMLDivElement;
   private readonly nextUnitButton: HTMLButtonElement;
   private readonly resetSpeedHold: () => void;
+  private readonly resetJoystick: () => void;
   private lastState = '';
   private firstPerson = false;
 
@@ -57,7 +58,8 @@ export class MobileGameControls {
     this.rts.append(this.buildButton);
 
     this.fps = div('mobile-game-controls__fps');
-    const dpad = createDpad((throttle, turn) => this.input.setMobileDrive({ throttle, turn }));
+    const joystick = createJoystick((throttle, turn) => this.input.setMobileDrive({ throttle, turn }));
+    this.resetJoystick = joystick.reset;
 
     const lookPad = div('mobile-look-pad');
     lookPad.setAttribute('aria-label', 'Drag to aim');
@@ -89,7 +91,7 @@ export class MobileGameControls {
     this.climbControls.append(climb, descend);
 
     this.possessedLabel = div('mobile-possessed-label');
-    this.fps.append(lookPad, dpad, weaponCluster, this.climbControls, this.possessedLabel);
+    this.fps.append(lookPad, joystick.root, weaponCluster, this.climbControls, this.possessedLabel);
     this.root.append(this.rts, this.fps, this.modeButton);
     document.body.appendChild(this.root);
     this.update({ firstPerson: false, flying: false, selectedCount: 0 });
@@ -114,6 +116,7 @@ export class MobileGameControls {
     this.climbControls.hidden = !state.flying;
     this.possessedLabel.textContent = state.possessedName?.toUpperCase() ?? '';
     if (!state.firstPerson) {
+      this.resetJoystick();
       this.resetSpeedHold();
       this.input.resetMobileDrive();
     }
@@ -145,24 +148,69 @@ function button(label: string, description: string): HTMLButtonElement {
   return element;
 }
 
-function createDpad(onChange: (throttle: number, turn: number) => void): HTMLDivElement {
-  const root = div('mobile-dpad');
-  const held = { up: false, down: false, left: false, right: false };
-  const sync = () => onChange((held.up ? 1 : 0) - (held.down ? 1 : 0), (held.left ? 1 : 0) - (held.right ? 1 : 0));
-  const add = (direction: keyof typeof held, label: string) => {
-    const control = button(label, `${direction} movement`);
-    control.classList.add(`mobile-dpad__${direction}`);
-    bindHold(control, (pressed) => {
-      held[direction] = pressed;
-      sync();
-    });
-    root.appendChild(control);
+export function joystickDriveAxes(dx: number, dy: number, deadZone = 0.12): { throttle: number; turn: number } {
+  const magnitude = Math.hypot(dx, dy);
+  if (!Number.isFinite(magnitude) || magnitude <= deadZone) return { throttle: 0, turn: 0 };
+  const clampedMagnitude = Math.min(1, magnitude);
+  const strength = (clampedMagnitude - deadZone) / Math.max(0.001, 1 - deadZone);
+  return {
+    throttle: -(dy / magnitude) * strength,
+    turn: -(dx / magnitude) * strength,
   };
-  add('up', '▲');
-  add('left', '◀');
-  add('right', '▶');
-  add('down', '▼');
-  return root;
+}
+
+function createJoystick(onChange: (throttle: number, turn: number) => void): { root: HTMLDivElement; reset: () => void } {
+  const root = div('mobile-joystick');
+  const track = div('mobile-joystick__track');
+  const knob = div('mobile-joystick__knob');
+  const center = div('mobile-joystick__center');
+  root.setAttribute('role', 'application');
+  root.setAttribute('aria-label', 'Movement joystick');
+  root.title = 'Drag to move and steer';
+  track.append(center, knob);
+  root.appendChild(track);
+
+  let pointerId: number | undefined;
+  const reset = () => {
+    if (pointerId === undefined && !root.classList.contains('is-active')) return;
+    pointerId = undefined;
+    root.classList.remove('is-active');
+    knob.style.transform = '';
+    onChange(0, 0);
+  };
+  const update = (event: PointerEvent) => {
+    if (event.pointerId !== pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = root.getBoundingClientRect();
+    const radius = Math.min(rect.width, rect.height) * 0.36;
+    const dx = (event.clientX - (rect.left + rect.width / 2)) / Math.max(1, radius);
+    const dy = (event.clientY - (rect.top + rect.height / 2)) / Math.max(1, radius);
+    const magnitude = Math.hypot(dx, dy);
+    const scale = magnitude > 1 ? 1 / magnitude : 1;
+    const visualX = dx * scale;
+    const visualY = dy * scale;
+    knob.style.transform = `translate(calc(-50% + ${visualX * radius}px),calc(-50% + ${visualY * radius}px))`;
+    const drive = joystickDriveAxes(dx, dy);
+    onChange(drive.throttle, drive.turn);
+  };
+  root.addEventListener('pointerdown', (event) => {
+    if (pointerId !== undefined) return;
+    pointerId = event.pointerId;
+    root.classList.add('is-active');
+    root.setPointerCapture?.(event.pointerId);
+    update(event);
+  });
+  root.addEventListener('pointermove', update);
+  const release = (event: PointerEvent) => {
+    if (event.pointerId === pointerId) reset();
+  };
+  root.addEventListener('pointerup', release);
+  root.addEventListener('pointercancel', release);
+  root.addEventListener('lostpointercapture', release);
+  window.addEventListener('pointerup', release, { capture: true });
+  window.addEventListener('pointercancel', release, { capture: true });
+  return { root, reset };
 }
 
 function bindLookPad(pad: HTMLElement, onMove: (dx: number, dy: number) => void): void {

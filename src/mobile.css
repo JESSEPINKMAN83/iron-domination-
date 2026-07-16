@@ -108,23 +108,81 @@
     pointer-events:auto;
     touch-action:none;
   }
-  .mobile-dpad {
+  .mobile-joystick {
     position:fixed;
     left:max(10px,env(safe-area-inset-left));
     bottom:max(8px,env(safe-area-inset-bottom));
     width:132px;
     height:132px;
-    display:grid;
-    grid-template:repeat(3,1fr)/repeat(3,1fr);
-    gap:3px;
     pointer-events:auto;
     touch-action:none;
+    border-radius:50%;
+    opacity:.72;
+    transition:opacity 120ms ease,transform 120ms ease;
   }
-  .mobile-dpad button { min-width:42px !important; min-height:42px !important; padding:0 !important; font-size:16px; }
-  .mobile-dpad__up { grid-area:1/2; }
-  .mobile-dpad__left { grid-area:2/1; }
-  .mobile-dpad__right { grid-area:2/3; }
-  .mobile-dpad__down { grid-area:3/2; }
+  .mobile-joystick.is-active { opacity:.94; transform:scale(1.025); }
+  .mobile-joystick__track {
+    position:absolute;
+    inset:5px;
+    border:1px solid rgba(225,233,222,.42);
+    border-top-color:rgba(255,246,205,.68);
+    border-radius:50%;
+    background:
+      radial-gradient(circle at center,rgba(240,213,106,.08) 0 14%,transparent 15%),
+      radial-gradient(circle at 42% 35%,rgba(124,148,140,.18),rgba(9,15,15,.46) 62%,rgba(4,8,8,.64));
+    box-shadow:inset 0 0 0 8px rgba(9,15,15,.12),inset 0 0 28px rgba(0,0,0,.42),0 8px 24px rgba(0,0,0,.22);
+    -webkit-backdrop-filter:blur(5px);
+    backdrop-filter:blur(5px);
+  }
+  .mobile-joystick__track::before,
+  .mobile-joystick__track::after {
+    content:'';
+    position:absolute;
+    left:50%;
+    top:11px;
+    bottom:11px;
+    width:1px;
+    transform:translateX(-50%);
+    background:linear-gradient(transparent,rgba(207,221,211,.22),transparent);
+  }
+  .mobile-joystick__track::after {
+    left:11px;
+    right:11px;
+    top:50%;
+    bottom:auto;
+    width:auto;
+    height:1px;
+    transform:translateY(-50%);
+  }
+  .mobile-joystick__center {
+    position:absolute;
+    left:50%;
+    top:50%;
+    width:7px;
+    height:7px;
+    transform:translate(-50%,-50%);
+    border:1px solid rgba(240,213,106,.42);
+    border-radius:50%;
+    background:rgba(240,213,106,.14);
+  }
+  .mobile-joystick__knob {
+    position:absolute;
+    left:50%;
+    top:50%;
+    width:52px;
+    height:52px;
+    transform:translate(-50%,-50%);
+    border:1px solid rgba(255,246,205,.72);
+    border-radius:50%;
+    background:radial-gradient(circle at 38% 32%,rgba(240,226,165,.72),rgba(115,102,55,.78) 38%,rgba(21,28,27,.94) 72%);
+    box-shadow:inset 0 0 0 4px rgba(9,14,14,.35),inset 0 -8px 16px rgba(0,0,0,.3),0 5px 14px rgba(0,0,0,.48),0 0 16px rgba(240,213,106,.1);
+    pointer-events:none;
+    will-change:transform;
+  }
+  .mobile-joystick.is-active .mobile-joystick__knob {
+    border-color:#f0d56a;
+    box-shadow:inset 0 0 0 4px rgba(9,14,14,.28),0 5px 16px rgba(0,0,0,.52),0 0 18px rgba(240,213,106,.28);
+  }
   .mobile-weapon-cluster {
     position:fixed;
     right:max(12px,env(safe-area-inset-right));
@@ -282,8 +340,8 @@
 }
 
 @media (orientation: landscape) and (max-height: 430px) {
-  .mobile-dpad { width:112px; height:112px; }
-  .mobile-dpad button { min-width:35px !important; min-height:35px !important; }
+  .mobile-joystick { width:116px; height:116px; }
+  .mobile-joystick__knob { width:46px; height:46px; }
   .mobile-game-controls button { min-height:42px; }
   .mobile-touch-device .game-selection-bar { max-height:calc(100dvh - 184px); }
   .mobile-touch-device .war-aside > p,
