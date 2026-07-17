@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="description" content="Play the Iron Dominion beta — a hybrid strategy war game where you command armies from above or fight alongside them in first-person mode." />
     <meta name="theme-color" content="#0a0d10" />
@@ -18,7 +18,10 @@
       html,
       body {
         margin: 0;
+        width: 100%;
+        min-width: 100%;
         height: 100%;
+        min-height: 100%;
         overflow: hidden;
         overscroll-behavior: none;
         background: #0a0d10;
@@ -37,6 +40,13 @@
       #app > canvas {
         width: 100% !important;
         height: 100% !important;
+      }
+      html.mobile-touch-device.mobile-app-viewport #app {
+        inset: auto;
+        left: var(--mobile-app-left, 0px);
+        top: var(--mobile-app-top, 0px);
+        width: var(--mobile-app-width, 100dvw);
+        height: var(--mobile-app-height, 100dvh);
       }
     </style>
   </head>

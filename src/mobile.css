@@ -22,8 +22,20 @@
 @keyframes mobile-device-turn { 0%,20% { transform:rotate(-90deg) } 65%,100% { transform:rotate(0) } }
 
 @media (orientation: landscape) {
+  .mobile-touch-device.mobile-app-viewport .iron-landing,
+  .mobile-touch-device.mobile-app-viewport .war-setup,
+  .mobile-touch-device.mobile-app-viewport .mobile-landscape-gate,
+  .mobile-touch-device.mobile-app-viewport .game-menu-overlay,
+  .mobile-touch-device.mobile-app-viewport .game-help-overlay,
+  .mobile-touch-device.mobile-app-viewport .iron-feedback__overlay {
+    inset: auto !important;
+    left: var(--mobile-app-left, 0px) !important;
+    top: var(--mobile-app-top, 0px) !important;
+    width: var(--mobile-app-width, 100dvw) !important;
+    height: var(--mobile-app-height, 100dvh) !important;
+  }
   .mobile-touch-device .war-setup { padding: 0; }
-  .mobile-touch-device .war-setup__shell { width: 100%; min-height: 100dvh; height: 100dvh; border: 0; grid-template-rows: auto auto minmax(0,1fr); }
+  .mobile-touch-device .war-setup__shell { width: 100%; min-height: 100%; height: 100%; border: 0; grid-template-rows: auto auto minmax(0,1fr); }
   .mobile-touch-device .war-setup__header { padding: 8px max(12px,env(safe-area-inset-right)) 7px max(12px,env(safe-area-inset-left)); }
   .mobile-touch-device .war-setup__title { margin-top: 2px; font-size: 30px; }
   .mobile-touch-device .war-setup__intro, .mobile-touch-device .war-setup__badge { display: none; }
@@ -387,7 +399,7 @@
   }
   .mobile-touch-device .iron-landing__hero {
     width:min(760px,calc(100vw - 120px));
-    max-height:100dvh;
+    max-height:100%;
     padding:8px 12px 10px;
   }
   .mobile-touch-device .iron-landing__eyebrow { margin:0 0 6px; font-size:10px; }
