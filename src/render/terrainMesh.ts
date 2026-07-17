@@ -150,10 +150,6 @@ export class TerrainView {
       glow.outer.visible = visible;
       glow.core.visible = pct > 0.08;
       glow.rim.visible = visible;
-      const scale = 0.72 + pct * 0.28;
-      glow.outer.scale.setScalar(scale);
-      glow.core.scale.setScalar(0.58 + pct * 0.42);
-      glow.rim.scale.setScalar(0.82 + pct * 0.18);
       glow.outerMaterial.opacity = 0.06 + pct * 0.28;
       glow.coreMaterial.opacity = pct * 0.48;
       glow.rimMaterial.opacity = 0.04 + pct * 0.18;
@@ -174,27 +170,20 @@ export class TerrainView {
       const outerMaterial = oreGlowMaterial(0xf0d56a, 0.28);
       const coreMaterial = oreGlowMaterial(0xfff0a0, 0.42);
       const rimMaterial = oreGlowMaterial(0x7df27d, 0.18);
-      const y = sampleHeight(hf, field.x, field.z) + 0.42;
-      const outer = new Mesh(new CircleGeometry(field.radius * 1.1, 48), outerMaterial);
-      outer.rotation.x = -Math.PI / 2;
-      outer.position.set(field.x, y, field.z);
+      const outer = new Mesh(createTerrainDiscGeometry(hf, field.x, field.z, field.radius * 1.1, 64, 0.16), outerMaterial);
       outer.renderOrder = 22;
       this.oreGlowGroup.add(outer);
 
-      const core = new Mesh(new CircleGeometry(field.radius * 0.52, 40), coreMaterial);
-      core.rotation.x = -Math.PI / 2;
-      core.position.set(field.x, y + 0.04, field.z);
+      const core = new Mesh(createTerrainDiscGeometry(hf, field.x, field.z, field.radius * 0.52, 56, 0.2), coreMaterial);
       core.renderOrder = 23;
       this.oreGlowGroup.add(core);
 
-      const rim = new Mesh(new CircleGeometry(field.radius * 1.28, 56), rimMaterial);
-      rim.rotation.x = -Math.PI / 2;
-      rim.position.set(field.x, y + 0.08, field.z);
+      const rim = new Mesh(createTerrainDiscGeometry(hf, field.x, field.z, field.radius * 1.28, 72, 0.24), rimMaterial);
       rim.renderOrder = 24;
       this.oreGlowGroup.add(rim);
 
       const rig = createOilFieldRig(field.radius);
-      rig.position.set(field.x, y + 0.12, field.z);
+      rig.position.set(field.x, sampleHeight(hf, field.x, field.z) + 0.54, field.z);
       rig.rotation.y = hashAngle(field.x, field.z);
       this.oreGlowGroup.add(rig);
       this.oreGlows.push({
@@ -213,12 +202,79 @@ export class TerrainView {
   }
 }
 
+export function createTerrainDiscGeometry(
+  hf: Heightfield,
+  centerX: number,
+  centerZ: number,
+  radius: number,
+  radialSegments = 64,
+  lift = 0.16,
+): BufferGeometry {
+  const segments = Math.max(12, Math.floor(radialSegments));
+  const rings = Math.max(4, Math.ceil(radius / Math.max(2, hf.cellSize * 1.5)));
+  const vertexCount = 1 + rings * segments;
+  const positions = new Float32Array(vertexCount * 3);
+  positions[0] = centerX;
+  positions[1] = sampleHeight(hf, centerX, centerZ) + lift;
+  positions[2] = centerZ;
+
+  for (let ring = 1; ring <= rings; ring++) {
+    const ringRadius = radius * (ring / rings);
+    for (let segment = 0; segment < segments; segment++) {
+      const angle = (segment / segments) * Math.PI * 2;
+      const x = centerX + Math.cos(angle) * ringRadius;
+      const z = centerZ + Math.sin(angle) * ringRadius;
+      const vertex = 1 + (ring - 1) * segments + segment;
+      positions[vertex * 3] = x;
+      positions[vertex * 3 + 1] = sampleHeight(hf, x, z) + lift;
+      positions[vertex * 3 + 2] = z;
+    }
+  }
+
+  const triangleCount = segments + (rings - 1) * segments * 2;
+  const indices = new Uint32Array(triangleCount * 3);
+  let offset = 0;
+  for (let segment = 0; segment < segments; segment++) {
+    const current = 1 + segment;
+    const next = 1 + ((segment + 1) % segments);
+    indices[offset++] = 0;
+    indices[offset++] = next;
+    indices[offset++] = current;
+  }
+  for (let ring = 2; ring <= rings; ring++) {
+    const innerStart = 1 + (ring - 2) * segments;
+    const outerStart = 1 + (ring - 1) * segments;
+    for (let segment = 0; segment < segments; segment++) {
+      const nextSegment = (segment + 1) % segments;
+      const inner = innerStart + segment;
+      const innerNext = innerStart + nextSegment;
+      const outer = outerStart + segment;
+      const outerNext = outerStart + nextSegment;
+      indices[offset++] = inner;
+      indices[offset++] = innerNext;
+      indices[offset++] = outer;
+      indices[offset++] = innerNext;
+      indices[offset++] = outerNext;
+      indices[offset++] = outer;
+    }
+  }
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
+  geometry.setIndex(new BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 function oreGlowMaterial(color: number, opacity: number): MeshBasicMaterial {
   return new MeshBasicMaterial({
     color,
     transparent: true,
     opacity,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
     side: DoubleSide,
     blending: AdditiveBlending,
     toneMapped: false,
