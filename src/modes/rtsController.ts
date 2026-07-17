@@ -53,12 +53,30 @@ interface PointerState {
   time: number;
 }
 
+interface TouchPointerStart {
+  x: number;
+  y: number;
+  time: number;
+}
+
+interface TwoFingerTapCandidate {
+  pointerIds: Set<number>;
+  startedAt: number;
+  maxMovement: number;
+}
+
 const LEFT_DRAG_THRESHOLD = 6;
 const RIGHT_ORDER_DRAG_THRESHOLD = 18;
 const CAMERA_LOOK_DRAG_THRESHOLD = 4;
+const TWO_FINGER_TAP_MOVE_THRESHOLD = 12;
+const TWO_FINGER_TAP_MAX_DURATION_MS = 300;
 
 export function shouldUseTouchCommand(selectedCount: number, touchedTeam: number | undefined, localTeam: number): boolean {
   return selectedCount > 0 && touchedTeam !== localTeam;
+}
+
+export function shouldDeselectWithTwoFingerTap(selectedCount: number, maxMovement: number, durationMs: number): boolean {
+  return selectedCount > 0 && maxMovement <= TWO_FINGER_TAP_MOVE_THRESHOLD && durationMs <= TWO_FINGER_TAP_MAX_DURATION_MS;
 }
 
 export class RtsController {
@@ -76,6 +94,8 @@ export class RtsController {
   private attackMoveQueued = false;
   private enabled = true;
   private readonly activeTouchPointers = new Set<number>();
+  private readonly touchPointerStarts = new Map<number, TouchPointerStart>();
+  private twoFingerTapCandidate?: TwoFingerTapCandidate;
   private touchGestureCancelled = false;
 
   constructor(
@@ -142,15 +162,17 @@ export class RtsController {
   }
 
   private resetTouchGesture(): void {
-      this.pointerDown = undefined;
-      this.rightOrderStart = undefined;
-      this.rightCameraLookCandidate = false;
-      this.rightCameraLookActive = false;
-      this.selectionBox.style.display = 'none';
-      this.orderFeedback?.clearFacingPreview?.();
-      this.orderFeedback?.clearTargetHover?.();
-      this.activeTouchPointers.clear();
-      this.touchGestureCancelled = false;
+    this.pointerDown = undefined;
+    this.rightOrderStart = undefined;
+    this.rightCameraLookCandidate = false;
+    this.rightCameraLookActive = false;
+    this.selectionBox.style.display = 'none';
+    this.orderFeedback?.clearFacingPreview?.();
+    this.orderFeedback?.clearTargetHover?.();
+    this.activeTouchPointers.clear();
+    this.touchPointerStarts.clear();
+    this.twoFingerTapCandidate = undefined;
+    this.touchGestureCancelled = false;
   }
 
   private onPointerDown(e: PointerEvent): void {
@@ -160,6 +182,14 @@ export class RtsController {
       // orphaned pointer left behind when the browser swallowed the prior up.
       if (e.isPrimary) this.resetTouchGesture();
       this.activeTouchPointers.add(e.pointerId);
+      this.touchPointerStarts.set(e.pointerId, { x: e.clientX, y: e.clientY, time: performance.now() });
+      if (this.activeTouchPointers.size === 2) {
+        const pointerIds = new Set(this.activeTouchPointers);
+        const startedAt = Math.min(...Array.from(pointerIds, (pointerId) => this.touchPointerStarts.get(pointerId)?.time ?? performance.now()));
+        this.twoFingerTapCandidate = { pointerIds, startedAt, maxMovement: 0 };
+      } else if (this.activeTouchPointers.size > 2) {
+        this.twoFingerTapCandidate = undefined;
+      }
       if (this.activeTouchPointers.size > 1) {
         this.pointerDown = undefined;
         this.rightOrderStart = undefined;
@@ -216,6 +246,7 @@ export class RtsController {
 
   private onPointerMove(e: PointerEvent): void {
     if (!this.enabled) return;
+    if (e.pointerType === 'touch') this.trackTwoFingerTapMovement(e);
     if (this.placement?.isPlacing()) {
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (p) this.placement.preview(p.x, p.z);
@@ -276,15 +307,36 @@ export class RtsController {
 
   private onPointerUp(e: PointerEvent): void {
     if (e.pointerType === 'touch') {
+      this.trackTwoFingerTapMovement(e);
+      if (e.type === 'pointercancel') this.twoFingerTapCandidate = undefined;
       this.activeTouchPointers.delete(e.pointerId);
+      this.touchPointerStarts.delete(e.pointerId);
       if (!this.enabled) {
-        if (this.activeTouchPointers.size === 0) this.touchGestureCancelled = false;
+        if (this.activeTouchPointers.size === 0) this.resetTouchGesture();
         return;
       }
       if (this.touchGestureCancelled) {
-        if (this.activeTouchPointers.size === 0) this.touchGestureCancelled = false;
+        const shouldDeselect = this.activeTouchPointers.size === 0
+          && this.twoFingerTapCandidate !== undefined
+          && !this.placement?.isPlacing()
+          && !this.tacticalPing?.isActive()
+          && shouldDeselectWithTwoFingerTap(
+            selectedEntities(this.sim, this.localTeam).length,
+            this.twoFingerTapCandidate.maxMovement,
+            performance.now() - this.twoFingerTapCandidate.startedAt,
+          );
+        if (this.activeTouchPointers.size === 0) {
+          this.touchGestureCancelled = false;
+          this.touchPointerStarts.clear();
+          this.twoFingerTapCandidate = undefined;
+        }
         this.pointerDown = undefined;
         this.selectionBox.style.display = 'none';
+        if (shouldDeselect) {
+          setSelected(this.sim, [], false, this.localTeam);
+          this.flashControlGroup('SELECTION CLEARED');
+          e.preventDefault();
+        }
         return;
       }
     }
@@ -452,6 +504,13 @@ export class RtsController {
         e.stopPropagation();
       }
     }
+  }
+
+  private trackTwoFingerTapMovement(e: PointerEvent): void {
+    const candidate = this.twoFingerTapCandidate;
+    const start = this.touchPointerStarts.get(e.pointerId);
+    if (!candidate?.pointerIds.has(e.pointerId) || !start) return;
+    candidate.maxMovement = Math.max(candidate.maxMovement, Math.hypot(e.clientX - start.x, e.clientY - start.y));
   }
 
   private flashControlGroup(message: string): void {
