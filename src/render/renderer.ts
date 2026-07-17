@@ -71,6 +71,20 @@ export function mobileSafePixelRatio(tier: VisualQualityTier, maxPixelRatio: num
   return Math.min(maxPixelRatio, 0.85);
 }
 
+export function resolvedRenderViewportSize(
+  containerWidth: number,
+  containerHeight: number,
+  fallbackWidth: number,
+  fallbackHeight: number,
+): { width: number; height: number } {
+  const width = containerWidth > 0 ? containerWidth : fallbackWidth;
+  const height = containerHeight > 0 ? containerHeight : fallbackHeight;
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+  };
+}
+
 export class RenderContext {
   readonly renderer: WebGLRenderer;
   readonly scene: Scene;
@@ -96,8 +110,14 @@ export class RenderContext {
   private recoveryWindows = 0;
   private directRender = false;
   private fastMotionMode = false;
+  private viewportWidth = 1;
+  private viewportHeight = 1;
+  private viewportCheckFrame = 0;
+  private readonly container: HTMLElement;
+  private readonly resizeObserver?: ResizeObserver;
 
   constructor(container: HTMLElement, options: { multiplayer?: boolean; initialQualityTier?: VisualQualityTier; mobileSafeMode?: boolean } = {}) {
+    this.container = container;
     this.multiplayerMode = options.multiplayer === true;
     this.mobileSafeMode = options.mobileSafeMode === true;
     const browserNavigator = typeof navigator === 'undefined'
@@ -125,7 +145,10 @@ export class RenderContext {
     this.pixelRatio = this.targetPixelRatio(this.adaptiveQualityTier);
     this.qualityCooldownSeconds = options.multiplayer ? 1.25 : 3;
     this.renderer.setPixelRatio(this.pixelRatio);
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    const initialViewport = this.readViewportSize();
+    this.viewportWidth = initialViewport.width;
+    this.viewportHeight = initialViewport.height;
+    this.renderer.setSize(this.viewportWidth, this.viewportHeight, false);
     this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
 
@@ -134,7 +157,7 @@ export class RenderContext {
     this.scene.background = skyColor;
     this.scene.fog = new Fog(skyColor, 650, 1900);
 
-    this.camera = new PerspectiveCamera(50, window.innerWidth / window.innerHeight, 2, 3000);
+    this.camera = new PerspectiveCamera(50, this.viewportWidth / this.viewportHeight, 2, 3000);
 
     this.hemisphere = new HemisphereLight(0xcfe0f2, 0x8a795d, 0.75);
     this.scene.add(this.hemisphere);
@@ -162,7 +185,7 @@ export class RenderContext {
       this.composer = new EffectComposer(this.renderer, { frameBufferType: HalfFloatType });
       this.composer.addPass(new RenderPass(this.scene, this.camera));
 
-      this.n8ao = new N8AOPostPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+      this.n8ao = new N8AOPostPass(this.scene, this.camera, this.viewportWidth, this.viewportHeight);
       this.n8ao.configuration.aoRadius = 2.2;
       this.n8ao.configuration.intensity = 2.4;
       this.n8ao.configuration.distanceFalloff = 4;
@@ -184,7 +207,20 @@ export class RenderContext {
     }
     this.applyQualityTier();
 
-    window.addEventListener('resize', () => this.onResize());
+    const scheduleResize = () => requestAnimationFrame(() => this.onResize());
+    window.addEventListener('resize', scheduleResize);
+    window.addEventListener('orientationchange', scheduleResize);
+    window.visualViewport?.addEventListener('resize', scheduleResize);
+    window.visualViewport?.addEventListener('scroll', scheduleResize);
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(scheduleResize);
+      this.resizeObserver.observe(container);
+    }
+    // iPhone Safari can settle its landscape toolbar after the multiplayer
+    // loading/connection transition without dispatching a window resize.
+    window.setTimeout(scheduleResize, 120);
+    window.setTimeout(scheduleResize, 500);
+    window.setTimeout(scheduleResize, 1200);
   }
 
   /** Patch a lit material for cascaded shadow maps. All lit scene materials must go through this. */
@@ -224,6 +260,8 @@ export class RenderContext {
   }
 
   render(dt: number): void {
+    this.viewportCheckFrame = (this.viewportCheckFrame + 1) % 30;
+    if (this.viewportCheckFrame === 0) this.onResize();
     this.updateAdaptiveQuality(dt);
     this.renderer.info.reset();
     if (this.renderer.shadowMap.enabled) this.csm?.update();
@@ -232,13 +270,25 @@ export class RenderContext {
   }
 
   private onResize(): void {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const { width: w, height: h } = this.readViewportSize();
+    if (w === this.viewportWidth && h === this.viewportHeight) return;
+    this.viewportWidth = w;
+    this.viewportHeight = h;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.csm?.updateFrustums();
-    this.renderer.setSize(w, h);
+    this.renderer.setSize(w, h, false);
     this.composer?.setSize(w, h);
+  }
+
+  private readViewportSize(): { width: number; height: number } {
+    const rect = this.container.getBoundingClientRect();
+    return resolvedRenderViewportSize(
+      this.container.clientWidth || rect.width,
+      this.container.clientHeight || rect.height,
+      window.visualViewport?.width ?? window.innerWidth,
+      window.visualViewport?.height ?? window.innerHeight,
+    );
   }
 
   /** Keep the full visual stack while it fits, then shed GPU and animation cost under sustained pressure. */
@@ -301,7 +351,8 @@ export class RenderContext {
   private setPixelRatio(value: number): void {
     this.pixelRatio = value;
     this.renderer.setPixelRatio(value);
-    this.composer?.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(this.viewportWidth, this.viewportHeight, false);
+    this.composer?.setSize(this.viewportWidth, this.viewportHeight);
   }
 }
 

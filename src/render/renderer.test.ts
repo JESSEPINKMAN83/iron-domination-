@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { degradedVisualQualityTier, mobileSafePixelRatio, suggestedInitialVisualQuality, visualPixelRatioForTier } from './renderer';
+import { degradedVisualQualityTier, mobileSafePixelRatio, resolvedRenderViewportSize, suggestedInitialVisualQuality, visualPixelRatioForTier } from './renderer';
 
 describe('adaptive render quality', () => {
   it('starts multiplayer conservatively on limited hardware', () => {
@@ -31,5 +31,11 @@ describe('adaptive render quality', () => {
     expect(mobileSafePixelRatio(1, 3)).toBe(1);
     expect(mobileSafePixelRatio(2, 3)).toBe(0.85);
     expect(mobileSafePixelRatio(0, 0.7)).toBe(0.7);
+  });
+
+  it('uses the live game container dimensions and falls back safely while it is hidden', () => {
+    expect(resolvedRenderViewportSize(844.4, 390.4, 600, 300)).toEqual({ width: 844, height: 390 });
+    expect(resolvedRenderViewportSize(0, 0, 932.2, 430.2)).toEqual({ width: 932, height: 430 });
+    expect(resolvedRenderViewportSize(0, 0, 0, 0)).toEqual({ width: 1, height: 1 });
   });
 });
