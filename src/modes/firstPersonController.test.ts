@@ -11,18 +11,18 @@ function pose(x: number, y: number, z: number, fov: number): CameraPose {
 }
 
 describe('first-person camera transitions', () => {
-  it('returns to the exact strategy camera captured before entering control mode', () => {
-    const saved = pose(120, 210, -85, 50);
+  it('uses the prepared nearby strategy pose centered on the unit exit location', () => {
+    const prepared = pose(120, 82, -85, 50);
     const fallback = vi.fn(() => pose(10, 40, 15, 50));
 
-    const result = resolveExitCameraPose(saved, fallback);
+    const result = resolveExitCameraPose(prepared, fallback);
 
     expect(fallback).not.toHaveBeenCalled();
-    expect(result.position.toArray()).toEqual(saved.position.toArray());
-    expect(result.quaternion.toArray()).toEqual(saved.quaternion.toArray());
+    expect(result.position.toArray()).toEqual(prepared.position.toArray());
+    expect(result.quaternion.toArray()).toEqual(prepared.quaternion.toArray());
     expect(result.fov).toBe(50);
-    expect(result.position).not.toBe(saved.position);
-    expect(result.quaternion).not.toBe(saved.quaternion);
+    expect(result.position).not.toBe(prepared.position);
+    expect(result.quaternion).not.toBe(prepared.quaternion);
   });
 
   it('keeps the nearby RTS pose as a safe fallback when no strategy pose exists', () => {

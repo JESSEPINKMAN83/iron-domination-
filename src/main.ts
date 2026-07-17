@@ -1971,6 +1971,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.setVisible(false);
         hud.setFirstPerson(true);
       },
+      prepareExitPose: (entity) => rig.focusOn(entity.transform.x, entity.transform.z, ctx.camera.position),
       onExit: () => {
         controller.setEnabled(true);
         unitView.setHiddenEntity(undefined);

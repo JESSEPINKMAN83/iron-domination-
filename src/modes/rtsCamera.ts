@@ -1,7 +1,7 @@
 // Classic RTS camera: keyboard/edge pan, Space + mouse grab pan,
 // wheel zoom (28–280), Q/E 90° rotation, saved Command-left-drag or empty
 // right-drag free look, smooth exponential damping. The look-target follows terrain height.
-import { MathUtils, PerspectiveCamera, Vector3 } from 'three';
+import { MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 
@@ -18,6 +18,13 @@ const YAW_STORAGE_KEY = 'iron-dominion.rtsCamera.yaw';
 const EDGE_ZONE_MIN = 80;
 const EDGE_ZONE_MAX = 144;
 const EDGE_ZONE_VIEWPORT_RATIO = 0.13;
+export const CONTROL_RETURN_DISTANCE = 82;
+
+export interface RtsCameraPose {
+  position: Vector3;
+  quaternion: Quaternion;
+  fov: number;
+}
 
 export interface EdgePanInput {
   x: number;
@@ -79,6 +86,7 @@ export class RtsCameraRig {
   private readonly fwd = new Vector3();
   private readonly right = new Vector3();
   private readonly camOffset = new Vector3();
+  private readonly poseCamera = new PerspectiveCamera();
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -136,6 +144,25 @@ export class RtsCameraRig {
     const y = Math.max(sampleHeight(this.hf, clampedX, clampedZ), this.hf.waterLevel);
     this.goal.set(clampedX, y, clampedZ);
     this.target.copy(this.goal);
+  }
+
+  focusOn(
+    x: number,
+    z: number,
+    viewPosition?: { x: number; z: number },
+    distance = CONTROL_RETURN_DISTANCE,
+  ): RtsCameraPose {
+    this.jumpTo(x, z);
+    if (viewPosition) {
+      const dx = viewPosition.x - this.target.x;
+      const dz = viewPosition.z - this.target.z;
+      if (dx * dx + dz * dz > 0.001) this.yaw = Math.atan2(dx, dz);
+    }
+    this.dist = MathUtils.clamp(distance, ZOOM_MIN, ZOOM_MAX);
+    this.distGoal = this.dist;
+    this.yawGoal = this.yaw;
+    this.pitchOffsetGoal = this.pitchOffset;
+    return this.currentPose(50);
   }
 
   jumpToOpeningView(baseX: number, baseZ: number, team: number): void {
@@ -245,13 +272,20 @@ export class RtsCameraRig {
     this.dist = damp(this.dist, this.distGoal, 7, dt);
     this.pitchOffset = damp(this.pitchOffset, this.pitchOffsetGoal, 9, dt);
 
+    const pose = this.currentPose(50);
+    this.camera.position.copy(pose.position);
+    this.camera.quaternion.copy(pose.quaternion);
+    this.camera.updateMatrixWorld();
+  }
+
+  private currentPose(fov: number): RtsCameraPose {
     const pitch = this.currentPitch();
     this.camOffset.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)).multiplyScalar(Math.cos(pitch) * this.dist);
     this.camOffset.y = Math.sin(pitch) * this.dist;
-
-    this.camera.position.copy(this.target).add(this.camOffset);
-    this.camera.lookAt(this.target);
-    this.camera.updateMatrixWorld();
+    const position = this.target.clone().add(this.camOffset);
+    this.poseCamera.position.copy(position);
+    this.poseCamera.lookAt(this.target);
+    return { position, quaternion: this.poseCamera.quaternion.clone(), fov };
   }
 
   private currentPitch(): number {

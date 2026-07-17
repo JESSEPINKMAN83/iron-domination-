@@ -30,8 +30,8 @@ export interface CameraPose {
   fov: number;
 }
 
-export function resolveExitCameraPose(saved: CameraPose | undefined, fallback: () => CameraPose): CameraPose {
-  const pose = saved ?? fallback();
+export function resolveExitCameraPose(prepared: CameraPose | undefined, fallback: () => CameraPose): CameraPose {
+  const pose = prepared ?? fallback();
   return {
     position: pose.position.clone(),
     quaternion: pose.quaternion.clone(),
@@ -65,7 +65,6 @@ export class FirstPersonController {
   private transitionT = 0;
   private fromPose?: CameraPose;
   private toPose?: CameraPose;
-  private rtsReturnPose?: CameraPose;
   private readonly poseCamera = new PerspectiveCamera();
   private readonly tmpForward = new Vector3();
   private readonly tmpHorizontal = new Vector3();
@@ -117,7 +116,11 @@ export class FirstPersonController {
     private readonly input: Input,
     private readonly hf: Heightfield,
     private readonly sim: GameSim,
-    private readonly callbacks: { onEnter?: () => void; onExit?: (entity?: Entity) => void } = {},
+    private readonly callbacks: {
+      onEnter?: () => void;
+      prepareExitPose?: (entity: Entity) => CameraPose;
+      onExit?: (entity?: Entity) => void;
+    } = {},
     private readonly localTeam = 1,
     private readonly commandSink?: FirstPersonCommandSink,
     private readonly isVisible: (x: number, z: number) => boolean = () => true,
@@ -242,7 +245,6 @@ export class FirstPersonController {
     this.takeControl(entity);
     this.transitionT = 0;
     this.fromPose = this.captureCameraPose();
-    this.rtsReturnPose = resolveExitCameraPose(this.fromPose, () => this.fromPose!);
     this.hasSmoothFlightCenter = false;
     this.orbitYaw = 0;
     this.orbitPitch = 0;
@@ -397,7 +399,8 @@ export class FirstPersonController {
   private beginExit(): void {
     if (!this.possessed || this.mode === 'exiting') return;
     this.fromPose = this.captureCameraPose();
-    this.toPose = resolveExitCameraPose(this.rtsReturnPose, () => this.rtsPoseNear(this.possessed!));
+    const preparedPose = this.callbacks.prepareExitPose?.(this.possessed);
+    this.toPose = resolveExitCameraPose(preparedPose, () => this.rtsPoseNear(this.possessed!));
     this.transitionT = 0;
     this.mode = 'exiting';
     this.dom.style.cursor = this.savedCursor;
@@ -434,7 +437,6 @@ export class FirstPersonController {
     this.camera.updateProjectionMatrix();
     this.dom.style.cursor = this.savedCursor;
     this.callbacks.onExit?.(entity);
-    this.rtsReturnPose = undefined;
   }
 
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
