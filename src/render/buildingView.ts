@@ -1045,7 +1045,10 @@ function createSelectionGlow(
     transparent: true,
     opacity: 0.24,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
     side: DoubleSide,
     blending: AdditiveBlending,
   });
@@ -1054,7 +1057,10 @@ function createSelectionGlow(
     transparent: true,
     opacity: 0.58,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
     side: DoubleSide,
     blending: AdditiveBlending,
   });

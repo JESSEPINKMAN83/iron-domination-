@@ -271,7 +271,16 @@ export class UnitView {
       blending: AdditiveBlending,
       toneMapped: false,
     });
-    this.ringMaterial = new MeshBasicMaterial({ color: 0xf0d56a, transparent: true, opacity: 0.94, depthWrite: false, depthTest: false });
+    this.ringMaterial = new MeshBasicMaterial({
+      color: 0xf0d56a,
+      transparent: true,
+      opacity: 0.94,
+      depthWrite: false,
+      depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
     this.healthBackMaterial = new MeshBasicMaterial({
       color: 0x050806,
       transparent: true,
