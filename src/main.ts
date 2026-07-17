@@ -1971,14 +1971,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.setVisible(false);
         hud.setFirstPerson(true);
       },
-      onExit: (entity) => {
+      onExit: () => {
         controller.setEnabled(true);
         unitView.setHiddenEntity(undefined);
         unitView.setSelectionOverlayVisible(true);
         sidebar.setFirstPerson(false);
         selectionBar.setVisible(true);
         hud.setFirstPerson(false);
-        if (entity) rig.jumpTo(entity.transform.x, entity.transform.z);
       },
     },
     localTeam,

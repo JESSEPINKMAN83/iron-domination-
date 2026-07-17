@@ -24,10 +24,19 @@ const SQUAD_FOLLOW_REFRESH_TICKS = 12;
 const SQUAD_FOLLOW_MIN_DISTANCE = 14;
 const TARGET_LOCK_SECONDS = 1;
 
-interface CameraPose {
+export interface CameraPose {
   position: Vector3;
   quaternion: Quaternion;
   fov: number;
+}
+
+export function resolveExitCameraPose(saved: CameraPose | undefined, fallback: () => CameraPose): CameraPose {
+  const pose = saved ?? fallback();
+  return {
+    position: pose.position.clone(),
+    quaternion: pose.quaternion.clone(),
+    fov: pose.fov,
+  };
 }
 
 export interface FirstPersonCommandSink {
@@ -56,6 +65,7 @@ export class FirstPersonController {
   private transitionT = 0;
   private fromPose?: CameraPose;
   private toPose?: CameraPose;
+  private rtsReturnPose?: CameraPose;
   private readonly poseCamera = new PerspectiveCamera();
   private readonly tmpForward = new Vector3();
   private readonly tmpHorizontal = new Vector3();
@@ -232,6 +242,7 @@ export class FirstPersonController {
     this.takeControl(entity);
     this.transitionT = 0;
     this.fromPose = this.captureCameraPose();
+    this.rtsReturnPose = resolveExitCameraPose(this.fromPose, () => this.fromPose!);
     this.hasSmoothFlightCenter = false;
     this.orbitYaw = 0;
     this.orbitPitch = 0;
@@ -386,7 +397,7 @@ export class FirstPersonController {
   private beginExit(): void {
     if (!this.possessed || this.mode === 'exiting') return;
     this.fromPose = this.captureCameraPose();
-    this.toPose = this.rtsPoseNear(this.possessed);
+    this.toPose = resolveExitCameraPose(this.rtsReturnPose, () => this.rtsPoseNear(this.possessed!));
     this.transitionT = 0;
     this.mode = 'exiting';
     this.dom.style.cursor = this.savedCursor;
@@ -423,6 +434,7 @@ export class FirstPersonController {
     this.camera.updateProjectionMatrix();
     this.dom.style.cursor = this.savedCursor;
     this.callbacks.onExit?.(entity);
+    this.rtsReturnPose = undefined;
   }
 
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
