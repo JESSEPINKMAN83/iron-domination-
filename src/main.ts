@@ -2214,8 +2214,10 @@ function createGameMenu(
   },
 ): void {
   const wrap = document.createElement('div');
+  wrap.className = 'game-chrome-controls';
   wrap.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:30;display:flex;gap:6px;align-items:center;';
   const help = gameChromeButton('HELP', 'Open controls and objective');
+  help.classList.add('game-chrome-controls__help');
   help.onclick = (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -2224,6 +2226,7 @@ function createGameMenu(
     showHelpDialog({ onClose: () => options.setPaused(false) });
   };
   const menu = gameChromeButton('MENU', 'Open match menu');
+  menu.classList.add('game-chrome-controls__menu');
   menu.onclick = (event) => {
     event.preventDefault();
     event.stopPropagation();

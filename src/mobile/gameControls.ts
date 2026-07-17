@@ -43,7 +43,7 @@ export class MobileGameControls {
     this.rts = div('mobile-game-controls__rts');
     this.modeButton = button('', 'Take direct control of the selected unit');
     this.modeButton.classList.add('mobile-mode-toggle');
-    this.modeButton.innerHTML = '<span aria-hidden="true">◎</span><small>CONTROL</small>';
+    this.modeButton.innerHTML = modeButtonMarkup(false);
     this.modeButton.onclick = () => {
       if (this.firstPerson) this.actions.exitFirstPerson();
       else this.actions.enterFirstPerson();
@@ -109,9 +109,7 @@ export class MobileGameControls {
     this.rts.hidden = state.firstPerson;
     this.fps.hidden = !state.firstPerson;
     this.modeButton.disabled = !state.firstPerson && state.selectedCount === 0;
-    this.modeButton.innerHTML = state.firstPerson
-      ? '<span aria-hidden="true">⌃</span><small>STRATEGY</small>'
-      : '<span aria-hidden="true">◎</span><small>CONTROL</small>';
+    this.modeButton.innerHTML = modeButtonMarkup(state.firstPerson);
     this.modeButton.setAttribute('aria-label', state.firstPerson ? 'Return to strategy view' : 'Take direct control of the selected unit');
     const canCycleUnits = state.firstPerson && state.selectedCount > 1;
     this.nextUnitButton.hidden = !canCycleUnits;
@@ -129,6 +127,12 @@ export class MobileGameControls {
     }
   }
 
+}
+
+function modeButtonMarkup(firstPerson: boolean): string {
+  return firstPerson
+    ? '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4.5 5.5h15v13h-15zM9.5 5.5v13M14.5 5.5v13M4.5 10h15M4.5 14.5h15"/></svg><span>STRATEGY</span>'
+    : '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5"/></svg><span>CONTROL</span>';
 }
 
 function div(className: string): HTMLDivElement {

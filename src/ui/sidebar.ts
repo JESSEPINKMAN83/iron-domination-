@@ -49,6 +49,9 @@ export class Sidebar {
   private readonly tabs: HTMLDivElement;
   private readonly body: HTMLDivElement;
   private readonly status: HTMLDivElement;
+  private readonly mobileStatus: HTMLDivElement;
+  private readonly mobilePrimaryMetric: HTMLSpanElement;
+  private readonly mobileSecondaryMetric: HTMLSpanElement;
   private activeTab: Tab = 'buildings';
   private lastStatusText = '';
   private lastBodyKey = '';
@@ -103,14 +106,22 @@ export class Sidebar {
     this.radarTerrain = this.createRadarTerrain();
 
     this.status = document.createElement('div');
+    this.status.className = 'game-sidebar__status';
     this.status.style.cssText =
       'height:18px;padding:0 6px;background:#101514;border:1px solid #424a47;box-sizing:border-box;' +
       'box-shadow:inset 0 0 12px rgba(0,0,0,.55);color:#d2b15f;font-size:10px;line-height:16px;white-space:pre;overflow:hidden;';
+    this.mobileStatus = document.createElement('div');
+    this.mobileStatus.className = 'game-sidebar__mobile-status';
+    this.mobileStatus.style.display = 'none';
+    this.mobilePrimaryMetric = document.createElement('span');
+    this.mobileSecondaryMetric = document.createElement('span');
+    this.mobileStatus.append(this.mobilePrimaryMetric, this.mobileSecondaryMetric);
     this.firstPersonStatus = document.createElement('div');
+    this.firstPersonStatus.className = 'game-sidebar__first-person-status';
     this.firstPersonStatus.style.cssText =
       'display:none;padding:5px 6px;border:1px solid #313936;background:rgba(13,19,18,.94);color:#cfd9d3;' +
       'font:700 8px/1.45 ui-monospace,Menlo,monospace;letter-spacing:.03em;white-space:pre;';
-    this.radarWrap.append(this.status, this.radar, this.firstPersonStatus);
+    this.radarWrap.append(this.status, this.mobileStatus, this.radar, this.firstPersonStatus);
     if (this.actions.beginTacticalPing) {
       this.tacticalControls = this.createTacticalControls();
       this.radarWrap.append(this.tacticalControls);
@@ -159,6 +170,17 @@ export class Sidebar {
       this.status.textContent = statusText;
       this.status.style.color = possessed ? healthPct < 0.3 ? '#ff7666' : '#d2b15f' : powerDelta < 0 ? '#ff7666' : '#d2b15f';
       this.lastStatusText = statusText;
+    }
+    if (possessed) {
+      this.mobilePrimaryMetric.textContent = `HP ${Math.round(healthPct * 100)}`;
+      this.mobileSecondaryMetric.textContent = `SPD ${Math.round(speed)}`;
+      this.mobilePrimaryMetric.classList.toggle('is-alert', healthPct < 0.3);
+      this.mobileSecondaryMetric.classList.remove('is-alert');
+    } else {
+      this.mobilePrimaryMetric.textContent = compactCredits(this.economy.credits);
+      this.mobileSecondaryMetric.textContent = `PWR ${powerDelta >= 0 ? '+' : ''}${powerDelta}`;
+      this.mobilePrimaryMetric.classList.remove('is-alert');
+      this.mobileSecondaryMetric.classList.toggle('is-alert', powerDelta < 0);
     }
     if (possessed) {
       const primary = possessed.weapons?.primary ?? possessed.weapon;
@@ -1073,6 +1095,13 @@ export class Sidebar {
     this.radarCtx.drawImage(image, 0, 0, this.radar.width, this.radar.height);
     this.radarCtx.restore();
   }
+}
+
+function compactCredits(credits: number): string {
+  const rounded = Math.max(0, Math.floor(credits));
+  if (rounded < 1000) return `$${rounded}`;
+  const thousands = rounded / 1000;
+  return `$${thousands >= 10 ? Math.round(thousands) : thousands.toFixed(1).replace(/\.0$/, '')}K`;
 }
 
 function cardCss(state: CardState): string {
