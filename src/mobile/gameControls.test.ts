@@ -5,15 +5,14 @@ describe('mobile analog joystick', () => {
   it('maps full travel to proportional forward, reverse, and steering input', () => {
     expect(joystickDriveAxes(0, -1)).toEqual({ throttle: 1, turn: -0 });
     expect(joystickDriveAxes(0, 1)).toEqual({ throttle: -1, turn: -0 });
-    expect(joystickDriveAxes(-1, 0)).toEqual({ throttle: -0, turn: 1 });
-    expect(joystickDriveAxes(1, 0)).toEqual({ throttle: -0, turn: -1 });
+    expect(joystickDriveAxes(-1, 0)).toEqual({ throttle: 1, turn: 1 });
+    expect(joystickDriveAxes(1, 0)).toEqual({ throttle: 1, turn: -1 });
   });
 
-  it('supports diagonal movement while keeping the output inside the unit circle', () => {
+  it('keeps full forward drive while steering diagonally', () => {
     const drive = joystickDriveAxes(0.8, -0.8);
-    expect(drive.throttle).toBeGreaterThan(0.65);
+    expect(drive.throttle).toBe(1);
     expect(drive.turn).toBeLessThan(-0.65);
-    expect(Math.hypot(drive.throttle, drive.turn)).toBeCloseTo(1, 6);
   });
 
   it('uses a small center dead zone and scales smoothly outside it', () => {
@@ -26,10 +25,18 @@ describe('mobile analog joystick', () => {
 
   it('uses full directional strength for any engaged joystick position while speed is held', () => {
     const shallow = joystickDriveAxes(0.16, -0.12, { fullStrength: true });
-    expect(Math.hypot(shallow.throttle, shallow.turn)).toBeCloseTo(1, 6);
-    expect(shallow.throttle).toBeGreaterThan(0);
+    expect(shallow.throttle).toBe(1);
     expect(shallow.turn).toBeLessThan(0);
     expect(joystickDriveAxes(0.04, -0.03, { fullStrength: true })).toEqual({ throttle: 0, turn: 0 });
+  });
+
+  it('does not brake when the joystick sweeps from right steering to left steering', () => {
+    const right = joystickDriveAxes(0.7, 0, { fullStrength: true });
+    const nearCenter = joystickDriveAxes(0.12, 0, { fullStrength: true });
+    const left = joystickDriveAxes(-0.7, 0, { fullStrength: true });
+    expect(right).toEqual({ throttle: 1, turn: -1 });
+    expect(nearCenter).toEqual({ throttle: 1, turn: -1 });
+    expect(left).toEqual({ throttle: 1, turn: 1 });
   });
 
   it('bridges a center crossing and retains full direction there only while speed is held', () => {

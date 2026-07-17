@@ -160,6 +160,7 @@ interface JoystickDriveOptions {
 const JOYSTICK_DEAD_ZONE = 0.1;
 const JOYSTICK_MINIMUM_STRENGTH = 0.32;
 const JOYSTICK_CENTER_CROSSING_GRACE_MS = 180;
+const JOYSTICK_REVERSE_THRESHOLD = 0.55;
 
 export function joystickDriveAxes(dx: number, dy: number, options: JoystickDriveOptions = {}): { throttle: number; turn: number } {
   const deadZone = Math.max(0, Math.min(0.9, options.deadZone ?? JOYSTICK_DEAD_ZONE));
@@ -169,8 +170,14 @@ export function joystickDriveAxes(dx: number, dy: number, options: JoystickDrive
   const clampedMagnitude = Math.min(1, magnitude);
   const analogStrength = (clampedMagnitude - deadZone) / Math.max(0.001, 1 - deadZone);
   const strength = options.fullStrength ? 1 : minimumStrength + analogStrength * (1 - minimumStrength);
+  const verticalDirection = -dy / magnitude;
+  // Mobile first-person movement uses arcade tank steering: every engaged
+  // sideways position keeps forward drive active while steering. Reverse is a
+  // deliberate downward pull, rather than an accidental brake while sweeping
+  // the thumb from left to right.
+  const throttleDirection = verticalDirection < -JOYSTICK_REVERSE_THRESHOLD ? -1 : 1;
   return {
-    throttle: -(dy / magnitude) * strength,
+    throttle: throttleDirection * strength,
     turn: -(dx / magnitude) * strength,
   };
 }
@@ -226,7 +233,7 @@ function createJoystick(onChange: (throttle: number, turn: number) => void): {
     if (driveMagnitude > 0) {
       clearCenterCrossingTimer();
       centerCrossingExpired = false;
-      lastDirection = { throttle: drive.throttle / driveMagnitude, turn: drive.turn / driveMagnitude };
+      lastDirection = joystickDriveAxes(currentDx, currentDy, { fullStrength: true });
       lastDrive = drive;
       onChange(drive.throttle, drive.turn);
       return;
