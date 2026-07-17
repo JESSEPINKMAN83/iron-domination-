@@ -6,6 +6,7 @@ import { isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
 import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
+import { unitDisplayName } from '../ui/unitDisplayName';
 
 type PossessionMode = 'rts' | 'entering' | 'fps' | 'exiting';
 const CHASE_ZOOM_MIN = -1;
@@ -205,7 +206,8 @@ export class FirstPersonController {
 
   get possessedName(): string | undefined {
     if (!this.possessed) return undefined;
-    return this.squad.length > 1 ? `${this.possessed.name ?? 'unit'} ${this.squadIndex + 1}/${this.squad.length}` : this.possessed.name;
+    const label = unitDisplayName(this.possessed);
+    return this.squad.length > 1 ? `${label} · ${this.squadIndex + 1}/${this.squad.length}` : label;
   }
 
   get flying(): boolean {

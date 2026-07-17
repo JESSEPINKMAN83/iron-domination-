@@ -6,6 +6,7 @@ import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { selectedEntities, type GameSim } from '../sim/world';
 import type { TacticalPing, TacticalPingKind } from '../net/multiplayer';
+import { unitDisplayName } from './unitDisplayName';
 
 type Tab = 'buildings' | 'defense' | 'infantry' | 'vehicles' | 'aircraft';
 
@@ -160,7 +161,7 @@ export class Sidebar {
     const healthPct = possessed?.health ? Math.max(0, possessed.health.current / Math.max(1, possessed.health.max)) : 1;
     const speed = possessed?.velocity ? Math.hypot(possessed.velocity.x, possessed.velocity.z) : 0;
     const statusText = possessed
-      ? `${(possessed.name ?? possessed.selectable?.type ?? 'UNIT').toUpperCase()}   HP ${Math.round(healthPct * 100)}%   SPD ${Math.round(speed)}`
+      ? `${unitDisplayName(possessed).toUpperCase()}   HP ${Math.round(healthPct * 100)}%   SPD ${Math.round(speed)}`
       : [
           `$${Math.floor(this.economy.credits)}`,
           `PWR ${powerDelta >= 0 ? '+' : ''}${powerDelta}${powerDelta < 0 ? ' LOW POWER' : ''}`,
