@@ -52,6 +52,183 @@
   .mobile-touch-device .war-battlefield { grid-template-columns: minmax(170px,.7fr) minmax(0,1.3fr); gap: 12px; }
   .mobile-touch-device .war-settings-grid, .mobile-touch-device .war-rules-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .mobile-touch-device .war-start, .mobile-touch-device .war-lobby__cta { position: sticky; bottom: max(6px,env(safe-area-inset-bottom)); min-height: 48px; z-index: 4; }
+
+  /* Small landscape phones use one continuous setup flow instead of two
+     independently scrolling desktop columns. Keep the launch action in a
+     persistent dock so it is reachable even when browser chrome is visible. */
+  @media (max-height: 560px) {
+    .mobile-touch-device .war-setup__shell {
+      overflow: hidden;
+    }
+    .mobile-touch-device .war-setup__header {
+      min-height: 40px;
+      padding-top: 5px;
+      padding-bottom: 5px;
+    }
+    .mobile-touch-device .war-setup__eyebrow {
+      gap: 8px;
+      font-size: 7px;
+    }
+    .mobile-touch-device .war-setup__title {
+      margin-top: 0;
+      font-size: 22px;
+      line-height: 1;
+    }
+    .mobile-touch-device .war-tabs,
+    .mobile-touch-device .war-tab {
+      min-height: 36px;
+    }
+    .mobile-touch-device .war-tab {
+      padding: 2px 8px;
+    }
+    .mobile-touch-device .war-tab span {
+      font-size: 14px;
+    }
+    .mobile-touch-device .war-tab small {
+      font-size: 7px;
+    }
+    .mobile-touch-device .war-setup__body,
+    .mobile-touch-device .war-setup__body.is-join-entry {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom));
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: calc(70px + env(safe-area-inset-bottom));
+    }
+    .mobile-touch-device .war-context {
+      order: -1;
+      flex: 0 0 auto;
+      width: 100%;
+      min-height: 0;
+      border-right: 0;
+      border-bottom: 1px solid var(--war-line);
+      background: linear-gradient(180deg, rgba(223,189,100,.055), rgba(0,0,0,.08));
+    }
+    .mobile-touch-device .war-setup__body.is-join-entry .war-context {
+      width: 100%;
+      min-height: 0;
+      margin: 0;
+      border-left: 0;
+      border-right: 0;
+    }
+    .mobile-touch-device .war-config,
+    .mobile-touch-device .war-operation {
+      min-height: 0;
+      overflow: visible;
+    }
+    .mobile-touch-device .war-config {
+      flex: 0 0 auto;
+      padding: 8px max(10px,env(safe-area-inset-right)) 18px max(10px,env(safe-area-inset-left));
+      border-right: 0;
+      border-bottom: 0;
+    }
+    .mobile-touch-device .war-operation {
+      padding: 8px max(10px,env(safe-area-inset-right)) 9px max(10px,env(safe-area-inset-left));
+      gap: 5px;
+    }
+    .mobile-touch-device .war-operation__entry {
+      gap: 5px;
+    }
+    .mobile-touch-device .war-operation__entry > .war-aside__kicker,
+    .mobile-touch-device .war-operation__entry > p,
+    .mobile-touch-device .war-mode-card .war-multiplayer__step,
+    .mobile-touch-device .war-mode-card p {
+      display: none;
+    }
+    .mobile-touch-device .war-operation__entry h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+    .mobile-touch-device .war-mode-card {
+      padding: 6px 8px;
+      gap: 5px;
+    }
+    .mobile-touch-device .war-mode-card h3 {
+      margin: 0;
+      font-size: 15px;
+    }
+    .mobile-touch-device .war-multiplayer__status {
+      min-height: 22px;
+      padding: 5px 7px;
+      font-size: 7px;
+    }
+    .mobile-touch-device .war-operation > .war-multiplayer__advanced {
+      margin-top: 1px;
+      font-size: 7px;
+    }
+    .mobile-touch-device .war-config__mode-note {
+      margin: 0 0 6px;
+      font-size: 7px;
+    }
+    .mobile-touch-device .war-section {
+      margin-bottom: 8px;
+      padding: 8px 0;
+    }
+    .mobile-touch-device .war-section__heading {
+      margin-bottom: 7px;
+    }
+    .mobile-touch-device .war-section__heading p,
+    .mobile-touch-device .war-field__description,
+    .mobile-touch-device .war-field-note {
+      display: none;
+    }
+    .mobile-touch-device .war-section h2 {
+      font-size: 18px;
+    }
+    .mobile-touch-device .war-section__index {
+      min-width: 25px;
+      padding: 2px 4px;
+    }
+    .mobile-touch-device .war-choice {
+      height: 32px;
+      font-size: 8px;
+    }
+    .mobile-touch-device .war-input input,
+    .mobile-touch-device .war-input select {
+      height: 34px;
+    }
+    .mobile-touch-device .war-map-preview {
+      min-height: 104px;
+    }
+    .mobile-touch-device .war-mode-card__actions,
+    .mobile-touch-device .war-lobby__actions {
+      position: absolute;
+      z-index: 12;
+      left: max(8px,env(safe-area-inset-left));
+      right: max(8px,env(safe-area-inset-right));
+      bottom: max(6px,env(safe-area-inset-bottom));
+      display: grid;
+      grid-template-columns: minmax(0,1.35fr) minmax(0,1fr);
+      gap: 6px;
+      padding: 6px;
+      border: 1px solid rgba(223,189,100,.34);
+      border-radius: 7px;
+      background: rgba(8,13,13,.9);
+      box-shadow: 0 8px 28px rgba(0,0,0,.56);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+    .mobile-touch-device .war-mode-card__actions .war-button,
+    .mobile-touch-device .war-lobby__cta {
+      position: static;
+      min-height: 42px;
+      margin: 0;
+      font-size: 10px;
+    }
+    .mobile-touch-device .war-lobby__actions {
+      grid-template-columns: 1fr;
+    }
+    .mobile-touch-device .war-operation__entry--join .war-multiplayer__join {
+      grid-template-columns: minmax(0,1fr) minmax(118px,.55fr);
+    }
+    .mobile-touch-device .war-operation__entry--join .war-button--primary {
+      min-height: 34px;
+    }
+  }
 }
 
 .mobile-game-controls { display:none; }
