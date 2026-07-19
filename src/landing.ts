@@ -36,8 +36,8 @@ export function showLandingScreen(): Promise<void> {
     root.className = 'iron-landing';
     root.innerHTML = `
       <div class="iron-landing__background" aria-hidden="true">
-        <video autoplay muted loop playsinline preload="auto" poster="/assets/landing/home-page-bg.jpg">
-          <source src="/assets/landing/home-page-bg.mp4" type="video/mp4">
+        <video autoplay muted loop playsinline preload="auto" poster="/assets/landing/home-page-bg-38.jpg">
+          <source src="/assets/landing/home-page-bg-38.mp4" type="video/mp4">
         </video>
       </div>
       <section class="iron-landing__hero">
