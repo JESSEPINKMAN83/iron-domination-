@@ -1,5 +1,6 @@
 import './landing.css';
 import { isMobileTouchDevice, isStandaloneMobileExperience } from './mobile/platform';
+import { submitToBackoffice } from './backoffice';
 
 const FORM_NAME = 'iron-dominion-beta';
 const BETA_SIGNUP_ENDPOINT = 'https://formspree.io/f/xjgnkega';
@@ -97,21 +98,33 @@ export function showLandingScreen(): Promise<void> {
       cta.disabled = true;
       error.hidden = true;
       const formData = new FormData(form);
+      const signup = {
+        name: String(formData.get('name') ?? ''),
+        email: String(formData.get('email') ?? ''),
+        releaseUpdates: formData.get('release-updates') === 'yes',
+      };
       try {
-        const response = await fetch(BETA_SIGNUP_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: encodeForm({
-            '_subject': 'New Iron Dominion beta signup',
-            name: String(formData.get('name') ?? ''),
-            email: String(formData.get('email') ?? ''),
-            release_updates: formData.get('release-updates') === 'yes' ? 'yes' : 'no',
-          }),
+        const savedToWix = await submitToBackoffice({
+          kind: 'signup',
+          ...signup,
+          source: 'Iron Dominion landing page',
         });
-        if (!response.ok) throw new Error(`Signup failed (${response.status})`);
+        if (!savedToWix) {
+          const response = await fetch(BETA_SIGNUP_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: encodeForm({
+              '_subject': 'New Iron Dominion beta signup',
+              name: signup.name,
+              email: signup.email,
+              release_updates: signup.releaseUpdates ? 'yes' : 'no',
+            }),
+          });
+          if (!response.ok) throw new Error(`Signup failed (${response.status})`);
+        }
         rememberBetaAccess();
         root.classList.add('is-setup-open');
         resolve();

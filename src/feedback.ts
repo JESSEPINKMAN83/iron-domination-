@@ -1,4 +1,5 @@
 import './feedback.css';
+import { submitToBackoffice } from './backoffice';
 
 const FEEDBACK_FORM_NAME = 'iron-dominion-game-feedback';
 const FEEDBACK_ENDPOINT = 'https://formspree.io/f/xykrzdka';
@@ -84,22 +85,31 @@ export function showFeedbackWidget(): void {
     submit.disabled = true;
     message.hidden = true;
     const data = new FormData(form);
+    const feedback = {
+      name: String(data.get('name') ?? ''),
+      rating: Number(data.get('rating') ?? 0),
+      message: String(data.get('message') ?? ''),
+      page: String(data.get('page') ?? location.href),
+    };
     try {
-      const response = await fetch(FEEDBACK_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          '_subject': 'New Iron Dominion game feedback',
-          name: String(data.get('name') ?? ''),
-          rating: String(data.get('rating') ?? ''),
-          message: String(data.get('message') ?? ''),
-          page: String(data.get('page') ?? location.href),
-        }).toString(),
-      });
-      if (!response.ok) throw new Error(`Feedback failed (${response.status})`);
+      const savedToWix = await submitToBackoffice({ kind: 'feedback', ...feedback });
+      if (!savedToWix) {
+        const response = await fetch(FEEDBACK_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            '_subject': 'New Iron Dominion game feedback',
+            name: feedback.name,
+            rating: String(feedback.rating),
+            message: feedback.message,
+            page: feedback.page,
+          }).toString(),
+        });
+        if (!response.ok) throw new Error(`Feedback failed (${response.status})`);
+      }
       form.reset();
       message.textContent = 'Field report received. Thank you.';
       message.dataset.state = 'success';
