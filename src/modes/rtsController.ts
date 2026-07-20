@@ -7,7 +7,7 @@ import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
 import type { OrderMarkerKind } from '../render/orderMarkerView';
 import type { UnitView } from '../render/unitView';
-import type { Input } from '../engine/input';
+import { isTextEntryTarget, type Input } from '../engine/input';
 import { ControlGroups, controlGroupIndex } from './controlGroups';
 
 export interface PlacementControls {
@@ -468,7 +468,7 @@ export class RtsController {
   }
 
   private onKeyDown(e: KeyboardEvent): void {
-    if (!this.enabled) return;
+    if (!this.enabled || isTextEntryTarget(e.target)) return;
     if (e.code === 'Escape' && this.placement?.isPlacing()) {
       this.placement.cancel();
       e.preventDefault();
@@ -489,7 +489,7 @@ export class RtsController {
       return;
     }
     const n = controlGroupIndex(e.code);
-    if (n === undefined || isTextEntryTarget(e.target)) return;
+    if (n === undefined) return;
     if (e.ctrlKey || e.metaKey) {
       const members = this.controlGroups.assign(n, selectedEntities(this.sim, this.localTeam), this.localTeam);
       this.flashControlGroup(members.length > 0 ? `GROUP ${n} SAVED  ·  ${members.length} ${members.length === 1 ? 'UNIT' : 'UNITS'}` : `GROUP ${n} CLEARED`);
@@ -595,9 +595,4 @@ export class RtsController {
     const selected = selectedEntities(this.sim, this.localTeam);
     return selected.length === 1 && selected[0].producer ? selected[0] : undefined;
   }
-}
-
-function isTextEntryTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }

@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { Input } from './input';
+import { Input, isTextEntryTarget } from './input';
+
+describe('keyboard event targets', () => {
+  it('recognizes fields that must receive normal text editing keys', () => {
+    expect(isTextEntryTarget({ tagName: 'INPUT' } as unknown as EventTarget)).toBe(true);
+    expect(isTextEntryTarget({ tagName: 'textarea' } as unknown as EventTarget)).toBe(true);
+    expect(isTextEntryTarget({ tagName: 'SELECT' } as unknown as EventTarget)).toBe(true);
+    expect(isTextEntryTarget({ tagName: 'DIV', isContentEditable: true } as unknown as EventTarget)).toBe(true);
+    expect(isTextEntryTarget({ tagName: 'CANVAS' } as unknown as EventTarget)).toBe(false);
+    expect(isTextEntryTarget(null)).toBe(false);
+  });
+});
 
 describe('mobile input state', () => {
   it('clamps virtual drive axes and resets transient controls', () => {

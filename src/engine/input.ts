@@ -14,6 +14,16 @@ export interface MobileDriveState {
   boost: boolean;
 }
 
+export function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!target || typeof target !== 'object') return false;
+  const element = target as { isContentEditable?: boolean; tagName?: string };
+  const tagName = element.tagName?.toUpperCase();
+  return element.isContentEditable === true
+    || tagName === 'INPUT'
+    || tagName === 'TEXTAREA'
+    || tagName === 'SELECT';
+}
+
 // Central keyboard/mouse/touch state. Consumers poll state per frame;
 // discrete key presses can also be subscribed via onKeyDown.
 export class Input {
@@ -39,6 +49,7 @@ export class Input {
 
   attach(target: HTMLElement): void {
     window.addEventListener('keydown', (e) => {
+      if (isTextEntryTarget(e.target)) return;
       if (e.code === 'Space' || e.code === 'Tab' || e.code === 'F1' || e.code === 'F3' || e.code.startsWith('Arrow')) {
         e.preventDefault();
       }
