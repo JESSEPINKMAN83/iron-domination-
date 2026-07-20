@@ -441,6 +441,10 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     const joinTab = createSetupTab('JOIN', 'Enter an existing room');
     tabs.append(hostTab, joinTab);
 
+    const mobileSteps = document.createElement('nav');
+    mobileSteps.className = 'war-mobile-steps';
+    mobileSteps.setAttribute('aria-label', 'Battle setup sections');
+
     const layout = document.createElement('div');
     layout.className = 'war-setup__body';
     const config = document.createElement('main');
@@ -503,12 +507,20 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     const battlefield = document.createElement('div');
     battlefield.className = 'war-battlefield';
     battlefield.append(mapPreview, battlefieldControls);
-    config.append(createSetupSection('01', 'BATTLEFIELD', 'Select the terrain and scale of the operation.', battlefield));
+    const battlefieldSection = createSetupSection('01', 'BATTLEFIELD', 'Select the terrain and scale of the operation.', battlefield);
+    battlefieldSection.classList.add('war-section--battlefield');
+    config.append(battlefieldSection);
 
     const rules = document.createElement('div');
     rules.className = 'war-rules-grid';
     rules.append(difficulty.root, commander.root, combatMode.root);
-    config.append(createSetupSection('02', 'BATTLE RULES', 'Set enemy pressure and how directly you control combat.', rules));
+    const rulesSection = createSetupSection('02', 'BATTLE RULES', 'Set enemy pressure and how directly you control combat.', rules);
+    rulesSection.classList.add('war-section--rules');
+    config.append(rulesSection);
+
+    const forcesSection = createSetupSection('03', 'FORCES', 'Choose the number of armies and place allies on the same side.', armies.root);
+    forcesSection.classList.add('war-section--forces');
+    config.append(forcesSection);
 
     let multiplayerClient: MultiplayerClient | undefined;
     let multiplayerSession: MultiplayerSession | undefined;
@@ -596,7 +608,27 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     const brief = document.createElement('div');
     brief.className = 'war-brief';
     brief.append(summaryGrid, history, controlsHeading, controls);
-    config.append(createSetupSection('03', 'OPERATION BRIEF', 'Review the active battlefield settings and field controls.', brief));
+    const briefSection = createSetupSection('04', 'OPERATION BRIEF', 'Review the active battlefield settings and field controls.', brief);
+    briefSection.classList.add('war-section--brief');
+    config.append(briefSection);
+
+    for (const [label, section] of [
+      ['MAP', battlefieldSection],
+      ['RULES', rulesSection],
+      ['FORCES', forcesSection],
+      ['REVIEW', briefSection],
+    ] as const) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.onclick = () => {
+        for (const candidate of Array.from(mobileSteps.children)) candidate.classList.toggle('is-active', candidate === button);
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        button.blur();
+      };
+      if (label === 'MAP') button.classList.add('is-active');
+      mobileSteps.appendChild(button);
+    }
 
     let multiplayer: ReturnType<typeof createMultiplayerSetupPanel>;
     multiplayer = createMultiplayerSetupPanel(
@@ -623,6 +655,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       summaryValues.get('ENEMY')!.textContent = `${difficulty.value().toUpperCase()} · ${commander.value().toUpperCase()}`;
       summaryValues.get('FORCES')!.textContent = `${armies.armyCount()} ARMIES`;
       summaryValues.get('COMBAT')!.textContent = combatMode.value().toUpperCase();
+      multiplayer.setMobileSummary(`${map.shortLabel} · ${MAP_SIZE_PRESETS[mapSizeChoice.value()].label} · ${armies.armyCount()} armies`);
       if (!applyingRoomSettings) syncMultiplayerSettings();
     };
     function renderMode(): void {
@@ -660,7 +693,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     };
 
     layout.append(config, context);
-    shell.append(header, tabs, layout);
+    shell.append(header, tabs, mobileSteps, layout);
     root.appendChild(shell);
     document.body.appendChild(root);
     refresh();
@@ -886,6 +919,7 @@ function createMultiplayerSetupPanel(
 ): {
   root: HTMLDivElement;
   setMode: (mode: 'host' | 'join') => void;
+  setMobileSummary: (summary: string) => void;
   syncHostSettings: () => void;
 } {
   const root = document.createElement('div');
@@ -925,7 +959,10 @@ function createMultiplayerSetupPanel(
   skirmish.className = 'war-button war-button--primary';
   const hostActions = document.createElement('div');
   hostActions.className = 'war-mode-card__actions';
-  hostActions.append(skirmish, host);
+  const mobileDeploySummary = document.createElement('div');
+  mobileDeploySummary.className = 'war-mobile-deploy-summary';
+  mobileDeploySummary.innerHTML = '<span>READY TO DEPLOY</span><strong></strong>';
+  hostActions.append(mobileDeploySummary, skirmish, host);
   hostCard.append(hostCopy, hostActions);
   hostEntry.append(hostCard);
 
@@ -1094,6 +1131,10 @@ function createMultiplayerSetupPanel(
   render();
   return {
     root,
+    setMobileSummary: (summary) => {
+      const value = mobileDeploySummary.querySelector('strong');
+      if (value) value.textContent = summary;
+    },
     setMode: (nextMode) => {
       if (activeSession) {
         const currentMode = activeSession.player.index === 1 ? 'host' : 'join';

@@ -81,6 +81,7 @@
 .war-setup__badge span { color: var(--war-dim); font: 9px ui-monospace, monospace; letter-spacing: 0.12em; }
 
 .war-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--war-line); background: rgba(0, 0, 0, 0.18); }
+.war-mobile-steps, .war-mobile-deploy-summary { display: none; }
 .war-tab {
   position: relative;
   min-height: 67px;

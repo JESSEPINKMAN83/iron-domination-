@@ -34,201 +34,296 @@
     width: var(--mobile-app-width, 100dvw) !important;
     height: var(--mobile-app-height, 100dvh) !important;
   }
-  .mobile-touch-device .war-setup { padding: 0; }
-  .mobile-touch-device .war-setup__shell { width: 100%; min-height: 100%; height: 100%; border: 0; grid-template-rows: auto auto minmax(0,1fr); }
-  .mobile-touch-device .war-setup__header { padding: 8px max(12px,env(safe-area-inset-right)) 7px max(12px,env(safe-area-inset-left)); }
-  .mobile-touch-device .war-setup__title { margin-top: 2px; font-size: 30px; }
-  .mobile-touch-device .war-setup__intro, .mobile-touch-device .war-setup__badge { display: none; }
-  .mobile-touch-device .war-tabs { min-height: 42px; }
-  .mobile-touch-device .war-tab { min-height: 42px; padding: 4px 8px; }
-  .mobile-touch-device .war-tab span { font-size: 16px; }
-  .mobile-touch-device .war-tab small { font-size: 8px; }
-  .mobile-touch-device .war-setup__body { grid-template-columns: minmax(0,1.55fr) minmax(250px,.72fr); overflow: hidden; }
-  .mobile-touch-device .war-config, .mobile-touch-device .war-aside, .mobile-touch-device .war-operation { min-height: 0; padding: 12px max(12px,env(safe-area-inset-right)) 18px max(12px,env(safe-area-inset-left)); overflow: auto; }
-  .mobile-touch-device .war-config { border-right: 1px solid var(--war-line); border-bottom: 0; }
-  .mobile-touch-device .war-section { padding: 11px 0; }
-  .mobile-touch-device .war-section h2, .mobile-touch-device .war-aside h2, .mobile-touch-device .war-operation h2 { font-size: 24px; }
-  .mobile-touch-device .war-map-preview { min-height: 118px; }
-  .mobile-touch-device .war-battlefield { grid-template-columns: minmax(170px,.7fr) minmax(0,1.3fr); gap: 12px; }
-  .mobile-touch-device .war-settings-grid, .mobile-touch-device .war-rules-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .mobile-touch-device .war-start, .mobile-touch-device .war-lobby__cta { position: sticky; bottom: max(6px,env(safe-area-inset-bottom)); min-height: 48px; z-index: 4; }
+}
 
-  /* Small landscape phones use one continuous setup flow instead of two
-     independently scrolling desktop columns. Keep the launch action in a
-     persistent dock so it is reachable even when browser chrome is visible. */
-  @media (max-height: 560px) {
-    .mobile-touch-device .war-setup__shell {
-      overflow: hidden;
-    }
-    .mobile-touch-device .war-setup__header {
-      min-height: 40px;
-      padding-top: 5px;
-      padding-bottom: 5px;
-    }
-    .mobile-touch-device .war-setup__eyebrow {
-      gap: 8px;
-      font-size: 7px;
-    }
-    .mobile-touch-device .war-setup__title {
-      margin-top: 0;
-      font-size: 22px;
-      line-height: 1;
-    }
-    .mobile-touch-device .war-tabs,
-    .mobile-touch-device .war-tab {
-      min-height: 36px;
-    }
-    .mobile-touch-device .war-tab {
-      padding: 2px 8px;
-    }
-    .mobile-touch-device .war-tab span {
-      font-size: 14px;
-    }
-    .mobile-touch-device .war-tab small {
-      font-size: 7px;
-    }
-    .mobile-touch-device .war-setup__body,
-    .mobile-touch-device .war-setup__body.is-join-entry {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      overflow-x: hidden;
-      overflow-y: auto;
-      overscroll-behavior: contain;
-      scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom));
-      -webkit-overflow-scrolling: touch;
-      padding-bottom: calc(70px + env(safe-area-inset-bottom));
-    }
-    .mobile-touch-device .war-context {
-      order: -1;
-      flex: 0 0 auto;
-      width: 100%;
-      min-height: 0;
-      border-right: 0;
-      border-bottom: 1px solid var(--war-line);
-      background: linear-gradient(180deg, rgba(223,189,100,.055), rgba(0,0,0,.08));
-    }
-    .mobile-touch-device .war-setup__body.is-join-entry .war-context {
-      width: 100%;
-      min-height: 0;
-      margin: 0;
-      border-left: 0;
-      border-right: 0;
-    }
-    .mobile-touch-device .war-config,
-    .mobile-touch-device .war-operation {
-      min-height: 0;
-      overflow: visible;
-    }
-    .mobile-touch-device .war-config {
-      flex: 0 0 auto;
-      padding: 8px max(10px,env(safe-area-inset-right)) 18px max(10px,env(safe-area-inset-left));
-      border-right: 0;
-      border-bottom: 0;
-    }
-    .mobile-touch-device .war-operation {
-      padding: 8px max(10px,env(safe-area-inset-right)) 9px max(10px,env(safe-area-inset-left));
-      gap: 5px;
-    }
-    .mobile-touch-device .war-operation__entry {
-      gap: 5px;
-    }
-    .mobile-touch-device .war-operation__entry > .war-aside__kicker,
-    .mobile-touch-device .war-operation__entry > p,
-    .mobile-touch-device .war-mode-card .war-multiplayer__step,
-    .mobile-touch-device .war-mode-card p {
-      display: none;
-    }
-    .mobile-touch-device .war-operation__entry h2 {
-      margin: 0;
-      font-size: 20px;
-    }
-    .mobile-touch-device .war-mode-card {
-      padding: 6px 8px;
-      gap: 5px;
-    }
-    .mobile-touch-device .war-mode-card h3 {
-      margin: 0;
-      font-size: 15px;
-    }
-    .mobile-touch-device .war-multiplayer__status {
-      min-height: 22px;
-      padding: 5px 7px;
-      font-size: 7px;
-    }
-    .mobile-touch-device .war-operation > .war-multiplayer__advanced {
-      margin-top: 1px;
-      font-size: 7px;
-    }
-    .mobile-touch-device .war-config__mode-note {
-      margin: 0 0 6px;
-      font-size: 7px;
-    }
-    .mobile-touch-device .war-section {
-      margin-bottom: 8px;
-      padding: 8px 0;
-    }
-    .mobile-touch-device .war-section__heading {
-      margin-bottom: 7px;
-    }
-    .mobile-touch-device .war-section__heading p,
-    .mobile-touch-device .war-field__description,
-    .mobile-touch-device .war-field-note {
-      display: none;
-    }
-    .mobile-touch-device .war-section h2 {
-      font-size: 18px;
-    }
-    .mobile-touch-device .war-section__index {
-      min-width: 25px;
-      padding: 2px 4px;
-    }
-    .mobile-touch-device .war-choice {
-      height: 32px;
-      font-size: 8px;
-    }
-    .mobile-touch-device .war-input input,
-    .mobile-touch-device .war-input select {
-      height: 34px;
-    }
-    .mobile-touch-device .war-map-preview {
-      min-height: 104px;
-    }
-    .mobile-touch-device .war-mode-card__actions,
-    .mobile-touch-device .war-lobby__actions {
-      position: absolute;
-      z-index: 12;
-      left: max(8px,env(safe-area-inset-left));
-      right: max(8px,env(safe-area-inset-right));
-      bottom: max(6px,env(safe-area-inset-bottom));
-      display: grid;
-      grid-template-columns: minmax(0,1.35fr) minmax(0,1fr);
-      gap: 6px;
-      padding: 6px;
-      border: 1px solid rgba(223,189,100,.34);
-      border-radius: 7px;
-      background: rgba(8,13,13,.9);
-      box-shadow: 0 8px 28px rgba(0,0,0,.56);
-      -webkit-backdrop-filter: blur(12px);
-      backdrop-filter: blur(12px);
-    }
-    .mobile-touch-device .war-mode-card__actions .war-button,
-    .mobile-touch-device .war-lobby__cta {
-      position: static;
-      min-height: 42px;
-      margin: 0;
-      font-size: 10px;
-    }
-    .mobile-touch-device .war-lobby__actions {
-      grid-template-columns: 1fr;
-    }
-    .mobile-touch-device .war-operation__entry--join .war-multiplayer__join {
-      grid-template-columns: minmax(0,1fr) minmax(118px,.55fr);
-    }
-    .mobile-touch-device .war-operation__entry--join .war-button--primary {
-      min-height: 34px;
-    }
+/* Mobile setup is a focused, single-scroll flow with direct section access and
+   one persistent launch dock. These rules also cover narrow desktop previews
+   so the layout can be verified without touch emulation. */
+@media (max-width: 700px) {
+  .war-setup {
+    padding: 0;
+    overflow: hidden;
+    background: #080c0d;
+    backdrop-filter: none;
   }
+  .war-setup__shell {
+    width: 100%;
+    height: 100dvh;
+    min-height: 0;
+    grid-template-rows: auto auto auto minmax(0,1fr);
+    overflow: hidden;
+    border: 0;
+    background: linear-gradient(180deg,#121819,#080b0c 72%);
+    box-shadow: none;
+  }
+  .war-setup__header {
+    min-height: 58px;
+    padding: max(11px,env(safe-area-inset-top)) 14px 9px;
+    align-items: center;
+    border-bottom-color: rgba(151,164,157,.18);
+  }
+  .war-setup__eyebrow { gap: 8px; font-size: 7px; }
+  .war-setup__title { margin-top: 3px; font-size: 28px; line-height: .95; }
+  .war-setup__intro, .war-setup__badge { display: none; }
+  .war-tabs { min-height: 48px; }
+  .war-tab { min-height: 48px; padding: 5px 8px; }
+  .war-tab span { font-size: 16px; }
+  .war-tab small { max-width: 145px; margin: auto; font-size: 7px; line-height: 1.25; }
+
+  .war-mobile-steps {
+    display: grid;
+    grid-template-columns: repeat(4,minmax(0,1fr));
+    gap: 1px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--war-line);
+    background: #0a0f10;
+  }
+  .war-mobile-steps button {
+    min-width: 0;
+    height: 34px;
+    padding: 0 3px;
+    overflow: hidden;
+    border: 1px solid rgba(151,164,157,.23);
+    border-radius: 3px;
+    color: #8e9a95;
+    background: #111718;
+    font: 700 8px/1 ui-monospace,Menlo,monospace;
+    letter-spacing: .06em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .war-mobile-steps button.is-active {
+    border-color: rgba(223,189,100,.7);
+    color: #f0d56a;
+    background: rgba(223,189,100,.09);
+  }
+
+  .war-setup__body,
+  .war-setup__body.is-join-entry {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-padding-top: 8px;
+    scroll-padding-bottom: calc(106px + env(safe-area-inset-bottom));
+    padding-bottom: calc(102px + env(safe-area-inset-bottom));
+    -webkit-overflow-scrolling: touch;
+  }
+  .war-config {
+    flex: 0 0 auto;
+    min-height: 0;
+    padding: 9px 9px 0;
+    overflow: visible;
+    border: 0;
+  }
+  .war-config__mode-note {
+    margin: 1px 3px 7px;
+    font-size: 7px;
+    letter-spacing: .1em;
+  }
+  .war-section {
+    margin: 0 0 9px;
+    padding: 12px;
+    scroll-margin-top: 8px;
+    border: 1px solid rgba(151,164,157,.25);
+    border-radius: 5px;
+    background: rgba(13,18,19,.9);
+  }
+  .war-section:last-child { margin-bottom: 9px; padding-bottom: 12px; border-bottom: 1px solid rgba(151,164,157,.25); }
+  .war-section__heading { gap: 9px; margin-bottom: 11px; }
+  .war-section__index { min-width: 27px; padding: 3px 4px; }
+  .war-section h2 { font-size: 19px; }
+  .war-section__heading p { margin-top: 4px; font-size: 9px; line-height: 1.35; }
+  .war-battlefield, .war-settings-grid, .war-rules-grid { grid-template-columns: 1fr; }
+  .war-battlefield { gap: 12px; }
+  .war-map-preview { min-height: 130px; border-radius: 4px; }
+  .war-battlefield__controls { gap: 11px; }
+  .war-settings-grid, .war-rules-grid { gap: 13px; }
+  .war-rules-grid .war-field:last-child { grid-column: auto; }
+  .war-choice { height: 44px; padding: 0 5px; font-size: 9px; }
+  .war-field__description { min-height: 0; font-size: 9px; line-height: 1.4; }
+  .war-input input, .war-input select { height: 44px; font-size: 14px; }
+  .war-button { min-height: 44px; }
+  .war-seed-row { grid-template-columns: minmax(0,1fr) 96px; }
+  .war-field-note { font-size: 8px; line-height: 1.4; }
+
+  .war-armies { gap: 10px; }
+  .war-armies__header { align-items: center; flex-direction: row; }
+  .war-army-row { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 4px; }
+  .war-army-row__label { grid-column: 1 / -1; margin-top: 4px; color: #dce4df; }
+  .war-choice--side { height: 40px; font-size: 8px; }
+
+  .war-section--brief .war-history,
+  .war-section--brief .war-aside__subheading,
+  .war-section--brief .war-controls { display: none; }
+  .war-brief { grid-template-columns: 1fr; }
+  .war-summary-grid > div { padding: 10px; }
+
+  .war-context {
+    flex: 0 0 auto;
+    min-height: 0;
+    border: 0;
+    background: transparent;
+  }
+  .war-setup__body.is-join-entry .war-context {
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    border: 0;
+  }
+  .war-operation { min-height: 0; padding: 0 9px 10px; gap: 7px; overflow: visible; }
+  .war-operation__entry:not(.war-operation__entry--join) > .war-aside__kicker,
+  .war-operation__entry:not(.war-operation__entry--join) > h2,
+  .war-operation__entry:not(.war-operation__entry--join) > p,
+  .war-operation__entry:not(.war-operation__entry--join) .war-mode-card > div:first-child { display: none; }
+  .war-operation__entry:not(.war-operation__entry--join),
+  .war-operation__entry:not(.war-operation__entry--join) .war-mode-card { padding: 0; gap: 0; border: 0; background: transparent; }
+  .war-operation__entry--join { padding-top: 12px; }
+  .war-operation__entry--join h2 { font-size: 26px; }
+  .war-operation__entry--join > p { font-size: 10px; }
+  .war-multiplayer__status { min-height: 26px; padding: 6px 8px; font-size: 8px; }
+  .war-operation > .war-multiplayer__advanced { margin-top: 0; font-size: 8px; }
+
+  .war-mode-card__actions {
+    position: fixed;
+    z-index: 132;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: grid;
+    grid-template-columns: minmax(0,1.25fr) minmax(0,.75fr);
+    gap: 6px;
+    padding: 7px 9px max(7px,env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(223,189,100,.48);
+    background: rgba(7,11,11,.96);
+    box-shadow: 0 -12px 34px rgba(0,0,0,.56);
+    backdrop-filter: blur(13px);
+  }
+  .war-mobile-deploy-summary {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: auto minmax(0,1fr);
+    gap: 8px;
+    align-items: baseline;
+    min-width: 0;
+  }
+  .war-mobile-deploy-summary span { color: var(--war-gold); font: 700 7px/1 ui-monospace,Menlo,monospace; letter-spacing: .1em; }
+  .war-mobile-deploy-summary strong { overflow: hidden; color: #cbd4cf; font: 500 8px/1 ui-monospace,Menlo,monospace; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+  .war-mode-card__actions .war-button { min-height: 48px; padding: 0 7px; font-size: 9px; }
+  body:has(> .war-setup) .iron-feedback__trigger { display: none; }
+}
+
+@media (max-width: 360px) {
+  .war-setup__header { padding-right: 10px; padding-left: 10px; }
+  .war-setup__title { font-size: 25px; }
+  .war-mobile-steps { padding-right: 6px; padding-left: 6px; }
+  .war-mobile-steps button { font-size: 7px; }
+  .war-config, .war-operation { padding-right: 6px; padding-left: 6px; }
+  .war-section { padding: 10px; }
+  .war-choice { font-size: 8px; }
+  .war-mode-card__actions { padding-right: 6px; padding-left: 6px; }
+}
+
+@media (max-width: 920px) and (max-height: 560px) and (orientation: landscape) {
+  .war-setup { padding: 0; overflow: hidden; }
+  .war-setup__shell {
+    width: 100%;
+    height: 100dvh;
+    min-height: 0;
+    grid-template-rows: auto auto auto minmax(0,1fr);
+    overflow: hidden;
+    border: 0;
+  }
+  .war-setup__header { min-height: 35px; padding: max(5px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) 5px max(10px,env(safe-area-inset-left)); }
+  .war-setup__header > div:first-child { display: flex; align-items: center; gap: 12px; }
+  .war-setup__eyebrow { gap: 7px; font-size: 6px; }
+  .war-setup__title { margin: 0; font-size: 21px; }
+  .war-setup__intro, .war-setup__badge { display: none; }
+  .war-tabs, .war-tab { min-height: 34px; }
+  .war-tab { padding: 2px 8px; }
+  .war-tab span { font-size: 14px; }
+  .war-tab small { font-size: 6px; }
+  .war-mobile-steps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 2px; padding: 4px max(8px,env(safe-area-inset-right)) 4px max(8px,env(safe-area-inset-left)); background: #0a0f10; border-bottom: 1px solid var(--war-line); }
+  .war-mobile-steps button { height: 27px; border: 1px solid rgba(151,164,157,.24); border-radius: 3px; color: #8e9a95; background: #111718; font: 700 7px/1 ui-monospace,Menlo,monospace; }
+  .war-mobile-steps button.is-active { border-color: rgba(223,189,100,.7); color: #f0d56a; background: rgba(223,189,100,.09); }
+  .war-setup__body, .war-setup__body.is-join-entry {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-padding: 6px 0 calc(68px + env(safe-area-inset-bottom));
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+  .war-config {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 7px;
+    min-height: 0;
+    padding: 7px max(8px,env(safe-area-inset-right)) 0 max(8px,env(safe-area-inset-left));
+    overflow: visible;
+    border: 0;
+  }
+  .war-config__mode-note { grid-column: 1 / -1; margin: 0 2px; font-size: 6px; }
+  .war-section { margin: 0; padding: 9px; scroll-margin-top: 6px; border: 1px solid rgba(151,164,157,.25); border-radius: 4px; background: rgba(13,18,19,.9); }
+  .war-section:last-child { margin: 0; padding-bottom: 9px; border-bottom: 1px solid rgba(151,164,157,.25); }
+  .war-section--battlefield { grid-column: 1; grid-row: 2 / span 2; }
+  .war-section--rules { grid-column: 2; grid-row: 2; }
+  .war-section--forces { grid-column: 2; grid-row: 3; }
+  .war-section--brief { grid-column: 1 / -1; grid-row: 4; }
+  .war-section__heading { gap: 7px; margin-bottom: 7px; }
+  .war-section__heading p, .war-field__description, .war-field-note { display: none; }
+  .war-section__index { min-width: 23px; padding: 2px 3px; }
+  .war-section h2 { font-size: 16px; }
+  .war-battlefield { grid-template-columns: minmax(126px,.72fr) minmax(0,1.28fr); gap: 8px; }
+  .war-map-preview { min-height: 96px; }
+  .war-settings-grid, .war-rules-grid { grid-template-columns: 1fr; gap: 8px; }
+  .war-choice { height: 34px; font-size: 7px; }
+  .war-input input, .war-input select { height: 34px; font-size: 10px; }
+  .war-seed-row { grid-template-columns: minmax(0,1fr) 78px; }
+  .war-seed-row > .war-button { min-height: 34px; padding: 0 3px; font-size: 6px; }
+  .war-armies { gap: 6px; }
+  .war-armies__header { display: none; }
+  .war-army-row { grid-template-columns: 72px repeat(4,minmax(0,1fr)); gap: 3px; }
+  .war-army-row__label { grid-column: auto; margin: 0; font-size: 7px; }
+  .war-choice--side { height: 29px; padding: 0 2px; font-size: 7px; }
+  .war-section--brief .war-history, .war-section--brief .war-aside__subheading, .war-section--brief .war-controls { display: none; }
+  .war-brief { grid-template-columns: 1fr; }
+  .war-context { flex: 0 0 auto; min-height: 0; border: 0; background: transparent; }
+  .war-setup__body.is-join-entry .war-context { width: 100%; min-height: 0; margin: 0; border: 0; }
+  .war-operation { min-height: 0; padding: 0 max(8px,env(safe-area-inset-right)) 7px max(8px,env(safe-area-inset-left)); gap: 5px; overflow: visible; }
+  .war-operation__entry:not(.war-operation__entry--join) > .war-aside__kicker,
+  .war-operation__entry:not(.war-operation__entry--join) > h2,
+  .war-operation__entry:not(.war-operation__entry--join) > p,
+  .war-operation__entry:not(.war-operation__entry--join) .war-mode-card > div:first-child { display: none; }
+  .war-operation__entry:not(.war-operation__entry--join), .war-operation__entry:not(.war-operation__entry--join) .war-mode-card { padding: 0; gap: 0; border: 0; background: transparent; }
+  .war-multiplayer__status { min-height: 22px; padding: 5px 7px; font-size: 7px; }
+  .war-operation > .war-multiplayer__advanced { margin-top: 0; font-size: 7px; }
+  .war-mode-card__actions {
+    position: fixed;
+    z-index: 132;
+    right: max(7px,env(safe-area-inset-right));
+    bottom: max(6px,env(safe-area-inset-bottom));
+    left: max(7px,env(safe-area-inset-left));
+    display: grid;
+    grid-template-columns: minmax(100px,.65fr) minmax(150px,1.15fr) minmax(110px,.8fr);
+    gap: 6px;
+    align-items: center;
+    padding: 6px;
+    border: 1px solid rgba(223,189,100,.38);
+    border-radius: 5px;
+    background: rgba(7,11,11,.95);
+    box-shadow: 0 8px 28px rgba(0,0,0,.56);
+    backdrop-filter: blur(12px);
+  }
+  .war-mobile-deploy-summary { display: grid; gap: 2px; min-width: 0; }
+  .war-mobile-deploy-summary span { color: var(--war-gold); font: 700 6px/1 ui-monospace,Menlo,monospace; letter-spacing: .08em; }
+  .war-mobile-deploy-summary strong { overflow: hidden; color: #cbd4cf; font: 500 7px/1 ui-monospace,Menlo,monospace; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+  .war-mode-card__actions .war-button { min-height: 42px; padding: 0 6px; font-size: 8px; }
+  body:has(> .war-setup) .iron-feedback__trigger { display: none; }
 }
 
 .mobile-game-controls { display:none; }
