@@ -89,10 +89,22 @@ function fieldKey(field) {
   return field?.target || field?.id || '';
 }
 
-function assignField(values, fields, aliases, value, required = true) {
-  const field = findField(fields, aliases);
+function assignField(values, fields, aliases, value, required = true, fallbackTypes = []) {
+  const field = findField(fields, aliases) ?? fields.find((candidate) => {
+    const key = fieldKey(candidate);
+    return !candidate.deleted
+      && key
+      && !(key in values)
+      && fallbackTypes.includes(normalize(candidate.type));
+  });
   const key = fieldKey(field);
-  if (!key && required) throw new Error(`Required Wix field not found: ${aliases[0]}`);
+  if (!key && required) {
+    const available = fields
+      .filter((candidate) => !candidate.deleted)
+      .map((candidate) => `${candidate.label ?? candidate.target ?? candidate.id} (${candidate.type ?? 'UNKNOWN'})`)
+      .join(', ');
+    throw new Error(`Required Wix field not found: ${aliases[0]}; available: ${available}`);
+  }
   if (key) values[key] = value;
 }
 
@@ -113,7 +125,12 @@ function feedbackValues(fields, submission) {
   const values = {};
   assignField(values, fields, ['player name', 'your name', 'name'], submission.name);
   assignField(values, fields, ['rating', 'rate the game', 'game rating'], submission.rating);
-  assignField(values, fields, ['feedback', 'feedback about the game', 'message'], submission.message);
+  assignField(values, fields, [
+    'feedback',
+    'feedback about the game',
+    'message',
+    'tell us what worked, what broke, or what would make the battle better',
+  ], submission.message, true, ['string']);
   assignField(values, fields, ['page url', 'page', 'url'], submission.page, false);
   return values;
 }

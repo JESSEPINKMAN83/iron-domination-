@@ -67,7 +67,11 @@ describe('wix-submit Netlify function', () => {
           fields: [
             { target: 'player_name', label: 'Player name', type: 'STRING' },
             { target: 'rating', label: 'Rating', type: 'RATING' },
-            { target: 'feedback', label: 'Feedback', type: 'STRING' },
+            {
+              target: 'feedback',
+              label: 'Describe the battle in your own words',
+              type: 'STRING',
+            },
             { target: 'page_url', label: 'Page URL', type: 'URL' },
           ],
         },
