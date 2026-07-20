@@ -4,3 +4,8 @@
 
 [functions]
   directory = "netlify/functions"
+
+[[redirects]]
+  from = "/api/wix-submit"
+  to = "/.netlify/functions/wix-submit"
+  status = 200
