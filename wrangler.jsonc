@@ -3,6 +3,9 @@
   "name": "throbbing-truth-af19",
   "main": "./cloudflare-worker.mjs",
   "compatibility_date": "2026-07-14",
+  "build": {
+    "command": "npm run build:cloudflare"
+  },
   "assets": {
     "directory": "./dist-cloudflare",
     "binding": "ASSETS",
