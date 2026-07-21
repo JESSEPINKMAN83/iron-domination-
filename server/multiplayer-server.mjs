@@ -23,6 +23,7 @@ const rooms = new Map();
 /**
  * @typedef {{
  *   code: string;
+ *   matchId?: string;
  *   mapId: string;
  *   mapSize: 'small' | 'medium' | 'large';
  *   seed: number;
@@ -322,6 +323,7 @@ function restoreRoom(snapshot) {
   const now = Date.now();
   const room = {
     code: normalizeRoomCode(snapshot?.code),
+    matchId: typeof snapshot?.matchId === 'string' && /^[0-9a-f-]{16,64}$/i.test(snapshot.matchId) ? snapshot.matchId : randomUUID(),
     mapId: normalizeMapId(snapshot?.mapId),
     mapSize: normalizeMapSize(snapshot?.mapSize),
     seed: Math.max(1, Math.floor(Number(snapshot?.seed) || 1)),
@@ -412,6 +414,7 @@ function detachSocket(socket) {
 
 function startRoom(room) {
   if (room.status !== 'waiting') return;
+  room.matchId = randomUUID();
   room.players = room.players.filter((player) => player.connected);
   room.inputDelay = inputDelayForRoom(room);
   room.status = 'starting';
@@ -430,6 +433,7 @@ function startRoom(room) {
 }
 
 function startRematch(room) {
+  room.matchId = randomUUID();
   room.status = 'starting';
   room.rematchStarting = true;
   room.startsAt = Date.now() + START_COUNTDOWN_MS;
@@ -472,6 +476,7 @@ function shutdown() {
 function publicRoom(room) {
   return {
     code: room.code,
+    matchId: room.matchId,
     mapId: room.mapId,
     mapSize: room.mapSize,
     seed: room.seed,

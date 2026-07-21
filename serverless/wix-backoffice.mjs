@@ -31,6 +31,40 @@ function validEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 254;
 }
 
+function finiteNumber(value, min, max, precision = 0) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return undefined;
+  const bounded = Math.max(min, Math.min(max, number));
+  const factor = 10 ** precision;
+  return Math.round(bounded * factor) / factor;
+}
+
+function parseMatchMetadata(value) {
+  if (!value || typeof value !== 'object') return undefined;
+  const matchId = cleanText(value.matchId, 120);
+  if (!matchId) return undefined;
+  const status = ['ongoing', 'victory', 'defeat'].includes(value.status) ? value.status : 'ongoing';
+  return {
+    matchId,
+    status,
+    multiplayer: value.multiplayer === true,
+    roomCode: cleanText(value.roomCode, 12) || undefined,
+    mapId: cleanText(value.mapId, 80),
+    mapSize: cleanText(value.mapSize, 20),
+    seed: finiteNumber(value.seed, 1, 2_147_483_647),
+    playerName: cleanText(value.playerName, 120) || undefined,
+    playerTeam: finiteNumber(value.playerTeam, 1, 4),
+    playerSide: finiteNumber(value.playerSide, 1, 4),
+    elapsedSeconds: finiteNumber(value.elapsedSeconds, 0, 604_800, 1),
+    fps: finiteNumber(value.fps, 0, 1000, 1),
+    pingMs: finiteNumber(value.pingMs, 0, 60_000),
+    quality: cleanText(value.quality, 40),
+    renderScale: finiteNumber(value.renderScale, 0.1, 4, 2),
+    engine: cleanText(value.engine, 80) || undefined,
+    buildVersion: cleanText(value.buildVersion, 80),
+  };
+}
+
 function configuration(env) {
   return {
     apiKey: env.WIX_API_KEY ?? '',
@@ -165,6 +199,7 @@ function parseSubmission(body) {
       message,
       rating,
       page: cleanText(body.page, 1000),
+      match: parseMatchMetadata(body.match),
     };
   }
 

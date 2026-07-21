@@ -3,6 +3,7 @@ import type { CombatMode } from '../content/rules';
 
 export interface MultiplayerRoom {
   code: string;
+  matchId?: string;
   mapId?: string;
   mapSize?: string;
   seed: number;

@@ -1,8 +1,13 @@
 import './feedback.css';
-import { submitToBackoffice } from './backoffice';
+import { submitToBackoffice, type FeedbackMatchMetadata } from './backoffice';
 
 const FEEDBACK_FORM_NAME = 'iron-dominion-game-feedback';
 const FEEDBACK_ENDPOINT = 'https://formspree.io/f/xykrzdka';
+let matchMetadataProvider: (() => FeedbackMatchMetadata | undefined) | undefined;
+
+export function setFeedbackMatchMetadataProvider(provider: () => FeedbackMatchMetadata | undefined): void {
+  matchMetadataProvider = provider;
+}
 
 export function showFeedbackWidget(): void {
   if (document.getElementById('iron-feedback-widget')) return;
@@ -90,6 +95,7 @@ export function showFeedbackWidget(): void {
       rating: Number(data.get('rating') ?? 0),
       message: String(data.get('message') ?? ''),
       page: String(data.get('page') ?? location.href),
+      match: matchMetadataProvider?.(),
     };
     try {
       const savedToWix = await submitToBackoffice({ kind: 'feedback', ...feedback });
@@ -106,6 +112,8 @@ export function showFeedbackWidget(): void {
             rating: String(feedback.rating),
             message: feedback.message,
             page: feedback.page,
+            match_id: feedback.match?.matchId ?? '',
+            match_context: feedback.match ? JSON.stringify(feedback.match) : '',
           }).toString(),
         });
         if (!response.ok) throw new Error(`Feedback failed (${response.status})`);

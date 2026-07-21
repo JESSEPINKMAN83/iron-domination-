@@ -1,6 +1,6 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { showLandingScreen } from './landing';
-import { showFeedbackWidget } from './feedback';
+import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import './setup.css';
 import './mobile.css';
 import { EnemyCommander } from './ai/commander';
@@ -2106,6 +2106,30 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastUiRefreshTick = -999;
   let renderFrame = 0;
   let deferredEffectDt = 0;
+  const fallbackMatchId = `${multiplayerMode ? `mp-${multiplayer!.session.room.code}` : 'sp'}-${crypto.randomUUID()}`;
+  setFeedbackMatchMetadataProvider(() => {
+    const room = multiplayer?.session.room;
+    const player = room?.players.find((candidate) => candidate.id === multiplayer?.session.player.id) ?? multiplayer?.session.player;
+    return {
+      matchId: room?.matchId ?? fallbackMatchId,
+      status: outcome ?? 'ongoing',
+      multiplayer: multiplayerMode,
+      roomCode: room?.code,
+      mapId: settings.mapId,
+      mapSize: settings.mapSize,
+      seed: settings.seed,
+      playerName: player?.name,
+      playerTeam: localTeam,
+      playerSide: settings.armySides[localTeam - 1] ?? localTeam,
+      elapsedSeconds: Math.max(0, Math.round((sim.tick / SIM_HZ) * 10) / 10),
+      fps: Math.max(0, Math.round(fps * 10) / 10),
+      pingMs: player?.pingMs,
+      quality: ctx.visualQualityLabel,
+      renderScale: Math.round(ctx.renderScale * 100) / 100,
+      engine: player?.engine,
+      buildVersion: import.meta.env.VITE_APP_VERSION ?? '0.1.0',
+    };
+  });
 
   const loop = new GameLoop({
     simTick: () => {
