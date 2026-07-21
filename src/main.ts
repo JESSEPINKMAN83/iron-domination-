@@ -1,5 +1,5 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
-import { showLandingScreen } from './landing';
+import { betaPlayerName, hasBetaAccess, showLandingScreen } from './landing';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import './setup.css';
 import './mobile.css';
@@ -32,6 +32,7 @@ import { RtsController } from './modes/rtsController';
 import { MobileGameControls } from './mobile/gameControls';
 import { isMobileTouchDevice, MobileLandscapeGate } from './mobile/platform';
 import { LockstepRuntime } from './net/commands';
+import { multiplayerInviteUrl, roomFromInvite } from './net/invite';
 import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, shouldLaunchLocalSkirmish, waitForMultiplayerServer, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession, type TacticalPingKind } from './net/multiplayer';
 import { AssetPipeline } from './render/assets';
 import { BuildingView } from './render/buildingView';
@@ -80,6 +81,7 @@ import {
   spawnWaspAt,
 } from './sim/world';
 import { Hud } from './ui/hud';
+import { firstVisibleHostile, MissionComms } from './ui/missionComms';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
 
@@ -1067,7 +1069,7 @@ function createMultiplayerSetupPanel(
       if (activeMode !== 'host' || activeSession) return;
       setStatus('Battle server online · opening your room...', false);
       client = new MultiplayerClient(server);
-      const session = await client.host({ ...settings(), name: 'Host', playerId: rememberedPlayerId(server, 'HOST') });
+      const session = await client.host({ ...settings(), name: betaPlayerName() ?? 'Host', playerId: rememberedPlayerId(server, 'HOST') });
       if (activeMode !== 'host' || activeSession) {
         client.disconnect();
         return;
@@ -1104,7 +1106,7 @@ function createMultiplayerSetupPanel(
       setStatus('Battle server online · joining room...', false);
       const existing = currentSession();
       const client = new MultiplayerClient(server);
-      const session = await client.join(code, 'Guest', existing?.player.id ?? rememberedPlayerId(server, code));
+      const session = await client.join(code, betaPlayerName() ?? 'Guest', existing?.player.id ?? rememberedPlayerId(server, code));
       connectSession(client, session);
     } catch (err) {
       setStatus(`Could not join room: ${friendlyMultiplayerError(err)}`, true);
@@ -1177,14 +1179,31 @@ function createRoomLobbyView(
   const shareCopy = document.createElement('div');
   shareCopy.className = 'war-lobby__room-code';
   shareCopy.innerHTML = '<span>ROOM</span><strong></strong>';
+  const canNativeShare = Reflect.has(navigator, 'share') && typeof navigator.share === 'function';
   const copy = document.createElement('button');
   copy.type = 'button';
-  copy.textContent = 'COPY';
-  copy.className = 'war-button war-button--quiet war-lobby__copy';
-  headerTools.append(shareCopy, copy);
+  copy.textContent = canNativeShare ? 'SHARE LINK' : 'COPY LINK';
+  copy.className = 'war-button war-button--secondary war-lobby__copy';
+  headerTools.append(shareCopy);
   heading.append(title, headerTools);
 
   let latestRoom = session.room;
+
+  const invite = document.createElement('section');
+  invite.className = 'war-lobby__invite';
+  const inviteHeading = document.createElement('div');
+  inviteHeading.className = 'war-lobby__invite-heading';
+  inviteHeading.innerHTML = '<strong>INVITE PLAYERS</strong><span>Send this link. They will sign up if needed, then join this room automatically.</span>';
+  const inviteControls = document.createElement('div');
+  inviteControls.className = 'war-lobby__invite-controls';
+  const inviteLink = document.createElement('input');
+  inviteLink.className = 'war-lobby__invite-link';
+  inviteLink.type = 'text';
+  inviteLink.readOnly = true;
+  inviteLink.setAttribute('aria-label', 'Multiplayer invitation link');
+  inviteLink.onclick = () => inviteLink.select();
+  inviteControls.append(inviteLink, copy);
+  invite.append(inviteHeading, inviteControls);
 
   const armyBar = document.createElement('div');
   armyBar.className = 'war-lobby__army-bar';
@@ -1304,10 +1323,35 @@ function createRoomLobbyView(
   const actions = document.createElement('div');
   actions.className = 'war-lobby__actions';
   copy.onclick = async () => {
-    const url = new URL(location.href);
-    url.searchParams.set('room', latestRoom.code);
-    await navigator.clipboard?.writeText(url.toString());
-    status.textContent = `Invite copied · ${latestRoom.code}`;
+    const inviteUrl = multiplayerInviteUrl(location.href, latestRoom.code);
+    try {
+      if (canNativeShare) {
+        await navigator.share({
+          title: 'Join my Iron Dominion battle',
+          text: `Join room ${latestRoom.code}. The battlefield is already configured.`,
+          url: inviteUrl,
+        });
+        status.textContent = `Invitation ready · room ${latestRoom.code}`;
+      } else {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(inviteUrl);
+        } else {
+          const fallback = document.createElement('textarea');
+          fallback.value = inviteUrl;
+          fallback.style.cssText = 'position:fixed;left:-9999px;top:0;';
+          document.body.appendChild(fallback);
+          fallback.select();
+          const copied = document.execCommand('copy');
+          fallback.remove();
+          if (!copied) throw new Error('clipboard-unavailable');
+        }
+        status.textContent = `Invite link copied · room ${latestRoom.code}`;
+      }
+    } catch (error) {
+      if ((error as DOMException)?.name !== 'AbortError') {
+        status.textContent = 'Could not share the invitation. Copy the room code instead.';
+      }
+    }
     copy.blur();
   };
   const ready = document.createElement('button');
@@ -1338,7 +1382,7 @@ function createRoomLobbyView(
   rosterTitle.className = 'war-lobby__section-title';
   rosterTitle.textContent = 'PLAYERS';
   roster.append(rosterTitle, players);
-  panel.append(heading, armyBar, roster, actions, status);
+  panel.append(heading, invite, armyBar, roster, actions, status);
   root.appendChild(panel);
 
   let hostReadyRequestPending = false;
@@ -1349,6 +1393,8 @@ function createRoomLobbyView(
     const roomCode = shareCopy.querySelector('strong');
     if (roomCode) roomCode.textContent = room.code;
     const isHost = playerIndex === 1;
+    invite.hidden = !isHost || room.status !== 'waiting';
+    inviteLink.value = multiplayerInviteUrl(location.href, room.code);
     for (const [count, button] of armyButtons) {
       const selected = room.armyCount === count;
       button.classList.toggle('is-active', selected);
@@ -1743,6 +1789,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const audio = new AudioDirector(ctx.camera);
   window.addEventListener('pointerdown', () => audio.unlock(), { passive: true });
   window.addEventListener('keydown', () => audio.unlock(), { passive: true });
+  const missionComms = lineupStart || multiplayerMode ? undefined : new MissionComms();
+  let firstContactAnnounced = false;
   const orderMarkers = new OrderMarkerView(hf);
   ctx.scene.add(orderMarkers.group);
   const fogView = new FogView(playerVision, terrain.chunkGeometries);
@@ -2149,6 +2197,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       for (const entity of spawned) {
         unitView.addEntity(entity);
       }
+      if (!firstContactAnnounced && sim.tick % 6 === 0) {
+        const hostile = firstVisibleHostile(
+          sim.world.entities,
+          (team) => areTeamsHostile(sim, localTeam, team),
+          isVisibleToPlayer,
+        );
+        if (hostile) {
+          firstContactAnnounced = true;
+          missionComms?.announceFirstContact(hostile);
+        }
+      }
       if (sim.tick % 3 === 0) {
         for (const entity of sim.world.entities) {
           if (entity.selectable?.type === 'tank' && !entity.destroyed) scatter.crushNear(entity.transform.x, entity.transform.z, 3.6);
@@ -2239,33 +2298,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   overlay.remove();
   loop.start();
-  if (!lineupStart) showMissionBriefing(settings);
-}
-
-function showMissionBriefing(settings: SkirmishSettings): void {
-  const existing = document.getElementById('mission-briefing-toast');
-  if (existing) existing.remove();
-  const el = document.createElement('div');
-  el.id = 'mission-briefing-toast';
-  el.style.cssText =
-    'position:fixed;left:50%;top:18px;transform:translate(-50%,-18px);z-index:34;width:min(560px,calc(100vw - 32px));' +
-    'padding:12px 16px;background:rgba(8,12,14,.9);border:1px solid #596260;border-radius:3px;opacity:0;' +
-    'box-shadow:0 12px 38px rgba(0,0,0,.42);font:11px/1.45 ui-monospace,Menlo,monospace;color:#d7e0e7;' +
-    'letter-spacing:.08em;pointer-events:none;transition:opacity .35s ease,transform .35s ease;';
-  el.innerHTML =
-    '<div style="display:flex;justify-content:space-between;gap:12px;color:#f0d56a;font-size:13px;">' +
-    '<span>MISSION ONLINE</span><span>DESTROY COMMAND YARD</span></div>' +
-    `<div style="margin-top:5px;color:#aebbc4;">${settings.ai.toUpperCase()} / ${settings.aiStyle.toUpperCase()} · build power, refinery, production, then scout and strike.</div>`;
-  document.body.appendChild(el);
-  requestAnimationFrame(() => {
-    el.style.opacity = '1';
-    el.style.transform = 'translate(-50%,0)';
+  missionComms?.announceOpening({
+    multiplayer: multiplayerMode,
+    ai: settings.ai.toUpperCase(),
+    aiStyle: settings.aiStyle.toUpperCase(),
   });
-  window.setTimeout(() => {
-    el.style.opacity = '0';
-    el.style.transform = 'translate(-50%,-18px)';
-    window.setTimeout(() => el.remove(), 450);
-  }, 6500);
 }
 
 function createGameMenu(
@@ -2900,6 +2937,7 @@ function findValidTestPlacement(
 async function start(): Promise<void> {
   showFeedbackWidget();
   const params = new URLSearchParams(location.search);
+  const inviteRoom = roomFromInvite(params);
   const mobileLandscape = new MobileLandscapeGate();
   mobileLandscape.activate();
   const settings = initialSettings(params);
@@ -2920,7 +2958,7 @@ async function start(): Promise<void> {
     return;
   }
   const localSetupPreview = !isPublicHost(location.hostname) && params.get('setup-preview') === '1';
-  if (!localSetupPreview) await showLandingScreen();
+  if (!localSetupPreview && !(inviteRoom && hasBetaAccess())) await showLandingScreen({ inviteRoom });
   const chosen = await showSetupScreen(settings);
   document.getElementById('iron-landing')?.remove();
   await boot(chosen);

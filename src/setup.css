@@ -310,7 +310,14 @@
 .war-lobby__room-code { min-width: 0; display: flex; gap: 3px; align-items: baseline; }
 .war-lobby__room-code span { color: var(--war-dim); font: 6px/1.2 ui-monospace, monospace; letter-spacing: .08em; }
 .war-lobby__room-code strong { color: var(--war-gold-bright); font: 12px/1 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; letter-spacing: .08em; }
-.war-lobby__copy { min-height: 16px; padding: 1px 5px; font-size: 6px; }
+.war-lobby__invite { min-width: 0; padding: 7px; display: grid; gap: 6px; border: 1px solid rgba(223, 189, 100, .48); background: linear-gradient(135deg, rgba(223, 189, 100, .13), rgba(0, 0, 0, .18)); }
+.war-lobby__invite-heading { min-width: 0; display: grid; gap: 1px; }
+.war-lobby__invite-heading strong { color: var(--war-gold-bright); font: 700 9px/1.2 ui-monospace, monospace; letter-spacing: .1em; }
+.war-lobby__invite-heading span { overflow: hidden; color: #aab5b0; font: 7px/1.3 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.war-lobby__invite-controls { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
+.war-lobby__invite-link { min-width: 0; height: 25px; padding: 0 7px; border: 1px solid var(--war-line-strong); outline: none; color: #dce8e1; background: #070c0d; font: 8px/1 ui-monospace, monospace; }
+.war-lobby__invite-link:focus { border-color: #e2c768; box-shadow: 0 0 0 2px rgba(226, 199, 104, .12); }
+.war-lobby__copy { min-height: 25px; padding: 3px 9px; font-size: 7px; white-space: nowrap; }
 .war-lobby__army-bar { min-height: 23px; padding: 2px 5px; display: flex; gap: 5px; align-items: center; justify-content: space-between; border: 1px solid rgba(223, 189, 100, .25); background: linear-gradient(135deg, rgba(223, 189, 100, .07), rgba(0, 0, 0, .12)); }
 .war-lobby__army-label { min-width: 0; display: grid; gap: 1px; }
 .war-lobby__army-label strong { color: #e2c768; font: 700 8px/1.2 ui-monospace, monospace; letter-spacing: .08em; }
