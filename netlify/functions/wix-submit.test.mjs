@@ -14,6 +14,8 @@ beforeEach(() => {
   clearFormSummaryCache();
   process.env.WIX_API_KEY = 'test-api-key';
   process.env.WIX_SITE_ID = 'test-site';
+  process.env.WIX_CMS_ENDPOINT = 'https://wix.test/_functions/ironDominionSubmission';
+  process.env.IRON_DOMINION_INGEST_SECRET = 'test-ingest-secret';
 });
 
 afterEach(() => {
@@ -34,7 +36,8 @@ describe('wix-submit Netlify function', () => {
         },
       }))
       .mockResolvedValueOnce(wixResponse({ contact: { id: 'contact-1' } }))
-      .mockResolvedValueOnce(wixResponse({ submission: { id: 'submission-1' } }));
+      .mockResolvedValueOnce(wixResponse({ submission: { id: 'submission-1' } }))
+      .mockResolvedValueOnce(wixResponse({ ok: true }, 201));
 
     const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
       method: 'POST',
@@ -49,7 +52,7 @@ describe('wix-submit Netlify function', () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     const contactBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(contactBody.info.emails.items[0].email).toBe('ada@example.com');
     const submissionBody = JSON.parse(fetchMock.mock.calls[2][1].body);
@@ -57,6 +60,15 @@ describe('wix-submit Netlify function', () => {
       'contact.name': 'Ada Lovelace',
       'contact.email': 'ada@example.com',
       release_updates: true,
+    });
+    expect(fetchMock.mock.calls[3][0]).toBe('https://wix.test/_functions/ironDominionSubmission');
+    expect(fetchMock.mock.calls[3][1].headers['x-iron-dominion-secret']).toBe('test-ingest-secret');
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({
+      kind: 'signup',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      releaseUpdates: true,
+      source: 'Iron Dominion landing page',
     });
   });
 
@@ -76,7 +88,8 @@ describe('wix-submit Netlify function', () => {
           ],
         },
       }))
-      .mockResolvedValueOnce(wixResponse({ submission: { id: 'submission-2' } }));
+      .mockResolvedValueOnce(wixResponse({ submission: { id: 'submission-2' } }))
+      .mockResolvedValueOnce(wixResponse({ ok: true }, 201));
 
     const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
       method: 'POST',
@@ -91,13 +104,20 @@ describe('wix-submit Netlify function', () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     const submissionBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(submissionBody.submission.submissions).toEqual({
       player_name: 'Player One',
       rating: 4,
       feedback: 'The battle was excellent.',
       page_url: 'https://game.test/?map=frost',
+    });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({
+      kind: 'feedback',
+      name: 'Player One',
+      message: 'The battle was excellent.',
+      rating: 4,
+      page: 'https://game.test/?map=frost',
     });
   });
 

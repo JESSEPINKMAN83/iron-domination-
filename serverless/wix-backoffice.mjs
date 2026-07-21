@@ -1,6 +1,7 @@
 const DEFAULT_SITE_ID = 'be56a4e3-290f-4469-87fc-b4a7a91dc5a9';
 const DEFAULT_SIGNUP_FORM_ID = 'ee1501cf-e7e6-463c-a9a7-3438d788d12f';
 const DEFAULT_FEEDBACK_FORM_ID = '495e01e3-2f2a-4824-aa2a-7b9ba9d3c4ab';
+const DEFAULT_CMS_ENDPOINT = 'https://danir412.wixsite.com/my-site-66/_functions/ironDominionSubmission';
 const WIX_FORMS_NAMESPACE = 'wix.form_app.form';
 
 const formSummaryCache = new Map();
@@ -36,6 +37,8 @@ function configuration(env) {
     siteId: env.WIX_SITE_ID ?? DEFAULT_SITE_ID,
     signupFormId: env.WIX_SIGNUP_FORM_ID ?? DEFAULT_SIGNUP_FORM_ID,
     feedbackFormId: env.WIX_FEEDBACK_FORM_ID ?? DEFAULT_FEEDBACK_FORM_ID,
+    cmsEndpoint: env.WIX_CMS_ENDPOINT ?? DEFAULT_CMS_ENDPOINT,
+    cmsSecret: env.IRON_DOMINION_INGEST_SECRET ?? '',
   };
 }
 
@@ -210,6 +213,24 @@ async function createFormSubmission(config, formId, values) {
   });
 }
 
+async function createCmsSubmission(config, submission) {
+  if (!config.cmsEndpoint || !config.cmsSecret) return;
+
+  const response = await fetch(config.cmsEndpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-iron-dominion-secret': config.cmsSecret,
+    },
+    body: JSON.stringify(submission),
+  });
+
+  if (!response.ok) {
+    const details = (await response.text()).slice(0, 500);
+    throw new Error(`Wix CMS request failed (${response.status}): ${details}`);
+  }
+}
+
 export async function handleWixSubmission(request, env = {}) {
   if (request.method !== 'POST') return jsonResponse(405, { error: 'method-not-allowed' });
 
@@ -235,6 +256,7 @@ export async function handleWixSubmission(request, env = {}) {
       const summary = await getFormSummary(config, config.feedbackFormId);
       await createFormSubmission(config, config.feedbackFormId, feedbackValues(summary.fields, submission));
     }
+    await createCmsSubmission(config, submission);
     return jsonResponse(200, { ok: true });
   } catch (error) {
     console.error('[wix-submit]', error instanceof Error ? error.message : error);
