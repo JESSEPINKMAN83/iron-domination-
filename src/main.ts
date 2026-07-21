@@ -105,10 +105,12 @@ interface SkirmishSettings {
   combatMode: CombatMode;
   armyCount: ArmyCount;
   armySides: ArmySides;
+  spawnSlots: ArmySpawnSlots;
 }
 
 type ArmyCount = 2 | 3 | 4;
 type ArmySides = [number, number, number, number];
+type ArmySpawnSlots = [number, number, number, number];
 
 interface ArmyRuntime {
   team: number;
@@ -143,6 +145,12 @@ const LOBBY_COLORS = {
   azure: '#67b8ef',
   amber: '#e8b854',
 } as const;
+
+function escapeLobbyText(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character] ?? character);
+}
 
 function mapChoiceLabel(id: MapId): string {
   return MAP_PRESETS[id].shortLabel;
@@ -261,6 +269,21 @@ function sanitizeArmySides(value: unknown): ArmySides | undefined {
   }) as ArmySides;
 }
 
+function defaultSpawnSlots(): ArmySpawnSlots {
+  return [1, 2, 3, 4];
+}
+
+function sanitizeSpawnSlots(value: unknown): ArmySpawnSlots | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const used = new Set<number>();
+  return [0, 1, 2, 3].map((index) => {
+    const requested = Math.max(1, Math.min(4, Math.floor(Number(value[index]) || index + 1)));
+    const slot = used.has(requested) ? [1, 2, 3, 4].find((candidate) => !used.has(candidate)) ?? index + 1 : requested;
+    used.add(slot);
+    return slot;
+  }) as ArmySpawnSlots;
+}
+
 function activeTeams(settings: Pick<SkirmishSettings, 'armyCount'>): number[] {
   return Array.from({ length: settings.armyCount }, (_, index) => index + 1);
 }
@@ -280,6 +303,7 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
       combatMode: COMBAT_MODES.includes(parsed.combatMode as CombatMode) ? parsed.combatMode : undefined,
       armyCount: sanitizeArmyCount(parsed.armyCount),
       armySides: sanitizeArmySides(parsed.armySides),
+      spawnSlots: sanitizeSpawnSlots(parsed.spawnSlots),
     };
   } catch {
     return {};
@@ -299,6 +323,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
   const combat = params.get('combat');
   const armyCount = sanitizeArmyCount(params.get('armies'));
   const sides = params.get('sides');
+  const spawns = params.get('spawns');
   return {
     mapId,
     mapSize,
@@ -309,6 +334,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
     combatMode: COMBAT_MODES.includes(combat as CombatMode) ? (combat as CombatMode) : undefined,
     armyCount,
     armySides: sides ? sanitizeArmySides(sides.split(',')) : undefined,
+    spawnSlots: spawns ? sanitizeSpawnSlots(spawns.split(',')) : undefined,
   };
 }
 
@@ -327,6 +353,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     combatMode: fromUrl.combatMode ?? stored.combatMode ?? 'assisted',
     armyCount,
     armySides: ensureOpposingSides(armyCount, armySides),
+    spawnSlots: fromUrl.spawnSlots ?? stored.spawnSlots ?? defaultSpawnSlots(),
   };
 }
 
@@ -460,6 +487,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     let refresh = (): void => {};
     let syncMultiplayerSettings = (): void => {};
     let applyingRoomSettings = false;
+    let multiplayerSpawnSlots = defaults.spawnSlots;
     const mapChoice = createSegmentedControl('Map', MAP_IDS, defaults.mapId, MAP_DESCRIPTIONS, mapChoiceLabel, () => refresh());
     const mapSizeChoice = createSegmentedControl(
       'Map size', MAP_SIZE_IDS, defaults.mapSize, MAP_SIZE_DESCRIPTIONS,
@@ -537,6 +565,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       combatMode: combatMode.value(),
       armyCount: armies.armyCount(),
       armySides: armies.armySides(),
+      spawnSlots: multiplayerSpawnSlots,
     });
     const applyRoomSettings = (room: MultiplayerRoom, playerIndex: number): void => {
       applyingRoomSettings = true;
@@ -547,6 +576,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       mapSizeChoice.setValue(sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE);
       seedInput.value = String(room.seed);
       armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
+      multiplayerSpawnSlots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
       armies.setPlayerIndex(playerIndex);
       const guestLocked = playerIndex !== 1;
       difficulty.setDisabled(guestLocked);
@@ -574,6 +604,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
         pendingMultiplayer = undefined;
         multiplayerClient?.disconnect();
       }
+      document.querySelectorAll('.war-lobby').forEach((lobby) => lobby.remove());
       root.remove();
       resolve(settings);
     };
@@ -1027,7 +1058,7 @@ function createMultiplayerSetupPanel(
     applyRoomSettings(session.room, session.player.index);
     lobbyView?.root.remove();
     lobbyView = createRoomLobbyView(client, session, settings, startSkirmish);
-    root.insertBefore(lobbyView.root, status);
+    document.body.appendChild(lobbyView.root);
     lobbyView.update(session.room, session.player.index);
     codeLabel.input.value = session.room.code;
     renderRoomStatus(session.room, session.player.index, setStatus);
@@ -1188,6 +1219,66 @@ function createRoomLobbyView(
   heading.append(title, headerTools);
 
   let latestRoom = session.room;
+  let selectedArmy = session.player.index;
+
+  const briefing = document.createElement('section');
+  briefing.className = 'war-lobby__briefing';
+  briefing.innerHTML =
+    '<div><span>IRON DOMINION · ONLINE BATTLE</span><strong>BUILD. HARVEST. COMMAND. FIGHT.</strong></div>' +
+    '<p>Establish power and production, harvest ore, command your army from above, or enter any unit with <b>V</b>. Destroy every hostile Command Yard to win.</p>';
+
+  const battlefield = document.createElement('section');
+  battlefield.className = 'war-lobby__battlefield';
+  const battlefieldHeader = document.createElement('div');
+  battlefieldHeader.className = 'war-lobby__battlefield-header';
+  battlefieldHeader.innerHTML = '<div><span>DEPLOYMENT MAP</span><strong></strong></div><p></p>';
+  const battlefieldSettings = document.createElement('div');
+  battlefieldSettings.className = 'war-lobby__battlefield-settings';
+  const createRoomSetting = (label: string): { root: HTMLDivElement; choices: HTMLDivElement } => {
+    const field = document.createElement('div');
+    field.className = 'war-lobby__room-setting';
+    const title = document.createElement('span');
+    title.textContent = label;
+    const choices = document.createElement('div');
+    choices.className = 'war-lobby__setting-choices';
+    field.append(title, choices);
+    return { root: field, choices };
+  };
+  const mapSetting = createRoomSetting('MAP TYPE');
+  const sizeSetting = createRoomSetting('MAP SIZE');
+  const aiSetting = createRoomSetting('AI STRENGTH');
+  const mapButtons = new Map<MapId, HTMLButtonElement>();
+  const sizeButtons = new Map<MapSize, HTMLButtonElement>();
+  const aiButtons = new Map<Difficulty, HTMLButtonElement>();
+  for (const mapId of MAP_IDS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = MAP_PRESETS[mapId].shortLabel;
+    button.onclick = () => client.updateSettings(latestRoom.code, session.player.id, { ...settings(), mapId });
+    mapButtons.set(mapId, button);
+    mapSetting.choices.appendChild(button);
+  }
+  for (const mapSize of MAP_SIZE_IDS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = MAP_SIZE_PRESETS[mapSize].label;
+    button.onclick = () => client.updateSettings(latestRoom.code, session.player.id, { ...settings(), mapSize });
+    sizeButtons.set(mapSize, button);
+    sizeSetting.choices.appendChild(button);
+  }
+  for (const difficulty of DIFFICULTIES) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = difficulty === 'normal' ? 'MEDIUM' : difficulty.toUpperCase();
+    button.onclick = () => client.updateSettings(latestRoom.code, session.player.id, { ...settings(), ai: difficulty });
+    aiButtons.set(difficulty, button);
+    aiSetting.choices.appendChild(button);
+  }
+  aiSetting.root.title = 'Applies to every army slot controlled by AI.';
+  battlefieldSettings.append(mapSetting.root, sizeSetting.root, aiSetting.root);
+  const map = document.createElement('div');
+  map.className = 'war-lobby__map';
+  battlefield.append(battlefieldHeader, battlefieldSettings, map);
 
   const invite = document.createElement('section');
   invite.className = 'war-lobby__invite';
@@ -1315,6 +1406,12 @@ function createRoomLobbyView(
         client.updateSettings(latestRoom.code, session.player.id, { ...settings(), armySides });
       }
     };
+    row.onclick = (event) => {
+      if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
+      if ((event.target as HTMLElement).closest('input,button,select')) return;
+      selectedArmy = index;
+      update(latestRoom, session.player.index);
+    };
     row.append(slot, identity, team, colorPicker, colorDisplay);
     return { row, slot, nameInput, nameText, connection, team, colorPicker, colorButtons, colorDisplay, defaultColor: defaultColors[offset] };
   });
@@ -1382,14 +1479,86 @@ function createRoomLobbyView(
   rosterTitle.className = 'war-lobby__section-title';
   rosterTitle.textContent = 'PLAYERS';
   roster.append(rosterTitle, players);
-  panel.append(heading, invite, armyBar, roster, actions, status);
+  const command = document.createElement('section');
+  command.className = 'war-lobby__command';
+  command.append(invite, armyBar, roster, actions, status);
+  const roomGrid = document.createElement('div');
+  roomGrid.className = 'war-lobby__grid';
+  roomGrid.append(battlefield, command);
+  panel.append(heading, briefing, roomGrid);
   root.appendChild(panel);
 
-  let hostReadyRequestPending = false;
+  let lastDeploymentSignature = '';
+  const renderDeploymentMap = (room: MultiplayerRoom, isHost: boolean): void => {
+    const mapId = sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID;
+    const mapSize = sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE;
+    const signature = JSON.stringify({
+      mapId,
+      mapSize,
+      seed: room.seed,
+      armyCount: room.armyCount,
+      armySides: room.armySides,
+      spawnSlots: room.spawnSlots,
+      selectedArmy,
+      players: room.players.map((player) => [player.index, player.name, player.color, player.connected]),
+    });
+    if (signature === lastDeploymentSignature) return;
+    lastDeploymentSignature = signature;
+    renderLobbyMapPreview(map, MAP_PRESETS[mapId], room.seed, mapSize);
+    const overlay = document.createElement('div');
+    overlay.className = 'war-lobby__deployments';
+    const slots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
+    for (let spawnSlot = 1; spawnSlot <= 4; spawnSlot++) {
+      const armyOffset = slots.findIndex((slot) => slot === spawnSlot);
+      const armyIndex = armyOffset + 1;
+      const active = armyIndex > 0 && armyIndex <= room.armyCount;
+      const player = active ? room.players.find((candidate) => candidate.index === armyIndex) : undefined;
+      const color = active ? player?.color ?? (['jade', 'crimson', 'azure', 'amber'] as const)[armyIndex - 1] : undefined;
+      const point = startPosition(100, spawnSlot);
+      const marker = document.createElement('button');
+      marker.type = 'button';
+      marker.className = 'war-lobby__deployment';
+      marker.classList.toggle('is-active', active);
+      marker.classList.toggle('is-selected', active && selectedArmy === armyIndex);
+      marker.style.left = `${50 + point.x}%`;
+      marker.style.top = `${50 + point.z}%`;
+      marker.style.setProperty('--army-color', color ? LOBBY_COLORS[color] : '#63706b');
+      marker.disabled = !isHost || room.status !== 'waiting';
+      marker.setAttribute('aria-label', active ? `Army ${armyIndex} deployment position` : `Empty deployment position ${spawnSlot}`);
+      marker.innerHTML = active
+        ? `<span class="war-lobby__deployment-pin">${armyIndex}</span><strong>${escapeLobbyText(player?.name ?? `AI ARMY ${armyIndex}`)}</strong><small>SIDE ${room.armySides[armyIndex - 1] ?? armyIndex}</small>`
+        : '<span class="war-lobby__deployment-pin">+</span><strong>OPEN POSITION</strong>';
+      marker.onclick = () => {
+        if (!isHost || room.status !== 'waiting') return;
+        if (active && selectedArmy === armyIndex) {
+          marker.blur();
+          return;
+        }
+        const movingArmy = Math.max(1, Math.min(room.armyCount, selectedArmy));
+        const next = [...slots] as ArmySpawnSlots;
+        const targetArmyOffset = slots.findIndex((slot) => slot === spawnSlot);
+        const previousSlot = next[movingArmy - 1];
+        next[movingArmy - 1] = spawnSlot;
+        if (targetArmyOffset >= 0) next[targetArmyOffset] = previousSlot;
+        client.updateSettings(room.code, session.player.id, { ...settings(), spawnSlots: next });
+        marker.blur();
+      };
+      overlay.appendChild(marker);
+    }
+    map.appendChild(overlay);
+    const mapTitle = battlefieldHeader.querySelector('strong');
+    const mapHelp = battlefieldHeader.querySelector('p');
+    if (mapTitle) mapTitle.textContent = `${MAP_PRESETS[mapId].label} · ${MAP_SIZE_PRESETS[mapSize].label}`;
+    if (mapHelp) mapHelp.textContent = isHost
+      ? `Army ${selectedArmy} selected · click another deployment point to swap positions.`
+      : 'The host controls deployment positions. Your assigned army is highlighted.';
+  };
+
   const update = (room: MultiplayerRoom, playerIndex: number): void => {
     latestRoom = room;
     session.room = room;
-    title.textContent = playerIndex === 1 ? 'YOUR BATTLE ROOM' : 'BATTLE ROOM';
+    selectedArmy = Math.max(1, Math.min(room.armyCount, selectedArmy));
+    title.textContent = playerIndex === 1 ? 'COMMAND WAR ROOM' : 'BATTLE BRIEFING';
     const roomCode = shareCopy.querySelector('strong');
     if (roomCode) roomCode.textContent = room.code;
     const isHost = playerIndex === 1;
@@ -1401,6 +1570,20 @@ function createRoomLobbyView(
       button.setAttribute('aria-pressed', String(selected));
       button.disabled = !isHost || room.status !== 'waiting';
     }
+    const roomMapId = sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID;
+    const roomMapSize = sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE;
+    for (const [mapId, button] of mapButtons) {
+      button.classList.toggle('is-active', mapId === roomMapId);
+      button.disabled = !isHost || room.status !== 'waiting';
+    }
+    for (const [mapSize, button] of sizeButtons) {
+      button.classList.toggle('is-active', mapSize === roomMapSize);
+      button.disabled = !isHost || room.status !== 'waiting';
+    }
+    for (const [difficulty, button] of aiButtons) {
+      button.classList.toggle('is-active', difficulty === room.ai);
+      button.disabled = !isHost || room.status !== 'waiting';
+    }
     for (let offset = 0; offset < playerRows.length; offset++) {
       const index = offset + 1;
       const view = playerRows[offset];
@@ -1410,6 +1593,8 @@ function createRoomLobbyView(
       view.row.hidden = index > room.armyCount;
       view.row.classList.toggle('is-local', isLocal);
       view.row.classList.toggle('is-open', !player?.connected);
+      view.row.classList.toggle('is-selected', isHost && selectedArmy === index);
+      view.row.style.setProperty('--army-color', LOBBY_COLORS[color]);
       view.slot.style.color = LOBBY_COLORS[color];
       view.nameInput.hidden = !isLocal;
       view.nameText.hidden = isLocal;
@@ -1439,24 +1624,24 @@ function createRoomLobbyView(
     const openSlots = Math.max(0, room.armyCount - connected);
     const allConnectedReady = connected > 0 && connectedPlayers.every((player) => player.ready);
     const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
+    renderDeploymentMap(room, isHost);
     if (room.status === 'starting') status.textContent = 'Launching · synchronizing commanders and AI forces...';
     else if (engines.size > 1) status.textContent = 'Different browsers detected · matching browsers are recommended.';
-    else if (!allConnectedReady) status.textContent = playerIndex === 1 ? 'Waiting for joined commanders to confirm READY.' : 'Set your preferences, then confirm READY.';
+    else if (!allConnectedReady) {
+      const notReady = connectedPlayers.filter((player) => !player.ready).length;
+      status.textContent = `${notReady} ${notReady === 1 ? 'commander' : 'commanders'} must confirm READY before deployment.`;
+    }
     else if (openSlots > 0) status.textContent = playerIndex === 1
       ? shouldLaunchLocalSkirmish(room, session.player.id)
         ? 'No guest connected · Start launches a local skirmish with AI.'
         : `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI.`
       : `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI · waiting for host.`;
     else status.textContent = playerIndex === 1 ? 'All commanders ready.' : 'Ready · waiting for host.';
-    ready.hidden = isHost;
+    ready.hidden = false;
     launch.hidden = !isHost;
-    if (isHost && room.status === 'waiting' && !localPlayer.ready && !hostReadyRequestPending) {
-      hostReadyRequestPending = true;
-      client.setReady(room.code, session.player.id, true);
-    }
-    if (localPlayer.ready || room.status !== 'waiting') hostReadyRequestPending = false;
     ready.disabled = room.status !== 'waiting';
-    ready.textContent = localPlayer.ready ? 'NOT READY' : 'READY';
+    ready.classList.toggle('is-confirmed', Boolean(localPlayer.ready));
+    ready.textContent = localPlayer.ready ? 'READY CONFIRMED · CLICK TO CANCEL' : 'CONFIRM READY';
     const canLaunch = isHost && allConnectedReady && room.status === 'waiting';
     launch.disabled = !canLaunch;
     launch.textContent = room.status === 'starting'
@@ -1526,6 +1711,7 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
     combatMode: room.combatMode ?? 'assisted',
     armyCount: sanitizeArmyCount(room.armyCount) ?? 2,
     armySides: sanitizeArmySides(room.armySides) ?? defaultArmySides(),
+    spawnSlots: sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots(),
   };
 }
 
@@ -1707,7 +1893,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     const isLocal = team === localTeam;
     const credits = isLocal && (testStart || lineupStart) ? 15000 : aiTeams.has(team) ? AI_DIFFICULTY[aiDifficulty].startCredits : 4600;
     const economy = createEconomy(team, credits);
-    const start = startPosition(hf.size, team);
+    const start = startPosition(hf.size, settings.spawnSlots[team - 1] ?? team);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
     const vision = new VisibilityGrid(hf, team);
     return { team, side: sim.rules.allianceSides[team] ?? team, economy, base, vision };
@@ -2546,6 +2732,7 @@ function copyMatchLink(settings: SkirmishSettings, status: HTMLElement): void {
   url.searchParams.set('combat', settings.combatMode);
   url.searchParams.set('armies', String(settings.armyCount));
   url.searchParams.set('sides', settings.armySides.slice(0, settings.armyCount).join(','));
+  url.searchParams.set('spawns', settings.spawnSlots.slice(0, settings.armyCount).join(','));
   const write = navigator.clipboard?.writeText(url.toString());
   if (!write) {
     status.textContent = url.toString();

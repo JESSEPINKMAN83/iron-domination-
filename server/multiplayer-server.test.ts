@@ -78,9 +78,10 @@ describe('multiplayer relay', () => {
       type: 'settings',
       roomCode,
       playerId: hostId,
-      settings: { mapId: 'crater-oasis', mapSize: 'large', seed: 246810, combatMode: 'manual', armyCount: 4, armySides: [1, 1, 3, 4] },
+      settings: { mapId: 'crater-oasis', mapSize: 'large', seed: 246810, combatMode: 'manual', armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
     }));
-    await synchronizedSettings;
+    const synchronizedRoom = await synchronizedSettings;
+    expect(synchronizedRoom.room.spawnSlots).toEqual([2, 1, 3, 4]);
 
     const resizedSettings = nextMessage(
       guest,

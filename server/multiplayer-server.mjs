@@ -38,6 +38,7 @@ const rooms = new Map();
  *   rematchStarting?: boolean;
  *   armyCount: 2 | 3 | 4;
  *   armySides: number[];
+ *   spawnSlots: number[];
  *   players: Array<{ id: string; index: number; name: string; color: string; ready: boolean; rematchReady: boolean; connected: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
  *   clients: Map<string, import('ws').WebSocket>;
  * }} Room
@@ -205,6 +206,7 @@ function handleSettings(socket, body) {
   const nextArmyCount = normalizeArmyCount(next.armyCount ?? room.armyCount);
   if (room.players.every((candidate) => candidate.index <= nextArmyCount)) room.armyCount = nextArmyCount;
   room.armySides = normalizeArmySides(next.armySides, room.armyCount);
+  room.spawnSlots = normalizeSpawnSlots(next.spawnSlots ?? room.spawnSlots);
   for (const candidate of room.players) candidate.ready = false;
   room.updatedAt = Date.now();
   broadcast(room, roomState(room));
@@ -224,8 +226,12 @@ function handlePlayerProfile(socket, body) {
   const profile = body.profile ?? {};
   if (typeof profile.name === 'string') player.name = normalizePlayerName(profile.name, player.index);
   if (normalizePlayerColor(profile.color)) player.color = normalizePlayerColor(profile.color);
-  if (Number.isFinite(Number(profile.side))) room.armySides[player.index - 1] = normalizeSide(profile.side);
-  player.ready = false;
+  if (Number.isFinite(Number(profile.side))) {
+    room.armySides[player.index - 1] = normalizeSide(profile.side);
+    for (const candidate of room.players) candidate.ready = false;
+  } else {
+    player.ready = false;
+  }
   room.updatedAt = Date.now();
   broadcast(room, roomState(room));
 }
@@ -299,6 +305,7 @@ function createRoom(body) {
   } while (rooms.has(code));
   const armyCount = normalizeArmyCount(body?.armyCount);
   const armySides = normalizeArmySides(body?.armySides, armyCount);
+  const spawnSlots = normalizeSpawnSlots(body?.spawnSlots);
   return {
     code,
     mapId: normalizeMapId(body?.mapId),
@@ -310,6 +317,7 @@ function createRoom(body) {
     inputDelay: 8,
     armyCount,
     armySides,
+    spawnSlots,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     status: 'waiting',
@@ -333,6 +341,7 @@ function restoreRoom(snapshot) {
     inputDelay: Math.max(4, Math.min(12, Math.floor(Number(snapshot?.inputDelay) || 8))),
     armyCount,
     armySides: normalizeArmySides(snapshot?.armySides, armyCount),
+    spawnSlots: normalizeSpawnSlots(snapshot?.spawnSlots),
     createdAt: now,
     updatedAt: now,
     status: 'in-game',
@@ -486,6 +495,7 @@ function publicRoom(room) {
     inputDelay: room.inputDelay,
     armyCount: room.armyCount,
     armySides: room.armySides,
+    spawnSlots: room.spawnSlots,
     status: room.status,
     startsAt: room.startsAt,
     players: room.players.map(publicPlayer),
@@ -592,6 +602,19 @@ function normalizeArmySides(value, armyCount) {
     const side = Math.floor(Number(input[index]) || index + 1);
     return index < armyCount ? Math.max(1, Math.min(4, side)) : index + 1;
   });
+}
+
+function normalizeSpawnSlots(value) {
+  const input = Array.isArray(value) ? value : [];
+  const used = new Set();
+  const result = [];
+  for (let index = 0; index < 4; index++) {
+    const requested = Math.max(1, Math.min(4, Math.floor(Number(input[index]) || index + 1)));
+    const slot = used.has(requested) ? [1, 2, 3, 4].find((candidate) => !used.has(candidate)) : requested;
+    result.push(slot ?? index + 1);
+    used.add(slot ?? index + 1);
+  }
+  return result;
 }
 
 function ensureOpenAiOpponent(room, connectedPlayers) {
