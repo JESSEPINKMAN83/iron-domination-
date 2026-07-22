@@ -2382,6 +2382,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.setVisible(true);
         hud.setFirstPerson(false);
       },
+      onHitFeedback: (force) => hud.flashReticle(force),
     },
     localTeam,
     lockstep
@@ -2561,7 +2562,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       const events = tickResult.events;
       unitView.pushCombatEvents(events);
       firstPerson.handleCombatEvents(events);
-      audio.handleCombatEvents(events);
+      audio.handleCombatEvents(events, firstPerson.possessedEntity?.id);
       economyFx.push(events);
       combatView.push(events);
       checkBaseUnderAttack(events);

@@ -1,5 +1,6 @@
 import { PerspectiveCamera, Vector3 } from 'three';
 import type { CombatEvent } from '../sim/world';
+import { impactForceFromEvent, possessionHitGain } from '../modes/vModeHitJuice';
 
 type SoundProfile = {
   gain: number;
@@ -127,13 +128,17 @@ export class AudioDirector {
     this.releaseBus(bus, duration + 0.18);
   }
 
-  handleCombatEvents(events: CombatEvent[]): void {
+  handleCombatEvents(events: CombatEvent[], possessedId?: number): void {
     if (!this.ctx || !this.master || this.muted) return;
-    for (const event of events) this.playCombatEvent(event);
+    for (const event of events) this.playCombatEvent(event, possessedId);
   }
 
-  private playCombatEvent(event: CombatEvent): void {
+  private playCombatEvent(event: CombatEvent, possessedId?: number): void {
     if (!this.ctx || !this.master) return;
+    if (event.kind === 'impact-reaction' && possessedId !== undefined && event.targetId === possessedId) {
+      this.playPossessionHit(event);
+      return;
+    }
     if (event.kind.endsWith('-impact')) {
       this.playExplosion(event);
       return;
@@ -162,6 +167,57 @@ export class AudioDirector {
     if (event.kind === 'rocketLauncher' || event.kind === 'rocketPod') {
       this.playLaunch(event);
     }
+  }
+
+  private playPossessionHit(event: CombatEvent): void {
+    if (!this.ctx || !this.master || this.voices >= MAX_VOICES) return;
+    const force = impactForceFromEvent(event);
+    const now = performance.now() / 1000;
+    const last = this.lastByBucket.get('possession-hit') ?? -999;
+    if (now - last < 0.05) return;
+    this.lastByBucket.set('possession-hit', now);
+
+    this.voices++;
+    const t = this.ctx.currentTime;
+    const gain = possessionHitGain(force);
+    const duration = 0.22 + force * 0.28;
+    const out = this.ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    out.connect(this.master);
+
+    const thud = this.ctx.createOscillator();
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(92 + force * 38, t);
+    thud.frequency.exponentialRampToValueAtTime(36, t + duration * 0.55);
+    thud.connect(out);
+    thud.start(t);
+    thud.stop(t + duration + 0.02);
+
+    const clang = this.ctx.createOscillator();
+    clang.type = 'triangle';
+    clang.frequency.setValueAtTime(420 + force * 260, t);
+    clang.frequency.exponentialRampToValueAtTime(140, t + 0.12);
+    const clangGain = this.ctx.createGain();
+    clangGain.gain.setValueAtTime(0.0001, t);
+    clangGain.gain.exponentialRampToValueAtTime(0.12 + force * 0.18, t + 0.004);
+    clangGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    clang.connect(clangGain);
+    clangGain.connect(out);
+    clang.start(t);
+    clang.stop(t + 0.16);
+
+    this.noiseBurst(out, 0.18 + force * 0.22, 0.09 + force * 0.06, {
+      type: 'bandpass',
+      frequency: 650 + force * 400,
+      q: 0.7,
+      delay: 0,
+    });
+
+    window.setTimeout(() => {
+      this.voices = Math.max(0, this.voices - 1);
+    }, (duration + 0.05) * 1000);
   }
 
   private playExplosion(event: CombatEvent): void {

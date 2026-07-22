@@ -33,6 +33,7 @@ export class Hud {
   private infoVisible = false;
   private lastUpdate = 0;
   private tacticalTimer?: number;
+  private reticleFlashTimer?: number;
 
   constructor(container: HTMLElement) {
     this.stats = document.createElement('div');
@@ -132,8 +133,32 @@ export class Hud {
 
   setFirstPerson(active: boolean): void {
     this.reticle.style.display = active ? 'block' : 'none';
+    if (!active) this.clearReticleFlash();
     this.modeBanner.style.opacity = active ? '1' : '0';
     this.modeBanner.style.transform = active ? 'translate(-50%,0)' : 'translate(-50%,-135%)';
+  }
+
+  /** Brief red punch on the FPS reticle when the possessed unit takes a hit. */
+  flashReticle(intensity = 0.7): void {
+    if (this.reticle.style.display === 'none') return;
+    const force = Math.max(0.2, Math.min(1, intensity));
+    const scale = 1.08 + force * 0.28;
+    this.reticle.style.borderColor = `rgba(255,${Math.round(90 + (1 - force) * 80)},${Math.round(70 + (1 - force) * 60)},.95)`;
+    this.reticle.style.boxShadow =
+      `0 0 0 1px rgba(0,0,0,.55),0 0 ${14 + force * 22}px rgba(255,80,50,${0.35 + force * 0.45})`;
+    this.reticle.style.transform = `translate(-50%,-50%) scale(${scale.toFixed(3)})`;
+    if (this.reticleFlashTimer !== undefined) window.clearTimeout(this.reticleFlashTimer);
+    this.reticleFlashTimer = window.setTimeout(() => this.clearReticleFlash(), 160 + force * 140);
+  }
+
+  private clearReticleFlash(): void {
+    if (this.reticleFlashTimer !== undefined) {
+      window.clearTimeout(this.reticleFlashTimer);
+      this.reticleFlashTimer = undefined;
+    }
+    this.reticle.style.borderColor = 'rgba(210,230,210,.58)';
+    this.reticle.style.boxShadow = '0 0 0 1px rgba(0,0,0,.45),0 0 12px rgba(125,242,125,.16)';
+    this.reticle.style.transform = 'translate(-50%,-50%)';
   }
 
   setMultiplayerStatus(message: string, bad = false, paused = false): void {
