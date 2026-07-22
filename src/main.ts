@@ -2094,6 +2094,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const lineupStart = startMode === 'lineup';
   const testStart = startMode === 'test' || startMode === 'sandbox';
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
+  const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
+  let nextHitJuicePreviewTick = 0;
   const aiDifficulty: Difficulty = settings.ai;
   const aiPersonality: Personality = settings.aiStyle;
   const savedMatch = multiplayerMode ? undefined : consumeLoadStoredMatch();
@@ -2471,6 +2473,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.setVisible(true);
         hud.setFirstPerson(false);
       },
+      onHitFeedback: (force) => hud.flashReticle(force),
     },
     localTeam,
     lockstep
@@ -2652,9 +2655,39 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         fogView.refresh();
       }
       const events = tickResult.events;
+      if (hitJuicePreview && firstPerson.inFirstPerson) {
+        const possessed = firstPerson.possessedEntity;
+        if (possessed && !possessed.destroyed && sim.tick >= nextHitJuicePreviewTick) {
+          nextHitJuicePreviewTick = sim.tick + 18; // ~0.6s at 30 Hz
+          const force = 0.35 + (sim.tick % 5) * 0.12;
+          const yaw = possessed.playerControlled?.aimYaw ?? possessed.transform.rot;
+          const fromX = possessed.transform.x - Math.sin(yaw) * 18;
+          const fromZ = possessed.transform.z - Math.cos(yaw) * 18;
+          events.push({
+            kind: 'impact-reaction',
+            impactKind: 'tankMissile',
+            force,
+            fromX,
+            fromZ,
+            toX: possessed.transform.x,
+            toY: possessed.transform.y,
+            toZ: possessed.transform.z,
+            targetId: possessed.id,
+            targetLabel: possessed.name ?? 'unit',
+            targetType: possessed.selectable?.type ?? 'tank',
+            targetHealth: possessed.health?.current,
+            targetMaxHealth: possessed.health?.max,
+            damage: Math.max(8, Math.round((possessed.health?.max ?? 100) * force * 0.08)),
+            killed: false,
+          });
+          if (possessed.health) {
+            possessed.health.current = Math.max(12, possessed.health.current - Math.max(6, Math.round(possessed.health.max * 0.045)));
+          }
+        }
+      }
       unitView.pushCombatEvents(events);
       firstPerson.handleCombatEvents(events);
-      audio.handleCombatEvents(events);
+      audio.handleCombatEvents(events, firstPerson.possessedEntity?.id);
       economyFx.push(events);
       combatView.push(events);
       checkBaseUnderAttack(events);
@@ -2740,6 +2773,19 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
       window.setTimeout(showEnemyFirstContact, 250);
     }
+  }
+  if (hitJuicePreview) {
+    window.setTimeout(() => {
+      const tanks = selectedEntities(sim, localTeam);
+      const pool = tanks.length > 0
+        ? tanks
+        : Array.from(sim.world.entities).filter(
+          (entity) => entity.team?.id === localTeam && entity.possessable && entity.mover && !entity.destroyed,
+        );
+      if (pool.length === 0) return;
+      setSelected(sim, pool.slice(0, 1), false, localTeam);
+      firstPerson.enter(pool.slice(0, 1));
+    }, 400);
   }
 }
 

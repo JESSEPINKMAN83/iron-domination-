@@ -7,6 +7,13 @@ import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type Ga
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
 import { unitDisplayName } from '../ui/unitDisplayName';
+import {
+  hitFlashOpacity,
+  hitShakeProfile,
+  impactForceFromEvent,
+  lowHpVignetteOpacity,
+  reticleFlashIntensity,
+} from './vModeHitJuice';
 
 type PossessionMode = 'rts' | 'entering' | 'fps' | 'exiting';
 const CHASE_ZOOM_MIN = -1;
@@ -99,6 +106,7 @@ export class FirstPersonController {
   private readonly abilityStatus: HTMLDivElement;
   private readonly abilityHud: HTMLDivElement;
   private readonly impactOverlay: HTMLDivElement;
+  private readonly lowHpVignette: HTMLDivElement;
   private readonly lockHud: HTMLDivElement;
   private readonly lockStatus: HTMLDivElement;
   private abilityStatusTimer = 0;
@@ -111,6 +119,7 @@ export class FirstPersonController {
   private impactShakeSeed = 0;
   private impactSide = 0;
   private impactOverlayOpacity = 0;
+  private lowHpVignetteOpacity = 0;
   private lockCandidateId?: number;
   private lockedTargetId?: number;
   private lockProgress = 0;
@@ -125,6 +134,7 @@ export class FirstPersonController {
       onEnter?: () => void;
       prepareExitPose?: (entity: Entity) => CameraPose;
       onExit?: (entity?: Entity) => void;
+      onHitFeedback?: (force: number) => void;
     } = {},
     private readonly localTeam = 1,
     private readonly commandSink?: FirstPersonCommandSink,
@@ -161,9 +171,15 @@ export class FirstPersonController {
     this.impactOverlay = document.createElement('div');
     this.impactOverlay.style.cssText =
       'position:fixed;inset:0;display:none;pointer-events:none;z-index:15;' +
-      'background:radial-gradient(circle at center,transparent 0 48%,rgba(255,187,116,.08) 70%,rgba(255,78,42,.62) 100%);' +
-      'box-shadow:inset 0 0 95px rgba(255,116,62,.5);mix-blend-mode:screen;';
+      'background:radial-gradient(circle at center,transparent 0 42%,rgba(255,150,90,.12) 68%,rgba(255,58,32,.78) 100%);' +
+      'box-shadow:inset 0 0 120px rgba(255,90,40,.62);mix-blend-mode:screen;';
     document.body.appendChild(this.impactOverlay);
+    this.lowHpVignette = document.createElement('div');
+    this.lowHpVignette.style.cssText =
+      'position:fixed;inset:0;display:none;pointer-events:none;z-index:14;' +
+      'background:radial-gradient(circle at center,transparent 0 46%,rgba(120,8,4,.18) 72%,rgba(70,0,0,.78) 100%);' +
+      'box-shadow:inset 0 0 110px rgba(140,10,0,.55);';
+    document.body.appendChild(this.lowHpVignette);
     this.lockHud = document.createElement('div');
     this.lockHud.style.cssText =
       'position:fixed;left:50%;top:50%;width:76px;height:76px;transform:translate(-50%,-50%);display:none;pointer-events:none;z-index:16;' +
@@ -226,16 +242,17 @@ export class FirstPersonController {
     if (!this.active || !this.possessed) return;
     for (const event of events) {
       if (event.kind !== 'impact-reaction' || event.targetId !== this.possessed.id) continue;
-      const force = Math.max(0.02, Math.min(1, event.force ?? event.damage / Math.max(1, event.targetMaxHealth ?? event.damage)));
-      const duration = 0.16 + force * 0.48;
-      this.impactShakeStrength = Math.max(this.impactShakeStrength * 0.55, 0.12 + force * 0.88);
-      this.impactShakeDuration = Math.max(this.impactShakeDuration, duration);
-      this.impactShakeRemaining = Math.max(this.impactShakeRemaining, duration);
+      const force = impactForceFromEvent(event);
+      const shake = hitShakeProfile(force);
+      this.impactShakeStrength = Math.max(this.impactShakeStrength * 0.45, shake.strength);
+      this.impactShakeDuration = Math.max(this.impactShakeDuration, shake.duration);
+      this.impactShakeRemaining = Math.max(this.impactShakeRemaining, shake.duration);
       this.impactShakeSeed = (event.targetId * 31 + this.sim.tick * 17) % 997;
       const impactYaw = Math.atan2(event.toX - event.fromX, event.toZ - event.fromZ);
       this.impactSide = Math.sin(impactYaw - this.lookYaw) >= 0 ? 1 : -1;
-      this.impactOverlayOpacity = Math.max(this.impactOverlayOpacity, 0.12 + force * 0.66);
+      this.impactOverlayOpacity = Math.max(this.impactOverlayOpacity, hitFlashOpacity(force));
       this.impactOverlay.style.display = 'block';
+      this.callbacks.onHitFeedback?.(reticleFlashIntensity(force));
     }
   }
 
@@ -435,6 +452,8 @@ export class FirstPersonController {
     this.abilityHud.style.display = 'none';
     this.impactOverlay.style.display = 'none';
     this.impactOverlayOpacity = 0;
+    this.lowHpVignette.style.display = 'none';
+    this.lowHpVignetteOpacity = 0;
     this.resetTargetLock();
     this.impactShakeRemaining = 0;
     this.updateScopeOverlay(false);
@@ -946,25 +965,26 @@ export class FirstPersonController {
       this.impactShakeRemaining = Math.max(0, this.impactShakeRemaining - dt);
       const envelope = this.impactShakeRemaining / this.impactShakeDuration;
       const elapsed = this.impactShakeDuration - this.impactShakeRemaining;
-      const phase = elapsed * (39 + this.impactShakeSeed % 9) + this.impactShakeSeed * 0.17;
+      const phase = elapsed * (42 + this.impactShakeSeed % 11) + this.impactShakeSeed * 0.17;
       const kick = this.impactShakeStrength * envelope * envelope;
       const lateral = Math.sin(phase) * kick;
       const vertical = Math.sin(phase * 1.43 + 0.8) * kick;
       this.tmpShakeRight.set(1, 0, 0).applyQuaternion(quaternion);
       this.tmpShakeUp.set(0, 1, 0).applyQuaternion(quaternion);
-      position.addScaledVector(this.tmpShakeRight, lateral * 0.34 + this.impactSide * kick * 0.18);
-      position.addScaledVector(this.tmpShakeUp, vertical * 0.23);
-      const yawKick = this.tmpYawKick.setFromAxisAngle(this.tmpShakeUp, (lateral + this.impactSide * kick * 0.55) * 0.018);
-      const pitchKick = this.tmpPitchKick.setFromAxisAngle(this.tmpShakeRight, vertical * 0.014);
+      position.addScaledVector(this.tmpShakeRight, lateral * 0.52 + this.impactSide * kick * 0.32);
+      position.addScaledVector(this.tmpShakeUp, vertical * 0.34);
+      const yawKick = this.tmpYawKick.setFromAxisAngle(this.tmpShakeUp, (lateral + this.impactSide * kick * 0.7) * 0.028);
+      const pitchKick = this.tmpPitchKick.setFromAxisAngle(this.tmpShakeRight, vertical * 0.022);
       quaternion.premultiply(yawKick).premultiply(pitchKick);
     }
-    this.impactOverlayOpacity = Math.max(0, this.impactOverlayOpacity - dt * 1.75);
+    this.impactOverlayOpacity = Math.max(0, this.impactOverlayOpacity - dt * 1.35);
     if (this.impactOverlayOpacity > 0.001) {
       this.impactOverlay.style.display = 'block';
       this.impactOverlay.style.opacity = this.impactOverlayOpacity.toFixed(3);
     } else {
       this.impactOverlay.style.display = 'none';
     }
+    this.updateLowHpVignette(dt);
     this.camera.position.copy(position);
     this.camera.quaternion.copy(quaternion);
     if (Math.abs(this.camera.fov - pose.fov) > 0.01) {
@@ -972,6 +992,24 @@ export class FirstPersonController {
       this.camera.updateProjectionMatrix();
     }
     this.camera.updateMatrixWorld();
+  }
+
+  private updateLowHpVignette(dt: number): void {
+    const hullPct = this.possessed?.health
+      ? Math.max(0, this.possessed.health.current / Math.max(1, this.possessed.health.max))
+      : 1;
+    const target = this.mode === 'fps' || this.mode === 'entering' ? lowHpVignetteOpacity(hullPct) : 0;
+    const pulse = target > 0.45 ? 0.08 * Math.sin(performance.now() * 0.008) : 0;
+    const blend = Math.min(1, dt * 4.5);
+    this.lowHpVignetteOpacity += (target - this.lowHpVignetteOpacity) * blend;
+    const opacity = Math.max(0, this.lowHpVignetteOpacity + pulse);
+    if (opacity > 0.01) {
+      this.lowHpVignette.style.display = 'block';
+      this.lowHpVignette.style.opacity = opacity.toFixed(3);
+    } else {
+      this.lowHpVignette.style.display = 'none';
+      this.lowHpVignetteOpacity = 0;
+    }
   }
 }
 
