@@ -11,7 +11,7 @@ interface Transmission {
   eyebrow: string;
   title: string;
   message: string;
-  audioSrc: string;
+  audioSrc?: string;
   alert?: boolean;
 }
 
@@ -111,7 +111,6 @@ export class MissionComms {
       message: critical
         ? `${label} is failing. Divert forces and reinforce immediately.`
         : `${label} is taking fire. Rally defenders and intercept.`,
-      audioSrc: '/assets/comms/enemy-contact.mp3',
       alert: true,
     });
   }
@@ -126,6 +125,12 @@ export class MissionComms {
     requestAnimationFrame(() => this.root.classList.add('mission-comms--visible'));
 
     this.audio.pause();
+    this.pendingPlayback = false;
+    if (!transmission.audioSrc) {
+      this.audio.removeAttribute('src');
+      this.scheduleHide(8_000);
+      return;
+    }
     this.audio.src = transmission.audioSrc;
     this.audio.currentTime = 0;
     this.pendingPlayback = true;
