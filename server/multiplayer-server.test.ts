@@ -82,6 +82,8 @@ describe('multiplayer relay', () => {
     }));
     const synchronizedRoom = await synchronizedSettings;
     expect(synchronizedRoom.room.spawnSlots).toEqual([2, 1, 3, 4]);
+    expect(synchronizedRoom.room.seed).toBe(246810);
+    expect(synchronizedRoom.room.combatMode).toBe('manual');
 
     const resizedSettings = nextMessage(
       guest,
@@ -120,6 +122,8 @@ describe('multiplayer relay', () => {
     expect(guestStart.room.mapSize).toBe('large');
     expect(hostStart.room.seed).toBe(246810);
     expect(guestStart.room.seed).toBe(246810);
+    expect(hostStart.room.combatMode).toBe('manual');
+    expect(guestStart.room.combatMode).toBe('manual');
 
     const hostPing = nextMessage(host, (message) => message.type === 'tactical-ping');
     const guestPing = nextMessage(guest, (message) => message.type === 'tactical-ping');

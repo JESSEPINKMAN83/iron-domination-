@@ -690,6 +690,19 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       },
       () => multiplayerSession,
       applyRoomSettings,
+      () => {
+        difficulty.setDisabled(false);
+        commander.setDisabled(false);
+        combatMode.setDisabled(false);
+        mapChoice.setDisabled(false);
+        mapSizeChoice.setDisabled(false);
+        armies.setDisabled(false);
+        armies.setPlayerIndex(1);
+        seedInput.disabled = false;
+        randomize.disabled = false;
+        config.classList.remove('is-locked');
+        seedCaption.textContent = 'Same seed creates the same terrain, making battles easy to replay and share.';
+      },
     );
     syncMultiplayerSettings = () => multiplayer.syncHostSettings();
     context.appendChild(multiplayer.root);
@@ -986,6 +999,7 @@ function createMultiplayerSetupPanel(
   rememberSession: (client: MultiplayerClient | undefined, session: MultiplayerSession | undefined) => void,
   currentSession: () => MultiplayerSession | undefined,
   applyRoomSettings: (room: MultiplayerRoom, playerIndex: number) => void,
+  releaseRoomSettings: () => void,
 ): {
   root: HTMLDivElement;
   setMode: (mode: 'host' | 'join') => void;
@@ -1083,6 +1097,16 @@ function createMultiplayerSetupPanel(
     lobbyView = undefined;
     if (wasHost) codeLabel.input.value = '';
     rememberSession(undefined, undefined);
+    releaseRoomSettings();
+    const url = new URL(location.href);
+    if (url.searchParams.has('room')) {
+      url.searchParams.delete('room');
+      history.replaceState(history.state, '', url);
+    }
+    render();
+    setStatus(wasHost
+      ? 'Returned to Battle Setup · open a new room when your battlefield is ready.'
+      : 'You left the room · choose a battle mode or join another room.');
   };
 
   const connectSession = (client: MultiplayerClient, session: MultiplayerSession): void => {
@@ -1094,7 +1118,7 @@ function createMultiplayerSetupPanel(
     rememberSession(client, session);
     applyRoomSettings(session.room, session.player.index);
     lobbyView?.root.remove();
-    lobbyView = createRoomLobbyView(client, session, settings, startSkirmish);
+    lobbyView = createRoomLobbyView(client, session, settings, startSkirmish, leaveActiveSession);
     document.body.appendChild(lobbyView.root);
     lobbyView.update(session.room, session.player.index);
     codeLabel.input.value = session.room.code;
@@ -1232,6 +1256,7 @@ function createRoomLobbyView(
   session: MultiplayerSession,
   settings: () => SkirmishSettings,
   startSkirmish: (settings: SkirmishSettings) => void,
+  returnToSetup: () => void,
 ): { root: HTMLDivElement; update: (room: MultiplayerRoom, playerIndex: number) => void } {
   const root = document.createElement('div');
   root.className = 'war-lobby';
@@ -1244,6 +1269,12 @@ function createRoomLobbyView(
   title.className = 'war-lobby__title';
   const headerTools = document.createElement('div');
   headerTools.className = 'war-lobby__header-tools';
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.textContent = '← BATTLE SETUP';
+  back.className = 'war-button war-button--quiet war-lobby__back';
+  back.setAttribute('aria-label', 'Leave this room and return to Battle Setup');
+  back.onclick = returnToSetup;
   const shareCopy = document.createElement('div');
   shareCopy.className = 'war-lobby__room-code';
   shareCopy.innerHTML = '<span>ROOM</span><strong></strong>';
@@ -1252,7 +1283,7 @@ function createRoomLobbyView(
   copy.type = 'button';
   copy.textContent = canNativeShare ? 'SHARE LINK' : 'COPY LINK';
   copy.className = 'war-button war-button--secondary war-lobby__copy';
-  headerTools.append(shareCopy);
+  headerTools.append(back, shareCopy);
   heading.append(title, headerTools);
 
   let latestRoom = session.room;
@@ -1284,9 +1315,15 @@ function createRoomLobbyView(
   const mapSetting = createRoomSetting('MAP TYPE');
   const sizeSetting = createRoomSetting('MAP SIZE');
   const aiSetting = createRoomSetting('AI STRENGTH');
+  const seedSetting = createRoomSetting('MAP SEED');
+  seedSetting.root.classList.add('war-lobby__room-setting--seed');
+  seedSetting.choices.classList.add('war-lobby__seed-controls');
+  const combatSetting = createRoomSetting('COMBAT MODE');
+  combatSetting.root.classList.add('war-lobby__room-setting--combat');
   const mapButtons = new Map<MapId, HTMLButtonElement>();
   const sizeButtons = new Map<MapSize, HTMLButtonElement>();
   const aiButtons = new Map<Difficulty, HTMLButtonElement>();
+  const combatButtons = new Map<CombatMode, HTMLButtonElement>();
   for (const mapId of MAP_IDS) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1312,7 +1349,48 @@ function createRoomLobbyView(
     aiSetting.choices.appendChild(button);
   }
   aiSetting.root.title = 'Applies to every army slot controlled by AI.';
-  battlefieldSettings.append(mapSetting.root, sizeSetting.root, aiSetting.root);
+  const seedInput = document.createElement('input');
+  seedInput.type = 'number';
+  seedInput.min = '1';
+  seedInput.step = '1';
+  seedInput.inputMode = 'numeric';
+  seedInput.className = 'war-lobby__seed-input';
+  seedInput.setAttribute('aria-label', 'Map seed');
+  const commitSeed = (): void => {
+    if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
+    const seed = Math.max(1, Math.floor(Number(seedInput.value) || latestRoom.seed));
+    seedInput.value = String(seed);
+    client.updateSettings(latestRoom.code, session.player.id, { ...settings(), seed });
+  };
+  seedInput.onchange = commitSeed;
+  seedInput.onkeydown = (event) => {
+    if (event.key === 'Enter') {
+      commitSeed();
+      seedInput.blur();
+    }
+  };
+  const randomizeSeed = document.createElement('button');
+  randomizeSeed.type = 'button';
+  randomizeSeed.textContent = 'RANDOMIZE';
+  randomizeSeed.setAttribute('aria-label', 'Generate a new random map seed');
+  randomizeSeed.onclick = () => {
+    if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
+    const seed = randomSeed();
+    seedInput.value = String(seed);
+    client.updateSettings(latestRoom.code, session.player.id, { ...settings(), seed });
+    randomizeSeed.blur();
+  };
+  seedSetting.choices.append(seedInput, randomizeSeed);
+  for (const combatMode of COMBAT_MODES) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = combatMode.toUpperCase();
+    button.title = COMBAT_MODE_DESCRIPTIONS[combatMode];
+    button.onclick = () => client.updateSettings(latestRoom.code, session.player.id, { ...settings(), combatMode });
+    combatButtons.set(combatMode, button);
+    combatSetting.choices.appendChild(button);
+  }
+  battlefieldSettings.append(mapSetting.root, sizeSetting.root, aiSetting.root, seedSetting.root, combatSetting.root);
   const map = document.createElement('div');
   map.className = 'war-lobby__map';
   battlefield.append(battlefieldHeader, battlefieldSettings, map);
@@ -1619,6 +1697,15 @@ function createRoomLobbyView(
     }
     for (const [difficulty, button] of aiButtons) {
       button.classList.toggle('is-active', difficulty === room.ai);
+      button.disabled = !isHost || room.status !== 'waiting';
+    }
+    if (document.activeElement !== seedInput) seedInput.value = String(room.seed);
+    seedInput.disabled = !isHost || room.status !== 'waiting';
+    randomizeSeed.disabled = !isHost || room.status !== 'waiting';
+    for (const [combatMode, button] of combatButtons) {
+      const selected = combatMode === room.combatMode;
+      button.classList.toggle('is-active', selected);
+      button.setAttribute('aria-pressed', String(selected));
       button.disabled = !isHost || room.status !== 'waiting';
     }
     for (let offset = 0; offset < playerRows.length; offset++) {
