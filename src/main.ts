@@ -1,6 +1,8 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { showLandingScreen } from './landing';
 import { showFeedbackWidget } from './feedback';
+import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHowToPlayWidget } from './howToPlay';
+import { showMissionBriefing } from './missionBriefing';
 import './setup.css';
 import './mobile.css';
 import { EnemyCommander } from './ai/commander';
@@ -24,8 +26,9 @@ import { COMBAT_MODE_DESCRIPTIONS, COMBAT_MODES, type CombatMode } from './conte
 import { startPosition } from './content/startPositions';
 import { Input } from './engine/input';
 import { GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
+import { FirstContactGate, findFirstVisibleHostileEntity } from './firstContact';
 import { advanceTick } from './match/advanceTick';
-import { aiControlledTeams, ensureOpposingSides, isVictoryFromHostileBuildingCounts, shouldAutostartFromUrl } from './match/startup';
+import { aiControlledTeams, ensureOpposingSides, formatArmyMatchup, isVictoryFromHostileBuildingCounts, shouldAutostartFromUrl } from './match/startup';
 import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
 import { RtsController } from './modes/rtsController';
@@ -82,6 +85,7 @@ import {
 import { Hud } from './ui/hud';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
+import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
 
 const nextFrame = (): Promise<number> => new Promise((resolve) => requestAnimationFrame(resolve));
 const SKIRMISH_STORAGE_KEY = 'iron-dominion.skirmish.v1';
@@ -146,26 +150,29 @@ function mapChoiceLabel(id: MapId): string {
   return MAP_PRESETS[id].shortLabel;
 }
 
-function renderLobbyMapPreview(root: HTMLDivElement, map: (typeof MAP_PRESETS)[MapId], seed: number, mapSize: MapSize): void {
-  root.replaceChildren();
-  const colors =
-    map.biome === 'desert'
-      ? ['#9f7048', '#d3a45d', '#247f84']
-      : map.biome === 'snow'
-        ? ['#8197ae', '#e9f4f7', '#5c9ab7']
-        : ['#365e3a', '#78a259', '#2b6f7d'];
-  root.style.background = `linear-gradient(135deg,${colors[0]},${colors[1]} 52%,${colors[0]})`;
-  const terrain = document.createElement('div');
-  terrain.style.cssText =
-    'position:absolute;inset:-20%;opacity:.75;transform:rotate(-13deg);background:' +
-    `repeating-linear-gradient(27deg,transparent 0 24px,rgba(0,0,0,.15) 25px 28px),radial-gradient(ellipse at 69% 44%,${colors[2]} 0 8%,transparent 8.5%),radial-gradient(ellipse at 30% 68%,rgba(255,240,160,.38) 0 4%,transparent 4.5%);`;
-  const label = document.createElement('div');
-  label.style.cssText = 'position:absolute;left:14px;bottom:12px;color:#f0f3e8;font:700 17px ui-monospace,Menlo,monospace;letter-spacing:.14em;text-shadow:0 2px 8px #000;';
-  label.textContent = map.label.toUpperCase();
-  const details = document.createElement('div');
-  details.style.cssText = 'position:absolute;right:14px;top:12px;color:#f0d56a;font:10px ui-monospace,Menlo,monospace;letter-spacing:.1em;text-shadow:0 1px 4px #000;';
-  details.textContent = `${MAP_SIZE_PRESETS[mapSize].label} · SEED ${seed}`;
-  root.append(terrain, label, details);
+function renderLobbyMapPreview(
+  root: HTMLDivElement,
+  map: (typeof MAP_PRESETS)[MapId],
+  seed: number,
+  mapSize: MapSize,
+  deployments: TacticalMapDeployment[] = [],
+): void {
+  renderTacticalMap(root, { mapId: map.id, mapSize, seed, deployments });
+}
+
+function setupMapDeployments(armyCount: ArmyCount, armySides: ArmySides): TacticalMapDeployment[] {
+  const colors = Object.values(LOBBY_COLORS);
+  return Array.from({ length: armyCount }, (_, offset) => {
+    const army = offset + 1;
+    return {
+      army,
+      side: armySides[offset] ?? army,
+      color: colors[offset] ?? '#d7dde0',
+      label: army === 1 ? 'YOU' : `AI ARMY ${army}`,
+      detail: army === 1 ? 'COMMAND' : 'AI START',
+      isLocal: army === 1,
+    };
+  });
 }
 
 function createMatchHistoryPanel(): HTMLDivElement {
@@ -509,6 +516,12 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     rules.className = 'war-rules-grid';
     rules.append(difficulty.root, commander.root, combatMode.root);
     config.append(createSetupSection('02', 'BATTLE RULES', 'Set enemy pressure and how directly you control combat.', rules));
+    config.append(createSetupSection(
+      '03',
+      'FORCES & ALLIANCES',
+      'Choose how many armies enter the battle and place allied armies on the same side.',
+      armies.root,
+    ));
 
     let multiplayerClient: MultiplayerClient | undefined;
     let multiplayerSession: MultiplayerSession | undefined;
@@ -596,7 +609,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     const brief = document.createElement('div');
     brief.className = 'war-brief';
     brief.append(summaryGrid, history, controlsHeading, controls);
-    config.append(createSetupSection('03', 'OPERATION BRIEF', 'Review the active battlefield settings and field controls.', brief));
+    config.append(createSetupSection('04', 'OPERATION BRIEF', 'Review the active battlefield settings and field controls.', brief));
 
     let multiplayer: ReturnType<typeof createMultiplayerSetupPanel>;
     multiplayer = createMultiplayerSetupPanel(
@@ -618,7 +631,13 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     refresh = (): void => {
       const seed = Math.max(1, Math.floor(Number(seedInput.value) || defaults.seed));
       const map = MAP_PRESETS[mapChoice.value()];
-      renderLobbyMapPreview(mapPreview, map, seed, mapSizeChoice.value());
+      renderLobbyMapPreview(
+        mapPreview,
+        map,
+        seed,
+        mapSizeChoice.value(),
+        setupMapDeployments(armies.armyCount(), armies.armySides()),
+      );
       summaryValues.get('BATTLEFIELD')!.textContent = `${map.shortLabel} · ${MAP_SIZE_PRESETS[mapSizeChoice.value()].label}`;
       summaryValues.get('ENEMY')!.textContent = `${difficulty.value().toUpperCase()} · ${commander.value().toUpperCase()}`;
       summaryValues.get('FORCES')!.textContent = `${armies.armyCount()} ARMIES`;
@@ -775,7 +794,7 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   let count: ArmyCount = initialCount;
   let playerIndex = 1;
   let disabled = false;
-  const sides: ArmySides = [...initialSides] as ArmySides;
+  const sides: ArmySides = ensureOpposingSides(initialCount, initialSides);
   const root = document.createElement('div');
   root.className = 'war-armies';
   const title = document.createElement('div');
@@ -786,6 +805,14 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   countButtons.style.setProperty('--option-count', '3');
   const sideRows = document.createElement('div');
   sideRows.className = 'war-armies__rows';
+  const matchup = document.createElement('div');
+  matchup.className = 'war-armies__matchup';
+  matchup.setAttribute('aria-live', 'polite');
+
+  const normalizeSides = (): void => {
+    const normalized = ensureOpposingSides(count, sides);
+    for (let index = 0; index < sides.length; index++) sides[index] = normalized[index];
+  };
 
   const render = (): void => {
     for (const button of Array.from(countButtons.children) as HTMLButtonElement[]) {
@@ -800,12 +827,18 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
       const label = row.querySelector('.war-army-row__label');
       if (label) label.textContent = army === playerIndex ? `ARMY ${army} YOU` : `ARMY ${army} PLAYER / AI`;
       for (const button of Array.from(row.querySelectorAll('button')) as HTMLButtonElement[]) {
-        const active = Number(button.dataset.side) === sides[army - 1];
+        const side = Number(button.dataset.side);
+        const active = side === sides[army - 1];
+        const proposedSides = sides.slice(0, count);
+        proposedSides[army - 1] = side;
+        const removesLastOpponent = new Set(proposedSides).size < 2;
         button.classList.toggle('is-active', active);
         button.setAttribute('aria-pressed', String(active));
-        button.disabled = disabled;
+        button.disabled = disabled || removesLastOpponent;
+        button.title = removesLastOpponent ? 'At least two opposing sides are required.' : '';
       }
     }
+    matchup.textContent = formatArmyMatchup(count, sides);
   };
 
   for (const value of [2, 3, 4] as ArmyCount[]) {
@@ -822,6 +855,7 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
         sides[2] = 2;
         sides[3] = 2;
       }
+      normalizeSides();
       render();
       onChange();
       button.blur();
@@ -844,6 +878,7 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
       button.textContent = `SIDE ${side}`;
       button.onclick = () => {
         sides[army - 1] = side;
+        normalizeSides();
         render();
         onChange();
         button.blur();
@@ -853,15 +888,16 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
     sideRows.appendChild(row);
   }
 
-  root.append(title, countButtons, sideRows);
+  root.append(title, countButtons, sideRows, matchup);
   render();
   return {
     root,
     armyCount: () => count,
-    armySides: () => [...sides] as ArmySides,
+    armySides: () => ensureOpposingSides(count, sides),
     setState: (nextCount, nextSides) => {
       count = nextCount;
       for (let index = 0; index < sides.length; index++) sides[index] = nextSides[index];
+      normalizeSides();
       render();
       onChange();
     },
@@ -1180,6 +1216,9 @@ function createRoomLobbyView(
   }
   armyBar.append(armyLabel, armyChoices);
 
+  const lobbyMap = document.createElement('div');
+  lobbyMap.className = 'war-lobby__map';
+
   const status = document.createElement('div');
   status.className = 'war-lobby__status';
   status.setAttribute('aria-live', 'polite');
@@ -1297,7 +1336,7 @@ function createRoomLobbyView(
   rosterTitle.className = 'war-lobby__section-title';
   rosterTitle.textContent = 'PLAYERS';
   roster.append(rosterTitle, players);
-  panel.append(heading, armyBar, roster, actions, status);
+  panel.append(heading, lobbyMap, armyBar, roster, actions, status);
   root.appendChild(panel);
 
   let hostReadyRequestPending = false;
@@ -1308,6 +1347,24 @@ function createRoomLobbyView(
     const roomCode = shareCopy.querySelector('strong');
     if (roomCode) roomCode.textContent = room.code;
     const isHost = playerIndex === 1;
+    const mapId = sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID;
+    const mapSize = sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE;
+    const deployments: TacticalMapDeployment[] = Array.from({ length: room.armyCount }, (_, offset) => {
+      const index = offset + 1;
+      const player = room.players.find((candidate) => candidate.index === index);
+      const local = player?.id === session.player.id;
+      const color = player?.color ?? defaultColors[offset];
+      return {
+        army: index,
+        side: room.armySides[offset] ?? index,
+        color: LOBBY_COLORS[color],
+        label: local ? 'YOU' : player?.connected ? player.name.toUpperCase() : `AI ARMY ${index}`,
+        detail: player?.connected ? 'PLAYER' : 'OPEN / AI',
+        isLocal: local,
+        isOpen: !player?.connected,
+      };
+    });
+    renderLobbyMapPreview(lobbyMap, MAP_PRESETS[mapId], room.seed, mapSize, deployments);
     for (const [count, button] of armyButtons) {
       const selected = room.armyCount === count;
       button.classList.toggle('is-active', selected);
@@ -1543,6 +1600,7 @@ function applyMapAtmosphere(ctx: RenderContext, preset: (typeof MAP_PRESETS)[Map
 }
 
 async function boot(settings: SkirmishSettings): Promise<void> {
+  hideHowToPlayWidget();
   const multiplayer = pendingMultiplayer;
   pendingMultiplayer = undefined;
   const multiplayerMode = multiplayer !== undefined;
@@ -1932,6 +1990,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     uiPaused = paused;
     input.resetTransientInputs();
   };
+  configureHowToPlayLifecycle({
+    onOpen: () => setUiPaused(true),
+    onClose: () => setUiPaused(false),
+  });
   createGameMenu(settings, {
     setPaused: setUiPaused,
     snapshot: matchSnapshot,
@@ -2018,9 +2080,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   input.onKeyDown('F3', () => water.setDebugOverlay(terrain.toggleWalkOverlay()));
   input.onKeyDown('F4', () => (fogView.group.visible = !fogView.group.visible));
   input.onKeyDown('F1', () => {
-    if (document.getElementById('skirmish-help-dialog')) return;
-    setUiPaused(true);
-    showHelpDialog({ onClose: () => setUiPaused(false) });
+    openHowToPlay();
   });
   input.onKeyDown('F2', () => hud.toggleInfo());
   input.onKeyDown('KeyM', () => {
@@ -2065,6 +2125,35 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastUiRefreshTick = -999;
   let renderFrame = 0;
   let deferredEffectDt = 0;
+  const firstContactGate = new FirstContactGate();
+
+  const showEnemyFirstContact = (): void => {
+    showMissionBriefing({
+      variant: 'hostile',
+      audioUrl: '/assets/audio/enemy-first-contact.mp3',
+      backingAudioUrl: '/assets/audio/enemy-first-contact-war-drums.mp3',
+      backingVolume: 0.5,
+      portraitUrl: '/assets/briefing/general-varek-drahn.webp',
+      speakerName: 'GENERAL VAREK DRAHN',
+      title: 'First contact',
+      alertLabel: 'HOSTILE FORCE IDENTIFIED',
+      message: 'You have entered territory under my control. Prepare your forces.',
+      channelLabel: 'HOSTILE COMMS',
+      channelSource: 'SIGNAL INTERCEPT',
+      ariaLabel: 'Enemy general transmission',
+    });
+  };
+
+  const checkFirstContact = (): void => {
+    if (lineupStart) return;
+    const contact = firstContactGate.tryTrigger(() => findFirstVisibleHostileEntity(
+      sim.world.entities,
+      localTeam,
+      (friendlyTeam, otherTeam) => areTeamsHostile(sim, friendlyTeam, otherTeam),
+      (x, z) => playerVision.isVisibleWorld(x, z),
+    ));
+    if (contact) showEnemyFirstContact();
+  };
 
   const loop = new GameLoop({
     simTick: () => {
@@ -2099,6 +2188,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       audio.handleCombatEvents(events);
       economyFx.push(events);
       combatView.push(events);
+      checkFirstContact();
       checkOutcome();
       simTicks++;
     },
@@ -2174,33 +2264,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   overlay.remove();
   loop.start();
-  if (!lineupStart) showMissionBriefing(settings);
-}
-
-function showMissionBriefing(settings: SkirmishSettings): void {
-  const existing = document.getElementById('mission-briefing-toast');
-  if (existing) existing.remove();
-  const el = document.createElement('div');
-  el.id = 'mission-briefing-toast';
-  el.style.cssText =
-    'position:fixed;left:50%;top:18px;transform:translate(-50%,-18px);z-index:34;width:min(560px,calc(100vw - 32px));' +
-    'padding:12px 16px;background:rgba(8,12,14,.9);border:1px solid #596260;border-radius:3px;opacity:0;' +
-    'box-shadow:0 12px 38px rgba(0,0,0,.42);font:11px/1.45 ui-monospace,Menlo,monospace;color:#d7e0e7;' +
-    'letter-spacing:.08em;pointer-events:none;transition:opacity .35s ease,transform .35s ease;';
-  el.innerHTML =
-    '<div style="display:flex;justify-content:space-between;gap:12px;color:#f0d56a;font-size:13px;">' +
-    '<span>MISSION ONLINE</span><span>DESTROY COMMAND YARD</span></div>' +
-    `<div style="margin-top:5px;color:#aebbc4;">${settings.ai.toUpperCase()} / ${settings.aiStyle.toUpperCase()} · build power, refinery, production, then scout and strike.</div>`;
-  document.body.appendChild(el);
-  requestAnimationFrame(() => {
-    el.style.opacity = '1';
-    el.style.transform = 'translate(-50%,0)';
-  });
-  window.setTimeout(() => {
-    el.style.opacity = '0';
-    el.style.transform = 'translate(-50%,-18px)';
-    window.setTimeout(() => el.remove(), 450);
-  }, 6500);
+  if (!lineupStart) {
+    const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
+    showMissionBriefing({ enemyCount: hostileArmyCount });
+    if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
+      window.setTimeout(showEnemyFirstContact, 250);
+    }
+  }
 }
 
 function createGameMenu(
@@ -2216,14 +2286,14 @@ function createGameMenu(
   const wrap = document.createElement('div');
   wrap.className = 'game-chrome-controls';
   wrap.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:30;display:flex;gap:6px;align-items:center;';
-  const help = gameChromeButton('HELP', 'Open controls and objective');
+  const help = gameChromeButton('HOW TO PLAY', 'Open the field manual');
   help.classList.add('game-chrome-controls__help');
+  help.setAttribute('aria-label', 'How to play');
   help.onclick = (event) => {
     event.preventDefault();
     event.stopPropagation();
     help.blur();
-    options.setPaused(true);
-    showHelpDialog({ onClose: () => options.setPaused(false) });
+    openHowToPlay();
   };
   const menu = gameChromeButton('MENU', 'Open match menu');
   menu.classList.add('game-chrome-controls__menu');
@@ -2238,7 +2308,7 @@ function createGameMenu(
       load: options.load,
       forfeit: options.forfeit,
       onClose: () => options.setPaused(false),
-      onHelp: () => showHelpDialog({ onClose: () => options.setPaused(false) }),
+      onHelp: () => openHowToPlay(),
     });
   };
   wrap.append(help, menu);
@@ -2356,79 +2426,6 @@ function showMatchMenu(
   if (loadButton) panel.append(loadButton);
   if (forfeitButton) panel.append(forfeitButton);
   panel.append(restart, setup);
-  overlay.appendChild(panel);
-  document.body.appendChild(overlay);
-}
-
-function showHelpDialog(options: { onClose: () => void }): void {
-  const existing = document.getElementById('skirmish-help-dialog');
-  if (existing) existing.remove();
-  const overlay = document.createElement('div');
-  overlay.id = 'skirmish-help-dialog';
-  overlay.className = 'game-help-overlay';
-  overlay.style.cssText =
-    'position:fixed;inset:0;z-index:75;display:grid;place-items:center;background:rgba(0,0,0,.32);pointer-events:auto;';
-  overlay.onpointerdown = (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
-  const close = (): void => {
-    window.removeEventListener('keydown', onKeyDown);
-    overlay.remove();
-    options.onClose();
-  };
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.code === 'Escape') close();
-  };
-  window.addEventListener('keydown', onKeyDown);
-
-  const panel = document.createElement('div');
-  panel.className = 'game-help-panel';
-  panel.style.cssText =
-    'width:min(760px,calc(100vw - 36px));max-height:calc(100vh - 36px);overflow:auto;display:grid;gap:14px;padding:20px 22px;' +
-    'background:linear-gradient(180deg,rgba(18,24,25,.97),rgba(7,10,11,.96));border:1px solid #596260;border-radius:4px;' +
-    'box-shadow:0 22px 80px rgba(0,0,0,.62);font:11px/1.55 ui-monospace,Menlo,monospace;color:#d7e0e7;letter-spacing:.06em;';
-  const title = document.createElement('div');
-  title.innerHTML =
-    '<div style="font-size:18px;color:#f0d56a;letter-spacing:.18em;">FIELD GUIDE</div>' +
-    '<div style="margin-top:5px;color:#8d9a96;">Destroy the enemy command yard while keeping your base alive.</div>';
-  const grid = document.createElement('div');
-  grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;';
-  const mobileTouch = isMobileTouchDevice();
-  const sections = mobileTouch ? [
-    ['Start', 'Build Power Plant -> Refinery -> Barracks/Factory. Oil collectors bring credits back to refineries.'],
-    ['Command', 'Tap a friendly unit, or drag a lasso around several units. Tap ground to move and tap an enemy to attack.'],
-    ['Camera', 'Drag the battlefield to pan. Pinch to zoom. Twist two fingers to rotate the camera.'],
-    ['Build', 'Tap BUILD to open construction and production. Tap CLOSE to return to the full battlefield.'],
-    ['Formation', 'With units selected, hold and drag on the battlefield to place them in a spread line facing your drag direction.'],
-    ['First person', 'Tap the crosshair toggle. Use the left arrows to move, drag the right side to aim, then use FIRE, MISSILE and SPECIAL.'],
-    ['Aircraft', 'The left arrows control thrust and yaw. Hold BOOST and use UP/DOWN for altitude.'],
-    ['Return', 'Tap RTS to leave first-person mode. MENU pauses the match and keeps save/restart/setup actions available.'],
-  ] : [
-    ['Start', 'Build Power Plant -> Refinery -> Barracks/Factory. Oil collectors bring credits back to refineries.'],
-    ['Command', 'Select with click or drag. Right-click ground to move. Right-click and hold to set facing and spread.'],
-    ['Build', 'Use the right panel tabs. Structure cards become READY, then place them on terrain. Unit queues keep producing.'],
-    ['Fight', 'A then right-click sets attack move. Units near a hit friendly building will respond to the attacker.'],
-    ['V-mode', 'Select a unit and press V. Hold Shift for 2x movement. Left-click primary fire, right-click secondary fire. Press V or Escape to exit.'],
-    ['Aircraft', 'W/S thrust, Shift boost, A/D yaw, Q/E hard turn, Space/Ctrl altitude, mouse aim. Bombs fire downward from the air.'],
-    ['Sniper', 'In V-mode, right-click toggles scope. Wheel zooms. Left-click fires after reload.'],
-    ['Camera', 'WASD or edge pan. Hold Space and drag to grab pan. Empty right-drag or Cmd/Ctrl left-drag rotates.'],
-  ];
-  for (const [heading, body] of sections) {
-    const card = document.createElement('div');
-    card.style.cssText = 'border:1px solid rgba(255,255,255,.08);background:rgba(8,12,14,.58);padding:10px 11px;border-radius:3px;';
-    card.innerHTML = `<div style="color:#d2b15f;margin-bottom:3px;">${heading.toUpperCase()}</div><div style="color:#b8c5c1;">${body}</div>`;
-    grid.appendChild(card);
-  }
-  const footer = document.createElement('div');
-  footer.style.cssText = 'display:flex;justify-content:space-between;gap:10px;align-items:center;';
-  const hint = document.createElement('div');
-  hint.textContent = mobileTouch ? 'MENU pauses the match.' : 'F1 opens this guide. F2 toggles debug stats. MENU pauses the match.';
-  hint.style.cssText = 'color:#8d9a96;font-size:10px;';
-  const closeButton = dialogButton('Close', close);
-  closeButton.style.minWidth = '120px';
-  footer.append(hint, closeButton);
-  panel.append(title, grid, footer);
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
 }
@@ -2834,6 +2831,7 @@ function findValidTestPlacement(
 
 async function start(): Promise<void> {
   showFeedbackWidget();
+  showHowToPlayWidget();
   const params = new URLSearchParams(location.search);
   const mobileLandscape = new MobileLandscapeGate();
   mobileLandscape.activate();
