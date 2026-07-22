@@ -609,7 +609,7 @@ export class FirstPersonController {
       : '0 0 16px rgba(240,213,106,.34),inset 0 0 12px rgba(240,213,106,.1)';
     this.lockHud.style.transform = `translate(-50%,-50%) scale(${locked ? 0.9 : 1.04 - this.lockProgress * 0.04})`;
     this.lockStatus.style.color = locked ? '#ff6b57' : '#f0d56a';
-    this.lockStatus.textContent = locked ? `LOCKED  ${candidate.name ?? 'TARGET'}` : `TRACKING  ${Math.round(this.lockProgress * 100)}%`;
+    this.lockStatus.textContent = locked ? `LOCKED  ${unitDisplayName(candidate).toUpperCase()}` : `TRACKING  ${Math.round(this.lockProgress * 100)}%`;
   }
 
   private resetTargetLock(): void {
