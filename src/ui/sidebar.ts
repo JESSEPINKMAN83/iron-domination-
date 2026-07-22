@@ -534,7 +534,7 @@ export class Sidebar {
     const title = document.createElement('div');
     title.innerHTML =
       `<div style="font-size:10px;color:#d2b15f">SELECTED COLLECTOR</div>` +
-      `<div style="font-size:14px;color:#f0f3e8">${entity.name ?? 'Ore Harvester'}</div>` +
+      `<div style="font-size:14px;color:#f0f3e8">${unitDisplayName(entity)}</div>` +
       `<div style="font-size:11px;color:#aebbc4">hull ${health} · ${state} · cargo ${cargo}/${capacity}</div>`;
     const bar = document.createElement('div');
     bar.style.cssText = 'height:8px;border:1px solid #303936;background:#060908;box-shadow:inset 0 0 6px rgba(0,0,0,.7);overflow:hidden;';

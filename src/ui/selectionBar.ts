@@ -8,6 +8,7 @@ import {
   type UnitUpgradeId,
   type UpgradePurchaseResult,
 } from '../sim/upgrades';
+import { unitDisplayName } from './unitDisplayName';
 
 interface SelectionGroup {
   key: string;
@@ -255,14 +256,14 @@ function selectionDescriptor(entity: Entity): Omit<SelectionGroup, 'entities' | 
       type: 'BUILDING',
     };
   }
-  if (entity.harvester) return { key: 'unit:harvester', kind: 'harvester', label: entity.name ?? 'Ore Harvester', type: 'ECONOMY' };
+  if (entity.harvester) return { key: 'unit:harvester', kind: 'harvester', label: unitDisplayName(entity), type: 'ECONOMY' };
   const unitKind = unitKindForUpgrade(entity);
   if (unitKind) {
     const unit = UNITS[unitKind];
-    return { key: `unit:${unitKind}`, kind: unitKind, label: unit.label, type: unit.tab.toUpperCase(), unitKind };
+    return { key: `unit:${unitKind}`, kind: unitKind, label: unitDisplayName(entity), type: unit.tab.toUpperCase(), unitKind };
   }
   const type = entity.selectable?.type ?? 'unit';
-  return { key: `unit:${type}`, kind: type, label: entity.name ?? typeLabel(type), type: type.toUpperCase() };
+  return { key: `unit:${type}`, kind: type, label: unitDisplayName(entity), type: type.toUpperCase() };
 }
 
 function averageHealthPct(entities: Entity[]): number | undefined {
@@ -292,14 +293,6 @@ function initials(label: string): string {
     .join('')
     .slice(0, 3)
     .toUpperCase();
-}
-
-function typeLabel(type: string): string {
-  return type
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((word) => `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`)
-    .join(' ');
 }
 
 function commandIconPath(kind: string): string {
