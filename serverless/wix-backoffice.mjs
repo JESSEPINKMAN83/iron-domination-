@@ -278,7 +278,19 @@ async function createCmsSubmission(config, submission) {
   }
 }
 
-export async function handleWixSubmission(request, env = {}) {
+async function createWixFormCopy(config, submission) {
+  if (submission.kind === 'signup') {
+    const summary = await getFormSummary(config, config.signupFormId);
+    await createContact(config, submission);
+    await createFormSubmission(config, config.signupFormId, signupValues(summary.fields, submission));
+    return;
+  }
+
+  const summary = await getFormSummary(config, config.feedbackFormId);
+  await createFormSubmission(config, config.feedbackFormId, feedbackValues(summary.fields, submission));
+}
+
+export async function handleWixSubmission(request, env = {}, executionContext) {
   if (request.method !== 'POST') return jsonResponse(405, { error: 'method-not-allowed' });
 
   const config = configuration(env);
@@ -295,15 +307,14 @@ export async function handleWixSubmission(request, env = {}) {
   if (!submission) return jsonResponse(400, { error: 'invalid-submission' });
 
   try {
-    if (submission.kind === 'signup') {
-      const summary = await getFormSummary(config, config.signupFormId);
-      await createContact(config, submission);
-      await createFormSubmission(config, config.signupFormId, signupValues(summary.fields, submission));
-    } else {
-      const summary = await getFormSummary(config, config.feedbackFormId);
-      await createFormSubmission(config, config.feedbackFormId, feedbackValues(summary.fields, submission));
-    }
+    // The custom dashboard is the player-facing source of truth. Save it before
+    // the slower Wix Forms API so delayed form copies cannot drop telemetry.
     await createCmsSubmission(config, submission);
+    const formCopy = createWixFormCopy(config, submission).catch((error) => {
+      console.error('[wix-form-copy]', error instanceof Error ? error.message : error);
+    });
+    if (executionContext?.waitUntil) executionContext.waitUntil(formCopy);
+    else await formCopy;
     return jsonResponse(200, { ok: true });
   } catch (error) {
     console.error('[wix-submit]', error instanceof Error ? error.message : error);

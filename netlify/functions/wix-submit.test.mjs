@@ -26,6 +26,7 @@ afterEach(() => {
 describe('wix-submit Netlify function', () => {
   it('maps a beta signup to its Wix form and creates a contact', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(wixResponse({ ok: true }, 201))
       .mockResolvedValueOnce(wixResponse({
         formSummary: {
           fields: [
@@ -36,8 +37,7 @@ describe('wix-submit Netlify function', () => {
         },
       }))
       .mockResolvedValueOnce(wixResponse({ contact: { id: 'contact-1' } }))
-      .mockResolvedValueOnce(wixResponse({ submission: { id: 'submission-1' } }))
-      .mockResolvedValueOnce(wixResponse({ ok: true }, 201));
+      .mockResolvedValueOnce(wixResponse({ submission: { id: 'submission-1' } }));
 
     const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
       method: 'POST',
@@ -53,27 +53,28 @@ describe('wix-submit Netlify function', () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(4);
-    const contactBody = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(contactBody.info.emails.items[0].email).toBe('ada@example.com');
-    const submissionBody = JSON.parse(fetchMock.mock.calls[2][1].body);
-    expect(submissionBody.submission.submissions).toEqual({
-      'contact.name': 'Ada Lovelace',
-      'contact.email': 'ada@example.com',
-      release_updates: true,
-    });
-    expect(fetchMock.mock.calls[3][0]).toBe('https://wix.test/_functions/ironDominionSubmission');
-    expect(fetchMock.mock.calls[3][1].headers['x-iron-dominion-secret']).toBe('test-ingest-secret');
-    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({
+    expect(fetchMock.mock.calls[0][0]).toBe('https://wix.test/_functions/ironDominionSubmission');
+    expect(fetchMock.mock.calls[0][1].headers['x-iron-dominion-secret']).toBe('test-ingest-secret');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       kind: 'signup',
       name: 'Ada Lovelace',
       email: 'ada@example.com',
       releaseUpdates: true,
       source: 'Iron Dominion landing page',
     });
+    const contactBody = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(contactBody.info.emails.items[0].email).toBe('ada@example.com');
+    const submissionBody = JSON.parse(fetchMock.mock.calls[3][1].body);
+    expect(submissionBody.submission.submissions).toEqual({
+      'contact.name': 'Ada Lovelace',
+      'contact.email': 'ada@example.com',
+      release_updates: true,
+    });
   });
 
   it('maps player feedback without creating a contact', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(wixResponse({ ok: true }, 201))
       .mockResolvedValueOnce(wixResponse({
         formSummary: {
           fields: [
@@ -88,8 +89,7 @@ describe('wix-submit Netlify function', () => {
           ],
         },
       }))
-      .mockResolvedValueOnce(wixResponse({ submission: { id: 'submission-2' } }))
-      .mockResolvedValueOnce(wixResponse({ ok: true }, 201));
+      .mockResolvedValueOnce(wixResponse({ submission: { id: 'submission-2' } }));
 
     const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
       method: 'POST',
@@ -124,14 +124,14 @@ describe('wix-submit Netlify function', () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    const submissionBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    const submissionBody = JSON.parse(fetchMock.mock.calls[2][1].body);
     expect(submissionBody.submission.submissions).toEqual({
       player_name: 'Player One',
       rating: 4,
       feedback: 'The battle was excellent.',
       page_url: 'https://game.test/?map=frost',
     });
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       kind: 'feedback',
       name: 'Player One',
       message: 'The battle was excellent.',
