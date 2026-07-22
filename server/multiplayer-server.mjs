@@ -27,6 +27,7 @@ const rooms = new Map();
  *   mapId: string;
  *   mapSize: 'small' | 'medium' | 'large';
  *   seed: number;
+ *   oreAmount: number;
  *   ai: string;
  *   aiStyle: string;
  *   combatMode: 'assisted' | 'manual';
@@ -200,6 +201,7 @@ function handleSettings(socket, body) {
   room.mapId = normalizeMapId(next.mapId ?? room.mapId);
   room.mapSize = normalizeMapSize(next.mapSize ?? room.mapSize);
   room.seed = Math.max(1, Math.floor(Number(next.seed) || room.seed));
+  room.oreAmount = normalizeOreAmount(next.oreAmount ?? room.oreAmount);
   room.ai = String(next.ai ?? room.ai);
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
@@ -311,6 +313,7 @@ function createRoom(body) {
     mapId: normalizeMapId(body?.mapId),
     mapSize: normalizeMapSize(body?.mapSize),
     seed: Math.max(1, Math.floor(Number(body?.seed) || 1)),
+    oreAmount: normalizeOreAmount(body?.oreAmount),
     ai: String(body?.ai ?? 'normal'),
     aiStyle: String(body?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(body?.combatMode),
@@ -335,6 +338,7 @@ function restoreRoom(snapshot) {
     mapId: normalizeMapId(snapshot?.mapId),
     mapSize: normalizeMapSize(snapshot?.mapSize),
     seed: Math.max(1, Math.floor(Number(snapshot?.seed) || 1)),
+    oreAmount: normalizeOreAmount(snapshot?.oreAmount),
     ai: String(snapshot?.ai ?? 'normal'),
     aiStyle: String(snapshot?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(snapshot?.combatMode),
@@ -489,6 +493,7 @@ function publicRoom(room) {
     mapId: room.mapId,
     mapSize: room.mapSize,
     seed: room.seed,
+    oreAmount: room.oreAmount,
     ai: room.ai,
     aiStyle: room.aiStyle,
     combatMode: room.combatMode,
@@ -574,6 +579,12 @@ function normalizeRoomCode(code) {
 
 function normalizeCombatMode(value) {
   return value === 'manual' ? 'manual' : 'assisted';
+}
+
+function normalizeOreAmount(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 100;
+  return Math.max(50, Math.min(200, Math.round(amount / 25) * 25));
 }
 
 function normalizeMapId(value) {

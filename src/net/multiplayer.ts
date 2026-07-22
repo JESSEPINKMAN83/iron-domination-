@@ -7,6 +7,7 @@ export interface MultiplayerRoom {
   mapId?: string;
   mapSize?: string;
   seed: number;
+  oreAmount?: number;
   ai: Difficulty;
   aiStyle: Personality;
   combatMode?: CombatMode;
@@ -97,7 +98,7 @@ export class MultiplayerClient {
 
   constructor(readonly baseUrl: string) {}
 
-  async host(settings: { mapId?: string; mapSize?: string; seed: number; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; armySides?: number[]; spawnSlots?: number[]; name?: string; playerId?: string }): Promise<MultiplayerSession> {
+  async host(settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; armySides?: number[]; spawnSlots?: number[]; name?: string; playerId?: string }): Promise<MultiplayerSession> {
     await this.ensureSocket();
     return this.request({
       type: 'host',
@@ -121,7 +122,7 @@ export class MultiplayerClient {
     this.send({ type: 'tactical-ping', roomCode: normalizeRoomCode(roomCode), playerId, kind, x, z });
   }
 
-  updateSettings(roomCode: string, playerId: string, settings: { mapId?: string; mapSize?: string; seed: number; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; armySides?: number[]; spawnSlots?: number[] }): void {
+  updateSettings(roomCode: string, playerId: string, settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; armySides?: number[]; spawnSlots?: number[] }): void {
     this.send({ type: 'settings', roomCode: normalizeRoomCode(roomCode), playerId, settings });
   }
 

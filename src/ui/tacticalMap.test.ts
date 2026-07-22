@@ -20,4 +20,12 @@ describe('tactical map', () => {
     expect(worldToMapPercent(1000, 0, 0)).toEqual({ x: 50, y: 50 });
     expect(worldToMapPercent(1000, 500, 500)).toEqual({ x: 100, y: 100 });
   });
+
+  it('shows the selected ore amount in the generated tactical survey', () => {
+    const sparse = createTacticalMapRaster('highlands', 'medium', 1337, 48, 50);
+    const abundant = createTacticalMapRaster('highlands', 'medium', 1337, 48, 200);
+
+    expect(sparse.oreFields).toHaveLength(3);
+    expect(abundant.oreFields).toHaveLength(10);
+  });
 });

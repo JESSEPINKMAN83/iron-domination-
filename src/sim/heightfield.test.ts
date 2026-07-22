@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAP_PRESETS, mapConfig } from '../content/maps';
+import { MAP_PRESETS, mapConfig, sanitizeOreAmount } from '../content/maps';
 import { generateHeightfield, hashHeightfield, type MapConfig } from './heightfield';
 
 const cfg: MapConfig = { seed: 1337, cells: 128, cellSize: 2, waterLevel: 2, oreFieldCount: 3 };
@@ -14,6 +14,24 @@ describe('heightfield generation', () => {
     expect(small).toMatchObject({ cells: 384, cellSize: 2, oreFieldCount: 4 });
     expect(medium).toEqual(MAP_PRESETS.highlands.config);
     expect(large).toMatchObject({ cells: 640, cellSize: 2, oreFieldCount: 6 });
+  });
+
+  it('scales ore field count with the bounded setup ore amount', () => {
+    expect(mapConfig('highlands', 'small', 50).oreFieldCount).toBe(2);
+    expect(mapConfig('highlands', 'medium', 100).oreFieldCount).toBe(5);
+    expect(mapConfig('highlands', 'large', 200).oreFieldCount).toBe(13);
+    expect(sanitizeOreAmount(null)).toBeUndefined();
+    expect(sanitizeOreAmount(37)).toBe(50);
+    expect(sanitizeOreAmount(164)).toBe(175);
+    expect(sanitizeOreAmount(999)).toBe(200);
+  });
+
+  it('generates every requested ore field at maximum abundance', () => {
+    for (const mapId of ['highlands', 'crater-oasis', 'frostbite-pass'] as const) {
+      const config = mapConfig(mapId, 'large', 200);
+      const hf = generateHeightfield({ ...config, seed: 883122 });
+      expect(hf.oreFields).toHaveLength(config.oreFieldCount);
+    }
   });
 
   it('is deterministic: same seed → identical data hash', () => {
