@@ -159,6 +159,82 @@ describe('wix-submit Netlify function', () => {
     });
   });
 
+  it('stores telemetry in the CMS without touching the Wix Forms API', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(wixResponse({ ok: true }, 201));
+
+    const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'telemetry',
+        event: 'match-start',
+        playerId: '01234567-89ab-cdef-0123-456789abcdef',
+        page: 'https://game.test/?map=frost',
+        buildVersion: '0.1.0',
+        match: {
+          matchId: 'match-123',
+          status: 'ongoing',
+          multiplayer: false,
+          mapId: 'frostbite-pass',
+          mapSize: 'medium',
+          seed: 771204,
+          playerTeam: 1,
+          playerSide: 1,
+          elapsedSeconds: 0,
+          fps: 60,
+          quality: 'balanced',
+          renderScale: 0.85,
+          buildVersion: '0.1.0',
+        },
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe('https://wix.test/_functions/ironDominionSubmission');
+    expect(fetchMock.mock.calls[0][1].headers['x-iron-dominion-secret']).toBe('test-ingest-secret');
+    const cmsBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(cmsBody.kind).toBe('telemetry');
+    expect(cmsBody.event).toBe('match-start');
+    expect(cmsBody.playerId).toBe('01234567-89ab-cdef-0123-456789abcdef');
+    expect(cmsBody.match.matchId).toBe('match-123');
+  });
+
+  it('accepts telemetry without match context and without the Wix API key', async () => {
+    delete process.env.WIX_API_KEY;
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(wixResponse({ ok: true }, 201));
+
+    const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'telemetry',
+        event: 'session-start',
+        playerId: '01234567-89ab-cdef-0123-456789abcdef',
+        page: 'https://game.test/',
+        buildVersion: '0.1.0',
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).event).toBe('session-start');
+  });
+
+  it('rejects telemetry with an unknown event name', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'telemetry', event: 'drop-table', playerId: 'p1' }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid payloads before calling Wix', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {

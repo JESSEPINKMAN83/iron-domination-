@@ -200,6 +200,22 @@ function parseSubmission(body) {
     };
   }
 
+  if (body.kind === 'telemetry') {
+    const event = ['session-start', 'match-start', 'match-end', 'heartbeat'].includes(body.event)
+      ? body.event
+      : '';
+    const playerId = cleanText(body.playerId, 64);
+    if (!event || !playerId) return null;
+    return {
+      kind: 'telemetry',
+      event,
+      playerId,
+      page: cleanText(body.page, 1000),
+      buildVersion: cleanText(body.buildVersion, 80),
+      match: parseMatchMetadata(body.match),
+    };
+  }
+
   if (body.kind === 'feedback') {
     const name = cleanText(body.name, 120);
     const message = cleanText(body.message, 5000);
@@ -294,7 +310,6 @@ export async function handleWixSubmission(request, env = {}, executionContext) {
   if (request.method !== 'POST') return jsonResponse(405, { error: 'method-not-allowed' });
 
   const config = configuration(env);
-  if (!config.apiKey) return jsonResponse(503, { error: 'wix-not-configured' });
 
   let body;
   try {
@@ -306,10 +321,16 @@ export async function handleWixSubmission(request, env = {}, executionContext) {
   const submission = parseSubmission(body);
   if (!submission) return jsonResponse(400, { error: 'invalid-submission' });
 
+  // Telemetry only needs the CMS ingest endpoint; forms and contacts need the API key.
+  if (submission.kind !== 'telemetry' && !config.apiKey) {
+    return jsonResponse(503, { error: 'wix-not-configured' });
+  }
+
   try {
     // The custom dashboard is the player-facing source of truth. Save it before
     // the slower Wix Forms API so delayed form copies cannot drop telemetry.
     await createCmsSubmission(config, submission);
+    if (submission.kind === 'telemetry') return jsonResponse(200, { ok: true });
     const formCopy = createWixFormCopy(config, submission).catch((error) => {
       console.error('[wix-form-copy]', error instanceof Error ? error.message : error);
     });
