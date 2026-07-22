@@ -25,7 +25,7 @@ export function hitShakeProfile(force: number): HitShakeProfile {
 
 export function hitFlashOpacity(force: number): number {
   const f = Math.max(0, Math.min(1, force));
-  return 0.22 + f * 0.85;
+  return Math.min(1, 0.22 + f * 0.85);
 }
 
 /** Persistent edge vignette while hull is low in V-mode. Zero above 35% HP. */

@@ -2092,7 +2092,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const lineupStart = startMode === 'lineup';
   const testStart = startMode === 'test' || startMode === 'sandbox';
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
-  const hitJuicePreview = !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
+  const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   let nextHitJuicePreviewTick = 0;
   const aiDifficulty: Difficulty = settings.ai;
   const aiPersonality: Personality = settings.aiStyle;

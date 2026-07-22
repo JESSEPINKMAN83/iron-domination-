@@ -25,6 +25,12 @@ describe('v-mode hit juice', () => {
     expect(possessionHitGain(0.9)).toBeGreaterThan(possessionHitGain(0.2));
   });
 
+  it('keeps visual opacity within CSS bounds', () => {
+    expect(hitFlashOpacity(-1)).toBeGreaterThanOrEqual(0);
+    expect(hitFlashOpacity(1)).toBeLessThanOrEqual(1);
+    expect(hitFlashOpacity(10)).toBeLessThanOrEqual(1);
+  });
+
   it('only shows low-HP vignette below 35% hull', () => {
     expect(lowHpVignetteOpacity(0.5)).toBe(0);
     expect(lowHpVignetteOpacity(0.35)).toBe(0);
