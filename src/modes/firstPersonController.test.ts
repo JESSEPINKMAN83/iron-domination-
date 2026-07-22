@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { resolveExitCameraPose, type CameraPose } from './firstPersonController';
+import { keyboardAircraftClimb, resolveExitCameraPose, type CameraPose } from './firstPersonController';
 
 function pose(x: number, y: number, z: number, fov: number): CameraPose {
   return {
@@ -31,5 +31,16 @@ describe('first-person camera transitions', () => {
 
     expect(result.position.toArray()).toEqual(nearby.position.toArray());
     expect(result.quaternion.toArray()).toEqual(nearby.quaternion.toArray());
+  });
+});
+
+describe('aircraft keyboard altitude', () => {
+  it('uses Space to climb and C to descend', () => {
+    expect(keyboardAircraftClimb((code) => code === 'Space')).toBe(1);
+    expect(keyboardAircraftClimb((code) => code === 'KeyC')).toBe(-1);
+  });
+
+  it('does not descend when Control is pressed', () => {
+    expect(keyboardAircraftClimb((code) => code === 'ControlLeft' || code === 'ControlRight')).toBe(0);
   });
 });

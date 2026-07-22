@@ -31,6 +31,10 @@ export interface CameraPose {
   fov: number;
 }
 
+export function keyboardAircraftClimb(isDown: (code: string) => boolean): number {
+  return (isDown('Space') ? 1 : 0) - (isDown('KeyC') ? 1 : 0);
+}
+
 export function resolveExitCameraPose(prepared: CameraPose | undefined, fallback: () => CameraPose): CameraPose {
   const pose = prepared ?? fallback();
   return {
@@ -297,7 +301,7 @@ export class FirstPersonController {
     const turn = MathUtils.clamp(baseTurn + hardTurn * 1.55 + mobile.turn, -1.75, 1.75);
     const strafe = 0;
     const climb = MathUtils.clamp(
-      (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('ControlLeft') || this.input.isDown('ControlRight') ? 1 : 0) + mobile.climb,
+      keyboardAircraftClimb((code) => this.input.isDown(code)) + mobile.climb,
       -1,
       1,
     );

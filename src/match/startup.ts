@@ -19,6 +19,20 @@ export function ensureOpposingSides(armyCount: number, armySides: readonly numbe
   return sides;
 }
 
+export function formatArmyMatchup(armyCount: number, armySides: readonly number[]): string {
+  const count = Math.max(2, Math.min(4, Math.floor(armyCount) || 2));
+  const groups = new Map<number, number[]>();
+  for (let army = 1; army <= count; army++) {
+    const side = Math.max(1, Math.min(4, Math.floor(Number(armySides[army - 1])) || army));
+    const members = groups.get(side) ?? [];
+    members.push(army);
+    groups.set(side, members);
+  }
+  return Array.from(groups.entries())
+    .map(([side, armies]) => `SIDE ${side}: ${armies.map((army) => `ARMY ${army}`).join(' + ')}`)
+    .join('  VS  ');
+}
+
 export function isVictoryFromHostileBuildingCounts(counts: Iterable<number>): boolean {
   const hostileBuildings = Array.from(counts);
   return hostileBuildings.length > 0 && hostileBuildings.every((count) => count === 0);
