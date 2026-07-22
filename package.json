@@ -12,7 +12,7 @@
     "multiplayer": "node server/multiplayer-server.mjs",
     "build": "tsc && vite build",
     "build:cloudflare": "tsc && vite build --outDir dist-cloudflare",
-    "deploy:cloudflare": "npm run build:cloudflare && npx wrangler@4.34.0 deploy",
+    "deploy:cloudflare": "npm run build:cloudflare && npx wrangler@4.112.0 deploy --strict",
     "preview": "vite preview",
     "test": "vitest run",
     "postinstall": "node scripts/copy-decoders.mjs"
