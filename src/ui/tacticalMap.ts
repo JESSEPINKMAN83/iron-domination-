@@ -1,4 +1,5 @@
 import {
+  DEFAULT_ORE_AMOUNT,
   MAP_PRESETS,
   MAP_SIZE_PRESETS,
   mapConfig,
@@ -22,6 +23,7 @@ export type TacticalMapOptions = {
   mapId: MapId;
   mapSize: MapSize;
   seed: number;
+  oreAmount?: number;
   deployments?: TacticalMapDeployment[];
 };
 
@@ -72,7 +74,7 @@ const PALETTES: Record<MapId, { base: Rgb; loose: Rgb; rock: Rgb; ore: Rgb; wate
 export function renderTacticalMap(root: HTMLDivElement, options: TacticalMapOptions): void {
   const preset = MAP_PRESETS[options.mapId];
   const sizePreset = MAP_SIZE_PRESETS[options.mapSize];
-  const raster = cachedRaster(options.mapId, options.mapSize, options.seed);
+  const raster = cachedRaster(options.mapId, options.mapSize, options.seed, options.oreAmount ?? DEFAULT_ORE_AMOUNT);
 
   root.replaceChildren();
   root.classList.add('tactical-map');
@@ -146,8 +148,14 @@ export function renderTacticalMap(root: HTMLDivElement, options: TacticalMapOpti
   root.append(canvas, grid, heading, telemetry, north, markers, scale, legend);
 }
 
-export function createTacticalMapRaster(mapId: MapId, mapSize: MapSize, seed: number, resolution = RASTER_SIZE): TacticalMapRaster {
-  const config = { ...mapConfig(mapId, mapSize), seed: Math.max(1, Math.floor(seed) || 1) };
+export function createTacticalMapRaster(
+  mapId: MapId,
+  mapSize: MapSize,
+  seed: number,
+  resolution = RASTER_SIZE,
+  oreAmount = DEFAULT_ORE_AMOUNT,
+): TacticalMapRaster {
+  const config = { ...mapConfig(mapId, mapSize, oreAmount), seed: Math.max(1, Math.floor(seed) || 1) };
   const hf = generateHeightfield(config);
   const width = Math.max(32, Math.floor(resolution));
   const pixels = new Uint8ClampedArray(width * width * 4);
@@ -215,12 +223,12 @@ export function worldToMapPercent(worldSize: number, x: number, z: number): { x:
   };
 }
 
-function cachedRaster(mapId: MapId, mapSize: MapSize, seed: number): TacticalMapRaster {
+function cachedRaster(mapId: MapId, mapSize: MapSize, seed: number, oreAmount: number): TacticalMapRaster {
   const safeSeed = Math.max(1, Math.floor(seed) || 1);
-  const key = `${mapId}:${mapSize}:${safeSeed}`;
+  const key = `${mapId}:${mapSize}:${safeSeed}:${oreAmount}`;
   const cached = rasterCache.get(key);
   if (cached) return cached;
-  const raster = createTacticalMapRaster(mapId, mapSize, safeSeed);
+  const raster = createTacticalMapRaster(mapId, mapSize, safeSeed, RASTER_SIZE, oreAmount);
   rasterCache.set(key, raster);
   if (rasterCache.size > MAX_CACHE_ENTRIES) {
     const oldest = rasterCache.keys().next().value;
