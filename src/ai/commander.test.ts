@@ -100,6 +100,41 @@ describe('phase 6 enemy commander', () => {
     vi.restoreAllMocks();
   });
 
+  it('orders large tank squads into an attack-move standoff instead of the enemy center', () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const playerEconomy = createEconomy(1);
+    const playerBase = createInitialBase(sim, hf, playerEconomy, 0, -20);
+    const enemyEconomy = createEconomy(2, 4600);
+    createInitialBase(sim, hf, enemyEconomy, 180, 20);
+    const tanks = Array.from({ length: 16 }, (_, index) => {
+      const tank = spawnTankAt(sim, -72 + (index % 4) * 7, -36 + Math.floor(index / 4) * 7, `Assault ${index + 1}`, 2);
+      tank.vision = { radius: 180 };
+      return tank;
+    });
+    const aiVision = new VisibilityGrid(hf, 2);
+    aiVision.update(sim);
+    const commander = new EnemyCommander(sim, hf, enemyEconomy, aiVision, 'rusher', 'normal');
+    const squad = { units: tanks, state: 'attacking' as const, nextOrderAt: 0 };
+    (commander as unknown as { squads: typeof squad[] }).squads.push(squad);
+
+    (commander as unknown as { commandSquads: () => void }).commandSquads();
+
+    expect(tanks.every((tank) => tank.mover?.attackMove && tank.mover.attackTargetId === undefined)).toBe(true);
+    const destinations = tanks.map((tank) => ({
+      x: tank.mover!.target!.x + (tank.mover!.formationOffset?.x ?? 0),
+      z: tank.mover!.target!.z + (tank.mover!.formationOffset?.z ?? 0),
+    }));
+    const averageDistance = destinations.reduce(
+      (sum, point) => sum + Math.hypot(point.x - playerBase.transform.x, point.z - playerBase.transform.z),
+      0,
+    ) / destinations.length;
+    expect(averageDistance).toBeGreaterThan((playerBase.collider?.radius ?? 0) + 10);
+    expect(new Set(destinations.map((point) => `${point.x.toFixed(2)}:${point.z.toFixed(2)}`)).size).toBe(tanks.length);
+    vi.restoreAllMocks();
+  });
+
   it('places new refineries toward live resource nodes', () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     const hf = generateHeightfield(MAP01);

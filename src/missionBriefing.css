@@ -1,0 +1,135 @@
+.mission-briefing {
+  position: fixed;
+  left: 18px;
+  top: 18px;
+  z-index: 45;
+  width: min(390px, calc(100vw - 36px));
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid rgba(224, 185, 84, .62);
+  background: linear-gradient(145deg, rgba(17, 24, 24, .98), rgba(5, 9, 10, .97));
+  color: #edf1eb;
+  font-family: "Avenir Next", Inter, ui-sans-serif, system-ui, sans-serif;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, .62), inset 0 0 0 1px rgba(255, 255, 255, .035);
+  clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
+  opacity: 0;
+  translate: -16px 0;
+  transition: opacity .24s ease, translate .24s ease;
+  pointer-events: auto;
+}
+
+.mission-briefing--visible { opacity: 1; translate: 0 0; }
+.mission-briefing--leaving { opacity: 0; translate: -12px 0; }
+
+.mission-briefing--hostile {
+  border-color: rgba(218, 75, 54, .78);
+  background: linear-gradient(145deg, rgba(27, 16, 16, .98), rgba(8, 7, 8, .98));
+  box-shadow: 0 18px 55px rgba(0, 0, 0, .68), 0 0 30px rgba(164, 35, 24, .12), inset 0 0 0 1px rgba(255, 255, 255, .03);
+}
+
+.mission-briefing--hostile .mission-briefing__header { border-bottom-color: rgba(218, 75, 54, .27); }
+.mission-briefing--hostile .mission-briefing__header span,
+.mission-briefing--hostile .mission-briefing__copy p { color: #ed6c56; }
+.mission-briefing--hostile .mission-briefing__portrait { border-right-color: rgba(218, 75, 54, .27); }
+.mission-briefing--hostile .mission-briefing__portrait::after { border-color: rgba(238, 92, 67, .2); }
+.mission-briefing--hostile .mission-briefing__copy strong {
+  border-left-color: #dc4a38;
+  background: rgba(220, 74, 56, .1);
+  color: #ff8c76;
+}
+.mission-briefing--hostile .mission-briefing__play { border-color: #b33e31; background: rgba(193, 55, 41, .14); color: #ff917d; }
+.mission-briefing--hostile .mission-briefing__track i { background: #dc4a38; box-shadow: 0 0 7px #dc4a38; }
+.mission-briefing--hostile .mission-briefing__close:hover { color: #ff8c76; }
+.mission-briefing--hostile .mission-briefing__close:focus-visible { outline-color: #ff8c76; }
+
+.mission-briefing__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 37px;
+  padding: 0 10px 0 13px;
+  border-bottom: 1px solid rgba(224, 185, 84, .2);
+  background: rgba(5, 9, 9, .72);
+}
+
+.mission-briefing__header > div { display: flex; align-items: center; gap: 7px; }
+.mission-briefing__header i { width: 7px; height: 7px; border-radius: 50%; background: #cf563d; box-shadow: 0 0 10px #e35d43; }
+.mission-briefing--playing .mission-briefing__header i { animation: mission-live-pulse 1.3s ease-in-out infinite; }
+.mission-briefing__header span,
+.mission-briefing__header b { font-size: 9px; line-height: 1; letter-spacing: .16em; }
+.mission-briefing__header span { color: #e6c665; font-weight: 800; }
+.mission-briefing__header b { color: #75837d; font-weight: 700; }
+
+.mission-briefing__close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #bdc6c1;
+  cursor: pointer;
+  font: 300 25px/1 system-ui, sans-serif;
+}
+.mission-briefing__close:hover { color: #f1d36d; }
+.mission-briefing__close:focus-visible { outline: 2px solid #f1d36d; outline-offset: -2px; }
+
+.mission-briefing__body { display: grid; grid-template-columns: 126px minmax(0, 1fr); min-height: 164px; }
+.mission-briefing__portrait {
+  position: relative;
+  display: grid;
+  place-items: end center;
+  min-height: 164px;
+  padding: 0 8px 12px;
+  box-sizing: border-box;
+  border-right: 1px solid rgba(224, 185, 84, .22);
+  background:
+    radial-gradient(circle at 50% 31%, rgba(219, 199, 145, .24) 0 16%, transparent 17%),
+    radial-gradient(ellipse at 50% 88%, rgba(85, 103, 95, .7) 0 39%, transparent 40%),
+    linear-gradient(145deg, #1d2927, #080d0e 70%);
+  background-position: center;
+  background-size: cover;
+  color: rgba(232, 207, 126, .72);
+  text-align: center;
+  font: 700 8px/1.45 ui-monospace, Menlo, monospace;
+  letter-spacing: .14em;
+}
+.mission-briefing__portrait::after { content: ''; position: absolute; inset: 7px; border: 1px solid rgba(226, 195, 101, .12); pointer-events: none; }
+.mission-briefing__portrait--ready span { display: none; }
+
+.mission-briefing__copy { padding: 17px 17px 14px; }
+.mission-briefing__copy p,
+.mission-briefing__copy h2,
+.mission-briefing__copy span { margin: 0; }
+.mission-briefing__copy p { color: #d4b85d; font-size: 9px; font-weight: 800; letter-spacing: .15em; }
+.mission-briefing__copy h2 { margin-top: 4px; font: 600 27px/1 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .07em; text-transform: uppercase; }
+.mission-briefing__copy strong { display: inline-block; margin-top: 13px; padding: 5px 7px; border-left: 2px solid #dfbd62; background: rgba(223, 189, 98, .08); color: #f2d578; font-size: 10px; letter-spacing: .1em; }
+.mission-briefing__copy span { display: block; margin-top: 9px; color: #b5c0ba; font-size: 11px; line-height: 1.5; }
+.mission-briefing__play { margin-top: 10px; min-height: 30px; padding: 0 10px; border: 1px solid #b89849; background: rgba(204, 165, 72, .12); color: #f2d578; cursor: pointer; font: 700 9px/1 ui-monospace, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; }
+
+.mission-briefing__footer { display: grid; grid-template-columns: auto minmax(40px, 1fr) auto; align-items: center; gap: 9px; min-height: 34px; padding: 0 13px; border-top: 1px solid rgba(255, 255, 255, .065); background: rgba(3, 6, 7, .72); }
+.mission-briefing__status,
+.mission-briefing__footer time { color: #798880; font: 700 8px/1 ui-monospace, Menlo, monospace; letter-spacing: .08em; }
+.mission-briefing__track { height: 2px; overflow: hidden; background: rgba(255, 255, 255, .1); }
+.mission-briefing__track i { display: block; width: 0; height: 100%; background: #e0bd60; box-shadow: 0 0 7px #e0bd60; }
+
+@keyframes mission-live-pulse { 50% { opacity: .38; box-shadow: 0 0 3px #e35d43; } }
+
+@media (max-width: 560px) {
+  .mission-briefing { left: 8px; top: 8px; width: min(350px, calc(100vw - 16px)); }
+  .mission-briefing__body { grid-template-columns: 105px minmax(0, 1fr); min-height: 144px; }
+  .mission-briefing__portrait { min-height: 144px; }
+  .mission-briefing__copy { padding: 13px 13px 11px; }
+  .mission-briefing__copy h2 { font-size: 23px; }
+  .mission-briefing__copy strong { margin-top: 9px; }
+}
+
+.mobile-touch-device .mission-briefing { top: max(47px, calc(env(safe-area-inset-top) + 43px)); left: max(8px, env(safe-area-inset-left)); width: min(350px, calc(100vw - 16px)); }
+.mobile-touch-device.mobile-app-viewport .mission-briefing {
+  left: calc(var(--mobile-app-left, 0px) + max(8px, env(safe-area-inset-left)));
+  top: calc(var(--mobile-app-top, 0px) + max(47px, calc(env(safe-area-inset-top) + 43px)));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mission-briefing { transition: none; }
+  .mission-briefing--playing .mission-briefing__header i { animation: none; }
+}

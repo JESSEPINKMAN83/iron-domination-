@@ -1,0 +1,253 @@
+.iron-howto {
+  position: fixed;
+  inset: 0;
+  z-index: 5001;
+  pointer-events: none;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.iron-howto__trigger {
+  position: absolute;
+  left: 112px;
+  bottom: 16px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(225, 189, 97, .62);
+  border-radius: 5px;
+  background: rgba(8, 11, 12, .82);
+  color: #f5e5ad;
+  cursor: pointer;
+  pointer-events: auto;
+  font: 700 11px/1 'Arial Narrow', Arial, sans-serif;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  box-shadow: 0 7px 24px rgba(0, 0, 0, .42);
+  backdrop-filter: blur(12px);
+}
+
+.iron-howto__trigger:hover,
+.iron-howto__trigger:focus-visible {
+  border-color: #f0d56a;
+  background: rgba(25, 28, 27, .94);
+  outline: none;
+}
+
+.iron-howto-open .iron-howto__trigger,
+.iron-howto-open .iron-feedback__trigger { display: none; }
+
+.iron-howto__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5100;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 22px;
+  overflow: hidden;
+  background: rgba(2, 4, 5, .76);
+  backdrop-filter: blur(10px);
+}
+
+.iron-howto__dialog {
+  width: min(1060px, 100%);
+  max-height: min(900px, calc(100vh - 44px));
+  overflow: auto;
+  box-sizing: border-box;
+  border: 1px solid rgba(224, 185, 84, .56);
+  background:
+    linear-gradient(135deg, rgba(240, 213, 106, .045) 0 1px, transparent 1px 18px),
+    linear-gradient(180deg, rgba(21, 28, 28, .985), rgba(6, 9, 10, .99));
+  background-size: 18px 18px, auto;
+  color: #eef0e9;
+  font-family: "Avenir Next", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  box-shadow: 0 30px 100px rgba(0, 0, 0, .76), inset 0 0 0 1px rgba(255, 255, 255, .035);
+  clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
+}
+
+.iron-howto__header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 26px 18px;
+  border-bottom: 1px solid rgba(224, 185, 84, .22);
+  background: linear-gradient(180deg, rgba(19, 25, 25, .99), rgba(13, 18, 18, .97));
+}
+
+.iron-howto__header p,
+.iron-howto__header h2 { margin: 0; }
+.iron-howto__header p { color: #d5ae4f; font-size: 11px; font-weight: 800; letter-spacing: .22em; }
+.iron-howto__header h2 { margin-top: 4px; font: 500 38px/1 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.iron-howto__close { border: 0; background: transparent; color: #c8cec9; cursor: pointer; font: 300 34px/1 system-ui, sans-serif; }
+.iron-howto__close:hover { color: #f0d56a; }
+.iron-howto__close:focus-visible { outline: 2px solid #f0d56a; outline-offset: 4px; }
+
+.iron-howto__intro-grid,
+.iron-howto__section,
+.iron-howto__footer { margin-inline: 26px; }
+
+.iron-howto__intro-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.iron-howto__intro,
+.iron-howto__objective {
+  padding: 18px 20px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  background: rgba(4, 7, 8, .58);
+}
+
+.iron-howto__objective {
+  order: -1;
+  position: relative;
+  padding: 22px 24px 21px 28px;
+  overflow: hidden;
+  border: 1px solid rgba(240, 213, 106, .72);
+  background:
+    linear-gradient(90deg, rgba(224, 174, 49, .18), rgba(224, 174, 49, .04) 66%, transparent),
+    rgba(8, 11, 10, .9);
+  box-shadow: inset 4px 0 0 #e3bd58, 0 8px 28px rgba(0, 0, 0, .28);
+}
+
+.iron-howto__objective::after {
+  content: 'OBJECTIVE';
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  translate: 0 -50%;
+  color: rgba(240, 213, 106, .055);
+  font: 700 64px/1 'Teko', 'Arial Narrow', sans-serif;
+  letter-spacing: .08em;
+  pointer-events: none;
+}
+
+.iron-howto__intro > span,
+.iron-howto__objective > span { position: relative; z-index: 1; color: #dfbd62; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
+.iron-howto__intro p,
+.iron-howto__objective p { margin: 8px 0 0; color: #c6cfca; font-size: 14px; line-height: 1.65; }
+.iron-howto__objective strong { position: relative; z-index: 1; display: block; margin-top: 7px; color: #ffe078; font: 600 34px/1.06 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .045em; text-transform: uppercase; text-shadow: 0 0 24px rgba(240, 197, 79, .24); }
+.iron-howto__objective p { position: relative; z-index: 1; max-width: 690px; color: #e1e5df; font-weight: 500; }
+
+.iron-howto__section { margin-top: 24px; }
+.iron-howto__section-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.iron-howto__section-heading span { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid rgba(224, 185, 84, .42); color: #d2b15f; font: 700 9px ui-monospace, monospace; }
+.iron-howto__section-heading h3 { margin: 0; color: #eef0e9; font: 500 25px/1 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+
+.iron-howto__loop,
+.iron-howto__capabilities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.iron-howto__loop { margin: 0; padding: 0; list-style: none; counter-reset: guide-step; }
+.iron-howto__loop li,
+.iron-howto__capabilities article { min-height: 92px; padding: 15px 16px; border: 1px solid rgba(255, 255, 255, .09); background: rgba(6, 10, 10, .62); box-sizing: border-box; }
+.iron-howto__loop b,
+.iron-howto__capabilities b { display: block; margin-bottom: 7px; color: #e8c76e; font-size: 12px; letter-spacing: .09em; text-transform: uppercase; }
+.iron-howto__loop span,
+.iron-howto__capabilities span { color: #bdc7c2; font-size: 12px; line-height: 1.6; }
+
+.iron-howto__controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.iron-howto__control-group { padding: 13px 14px; border: 1px solid rgba(255, 255, 255, .075); background: rgba(5, 9, 9, .62); }
+.iron-howto__control-group h3 { margin: 0 0 10px; color: #e1be61; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+.iron-howto__control-group dl,
+.iron-howto__control-group dd { margin: 0; }
+.iron-howto__control-group dl { display: grid; gap: 8px; }
+.iron-howto__control-group dl > div { display: grid; grid-template-columns: minmax(130px, .38fr) minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.iron-howto__control-group dt { color: #f1f3ef; font: 700 11px/1.45 ui-monospace, Menlo, monospace; }
+.iron-howto__control-group dd { color: #b8c2bd; font-size: 12px; line-height: 1.55; }
+
+.iron-howto__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 24px;
+  margin-bottom: 26px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(224, 185, 84, .18);
+}
+.iron-howto__footer p { margin: 0; color: #b9c3be; font-size: 12px; line-height: 1.55; }
+.iron-howto__footer p strong { color: #d8bd70; }
+.iron-howto__footer-close { min-width: 180px; min-height: 42px; border: 1px solid #d4ae50; background: linear-gradient(180deg, #e4c469, #9b7d36); color: #111513; cursor: pointer; font: 600 19px/1 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.iron-howto__footer-close:hover { filter: brightness(1.08); }
+.iron-howto__footer-close:focus-visible { outline: 2px solid #fff1b2; outline-offset: 3px; }
+
+@media (max-width: 720px) {
+  .iron-howto__overlay { padding: 10px; }
+  .iron-howto__dialog { max-height: calc(100dvh - 20px); }
+  .iron-howto__header { padding: 16px 18px 13px; }
+  .iron-howto__intro-grid,
+  .iron-howto__section,
+  .iron-howto__footer { margin-inline: 18px; }
+  .iron-howto__intro-grid { grid-template-columns: 1fr; margin-top: 16px; }
+  .iron-howto__loop,
+  .iron-howto__capabilities,
+  .iron-howto__controls { grid-template-columns: 1fr; }
+  .iron-howto__footer { align-items: stretch; flex-direction: column; }
+}
+
+@media (max-width: 560px) {
+  .iron-howto__trigger { left: 104px; bottom: 10px; min-height: 34px; padding-inline: 11px; font-size: 10px; }
+}
+
+.mobile-touch-device .iron-howto__trigger {
+  left: max(82px, calc(env(safe-area-inset-left) + 76px));
+  right: auto;
+  top: max(8px, env(safe-area-inset-top));
+  bottom: auto;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 10px;
+  border-color: rgba(240, 213, 106, .38);
+  border-radius: 999px;
+  background: rgba(9, 15, 14, .66);
+  font: 700 8px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .09em;
+}
+
+.mobile-touch-device .iron-howto__overlay { padding: 7px; }
+.mobile-touch-device .iron-howto__dialog { width: min(900px, calc(100vw - 14px)); max-height: calc(100dvh - 14px); }
+.mobile-touch-device .iron-howto__header { padding: 11px 15px 9px; }
+.mobile-touch-device .iron-howto__header h2 { font-size: 28px; }
+.mobile-touch-device .iron-howto__intro-grid,
+.mobile-touch-device .iron-howto__section,
+.mobile-touch-device .iron-howto__footer { margin-inline: 15px; }
+.mobile-touch-device .iron-howto__intro-grid { margin-top: 12px; }
+.mobile-touch-device .iron-howto__intro,
+.mobile-touch-device .iron-howto__objective { padding: 10px 12px; }
+.mobile-touch-device .iron-howto__intro-grid { grid-template-columns: 1fr; }
+.mobile-touch-device .iron-howto__intro p,
+.mobile-touch-device .iron-howto__objective p { font-size: 11px; line-height: 1.5; }
+.mobile-touch-device .iron-howto__objective { padding: 13px 14px 12px 17px; }
+.mobile-touch-device .iron-howto__objective strong { font-size: 23px; }
+.mobile-touch-device .iron-howto__objective::after { right: 10px; font-size: 42px; }
+.mobile-touch-device .iron-howto__section { margin-top: 14px; }
+.mobile-touch-device .iron-howto__section-heading { margin-bottom: 6px; }
+.mobile-touch-device .iron-howto__section-heading h3 { font-size: 20px; }
+.mobile-touch-device .iron-howto__loop,
+.mobile-touch-device .iron-howto__capabilities { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.mobile-touch-device .iron-howto__loop li,
+.mobile-touch-device .iron-howto__capabilities article { min-height: 0; padding: 8px 9px; }
+.mobile-touch-device .iron-howto__loop b,
+.mobile-touch-device .iron-howto__capabilities b { font-size: 9px; }
+.mobile-touch-device .iron-howto__loop span,
+.mobile-touch-device .iron-howto__capabilities span { font-size: 10px; line-height: 1.45; }
+.mobile-touch-device .iron-howto__controls { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.mobile-touch-device .iron-howto__control-group { padding: 8px 9px; }
+.mobile-touch-device .iron-howto__control-group dl > div { grid-template-columns: minmax(82px, .35fr) 1fr; gap: 7px; }
+.mobile-touch-device .iron-howto__control-group dt,
+.mobile-touch-device .iron-howto__control-group dd { font-size: 10px; }
+.mobile-touch-device .iron-howto__footer { flex-direction: row; align-items: center; margin-top: 14px; margin-bottom: 15px; padding-top: 10px; }
+.mobile-touch-device .iron-howto__footer-close { min-width: 150px; min-height: 38px; }
+
+.mobile-touch-device.mobile-app-viewport .iron-howto__overlay {
+  inset: auto;
+  left: var(--mobile-app-left, 0px);
+  top: var(--mobile-app-top, 0px);
+  width: var(--mobile-app-width, 100dvw);
+  height: var(--mobile-app-height, 100dvh);
+}

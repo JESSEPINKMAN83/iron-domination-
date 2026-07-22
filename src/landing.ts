@@ -65,7 +65,10 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
       </div>
       <section class="iron-landing__hero">
         <p class="iron-landing__eyebrow">${inviteRoom ? `Multiplayer invitation · Room ${inviteRoom}` : 'Beta access · Play free'}</p>
-        <h1>Iron Domination</h1>
+        <h1 aria-label="Iron Domination">
+          <span data-text="Iron">Iron</span>
+          <span data-text="Domination">Domination</span>
+        </h1>
         <p class="iron-landing__copy">
           ${inviteRoom ? 'Your friend is waiting in the battle room.' : 'Command a war from above. Then drop into the fight yourself.'}
         </p>
@@ -76,34 +79,56 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
         </p>
         ${returningPlayer ? `
           <div class="iron-landing__returning">
-            <button class="iron-landing__cta" type="button">${inviteRoom ? 'Join room' : 'Play game'}</button>
+            <button class="iron-landing__cta" data-action="start-game" type="button">${inviteRoom ? 'Join room' : 'Play game'}</button>
           </div>
         ` : `
         <form class="iron-landing__form" name="${FORM_NAME}" method="POST" action="${BETA_SIGNUP_ENDPOINT}" novalidate>
-          <div class="iron-landing__fields">
-            <label>
-              <span>Name</span>
-              <input name="name" type="text" autocomplete="name" placeholder="Your name" required>
+          <button class="iron-landing__cta" data-action="open-signup" type="button" aria-expanded="false">Play game</button>
+          <div class="iron-landing__signup-panel" hidden>
+            <p class="iron-landing__signup-title">Request beta clearance</p>
+            <div class="iron-landing__fields">
+              <label>
+                <span>Name</span>
+                <input name="name" type="text" autocomplete="name" placeholder="Your name" required>
+              </label>
+              <label>
+                <span>Email</span>
+                <input name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+              </label>
+            </div>
+            <label class="iron-landing__consent">
+              <input name="release-updates" type="checkbox" value="yes">
+              <span>Email me occasional development updates and news about the official release.</span>
             </label>
-            <label>
-              <span>Email</span>
-              <input name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
-            </label>
+            <p class="iron-landing__error" role="alert" hidden></p>
+            <button class="iron-landing__cta iron-landing__cta--submit" data-action="submit-signup" type="submit">${inviteRoom ? 'Sign up & join room' : 'Enter battlefield'}</button>
           </div>
-          <label class="iron-landing__consent">
-            <input name="release-updates" type="checkbox" value="yes">
-            <span>Email me occasional development updates and news about the official release.</span>
-          </label>
-          <p class="iron-landing__error" role="alert" hidden></p>
-          <button class="iron-landing__cta" type="submit">${inviteRoom ? 'Sign up & join room' : 'Play game'}</button>
         </form>
         `}
         ${fullscreenHint}
+        <ul class="iron-landing__doctrine" aria-label="Core game features">
+          <li>
+            <img src="/assets/ui/command-icons/command-yard.png" alt="">
+            <strong>Build</strong><span>Your base</span>
+          </li>
+          <li>
+            <img src="/assets/ui/command-icons/infantry.png" alt="">
+            <strong>Deploy</strong><span>Your army</span>
+          </li>
+          <li class="is-active">
+            <i class="iron-landing__reticle" aria-hidden="true"></i>
+            <strong>Fight</strong><span>On the ground</span>
+          </li>
+          <li>
+            <img src="/assets/ui/command-icons/siege-tank.png" alt="">
+            <strong>Adapt</strong><span>And conquer</span>
+          </li>
+        </ul>
       </section>
     `;
 
-    const cta = root.querySelector<HTMLButtonElement>('.iron-landing__cta')!;
     if (returningPlayer) {
+      const cta = root.querySelector<HTMLButtonElement>('[data-action="start-game"]')!;
       cta.onclick = () => {
         cta.disabled = true;
         root.classList.add('is-setup-open');
@@ -114,11 +139,21 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
     }
 
     const form = root.querySelector<HTMLFormElement>('.iron-landing__form')!;
+    const openSignup = root.querySelector<HTMLButtonElement>('[data-action="open-signup"]')!;
+    const signupPanel = root.querySelector<HTMLElement>('.iron-landing__signup-panel')!;
+    const submitSignup = root.querySelector<HTMLButtonElement>('[data-action="submit-signup"]')!;
     const error = root.querySelector<HTMLElement>('.iron-landing__error')!;
+    openSignup.onclick = () => {
+      openSignup.hidden = true;
+      openSignup.setAttribute('aria-expanded', 'true');
+      signupPanel.hidden = false;
+      form.classList.add('is-open');
+      root.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
+    };
     form.onsubmit = async (event) => {
       event.preventDefault();
       if (!form.reportValidity()) return;
-      cta.disabled = true;
+      submitSignup.disabled = true;
       error.hidden = true;
       const formData = new FormData(form);
       const signup = {
@@ -154,7 +189,7 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
       } catch {
         error.textContent = 'We could not save your beta signup. Please check your connection and try again.';
         error.hidden = false;
-        cta.disabled = false;
+        submitSignup.disabled = false;
       }
     };
 

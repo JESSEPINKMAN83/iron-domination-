@@ -60,7 +60,7 @@ export class Hud {
       'V camera  wheel zoom, Cmd + left-drag orbit',
       'Sniper V  right-click scope toggle, wheel zoom, left-click fire',
       'Squad V   select group, V controls one, Tab swaps leader',
-      'Vulture   W/S thrust, Shift boost, A/D yaw, Q/E hard turn, Space/Ctrl altitude',
+      'Vulture   W/S thrust, Shift boost, A/D yaw, Q/E hard turn, Space up, C down',
       'Fire      left-click primary, right-click secondary',
       'Audio     M mute/unmute',
       'Counters  Rifles infantry · Grenades buildings · Rockets armor/air',

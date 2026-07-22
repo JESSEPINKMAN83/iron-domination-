@@ -7,12 +7,18 @@ import type { Entity } from '../sim/components';
 import { buildings, canBuildStructure, placeStructure, queueUnit, startStructureBuild, updatePlacement, type EconomyState } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
-import { areTeamsHostile, issueMoveOrder, type GameSim } from '../sim/world';
+import { areTeamsHostile, attackStandoffPoint, issueMoveOrder, type GameSim } from '../sim/world';
 
 interface Squad {
   units: Entity[];
   state: 'attacking' | 'retreating';
   nextOrderAt: number; // sim tick
+}
+
+interface SquadTarget {
+  x: number;
+  z: number;
+  entity?: Entity;
 }
 
 export class EnemyCommander {
@@ -269,12 +275,17 @@ export class EnemyCommander {
       }
 
       const target = this.pickTarget(squad);
-      issueMoveOrder(this.sim, squad.units, target.x, target.z, true);
+      const destination = target.entity
+        ? attackStandoffPoint(this.sim, squad.units, target.entity)
+        : target;
+      // Attack-move keeps the squad responsive to defenders on the way in;
+      // the standoff point prevents a large formation converging on one center.
+      issueMoveOrder(this.sim, squad.units, destination.x, destination.z, true);
     }
   }
 
   /** Honest targeting: only positions the AI's own vision grid currently sees. */
-  private pickTarget(squad: Squad): { x: number; z: number } {
+  private pickTarget(squad: Squad): SquadTarget {
     let possessed: Entity | undefined;
     let economyTarget: Entity | undefined;
     let building: Entity | undefined;
@@ -316,7 +327,7 @@ export class EnemyCommander {
       if (possessed) this.log('spotted the possessed unit — converging on it');
       else if (chosen.harvester) this.log('spotted enemy collector — raiding economy');
       else if (chosen.building?.kind === 'refinery') this.log('spotted enemy refinery — raiding economy');
-      return { x: chosen.transform.x, z: chosen.transform.z };
+      return { x: chosen.transform.x, z: chosen.transform.z, entity: chosen };
     }
     // nothing seen: scout known start areas first, then ore fields (map geography, not unit intel)
     const waypoints = [...this.scoutHints, ...this.hf.oreFields];
