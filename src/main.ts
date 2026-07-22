@@ -1,6 +1,8 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { betaPlayerName, hasBetaAccess, showLandingScreen } from './landing';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
+import type { FeedbackMatchMetadata } from './backoffice';
+import { sendTelemetryEvent, trackMatchTelemetry, type MatchTelemetry } from './telemetry';
 import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHowToPlayWidget } from './howToPlay';
 import { showMissionBriefing } from './missionBriefing';
 import './setup.css';
@@ -2517,6 +2519,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   });
 
   let outcome: 'victory' | 'defeat' | undefined;
+  let matchTelemetry: MatchTelemetry | undefined;
   const checkOutcome = (): void => {
     if (outcome || sim.tick < 60) return;
     const alive = (team: number) => buildings(sim, team).filter((entity) => !entity.destroyed).length;
@@ -2524,6 +2527,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (isVictoryFromHostileBuildingCounts(hostileTeams.map(alive))) outcome = 'victory';
     else if (alive(localTeam) === 0) outcome = 'defeat';
     if (outcome) {
+      matchTelemetry?.end();
       const snapshot = matchSnapshot();
       recordMatchHistory({
         playedAt: Date.now(),
@@ -2553,7 +2557,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let renderFrame = 0;
   let deferredEffectDt = 0;
   const fallbackMatchId = `${multiplayerMode ? `mp-${multiplayer!.session.room.code}` : 'sp'}-${crypto.randomUUID()}`;
-  setFeedbackMatchMetadataProvider(() => {
+  const matchTelemetryMetadata = (): FeedbackMatchMetadata => {
     const room = multiplayer?.session.room;
     const player = room?.players.find((candidate) => candidate.id === multiplayer?.session.player.id) ?? multiplayer?.session.player;
     return {
@@ -2575,7 +2579,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       engine: player?.engine,
       buildVersion: import.meta.env.VITE_APP_VERSION ?? '0.1.0',
     };
-  });
+  };
+  setFeedbackMatchMetadataProvider(matchTelemetryMetadata);
+  matchTelemetry = trackMatchTelemetry(matchTelemetryMetadata);
   const firstContactGate = new FirstContactGate();
   const baseUnderAttackGate = new BaseUnderAttackGate();
   const missionComms = new MissionComms();
@@ -3296,6 +3302,7 @@ function findValidTestPlacement(
 }
 
 async function start(): Promise<void> {
+  sendTelemetryEvent('session-start');
   showFeedbackWidget();
   showHowToPlayWidget();
   const params = new URLSearchParams(location.search);
