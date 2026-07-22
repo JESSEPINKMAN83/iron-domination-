@@ -1,9 +1,6 @@
 name: Deploy production
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -37,8 +34,18 @@ jobs:
       - name: Verify tests
         run: npm test
 
+      - name: Prepare required Worker secrets
+        run: |
+          node -e "const fs=require('fs'); const required=['WIX_API_KEY','IRON_DOMINION_INGEST_SECRET']; for (const name of required) if (!process.env[name]) throw new Error(name+' is not configured in GitHub'); fs.writeFileSync(process.env.RUNNER_TEMP+'/worker-secrets.env', required.map((name)=>name+'='+JSON.stringify(process.env[name])).join('\n')+'\n', { mode: 0o600 });"
+        env:
+          WIX_API_KEY: ${{ secrets.WIX_API_KEY }}
+          IRON_DOMINION_INGEST_SECRET: ${{ secrets.IRON_DOMINION_INGEST_SECRET }}
+
+      - name: Build Cloudflare bundle
+        run: npm run build:cloudflare
+
       - name: Deploy Cloudflare Worker
-        run: npm run deploy:cloudflare
+        run: npx wrangler@4.112.0 deploy --strict --secrets-file "$RUNNER_TEMP/worker-secrets.env"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
