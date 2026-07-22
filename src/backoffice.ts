@@ -23,8 +23,11 @@ export type BackofficeSubmission =
   | { kind: 'feedback'; name: string; rating: number; message: string; page: string; match?: FeedbackMatchMetadata };
 
 const WIX_SUBMIT_ENDPOINT = '/api/wix-submit';
+const WIX_SUBMIT_TIMEOUT_MS = 8_000;
 
 export async function submitToBackoffice(submission: BackofficeSubmission): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), WIX_SUBMIT_TIMEOUT_MS);
   try {
     const response = await fetch(WIX_SUBMIT_ENDPOINT, {
       method: 'POST',
@@ -33,9 +36,12 @@ export async function submitToBackoffice(submission: BackofficeSubmission): Prom
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(submission),
+      signal: controller.signal,
     });
     return response.ok;
   } catch {
     return false;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
