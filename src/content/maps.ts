@@ -6,6 +6,11 @@ export type MapBiome = 'temperate' | 'desert' | 'snow';
 
 export type MapSize = 'small' | 'medium' | 'large';
 
+export const ORE_AMOUNT_MIN = 50;
+export const ORE_AMOUNT_MAX = 200;
+export const ORE_AMOUNT_STEP = 25;
+export const DEFAULT_ORE_AMOUNT = 100;
+
 export interface MapSizePreset {
   id: MapSize;
   label: string;
@@ -150,12 +155,27 @@ export function sanitizeMapSize(value: unknown): MapSize | undefined {
   return typeof value === 'string' && value in MAP_SIZE_PRESETS ? (value as MapSize) : undefined;
 }
 
-export function mapConfig(id: MapId, size: MapSize = DEFAULT_MAP_SIZE): MapConfig {
+export function sanitizeOreAmount(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return undefined;
+  const stepped = Math.round(amount / ORE_AMOUNT_STEP) * ORE_AMOUNT_STEP;
+  return Math.max(ORE_AMOUNT_MIN, Math.min(ORE_AMOUNT_MAX, stepped));
+}
+
+export function oreFieldCount(id: MapId, size: MapSize = DEFAULT_MAP_SIZE, oreAmount = DEFAULT_ORE_AMOUNT): number {
+  const base = MAP_PRESETS[id]?.config ?? MAP_PRESETS[DEFAULT_MAP_ID].config;
+  const selectedSize = MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
+  const amount = sanitizeOreAmount(oreAmount) ?? DEFAULT_ORE_AMOUNT;
+  return Math.max(2, Math.round(base.oreFieldCount * selectedSize.oreMultiplier * amount / 100));
+}
+
+export function mapConfig(id: MapId, size: MapSize = DEFAULT_MAP_SIZE, oreAmount = DEFAULT_ORE_AMOUNT): MapConfig {
   const base = MAP_PRESETS[id]?.config ?? MAP_PRESETS[DEFAULT_MAP_ID].config;
   const selectedSize = MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
   return {
     ...base,
     cells: selectedSize.cells,
-    oreFieldCount: Math.max(3, Math.round(base.oreFieldCount * selectedSize.oreMultiplier)),
+    oreFieldCount: oreFieldCount(id, size, oreAmount),
   };
 }

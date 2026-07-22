@@ -8,15 +8,21 @@ import './mobile.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
 import {
+  DEFAULT_ORE_AMOUNT,
   DEFAULT_MAP_ID,
   DEFAULT_MAP_SIZE,
   MAP_IDS,
   MAP_PRESETS,
   MAP_SIZE_IDS,
   MAP_SIZE_PRESETS,
+  ORE_AMOUNT_MAX,
+  ORE_AMOUNT_MIN,
+  ORE_AMOUNT_STEP,
   mapConfig,
+  oreFieldCount,
   sanitizeMapId,
   sanitizeMapSize,
+  sanitizeOreAmount,
   type MapId,
   type MapSize,
 } from './content/maps';
@@ -105,6 +111,7 @@ interface SkirmishSettings {
   mapId: MapId;
   mapSize: MapSize;
   seed: number;
+  oreAmount: number;
   ai: Difficulty;
   aiStyle: Personality;
   debug: boolean;
@@ -145,6 +152,15 @@ const MAP_DESCRIPTIONS: Record<MapId, string> = Object.fromEntries(
 const MAP_SIZE_DESCRIPTIONS: Record<MapSize, string> = Object.fromEntries(
   MAP_SIZE_IDS.map((id) => [id, MAP_SIZE_PRESETS[id].description]),
 ) as Record<MapSize, string>;
+const ORE_AMOUNT_LABELS: Record<number, string> = {
+  50: 'SPARSE',
+  75: 'LOW',
+  100: 'STANDARD',
+  125: 'HIGH',
+  150: 'RICH',
+  175: 'ABUNDANT',
+  200: 'MAXIMUM',
+};
 const LOBBY_COLORS = {
   jade: '#67d59b',
   crimson: '#ed6a5c',
@@ -167,9 +183,15 @@ function renderLobbyMapPreview(
   map: (typeof MAP_PRESETS)[MapId],
   seed: number,
   mapSize: MapSize,
+  oreAmount: number,
   deployments: TacticalMapDeployment[] = [],
 ): void {
-  renderTacticalMap(root, { mapId: map.id, mapSize, seed, deployments });
+  renderTacticalMap(root, { mapId: map.id, mapSize, seed, oreAmount, deployments });
+}
+
+function oreAmountLabel(value: unknown): string {
+  const amount = sanitizeOreAmount(value) ?? DEFAULT_ORE_AMOUNT;
+  return ORE_AMOUNT_LABELS[amount] ?? `${amount}%`;
 }
 
 function setupMapDeployments(armyCount: ArmyCount, armySides: ArmySides): TacticalMapDeployment[] {
@@ -306,6 +328,7 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
       mapId: sanitizeMapId(parsed.mapId),
       mapSize: sanitizeMapSize(parsed.mapSize),
       seed: Number.isFinite(parsed.seed) ? Math.floor(Number(parsed.seed)) : undefined,
+      oreAmount: sanitizeOreAmount(parsed.oreAmount),
       ai: DIFFICULTIES.includes(parsed.ai as Difficulty) ? parsed.ai : undefined,
       aiStyle: PERSONALITIES.includes(parsed.aiStyle as Personality) ? parsed.aiStyle : undefined,
       debug: parsed.debug === true,
@@ -327,6 +350,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
   const seed = Number(params.get('seed'));
   const mapId = sanitizeMapId(params.get('map'));
   const mapSize = sanitizeMapSize(params.get('size'));
+  const oreAmount = sanitizeOreAmount(params.get('ore'));
   const ai = params.get('ai');
   const aiStyle = params.get('ai-style');
   const combat = params.get('combat');
@@ -337,6 +361,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
     mapId,
     mapSize,
     seed: Number.isFinite(seed) && seed > 0 ? Math.floor(seed) : undefined,
+    oreAmount,
     ai: DIFFICULTIES.includes(ai as Difficulty) ? (ai as Difficulty) : undefined,
     aiStyle: PERSONALITIES.includes(aiStyle as Personality) ? (aiStyle as Personality) : undefined,
     debug: params.get('debug') === 'armies' ? true : undefined,
@@ -356,6 +381,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     mapId: fromUrl.mapId ?? stored.mapId ?? DEFAULT_MAP_ID,
     mapSize: fromUrl.mapSize ?? stored.mapSize ?? DEFAULT_MAP_SIZE,
     seed: fromUrl.seed ?? stored.seed ?? randomSeed(),
+    oreAmount: fromUrl.oreAmount ?? stored.oreAmount ?? DEFAULT_ORE_AMOUNT,
     ai: fromUrl.ai ?? stored.ai ?? 'normal',
     aiStyle: fromUrl.aiStyle ?? stored.aiStyle ?? 'balanced',
     debug: fromUrl.debug ?? stored.debug ?? false,
@@ -539,10 +565,30 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       randomize.blur();
     };
     seedRow.append(seedWrap, randomize);
+    const oreControl = document.createElement('label');
+    oreControl.className = 'war-ore-control';
+    const oreHeader = document.createElement('span');
+    oreHeader.className = 'war-ore-control__header';
+    const oreLabel = document.createElement('span');
+    oreLabel.textContent = 'ORE AMOUNT';
+    const oreOutput = document.createElement('strong');
+    oreHeader.append(oreLabel, oreOutput);
+    const oreAmountInput = document.createElement('input');
+    oreAmountInput.type = 'range';
+    oreAmountInput.min = String(ORE_AMOUNT_MIN);
+    oreAmountInput.max = String(ORE_AMOUNT_MAX);
+    oreAmountInput.step = String(ORE_AMOUNT_STEP);
+    oreAmountInput.value = String(sanitizeOreAmount(defaults.oreAmount) ?? DEFAULT_ORE_AMOUNT);
+    oreAmountInput.setAttribute('aria-label', 'Ore amount');
+    oreAmountInput.oninput = () => refresh();
+    const oreScale = document.createElement('span');
+    oreScale.className = 'war-ore-control__scale';
+    oreScale.innerHTML = '<span>SPARSE</span><span>STANDARD</span><span>MAXIMUM</span>';
+    oreControl.append(oreHeader, oreAmountInput, oreScale);
     const seedCaption = document.createElement('p');
     seedCaption.className = 'war-field-note';
-    seedCaption.textContent = 'Same seed creates the same terrain, making battles easy to replay and share.';
-    battlefieldControls.append(mapSettings, seedRow, seedCaption);
+    seedCaption.textContent = 'The seed controls terrain layout. Ore amount changes how many resource fields are generated.';
+    battlefieldControls.append(mapSettings, seedRow, oreControl, seedCaption);
     const battlefield = document.createElement('div');
     battlefield.className = 'war-battlefield';
     battlefield.append(mapPreview, battlefieldControls);
@@ -573,6 +619,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       mapId: mapChoice.value(),
       mapSize: mapSizeChoice.value(),
       seed: Math.max(1, Math.floor(Number(seedInput.value) || randomSeed())),
+      oreAmount: sanitizeOreAmount(oreAmountInput.value) ?? DEFAULT_ORE_AMOUNT,
       ai: difficulty.value(),
       aiStyle: commander.value(),
       debug: defaults.debug,
@@ -589,6 +636,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       mapChoice.setValue(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID);
       mapSizeChoice.setValue(sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE);
       seedInput.value = String(room.seed);
+      oreAmountInput.value = String(sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT);
       armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
       multiplayerSpawnSlots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
       armies.setPlayerIndex(playerIndex);
@@ -601,6 +649,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       armies.setDisabled(guestLocked);
       seedInput.disabled = guestLocked;
       randomize.disabled = guestLocked;
+      oreAmountInput.disabled = guestLocked;
       config.classList.toggle('is-locked', guestLocked);
       seedCaption.textContent = guestLocked
         ? 'Match settings are controlled by the host and synchronized for both players.'
@@ -700,8 +749,9 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
         armies.setPlayerIndex(1);
         seedInput.disabled = false;
         randomize.disabled = false;
+        oreAmountInput.disabled = false;
         config.classList.remove('is-locked');
-        seedCaption.textContent = 'Same seed creates the same terrain, making battles easy to replay and share.';
+        seedCaption.textContent = 'The seed controls terrain layout. Ore amount changes how many resource fields are generated.';
       },
     );
     syncMultiplayerSettings = () => multiplayer.syncHostSettings();
@@ -710,14 +760,19 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     refresh = (): void => {
       const seed = Math.max(1, Math.floor(Number(seedInput.value) || defaults.seed));
       const map = MAP_PRESETS[mapChoice.value()];
+      const oreAmount = sanitizeOreAmount(oreAmountInput.value) ?? DEFAULT_ORE_AMOUNT;
+      const fields = oreFieldCount(map.id, mapSizeChoice.value(), oreAmount);
+      oreOutput.textContent = `${oreAmountLabel(oreAmount)} · ${fields} FIELDS · ${oreAmount}%`;
+      oreAmountInput.setAttribute('aria-valuetext', `${oreAmountLabel(oreAmount)}, ${fields} ore fields, ${oreAmount} percent`);
       renderLobbyMapPreview(
         mapPreview,
         map,
         seed,
         mapSizeChoice.value(),
+        oreAmount,
         setupMapDeployments(armies.armyCount(), armies.armySides()),
       );
-      summaryValues.get('BATTLEFIELD')!.textContent = `${map.shortLabel} · ${MAP_SIZE_PRESETS[mapSizeChoice.value()].label}`;
+      summaryValues.get('BATTLEFIELD')!.textContent = `${map.shortLabel} · ${MAP_SIZE_PRESETS[mapSizeChoice.value()].label} · ${fields} ORE`;
       summaryValues.get('ENEMY')!.textContent = `${difficulty.value().toUpperCase()} · ${commander.value().toUpperCase()}`;
       summaryValues.get('FORCES')!.textContent = `${armies.armyCount()} ARMIES`;
       summaryValues.get('COMBAT')!.textContent = combatMode.value().toUpperCase();
@@ -1318,6 +1373,9 @@ function createRoomLobbyView(
   const seedSetting = createRoomSetting('MAP SEED');
   seedSetting.root.classList.add('war-lobby__room-setting--seed');
   seedSetting.choices.classList.add('war-lobby__seed-controls');
+  const oreSetting = createRoomSetting('ORE AMOUNT');
+  oreSetting.root.classList.add('war-lobby__room-setting--ore');
+  oreSetting.choices.classList.add('war-lobby__ore-controls');
   const combatSetting = createRoomSetting('COMBAT MODE');
   combatSetting.root.classList.add('war-lobby__room-setting--combat');
   const mapButtons = new Map<MapId, HTMLButtonElement>();
@@ -1381,6 +1439,28 @@ function createRoomLobbyView(
     randomizeSeed.blur();
   };
   seedSetting.choices.append(seedInput, randomizeSeed);
+  const roomOreInput = document.createElement('input');
+  roomOreInput.type = 'range';
+  roomOreInput.min = String(ORE_AMOUNT_MIN);
+  roomOreInput.max = String(ORE_AMOUNT_MAX);
+  roomOreInput.step = String(ORE_AMOUNT_STEP);
+  roomOreInput.setAttribute('aria-label', 'Ore amount');
+  const roomOreOutput = document.createElement('output');
+  const updateRoomOreReadout = (): void => {
+    const amount = sanitizeOreAmount(roomOreInput.value) ?? DEFAULT_ORE_AMOUNT;
+    const mapId = sanitizeMapId(latestRoom.mapId) ?? DEFAULT_MAP_ID;
+    const mapSize = sanitizeMapSize(latestRoom.mapSize) ?? DEFAULT_MAP_SIZE;
+    const fields = oreFieldCount(mapId, mapSize, amount);
+    roomOreOutput.textContent = `${oreAmountLabel(amount)} · ${fields} FIELDS`;
+    roomOreInput.setAttribute('aria-valuetext', `${oreAmountLabel(amount)}, ${fields} ore fields, ${amount} percent`);
+  };
+  roomOreInput.oninput = updateRoomOreReadout;
+  roomOreInput.onchange = () => {
+    if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
+    const oreAmount = sanitizeOreAmount(roomOreInput.value) ?? DEFAULT_ORE_AMOUNT;
+    client.updateSettings(latestRoom.code, session.player.id, { ...settings(), oreAmount });
+  };
+  oreSetting.choices.append(roomOreInput, roomOreOutput);
   for (const combatMode of COMBAT_MODES) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1390,7 +1470,7 @@ function createRoomLobbyView(
     combatButtons.set(combatMode, button);
     combatSetting.choices.appendChild(button);
   }
-  battlefieldSettings.append(mapSetting.root, sizeSetting.root, aiSetting.root, seedSetting.root, combatSetting.root);
+  battlefieldSettings.append(mapSetting.root, sizeSetting.root, aiSetting.root, seedSetting.root, oreSetting.root, combatSetting.root);
   const map = document.createElement('div');
   map.className = 'war-lobby__map';
   battlefield.append(battlefieldHeader, battlefieldSettings, map);
@@ -1611,6 +1691,7 @@ function createRoomLobbyView(
       mapId,
       mapSize,
       seed: room.seed,
+      oreAmount: room.oreAmount,
       armyCount: room.armyCount,
       armySides: room.armySides,
       spawnSlots: room.spawnSlots,
@@ -1619,7 +1700,8 @@ function createRoomLobbyView(
     });
     if (signature === lastDeploymentSignature) return;
     lastDeploymentSignature = signature;
-    renderLobbyMapPreview(map, MAP_PRESETS[mapId], room.seed, mapSize);
+    const oreAmount = sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT;
+    renderLobbyMapPreview(map, MAP_PRESETS[mapId], room.seed, mapSize, oreAmount);
     const overlay = document.createElement('div');
     overlay.className = 'war-lobby__deployments';
     const slots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
@@ -1663,7 +1745,7 @@ function createRoomLobbyView(
     map.appendChild(overlay);
     const mapTitle = battlefieldHeader.querySelector('strong');
     const mapHelp = battlefieldHeader.querySelector('p');
-    if (mapTitle) mapTitle.textContent = `${MAP_PRESETS[mapId].label} · ${MAP_SIZE_PRESETS[mapSize].label}`;
+    if (mapTitle) mapTitle.textContent = `${MAP_PRESETS[mapId].label} · ${MAP_SIZE_PRESETS[mapSize].label} · ${oreFieldCount(mapId, mapSize, oreAmount)} ORE FIELDS`;
     if (mapHelp) mapHelp.textContent = isHost
       ? `Army ${selectedArmy} selected · click another deployment point to swap positions.`
       : 'The host controls deployment positions. Your assigned army is highlighted.';
@@ -1702,6 +1784,9 @@ function createRoomLobbyView(
     if (document.activeElement !== seedInput) seedInput.value = String(room.seed);
     seedInput.disabled = !isHost || room.status !== 'waiting';
     randomizeSeed.disabled = !isHost || room.status !== 'waiting';
+    if (document.activeElement !== roomOreInput) roomOreInput.value = String(sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT);
+    roomOreInput.disabled = !isHost || room.status !== 'waiting';
+    updateRoomOreReadout();
     for (const [combatMode, button] of combatButtons) {
       const selected = combatMode === room.combatMode;
       button.classList.toggle('is-active', selected);
@@ -1814,12 +1899,13 @@ function renderRoomStatus(room: MultiplayerRoom, playerIndex: number, setStatus:
       : 'waiting for host'
     : room.status);
   const combat = room.combatMode === 'manual' ? 'manual combat' : 'assisted combat';
+  const ore = `${sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT}% ore`;
   const pings = room.players.map((player) => player.pingMs).filter((ping): ping is number => Number.isFinite(ping));
   const ping = pings.length ? `${Math.max(...pings)}ms` : 'measuring ping';
   const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
   const engineWarning = engines.size > 1 ? ' · different browsers — desync likely, best played on the same browser' : '';
   setStatus(
-    `Room ${room.code} · ${map} ${mapSize} · you are ${team} · ${connected}/${room.armyCount} connected · ${combat} · ${waiting} · ping ${ping} · delay ${room.inputDelay ?? 8}t${engineWarning}`,
+    `Room ${room.code} · ${map} ${mapSize} · ${ore} · you are ${team} · ${connected}/${room.armyCount} connected · ${combat} · ${waiting} · ping ${ping} · delay ${room.inputDelay ?? 8}t${engineWarning}`,
     engines.size > 1,
   );
 }
@@ -1829,6 +1915,7 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
     mapId: sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID,
     mapSize: sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE,
     seed: room.seed,
+    oreAmount: sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT,
     ai: room.ai,
     aiStyle: room.aiStyle,
     debug: false,
@@ -1961,8 +2048,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const t0 = performance.now();
   const selectedMap = MAP_PRESETS[settings.mapId] ?? MAP_PRESETS[DEFAULT_MAP_ID];
-  const hf = generateHeightfield({ ...mapConfig(settings.mapId, settings.mapSize), seed: settings.seed });
-  console.info(`[map] ${selectedMap.label} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
+  const hf = generateHeightfield({ ...mapConfig(settings.mapId, settings.mapSize, settings.oreAmount), seed: settings.seed });
+  console.info(`[map] ${selectedMap.label} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${hf.oreFields.length} ore fields · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
 
   const params = new URLSearchParams(location.search);
   const mobileTouch = isMobileTouchDevice();
@@ -2813,6 +2900,7 @@ function copyMatchLink(settings: SkirmishSettings, status: HTMLElement): void {
   url.searchParams.set('map', settings.mapId);
   url.searchParams.set('size', settings.mapSize);
   url.searchParams.set('seed', String(settings.seed));
+  url.searchParams.set('ore', String(settings.oreAmount));
   url.searchParams.set('ai', settings.ai);
   url.searchParams.set('ai-style', settings.aiStyle);
   url.searchParams.set('combat', settings.combatMode);
