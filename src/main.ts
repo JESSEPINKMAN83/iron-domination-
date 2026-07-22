@@ -82,8 +82,11 @@ import {
   spawnTankAt,
   spawnVultureAt,
   spawnWaspAt,
+  type CombatEvent,
 } from './sim/world';
+import { BaseUnderAttackGate, findFriendlyBuildingUnderAttack } from './ui/baseUnderAttack';
 import { Hud } from './ui/hud';
+import { MissionComms } from './ui/missionComms';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
@@ -2400,6 +2403,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     };
   });
   const firstContactGate = new FirstContactGate();
+  const baseUnderAttackGate = new BaseUnderAttackGate();
+  const missionComms = new MissionComms();
 
   const showEnemyFirstContact = (): void => {
     showMissionBriefing({
@@ -2427,6 +2432,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       (x, z) => playerVision.isVisibleWorld(x, z),
     ));
     if (contact) showEnemyFirstContact();
+  };
+
+  const checkBaseUnderAttack = (events: CombatEvent[]): void => {
+    if (lineupStart) return;
+    const alert = baseUnderAttackGate.tryTrigger(sim.tick, () => findFriendlyBuildingUnderAttack(events, sim.byId, localTeam));
+    if (!alert) return;
+    sidebar.signalUnderAttack(alert.x, alert.z, alert.label);
+    hud.showBaseUnderAttack(alert.label, alert.critical);
+    missionComms.announceBaseUnderAttack(alert.label, alert.critical);
+    audio.playUi('error');
   };
 
   const loop = new GameLoop({
@@ -2462,6 +2477,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       audio.handleCombatEvents(events);
       economyFx.push(events);
       combatView.push(events);
+      checkBaseUnderAttack(events);
       checkFirstContact();
       checkOutcome();
       simTicks++;
