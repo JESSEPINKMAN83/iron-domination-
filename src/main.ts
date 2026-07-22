@@ -95,6 +95,8 @@ import {
 import { BaseUnderAttackGate, findFriendlyBuildingUnderAttack } from './ui/baseUnderAttack';
 import { Hud } from './ui/hud';
 import { MissionComms } from './ui/missionComms';
+import { orderAckFromMarker } from './ui/orderAck';
+import { OrderAckBanner } from './ui/orderAckBanner';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
@@ -2198,6 +2200,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastFogTextureTick = -2;
   let lastResourceVisualTick = -1;
   const hud = new Hud(document.body);
+  const orderAck = new OrderAckBanner(document.body);
   let sidebar!: Sidebar;
   let tacticalPingKind: TacticalPingKind | undefined;
   let networkPaused = false;
@@ -2305,7 +2308,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     {
       showOrder: (x, z, kind) => {
         orderMarkers.push(x, z, kind);
-        audio.playUi(kind === 'attack' ? 'build' : 'order');
+        const ack = orderAckFromMarker(kind);
+        if (ack) {
+          audio.playAck(ack);
+          orderAck.show(ack);
+        } else {
+          audio.playUi('order');
+        }
       },
       showFacingOrder: (x, z, yaw, kind, length, count) => orderMarkers.pushFacing(x, z, yaw, kind, length, count),
       showFacingPreview: (fromX, fromZ, toX, toZ, kind, count) => orderMarkers.showFacingPreview(fromX, fromZ, toX, toZ, kind, count),
@@ -2320,6 +2329,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         orderMarkers.push(rally.x, rally.z, 'rally');
         audio.playUi('order');
         return true;
+      },
+      acknowledge: (kind) => {
+        audio.playAck(kind);
+        orderAck.show(kind);
       },
     },
     localTeam,

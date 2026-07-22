@@ -1,0 +1,55 @@
+.order-ack {
+  position: fixed;
+  left: 50%;
+  bottom: 86px;
+  z-index: 28;
+  min-width: 148px;
+  padding: 7px 12px;
+  border: 1px solid rgba(105, 116, 111, .9);
+  border-left: 3px solid #d2b15f;
+  border-radius: 2px;
+  background: rgba(8, 13, 14, .9);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .42), inset 0 0 0 1px rgba(255, 255, 255, .04);
+  color: #d2b15f;
+  font: 700 10px/1.3 ui-monospace, Menlo, monospace;
+  letter-spacing: .12em;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity .16s ease, transform .2s ease;
+}
+
+.order-ack--visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.order-ack--select {
+  border-left-color: #9eb7a8;
+  color: #cfe0d4;
+}
+
+.order-ack--move {
+  border-left-color: #d2b15f;
+  color: #f0d56a;
+}
+
+.order-ack--attack {
+  border-left-color: #ef6b55;
+  color: #ff816d;
+}
+
+.order-ack--stop {
+  border-left-color: #7aa0c4;
+  color: #a8c7e0;
+}
+
+@media (max-width: 720px) {
+  .order-ack {
+    bottom: 118px;
+    min-width: 132px;
+    padding: 6px 10px;
+    font-size: 9px;
+  }
+}

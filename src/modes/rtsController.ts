@@ -29,6 +29,7 @@ export interface OrderFeedback {
   showTargetHover?(target: Entity): void;
   clearTargetHover?(): void;
   tryRally?(x: number, z: number): boolean;
+  acknowledge?(kind: 'select' | 'move' | 'attack' | 'stop'): void;
 }
 
 export interface RtsCommandSink {
@@ -143,6 +144,7 @@ export class RtsController {
     const selected = selectedEntities(this.sim, this.localTeam);
     const ids = selected.map((entity) => entity.id).filter((id): id is number => id !== undefined);
     if (!(this.commandSink?.stop?.(ids) ?? false)) stopEntities(selected);
+    if (selected.length > 0) this.orderFeedback?.acknowledge?.('stop');
   }
 
   isRightOrderGestureActive(): boolean {
@@ -373,6 +375,7 @@ export class RtsController {
         const maxY = Math.max(down.y, e.clientY);
         const hits = this.units.entitiesInScreenRect(this.camera, minX, minY, maxX, maxY, window.innerWidth, window.innerHeight);
         setSelected(this.sim, hits, e.shiftKey, this.localTeam);
+        if (hits.length > 0) this.orderFeedback?.acknowledge?.('select');
       } else {
         this.selectClick(e);
       }
@@ -459,6 +462,7 @@ export class RtsController {
       setSelected(this.sim, [hit], e.shiftKey, this.localTeam);
     }
     this.lastClick = { time: now, entity: hit };
+    if (hit.team?.id === this.localTeam) this.orderFeedback?.acknowledge?.('select');
   }
 
   private entityAt(clientX: number, clientY: number): Entity | undefined {
@@ -500,6 +504,7 @@ export class RtsController {
       if (group !== undefined) {
         setSelected(this.sim, group, false, this.localTeam);
         this.flashControlGroup(group.length > 0 ? `GROUP ${n} SELECTED  ·  ${group.length} ${group.length === 1 ? 'UNIT' : 'UNITS'}` : `GROUP ${n} EMPTY`);
+        if (group.length > 0) this.orderFeedback?.acknowledge?.('select');
         e.preventDefault();
         e.stopPropagation();
       }

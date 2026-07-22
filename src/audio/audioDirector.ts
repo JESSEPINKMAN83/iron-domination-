@@ -83,6 +83,50 @@ export class AudioDirector {
     this.cleanup(out, duration + 0.05);
   }
 
+  /** Distinct radio-click chirps for unit select / move / attack acknowledgements. */
+  playAck(kind: 'select' | 'move' | 'attack' | 'stop'): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const ctx = this.ctx;
+    const master = this.master;
+    if (this.voices >= MAX_VOICES) return;
+    const nowMs = performance.now() / 1000;
+    const last = this.lastByBucket.get(`ack:${kind}`) ?? -999;
+    if (nowMs - last < 0.05) return;
+    this.lastByBucket.set(`ack:${kind}`, nowMs);
+
+    this.voices++;
+    const t = ctx.currentTime;
+    const level = kind === 'attack' ? 0.055 : kind === 'move' ? 0.042 : kind === 'stop' ? 0.038 : 0.034;
+    const duration = kind === 'attack' ? 0.11 : kind === 'move' ? 0.09 : kind === 'stop' ? 0.1 : 0.07;
+    const f0 = kind === 'attack' ? 280 : kind === 'move' ? 360 : kind === 'stop' ? 220 : 480;
+    const f1 = kind === 'attack' ? 520 : kind === 'move' ? 640 : kind === 'stop' ? 160 : 720;
+    const oscType: OscillatorType = kind === 'attack' ? 'square' : kind === 'stop' ? 'sine' : 'triangle';
+
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(level, t + 0.004);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    out.connect(master);
+
+    const osc = ctx.createOscillator();
+    osc.type = oscType;
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + duration);
+    osc.connect(out);
+    osc.start(t);
+    osc.stop(t + duration + 0.02);
+
+    // Soft radio static click under the tone.
+    this.noiseBurst(out, 0.035, kind === 'attack' ? 0.028 : 0.016, {
+      type: 'bandpass',
+      frequency: kind === 'attack' ? 1400 : 1900,
+      q: 1.2,
+      delay: 0,
+    });
+    this.cleanup(out, duration + 0.06);
+  }
+
+
   playConstruction(x: number, z: number, kind: 'structure' | 'wall' = 'structure'): void {
     if (!this.ctx || !this.master || this.muted) return;
     const profile: SoundProfile =
