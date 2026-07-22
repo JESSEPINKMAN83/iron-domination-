@@ -104,6 +104,18 @@ export class MissionComms {
     });
   }
 
+  announceBaseUnderAttack(label: string, critical = false): void {
+    this.announce({
+      eyebrow: 'BASE DEFENSE',
+      title: critical ? 'COMMAND STRUCTURE CRITICAL' : 'BASE UNDER ATTACK',
+      message: critical
+        ? `${label} is failing. Divert forces and reinforce immediately.`
+        : `${label} is taking fire. Rally defenders and intercept.`,
+      audioSrc: '/assets/comms/enemy-contact.mp3',
+      alert: true,
+    });
+  }
+
   private announce(transmission: Transmission): void {
     if (this.hideTimer !== undefined) window.clearTimeout(this.hideTimer);
     this.eyebrow.textContent = transmission.eyebrow;

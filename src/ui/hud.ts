@@ -157,12 +157,29 @@ export class Hud {
     const label = kind === 'good-game' ? 'GOOD GAME' : kind.toUpperCase();
     this.tacticalCallout.textContent = `${name.toUpperCase()}: ${label} HERE`;
     this.tacticalCallout.style.opacity = '1';
+    this.tacticalCallout.style.borderColor = 'rgba(240,213,106,.72)';
+    this.tacticalCallout.style.color = '#f0d56a';
     this.tacticalCallout.style.transform = 'translate(-50%,0)';
     if (this.tacticalTimer !== undefined) window.clearTimeout(this.tacticalTimer);
     this.tacticalTimer = window.setTimeout(() => {
       this.tacticalCallout.style.opacity = '0';
       this.tacticalCallout.style.transform = 'translate(-50%,-16px)';
     }, 4200);
+  }
+
+  showBaseUnderAttack(label: string, critical = false): void {
+    this.tacticalCallout.textContent = critical
+      ? `${label.toUpperCase()} CRITICAL`
+      : `BASE UNDER ATTACK · ${label.toUpperCase()}`;
+    this.tacticalCallout.style.opacity = '1';
+    this.tacticalCallout.style.borderColor = 'rgba(255,109,94,.82)';
+    this.tacticalCallout.style.color = '#ff816d';
+    this.tacticalCallout.style.transform = 'translate(-50%,0)';
+    if (this.tacticalTimer !== undefined) window.clearTimeout(this.tacticalTimer);
+    this.tacticalTimer = window.setTimeout(() => {
+      this.tacticalCallout.style.opacity = '0';
+      this.tacticalCallout.style.transform = 'translate(-50%,-16px)';
+    }, 4500);
   }
 
   update(nowMs: number, s: HudStats): void {

@@ -62,6 +62,7 @@ export class Sidebar {
   private fogImage?: ImageData;
   private lastSelectedBuildingId?: number;
   private radarFocus?: { x: number; z: number; ttl: number };
+  private radarAlert?: { x: number; z: number; expiresAt: number };
   private readonly fogCanvas: HTMLCanvasElement;
   private readonly tacticalButtons = new Map<TacticalPingKind, HTMLButtonElement>();
   private tacticalControls?: HTMLDivElement;
@@ -191,7 +192,7 @@ export class Sidebar {
         `LMB  ${(primary?.kind ?? 'NO PRIMARY').toUpperCase()}  ${ready(primary?.cooldown)}\n` +
         `RMB  ${(secondary?.kind ?? 'NO SECONDARY').toUpperCase()}  ${ready(secondary?.cooldown)}   ·   V EXIT`;
     }
-    if (this.sim.tick - this.lastRadarTick >= 3) {
+    if (this.radarAlert || this.sim.tick - this.lastRadarTick >= 3) {
       this.lastRadarTick = this.sim.tick;
       this.drawRadar();
     }
@@ -255,6 +256,25 @@ export class Sidebar {
   addTacticalPing(ping: TacticalPing): void {
     this.tacticalPings = this.tacticalPings.filter((candidate) => candidate.playerId !== ping.playerId || candidate.kind !== ping.kind);
     this.tacticalPings.push({ ...ping, expiresAt: performance.now() + 9000 });
+    this.drawRadar();
+  }
+
+  /** Pulse the radar at a damaged friendly structure and flash the status strip. */
+  signalUnderAttack(x: number, z: number, label: string): void {
+    const now = performance.now();
+    this.radarAlert = { x, z, expiresAt: now + 3200 };
+    this.radarWrap.style.borderColor = '#ff6d5e';
+    this.radarWrap.style.boxShadow = 'inset 0 0 0 1px rgba(255,109,94,.55),0 0 22px rgba(255,70,48,.4)';
+    window.setTimeout(() => {
+      this.radarWrap.style.borderColor = '';
+      this.radarWrap.style.borderTopColor = '#66706a';
+      this.radarWrap.style.borderLeftColor = '#66706a';
+      this.radarWrap.style.borderRightColor = '#151817';
+      this.radarWrap.style.borderBottomColor = '#151817';
+      this.radarWrap.style.boxShadow = 'inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75)';
+    }, 1800);
+    this.flash(`UNDER ATTACK · ${label.toUpperCase()}`);
+    this.lastRadarTick = -3;
     this.drawRadar();
   }
 
@@ -925,6 +945,7 @@ export class Sidebar {
   private drawRadar(): void {
     const now = performance.now();
     this.tacticalPings = this.tacticalPings.filter((ping) => ping.expiresAt > now);
+    if (this.radarAlert && this.radarAlert.expiresAt <= now) this.radarAlert = undefined;
     if (this.radarFocus) {
       this.radarFocus.ttl -= 1 / 30;
       if (this.radarFocus.ttl <= 0) this.radarFocus = undefined;
@@ -945,6 +966,7 @@ export class Sidebar {
     this.drawRadarFog();
     this.drawRadarViewport();
     this.drawTacticalPings(now);
+    this.drawUnderAttackAlert(now);
     if (this.radarFocus) {
       const p = this.worldToRadar(this.radarFocus.x, this.radarFocus.z);
       this.radarCtx.strokeStyle = '#f0d56a';
@@ -958,6 +980,27 @@ export class Sidebar {
     }
     this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
+  }
+
+  private drawUnderAttackAlert(now: number): void {
+    if (!this.radarAlert) return;
+    const remaining = Math.max(0, Math.min(1, (this.radarAlert.expiresAt - now) / 3200));
+    if (remaining <= 0) return;
+    const p = this.worldToRadar(this.radarAlert.x, this.radarAlert.z);
+    const pulse = 0.55 + 0.45 * Math.sin(now * 0.018);
+    this.radarCtx.save();
+    this.radarCtx.globalAlpha = Math.min(1, remaining * 1.4);
+    this.radarCtx.strokeStyle = '#ff6d5e';
+    this.radarCtx.fillStyle = '#ff6d5e';
+    this.radarCtx.lineWidth = 2.2;
+    this.radarCtx.beginPath();
+    this.radarCtx.arc(p.x, p.y, 6 + pulse * 10, 0, Math.PI * 2);
+    this.radarCtx.stroke();
+    this.radarCtx.globalAlpha = 0.85;
+    this.radarCtx.beginPath();
+    this.radarCtx.arc(p.x, p.y, 2.6 + pulse * 1.8, 0, Math.PI * 2);
+    this.radarCtx.fill();
+    this.radarCtx.restore();
   }
 
   private drawTacticalPings(now: number): void {
