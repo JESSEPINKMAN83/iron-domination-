@@ -3,6 +3,8 @@ const DEFAULT_SIGNUP_FORM_ID = 'ee1501cf-e7e6-463c-a9a7-3438d788d12f';
 const DEFAULT_FEEDBACK_FORM_ID = '495e01e3-2f2a-4824-aa2a-7b9ba9d3c4ab';
 const DEFAULT_CMS_ENDPOINT = 'https://danir412.wixsite.com/my-site-66/_functions/ironDominionSubmission';
 const WIX_FORMS_NAMESPACE = 'wix.form_app.form';
+const WIX_API_TIMEOUT_MS = 12_000;
+const WIX_CMS_TIMEOUT_MS = 5_000;
 
 const formSummaryCache = new Map();
 
@@ -84,14 +86,24 @@ function wixHeaders(config) {
   };
 }
 
+async function fetchWithTimeout(url, init, timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function wixRequest(config, path, init = {}) {
-  const response = await fetch(`https://www.wixapis.com${path}`, {
+  const response = await fetchWithTimeout(`https://www.wixapis.com${path}`, {
     ...init,
     headers: {
       ...wixHeaders(config),
       ...(init.headers ?? {}),
     },
-  });
+  }, WIX_API_TIMEOUT_MS);
 
   if (!response.ok) {
     const details = (await response.text()).slice(0, 500);
@@ -215,7 +227,7 @@ function splitName(fullName) {
 }
 
 async function createContact(config, submission) {
-  const response = await fetch('https://www.wixapis.com/contacts/v4/contacts', {
+  const response = await fetchWithTimeout('https://www.wixapis.com/contacts/v4/contacts', {
     method: 'POST',
     headers: wixHeaders(config),
     body: JSON.stringify({
@@ -225,7 +237,7 @@ async function createContact(config, submission) {
       },
       allowDuplicates: false,
     }),
-  });
+  }, WIX_API_TIMEOUT_MS);
 
   // An existing email is already the contact state we want.
   if (response.status === 409) return;
@@ -251,14 +263,14 @@ async function createFormSubmission(config, formId, values) {
 async function createCmsSubmission(config, submission) {
   if (!config.cmsEndpoint || !config.cmsSecret) return;
 
-  const response = await fetch(config.cmsEndpoint, {
+  const response = await fetchWithTimeout(config.cmsEndpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-iron-dominion-secret': config.cmsSecret,
     },
     body: JSON.stringify(submission),
-  });
+  }, WIX_CMS_TIMEOUT_MS);
 
   if (!response.ok) {
     const details = (await response.text()).slice(0, 500);
@@ -266,7 +278,19 @@ async function createCmsSubmission(config, submission) {
   }
 }
 
-export async function handleWixSubmission(request, env = {}) {
+async function createWixFormCopy(config, submission) {
+  if (submission.kind === 'signup') {
+    const summary = await getFormSummary(config, config.signupFormId);
+    await createContact(config, submission);
+    await createFormSubmission(config, config.signupFormId, signupValues(summary.fields, submission));
+    return;
+  }
+
+  const summary = await getFormSummary(config, config.feedbackFormId);
+  await createFormSubmission(config, config.feedbackFormId, feedbackValues(summary.fields, submission));
+}
+
+export async function handleWixSubmission(request, env = {}, executionContext) {
   if (request.method !== 'POST') return jsonResponse(405, { error: 'method-not-allowed' });
 
   const config = configuration(env);
@@ -283,15 +307,14 @@ export async function handleWixSubmission(request, env = {}) {
   if (!submission) return jsonResponse(400, { error: 'invalid-submission' });
 
   try {
-    if (submission.kind === 'signup') {
-      const summary = await getFormSummary(config, config.signupFormId);
-      await createContact(config, submission);
-      await createFormSubmission(config, config.signupFormId, signupValues(summary.fields, submission));
-    } else {
-      const summary = await getFormSummary(config, config.feedbackFormId);
-      await createFormSubmission(config, config.feedbackFormId, feedbackValues(summary.fields, submission));
-    }
+    // The custom dashboard is the player-facing source of truth. Save it before
+    // the slower Wix Forms API so delayed form copies cannot drop telemetry.
     await createCmsSubmission(config, submission);
+    const formCopy = createWixFormCopy(config, submission).catch((error) => {
+      console.error('[wix-form-copy]', error instanceof Error ? error.message : error);
+    });
+    if (executionContext?.waitUntil) executionContext.waitUntil(formCopy);
+    else await formCopy;
     return jsonResponse(200, { ok: true });
   } catch (error) {
     console.error('[wix-submit]', error instanceof Error ? error.message : error);
