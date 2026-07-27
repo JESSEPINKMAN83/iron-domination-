@@ -5,6 +5,7 @@ import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
 import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
+import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
 import { unitDisplayName } from '../ui/unitDisplayName';
 import {
@@ -234,6 +235,10 @@ export class FirstPersonController {
     return this.active && Boolean(this.possessed?.flight);
   }
 
+  get fortress(): boolean {
+    return this.active && isFortressTower(this.possessed);
+  }
+
   get possessedEntity(): Entity | undefined {
     return this.possessed;
   }
@@ -258,7 +263,11 @@ export class FirstPersonController {
 
   enter(candidates: Entity[]): boolean {
     if (this.active) return false;
-    const squad = candidates.filter((candidate) => candidate.possessable && candidate.mover && !candidate.destroyed);
+    const eligible = candidates.filter(
+      (candidate) => candidate.possessable && (candidate.mover || isFortressTower(candidate)) && !candidate.destroyed,
+    );
+    const selectedFortress = eligible.find(isFortressTower);
+    const squad = selectedFortress ? [selectedFortress] : eligible.filter((candidate) => candidate.mover);
     const entity = squad.length > 0 ? squad[this.sim.tick % squad.length] : undefined;
     if (!entity) return false;
     this.squad = squad;
@@ -310,20 +319,24 @@ export class FirstPersonController {
       return;
     }
     const mobile = this.input.getMobileDrive();
-    const forward = MathUtils.clamp((this.input.isDown('KeyW') ? 1 : 0) - (this.input.isDown('KeyS') ? 1 : 0) + mobile.throttle, -1, 1);
+    const fortress = isFortressTower(this.possessed);
+    const forward = fortress
+      ? 0
+      : MathUtils.clamp((this.input.isDown('KeyW') ? 1 : 0) - (this.input.isDown('KeyS') ? 1 : 0) + mobile.throttle, -1, 1);
     // heading uses (sin rot, cos rot): positive turn rotates toward -screen-right,
     // so D (turn right) must apply negative turn — matches mouse-look direction
     const baseTurn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
     const hardTurn = this.possessed.flight ? (this.input.isDown('KeyQ') ? 1 : 0) - (this.input.isDown('KeyE') ? 1 : 0) : 0;
-    const turn = MathUtils.clamp(baseTurn + hardTurn * 1.55 + mobile.turn, -1.75, 1.75);
+    const turn = fortress ? 0 : MathUtils.clamp(baseTurn + hardTurn * 1.55 + mobile.turn, -1.75, 1.75);
     const strafe = 0;
-    const climb = MathUtils.clamp(
+    const climb = fortress ? 0 : MathUtils.clamp(
       keyboardAircraftClimb((code) => this.input.isDown(code)) + mobile.climb,
       -1,
       1,
     );
     const boost = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') || mobile.boost;
     const control = { throttle: forward, turn, aimYaw: this.currentAimYaw(), climb, strafe, boost };
+    if (fortress && this.possessed.turret) this.possessed.turret.yaw = control.aimYaw;
     if (this.commandSink) this.publishControlState(control);
     else if (this.possessed.playerControlled) Object.assign(this.possessed.playerControlled, control);
     this.updateSquadFollowers();
@@ -466,6 +479,7 @@ export class FirstPersonController {
 
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
     if (entity.flight) return this.flightPoseFor(entity, yaw, pitch, fov, alpha, dt);
+    if (isFortressTower(entity)) return this.fortressPoseFor(entity, yaw, pitch);
     if (this.isSniper(entity)) return this.sniperPoseFor(entity, yaw, pitch, this.isSniperScoped(entity) ? undefined : this.zoomedFov(54));
     const center = this.interpolatedCenter(entity, alpha);
     const groundY = sampleHeight(this.hf, center.x, center.z);
@@ -488,6 +502,17 @@ export class FirstPersonController {
     if (terrainAim) this.tmpAimTarget.copy(terrainAim);
     else this.tmpAimTarget.copy(position).addScaledVector(this.tmpForward, this.hf.size * 1.5);
     return this.lookPose(position, this.tmpCameraTarget, fov);
+  }
+
+  private fortressPoseFor(entity: Entity, yaw: number, pitch: number): CameraPose {
+    const center = this.interpolatedCenter(entity, 1);
+    this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    const position = new Vector3(center.x, center.y + FORTRESS_TOWER.socketHeight, center.z)
+      .addScaledVector(this.tmpForward, 1.1);
+    const terrainAim = this.rayTerrainPoint(position, this.tmpForward, this.hf.size * 2.2);
+    this.tmpAimTarget.copy(terrainAim ?? position.clone().addScaledVector(this.tmpForward, this.hf.size * 1.9));
+    this.tmpCameraTarget.copy(position).addScaledVector(this.tmpForward, this.hf.size * 2);
+    return this.lookPose(position, this.tmpCameraTarget, 54);
   }
 
   private sniperPoseFor(entity: Entity, yaw: number, pitch: number, regularFov?: number): CameraPose {
@@ -537,6 +562,7 @@ export class FirstPersonController {
 
   private fire(slot: 'primary' | 'secondary' | 'special'): boolean {
     if (!this.possessed) return false;
+    if (isFortressTower(this.possessed) && this.possessed.turret) this.possessed.turret.yaw = this.currentAimYaw();
     if (this.isSniper(this.possessed) && hasUnitUpgrade(this.possessed, 'combat-bike') && this.sniperBikeMoving(this.possessed)) {
       this.flashAbilityStatus('STOP COMBAT BIKE TO FIRE');
       return false;
@@ -655,11 +681,13 @@ export class FirstPersonController {
     let bestAlong = Number.POSITIVE_INFINITY;
     for (const candidate of this.sim.world.entities) {
       const tankTarget = candidate.selectable?.type === 'tank' && !!candidate.mover;
-      if ((!candidate.flight && (aircraftOnly || !tankTarget)) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
+      const fortressTarget = isFortressTower(entity) && Boolean(candidate.armor);
+      if ((!candidate.flight && (aircraftOnly || (!tankTarget && !fortressTarget))) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
       if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
       if (!this.isVisible(candidate.transform.x, candidate.transform.z)) continue;
       const offsetX = candidate.transform.x - this.camera.position.x;
-      const candidateY = candidate.transform.y ?? sampleHeight(this.hf, candidate.transform.x, candidate.transform.z) + (candidate.flight?.cruiseAltitude ?? 1.5);
+      const baseY = candidate.transform.y ?? sampleHeight(this.hf, candidate.transform.x, candidate.transform.z);
+      const candidateY = baseY + (candidate.flight ? 0 : candidate.building ? 3.2 : candidate.selectable?.type === 'infantry' ? 1 : 1.5);
       const offsetY = candidateY - this.camera.position.y;
       const offsetZ = candidate.transform.z - this.camera.position.z;
       const along = offsetX * direction.x + offsetY * direction.y + offsetZ * direction.z;
@@ -702,7 +730,9 @@ export class FirstPersonController {
       this.abilityHud.textContent = 'F  SPECIAL LOCKED';
       this.abilityHud.style.color = '#85918d';
     } else {
-      const label = specialUpgradeForEntity(this.possessed)?.label ?? 'Special Weapon';
+      const label = isFortressTower(this.possessed)
+        ? 'Tactical Warhead'
+        : specialUpgradeForEntity(this.possessed)?.label ?? 'Special Weapon';
       this.abilityHud.textContent = `F  ${label.toUpperCase()}  ${weapon.cooldown > 0 ? `${weapon.cooldown.toFixed(1)}S` : 'READY'}`;
       this.abilityHud.style.color = weapon.cooldown > 0 ? '#d2b15f' : '#78df8b';
     }
@@ -864,8 +894,9 @@ export class FirstPersonController {
       else delete this.possessed.playerControlled;
     }
     this.possessed = entity;
-    this.lookYaw = nearestEquivalentAngle(entity.transform.rot, this.lookYaw);
-    this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
+    const initialYaw = isFortressTower(entity) ? this.fortressOutwardYaw(entity) : entity.turret?.yaw ?? entity.transform.rot;
+    this.lookYaw = nearestEquivalentAngle(initialYaw, this.lookYaw);
+    this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : isFortressTower(entity) ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
     this.sniperScopeZoom = 0.35;
     this.sniperScopeActive = false;
     const initialControl = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0, strafe: 0, boost: false };
@@ -873,6 +904,19 @@ export class FirstPersonController {
     this.lastControlSentTick = -999;
     this.lastControlSignature = '';
     this.publishControlState(initialControl, true);
+  }
+
+  private fortressOutwardYaw(entity: Entity): number {
+    const commandYard = Array.from(this.sim.world.entities).find(
+      (candidate) =>
+        candidate.team?.id === entity.team?.id &&
+        candidate.building?.kind === 'command-yard' &&
+        !candidate.destroyed,
+    );
+    if (!commandYard) return entity.turret?.yaw ?? entity.transform.rot;
+    const dx = entity.transform.x - commandYard.transform.x;
+    const dz = entity.transform.z - commandYard.transform.z;
+    return Math.hypot(dx, dz) > 0.001 ? Math.atan2(dx, dz) : entity.turret?.yaw ?? entity.transform.rot;
   }
 
   private ensurePointerLock(): void {
@@ -907,7 +951,9 @@ export class FirstPersonController {
   }
 
   private liveSquad(): Entity[] {
-    this.squad = this.squad.filter((entity) => this.sim.world.has(entity) && entity.possessable && entity.mover && !entity.destroyed);
+    this.squad = this.squad.filter(
+      (entity) => this.sim.world.has(entity) && entity.possessable && (entity.mover || isFortressTower(entity)) && !entity.destroyed,
+    );
     return this.squad;
   }
 

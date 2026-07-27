@@ -29,6 +29,7 @@ import {
   type MapSize,
 } from './content/maps';
 import type { StructureKind } from './content/phase3';
+import { isFortressTower } from './content/fortress';
 import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phase6';
 import { COMBAT_MODE_DESCRIPTIONS, COMBAT_MODES, type CombatMode } from './content/rules';
 import { startPosition } from './content/startPositions';
@@ -2095,6 +2096,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const testStart = startMode === 'test' || startMode === 'sandbox';
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
+  const fortressPreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('fortress-preview') === '1';
   let nextHitJuicePreviewTick = 0;
   const aiDifficulty: Difficulty = settings.ai;
   const aiPersonality: Personality = settings.aiStyle;
@@ -2459,15 +2461,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       onEnter: () => {
         controller.setEnabled(false);
         unitView.setHiddenEntity(undefined);
+        buildingView.setHiddenEntity(firstPerson.fortress ? firstPerson.possessedEntity : undefined);
         unitView.setSelectionOverlayVisible(false);
         sidebar.setFirstPerson(true);
         selectionBar.setVisible(false);
-        hud.setFirstPerson(true);
+        hud.setFirstPerson(true, firstPerson.fortress);
       },
       prepareExitPose: (entity) => rig.focusOn(entity.transform.x, entity.transform.z, ctx.camera.position),
       onExit: () => {
         controller.setEnabled(true);
         unitView.setHiddenEntity(undefined);
+        buildingView.setHiddenEntity(undefined);
         unitView.setSelectionOverlayVisible(true);
         sidebar.setFirstPerson(false);
         selectionBar.setVisible(true);
@@ -2715,6 +2719,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       mobileControls?.update({
         firstPerson: firstPerson.active,
         flying: firstPerson.flying,
+        fortress: firstPerson.fortress,
         selectedCount: controller.selectedCount(),
         possessedName: firstPerson.possessedName,
       });
@@ -2767,7 +2772,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   overlay.remove();
   loop.start();
-  if (!lineupStart) {
+  if (!lineupStart && !fortressPreview) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     showMissionBriefing({ enemyCount: hostileArmyCount });
     if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
@@ -2785,6 +2790,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       if (pool.length === 0) return;
       setSelected(sim, pool.slice(0, 1), false, localTeam);
       firstPerson.enter(pool.slice(0, 1));
+    }, 400);
+  }
+  if (fortressPreview) {
+    window.setTimeout(() => {
+      const tower = Array.from(sim.world.entities).find(
+        (entity) => entity.team?.id === localTeam && isFortressTower(entity) && !entity.destroyed,
+      );
+      if (!tower) return;
+      setSelected(sim, [tower], false, localTeam);
+      firstPerson.enter([tower]);
     }, 400);
   }
 }
