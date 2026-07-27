@@ -55,6 +55,11 @@ interface TeamMaterials {
 interface UnitRefs {
   turretPivot?: Object3D;
   barrelPivot?: Object3D;
+  barrelHomeZ?: number;
+  muzzleFlash?: Mesh;
+  groundDrive?: boolean;
+  lastPrimaryCooldown?: number;
+  recoil?: number;
   mainRotors?: Object3D[];
   tailRotors?: Object3D[];
   cargoLoad?: Object3D;
@@ -110,11 +115,64 @@ interface UnitHitReaction {
   elapsed: number;
   duration: number;
   force: number;
+  shove: number;
+  lift: number;
+  angular: number;
   dirX: number;
   dirZ: number;
   localSide: number;
   localForward: number;
   sign: number;
+}
+
+export interface ImpactReactionProfile {
+  intensity: number;
+  duration: number;
+  shove: number;
+  lift: number;
+  angular: number;
+}
+
+export function impactReactionProfile(
+  force: number,
+  impactKind: string | undefined,
+  targetKind: UnitVisualKind,
+  killed = false,
+): ImpactReactionProfile {
+  const weaponResponse =
+    impactKind === 'annihilatorMissile' || impactKind === 'tankBomb' ? 1.38
+      : impactKind === 'bomb' || impactKind === 'siegeMissile' || impactKind === 'agMissile' ? 1.24
+        : impactKind === 'tankMissile' || impactKind === 'rocketLauncher' || impactKind === 'swarmRocket' ? 1.1
+          : impactKind === 'grenade' || impactKind === 'clusterGrenade' || impactKind === 'aaMissile' ? 0.94
+            : impactKind === 'heavyCannon' || impactKind === 'railShot' ? 0.82
+              : impactKind === 'cannon' || impactKind === 'scoutMissile' || impactKind === 'rocketPod' ? 0.7
+                : 0.42;
+  const targetResponse =
+    targetKind === 'rifle' || targetKind === 'grenadier' || targetKind === 'rocket' || targetKind === 'sniper' ? 1.65
+      : targetKind === 'jackal' ? 1.35
+        : targetKind === 'm17' ? 1
+          : targetKind === 'mauler' ? 0.68
+            : targetKind === 'harvester' ? 0.76
+              : 0.9;
+  const infantry = targetKind === 'rifle' || targetKind === 'grenadier' || targetKind === 'rocket' || targetKind === 'sniper';
+  const intensity = Math.max(0, Math.min(1.6, force * weaponResponse * targetResponse));
+  if (infantry) {
+    const fatalBoost = killed ? 1.16 : 1;
+    return {
+      intensity,
+      duration: (0.62 + intensity * 0.58 + (killed ? 0.18 : 0)) * fatalBoost,
+      shove: (0.18 + intensity * 2.8) * fatalBoost,
+      lift: (0.12 + intensity * 1.38) * (killed ? 1.24 : 1),
+      angular: (0.28 + intensity * 2.25) * fatalBoost,
+    };
+  }
+  return {
+    intensity,
+    duration: 0.34 + intensity * 0.4,
+    shove: 0.08 + intensity * 1.62,
+    lift: 0.015 + intensity * 0.34,
+    angular: Math.min(0.44, 0.025 + intensity * 0.27),
+  };
 }
 
 export function groundVehicleImpactPose(force: number, progress: number): { angle: number; lift: number } {
@@ -142,6 +200,7 @@ const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
 const ringGeometryCache = new Map<number, RingGeometry>();
+const mergedUnitGeometryCache = new Map<string, BufferGeometry>();
 
 function markShared<T extends BufferGeometry>(geom: T): T {
   geom.userData[sharedGeometryTag] = true;
@@ -327,7 +386,7 @@ export class UnitView {
     } else if (kind === 'harvester') {
       built = createHarvesterObject(materials, this.gunmetalMaterial);
     } else {
-      built = createVehicleObject(kind, materials, this.gunmetalMaterial);
+      built = createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial);
     }
     const unit = built.root;
     const scale = visualScaleForEntity(entity);
@@ -451,9 +510,9 @@ export class UnitView {
 
   pushCombatEvents(events: CombatEvent[]): void {
     for (const event of events) {
-      if (event.kind !== 'impact-reaction' || event.targetId === undefined || event.killed) continue;
+      if (event.kind !== 'impact-reaction' || event.targetId === undefined) continue;
       const entity = this.entitiesById.get(event.targetId);
-      if (!entity || entity.building || entity.destroyed) continue;
+      if (!entity || entity.building) continue;
       let dirX = event.toX - event.fromX;
       let dirZ = event.toZ - event.fromZ;
       const distance = Math.hypot(dirX, dirZ);
@@ -467,7 +526,8 @@ export class UnitView {
       const force = Math.max(0.025, Math.min(1, event.force ?? event.damage / Math.max(1, event.targetMaxHealth ?? event.damage)));
       const isInfantry = entity.selectable?.type === 'infantry';
       const isAircraft = Boolean(entity.flight);
-      const duration = isInfantry ? 0.42 + force * 0.68 : isAircraft ? 0.62 + force * 0.82 : 0.3 + force * 0.28;
+      const profile = impactReactionProfile(force, event.impactKind, unitVisualKind(entity), event.killed);
+      const duration = isAircraft ? Math.max(profile.duration, 0.62 + force * 0.82) : profile.duration;
       const existing = this.hitReactions.get(entity);
       const localAngle = Math.atan2(dirX, dirZ) - entity.transform.rot;
       const localSide = Math.sin(localAngle);
@@ -476,6 +536,9 @@ export class UnitView {
         elapsed: 0,
         duration: Math.max(duration, existing?.duration ?? 0),
         force: Math.min(1, force + (existing?.force ?? 0) * 0.28),
+        shove: Math.max(profile.shove, (existing?.shove ?? 0) * 0.72),
+        lift: Math.max(profile.lift, (existing?.lift ?? 0) * 0.72),
+        angular: Math.max(profile.angular, (existing?.angular ?? 0) * 0.72),
         dirX,
         dirZ,
         localSide,
@@ -697,12 +760,12 @@ export class UnitView {
     const recoil = Math.sin(Math.min(1, t * 2.4) * Math.PI) * Math.exp(-t * 2.2);
     const { localSide, localForward } = reaction;
     if (entity.selectable?.type === 'infantry') {
-      const knock = (0.14 + reaction.force * 1.35) * arc;
-      obj.rotation.x += -localForward * knock;
-      obj.rotation.z += localSide * knock + reaction.sign * recoil * reaction.force * 0.22;
-      obj.position.y += arc * reaction.force * 0.48;
-      obj.position.x += reaction.dirX * arc * reaction.force * 0.7;
-      obj.position.z += reaction.dirZ * arc * reaction.force * 0.7;
+      const tumble = reaction.angular * arc * (0.62 + t * 1.75);
+      obj.rotation.x += -localForward * tumble;
+      obj.rotation.z += localSide * tumble + reaction.sign * recoil * reaction.angular * 0.38;
+      obj.position.y += arc * reaction.lift;
+      obj.position.x += reaction.dirX * arc * reaction.shove;
+      obj.position.z += reaction.dirZ * arc * reaction.shove;
     } else if (entity.flight) {
       obj.rotation.x += -localForward * (0.12 + reaction.force * 0.72) * arc;
       obj.rotation.z += reaction.sign * (0.18 + reaction.force * 1.35) * arc;
@@ -711,12 +774,13 @@ export class UnitView {
       obj.position.z += reaction.dirZ * arc * reaction.force * 1.1;
     } else {
       const axisX = Math.abs(localForward) >= Math.abs(localSide);
-      const { angle, lift } = groundVehicleImpactPose(reaction.force, t);
+      const settle = arc * Math.exp(-t * 1.35);
+      const angle = reaction.angular * settle;
       if (axisX) obj.rotation.x += -Math.sign(localForward || 1) * angle;
       else obj.rotation.z += reaction.sign * angle;
-      obj.position.y += lift;
-      obj.position.x += reaction.dirX * arc * reaction.force * 0.22;
-      obj.position.z += reaction.dirZ * arc * reaction.force * 0.22;
+      obj.position.y += reaction.lift * arc;
+      obj.position.x += reaction.dirX * arc * reaction.shove;
+      obj.position.z += reaction.dirZ * arc * reaction.shove;
     }
     if (t >= 1) this.hitReactions.delete(entity);
   }
@@ -792,6 +856,21 @@ export class UnitView {
     }
 
     if (entity.selectable?.type === 'harvester') {
+      obj.rotation.x = 0;
+      obj.rotation.z = 0;
+      const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
+      const maxSpeed = Math.max(1, entity.mover?.speed ?? 12);
+      const speedT = Math.min(1, speed / maxSpeed);
+      if (refs?.groundDrive) {
+        const moveYaw = speed > 0.4 && entity.velocity
+          ? Math.atan2(entity.velocity.x, entity.velocity.z)
+          : entity.transform.rot;
+        const slip = Math.atan2(Math.sin(moveYaw - entity.transform.rot), Math.cos(moveYaw - entity.transform.rot));
+        obj.rotation.x = Math.sin(performance.now() * 0.0075 + entity.id * 0.7) * 0.009 * speedT;
+        obj.rotation.z = Math.max(-0.055, Math.min(0.055, -slip * 0.1));
+        obj.position.y += Math.sin(performance.now() * 0.011 + entity.id) * 0.018 * speedT;
+        this.emitTankDust(entity, speed, dt);
+      }
       const cargoLoad = refs?.cargoLoad;
       if (cargoLoad) {
         const pct = entity.cargo ? Math.max(0.03, Math.min(1, entity.cargo.amount / entity.cargo.capacity)) : 0.03;
@@ -814,14 +893,49 @@ export class UnitView {
           warning.scale.setScalar(0.85 + pulse * 0.32);
         }
       }
-      if (refs?.antenna) refs.antenna.rotation.z = Math.sin(performance.now() * 0.008 + entity.id) * 0.08;
+      if (refs?.antenna) {
+        refs.antenna.rotation.z = Math.sin(performance.now() * (0.0065 + speedT * 0.003) + entity.id) * (0.05 + speedT * 0.055);
+      }
       return;
     }
 
     if (!isInfantry) {
       obj.rotation.x = 0;
       obj.rotation.z = 0;
-      if (refs?.antenna) refs.antenna.rotation.z = Math.sin(performance.now() * 0.007 + entity.id) * 0.06;
+      const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
+      const maxSpeed = Math.max(1, entity.mover?.speed ?? 12);
+      const speedT = Math.min(1, speed / maxSpeed);
+      if (refs?.groundDrive) {
+        const moveYaw = speed > 0.4 && entity.velocity
+          ? Math.atan2(entity.velocity.x, entity.velocity.z)
+          : entity.transform.rot;
+        const slip = Math.atan2(Math.sin(moveYaw - entity.transform.rot), Math.cos(moveYaw - entity.transform.rot));
+        obj.rotation.x = Math.sin(performance.now() * 0.009 + entity.id * 0.7) * 0.012 * speedT;
+        obj.rotation.z = Math.max(-0.075, Math.min(0.075, -slip * 0.13));
+        obj.position.y += Math.sin(performance.now() * 0.014 + entity.id) * 0.025 * speedT;
+        this.emitTankDust(entity, speed, dt);
+      }
+      if (refs?.antenna) {
+        const vibration = 0.04 + speedT * 0.07;
+        refs.antenna.rotation.z = Math.sin(performance.now() * (0.007 + speedT * 0.004) + entity.id) * vibration;
+      }
+      const primaryCooldown = entity.weapons?.primary.cooldown ?? entity.weapon?.cooldown ?? 0;
+      if (refs) {
+        const previousCooldown = refs.lastPrimaryCooldown ?? primaryCooldown;
+        if (primaryCooldown > previousCooldown + 0.08) refs.recoil = 1;
+        refs.lastPrimaryCooldown = primaryCooldown;
+        refs.recoil = Math.max(0, (refs.recoil ?? 0) - dt * 4.8);
+      }
+      const recoil = refs?.recoil ?? 0;
+      const recoilKick = Math.sin(Math.min(1, (1 - recoil) * 2.4) * Math.PI) * recoil;
+      if (refs?.barrelPivot && refs.barrelHomeZ !== undefined) {
+        refs.barrelPivot.position.z = refs.barrelHomeZ - recoilKick * 0.46;
+      }
+      if (refs?.muzzleFlash) {
+        refs.muzzleFlash.visible = recoil > 0.62;
+        refs.muzzleFlash.scale.set(0.75 + recoil * 0.6, 0.75 + recoil * 0.6, 0.8 + recoil * 1.15);
+        refs.muzzleFlash.rotation.z += dt * 8;
+      }
       if (refs?.barrelPivot && entity.weapons?.secondary?.cooldown && entity.weapons.secondary.cooldown > 0) {
         refs.barrelPivot.rotation.x = -0.16;
       } else if (refs?.barrelPivot) {
@@ -937,6 +1051,39 @@ export class UnitView {
         age: 0,
         lifetime: 0.78 + Math.abs(deterministicUnitSigned(seed, 0xda1)) * 0.48,
         scale: 0.68 + Math.abs(deterministicUnitSigned(seed, 0xdc7)) * 0.46,
+      });
+    }
+    this.bikeDustSpawn.set(entity, pending);
+  }
+
+  private emitTankDust(entity: Entity, speed: number, dt: number): void {
+    if (speed < 2.5 || !entity.velocity) {
+      this.bikeDustSpawn.set(entity, 0);
+      return;
+    }
+    let pending = (this.bikeDustSpawn.get(entity) ?? 0) + dt * Math.min(18, 1.6 + speed * 0.48);
+    const dirX = entity.velocity.x / speed;
+    const dirZ = entity.velocity.z / speed;
+    let emitted = 0;
+    while (pending >= 1 && emitted < 4) {
+      pending -= 1;
+      emitted++;
+      const seed = entity.id * 307 + this.bikeDustSerial++;
+      const side = emitted % 2 === 0 ? -1 : 1;
+      const jitter = deterministicUnitSigned(seed, 0xe51);
+      const trackOffset = 1.72 * side;
+      const groundY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
+      if (this.bikeDustParticles.length >= MAX_BIKE_DUST_PARTICLES) this.bikeDustParticles.shift();
+      this.bikeDustParticles.push({
+        x: entity.transform.x - dirX * 2.1 - dirZ * trackOffset,
+        y: groundY + 0.24,
+        z: entity.transform.z - dirZ * 2.1 + dirX * trackOffset,
+        vx: -dirX * (0.7 + speed * 0.035) - dirZ * jitter * 0.8,
+        vy: 0.48 + Math.abs(jitter) * 0.52,
+        vz: -dirZ * (0.7 + speed * 0.035) + dirX * jitter * 0.8,
+        age: 0,
+        lifetime: 0.9 + Math.abs(deterministicUnitSigned(seed, 0xea1)) * 0.65,
+        scale: 0.92 + Math.abs(deterministicUnitSigned(seed, 0xec7)) * 0.68,
       });
     }
     this.bikeDustSpawn.set(entity, pending);
@@ -1317,116 +1464,424 @@ function box(x: number, y: number, z: number, material: Material, px: number, py
   return mesh;
 }
 
-function createVehicleObject(kind: UnitVisualKind, materials: TeamMaterials, gunmetal: Material): BuiltUnit {
+function angledBox(
+  x: number,
+  y: number,
+  z: number,
+  material: Material,
+  px: number,
+  py: number,
+  pz: number,
+  rx = 0,
+  ry = 0,
+  rz = 0,
+): Mesh {
+  const mesh = box(x, y, z, material, px, py, pz);
+  mesh.rotation.set(rx, ry, rz);
+  return mesh;
+}
+
+function mergeDirectMeshesByMaterial(
+  parent: Object3D,
+  material: Material,
+  cacheKey: string,
+  excluded: ReadonlySet<Object3D> = new Set(),
+): void {
+  const children = parent.children.filter(
+    (child): child is Mesh => child instanceof Mesh && child.material === material && !excluded.has(child),
+  );
+  if (children.length < 2) return;
+  let merged = mergedUnitGeometryCache.get(cacheKey);
+  if (!merged) {
+    const pieces = children.map((child) => {
+      child.updateMatrix();
+      const geometry = child.geometry.clone();
+      geometry.applyMatrix4(child.matrix);
+      return geometry;
+    });
+    const combined = mergeGeometries(pieces, false);
+    for (const piece of pieces) piece.dispose();
+    if (!combined) throw new Error(`Could not merge ${cacheKey} geometry`);
+    merged = markShared(combined);
+    mergedUnitGeometryCache.set(cacheKey, merged);
+  }
+  parent.remove(...children);
+  parent.add(new Mesh(merged, material));
+}
+
+function compactVehicleMeshes(
+  kind: UnitVisualKind,
+  group: Group,
+  turret: Group,
+  barrel: Group,
+  materials: TeamMaterials,
+  gunmetal: Material,
+): void {
+  const materialGroups: Array<[string, Material]> = [
+    ['hull', materials.hull],
+    ['dark', materials.dark],
+    ['accent', materials.accent],
+    ['canvas', materials.canvas],
+    ['light', materials.lightBar],
+    ['metal', gunmetal],
+  ];
+  for (const [key, material] of materialGroups) {
+    mergeDirectMeshesByMaterial(group, material, `${kind}-chassis-${key}`);
+    mergeDirectMeshesByMaterial(turret, material, `${kind}-turret-${key}`);
+  }
+  mergeDirectMeshesByMaterial(barrel, gunmetal, `${kind}-barrel-metal`);
+}
+
+function compactHarvesterMeshes(
+  group: Group,
+  scoop: Group,
+  materials: TeamMaterials,
+  gunmetal: Material,
+  cargoLoad: Object3D,
+): void {
+  const materialGroups: Array<[string, Material]> = [
+    ['hull', materials.hull],
+    ['dark', materials.dark],
+    ['accent', materials.accent],
+    ['canvas', materials.canvas],
+    ['light', materials.lightBar],
+    ['metal', gunmetal],
+  ];
+  const excluded = new Set<Object3D>([cargoLoad]);
+  for (const [key, material] of materialGroups) {
+    mergeDirectMeshesByMaterial(group, material, `harvester-chassis-${key}`, excluded);
+    mergeDirectMeshesByMaterial(scoop, material, `harvester-scoop-${key}`);
+  }
+}
+
+function createVehicleObject(
+  kind: UnitVisualKind,
+  materials: TeamMaterials,
+  gunmetal: Material,
+  muzzleMaterial: Material,
+): BuiltUnit {
   const group = new Group();
   const turretPivot = new Group();
   group.add(turretPivot);
   const barrelPivot = new Group();
   const antenna = new Group();
+  let muzzleFlash: Mesh | undefined;
+  let barrelHomeZ: number | undefined;
   if (kind === 'jackal') {
-    group.add(box(2.7, 0.72, 4.6, materials.hull, 0, 0.58, 0.18));
-    group.add(box(1.7, 0.36, 1.55, materials.accent, 0, 0.98, 1.38));
+    group.add(box(2.72, 0.68, 4.45, materials.hull, 0, 0.58, 0.05));
+    group.add(angledBox(2.5, 0.34, 1.5, materials.hull, 0, 0.88, 1.7, -0.2));
+    group.add(box(1.72, 0.44, 1.45, materials.dark, 0, 1.02, -1.28));
+    group.add(box(1.55, 0.08, 0.18, materials.accent, 0, 1.19, 1.66));
     for (const side of [-1, 1]) {
+      group.add(box(0.18, 0.16, 4.15, materials.dark, side * 1.52, 0.78, 0.02));
       for (const z of [-1.55, 0, 1.55]) {
         const wheel = new Mesh(sharedCylinderGeometry(0.42, 0.42, 0.32, 14), materials.dark);
         wheel.rotation.z = Math.PI / 2;
         wheel.position.set(side * 1.55, 0.36, z);
         group.add(wheel);
+        const hub = new Mesh(sharedCylinderGeometry(0.15, 0.15, 0.35, 10), materials.accent);
+        hub.rotation.z = Math.PI / 2;
+        hub.position.copy(wheel.position);
+        group.add(hub);
       }
+      group.add(box(0.38, 0.24, 0.34, materials.lightBar, side * 1.05, 0.76, 2.18));
+      group.add(box(0.42, 0.44, 0.72, materials.canvas, side * 0.96, 1.03, -1.72));
     }
     turretPivot.position.y = 1.04;
-    turretPivot.add(box(1.35, 0.24, 1.35, materials.dark, 0, 0.05, -0.25));
-    turretPivot.add(box(1.3, 0.08, 0.32, materials.accent, 0, 0.24, -0.72));
+    const turretRing = new Mesh(sharedCylinderGeometry(0.66, 0.76, 0.18, 10), gunmetal);
+    turretRing.position.y = -0.08;
+    turretPivot.add(turretRing);
+    turretPivot.add(angledBox(1.42, 0.36, 1.48, materials.dark, 0, 0.12, -0.18, -0.04));
+    turretPivot.add(box(1.28, 0.08, 0.25, materials.accent, 0, 0.32, 0.5));
+    const optic = new Mesh(sharedCylinderGeometry(0.2, 0.24, 0.24, 10), materials.lightBar);
+    optic.position.set(0.42, 0.46, -0.22);
+    turretPivot.add(optic);
     barrelPivot.position.set(0, 0.16, 0.18);
+    barrelHomeZ = barrelPivot.position.z;
     barrelPivot.add(box(0.12, 0.12, 2.55, gunmetal, -0.18, 0, 1.36));
     barrelPivot.add(box(0.12, 0.12, 2.55, gunmetal, 0.18, 0, 1.36));
+    barrelPivot.add(box(0.48, 0.24, 0.32, gunmetal, 0, 0, 0.22));
+    muzzleFlash = new Mesh(sharedCylinderGeometry(0, 0.34, 0.86, 8), muzzleMaterial);
+    muzzleFlash.rotation.x = Math.PI / 2;
+    muzzleFlash.position.z = 3.02;
+    muzzleFlash.visible = false;
+    barrelPivot.add(muzzleFlash);
     turretPivot.add(barrelPivot);
     antenna.position.set(1.05, 1.08, -1.75);
   } else if (kind === 'mauler') {
-    group.add(box(3.85, 0.72, 7.2, materials.hull, 0, 0.48, -0.3));
-    group.add(box(4.55, 0.42, 6.9, materials.dark, 0, 0.34, -0.25));
-    group.add(box(2.6, 0.08, 0.42, materials.accent, 0, 0.92, 2.62));
-    group.add(box(1.45, 0.28, 0.95, materials.dark, -1.35, 0.48, -3.92));
-    group.add(box(1.45, 0.28, 0.95, materials.dark, 1.35, 0.48, -3.92));
-    turretPivot.position.set(0, 1.02, -0.92);
-    turretPivot.add(box(2.45, 0.48, 2.25, materials.dark, 0, 0, 0));
-    turretPivot.add(box(2.2, 0.08, 0.3, materials.accent, 0, 0.3, -0.55));
+    group.add(box(3.82, 0.72, 7.12, materials.hull, 0, 0.55, -0.28));
+    group.add(angledBox(3.62, 0.38, 1.72, materials.hull, 0, 0.9, 2.54, -0.17));
+    group.add(angledBox(3.42, 0.28, 1.35, materials.dark, 0, 0.96, -2.82, 0.1));
+    for (const side of [-1, 1]) {
+      const x = side * 2.32;
+      group.add(box(0.82, 0.56, 6.92, materials.dark, x, 0.38, -0.2));
+      group.add(box(0.18, 0.72, 6.25, materials.hull, side * 2.58, 0.78, -0.18));
+      for (const z of [-2.55, -1.28, 0, 1.28, 2.55]) {
+        const wheel = new Mesh(sharedCylinderGeometry(0.55, 0.55, 0.34, 16), gunmetal);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(x, 0.42, z);
+        group.add(wheel);
+      }
+      group.add(box(0.9, 0.13, 6.8, gunmetal, x, 0.04, -0.2));
+      group.add(box(0.9, 0.13, 6.8, gunmetal, x, 0.92, -0.2));
+      group.add(box(0.38, 0.26, 0.34, materials.lightBar, side * 1.38, 0.83, 3.32));
+      group.add(angledBox(1.2, 0.28, 0.88, materials.dark, side * 1.48, 0.34, -4.03, 0.18));
+    }
+    group.add(box(2.75, 0.08, 0.34, materials.accent, 0, 1.18, 3.1));
+    for (const x of [-1.1, -0.55, 0, 0.55, 1.1]) {
+      group.add(box(0.36, 0.08, 1.32, gunmetal, x, 1.18, -2.12));
+    }
+    turretPivot.position.set(0, 1.2, -0.78);
+    const turretRing = new Mesh(sharedCylinderGeometry(1.22, 1.38, 0.25, 12), gunmetal);
+    turretRing.position.y = -0.16;
+    turretPivot.add(turretRing);
+    turretPivot.add(angledBox(2.65, 0.68, 2.55, materials.dark, 0, 0.14, -0.04, -0.035));
+    turretPivot.add(angledBox(2.15, 0.34, 1.5, materials.hull, 0, 0.58, -0.22, 0.05));
+    turretPivot.add(box(2.2, 0.09, 0.28, materials.accent, 0, 0.62, 0.82));
     barrelPivot.position.set(0, 0.08, 0.8);
+    barrelHomeZ = barrelPivot.position.z;
     barrelPivot.add(box(0.24, 0.24, 5.9, gunmetal, 0, 0, 2.9));
-    barrelPivot.add(box(0.62, 0.2, 0.28, gunmetal, 0, 0, 5.92));
+    barrelPivot.add(box(0.54, 0.42, 0.48, gunmetal, 0, 0, 0.28));
+    barrelPivot.add(box(0.72, 0.26, 0.34, gunmetal, 0, 0, 5.82));
+    barrelPivot.add(box(0.84, 0.2, 0.16, gunmetal, 0, 0, 6.02));
+    muzzleFlash = new Mesh(sharedCylinderGeometry(0, 0.62, 1.42, 8), muzzleMaterial);
+    muzzleFlash.rotation.x = Math.PI / 2;
+    muzzleFlash.position.z = 6.85;
+    muzzleFlash.visible = false;
+    barrelPivot.add(muzzleFlash);
     turretPivot.add(barrelPivot);
+    const hatch = new Mesh(sharedCylinderGeometry(0.42, 0.5, 0.2, 10), materials.dark);
+    hatch.position.set(0.6, 0.82, -0.38);
+    turretPivot.add(hatch);
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const launcher = new Mesh(sharedCylinderGeometry(0.1, 0.12, 0.46, 8), gunmetal);
+        launcher.rotation.x = Math.PI * 0.32;
+        launcher.rotation.z = side * 0.2;
+        launcher.position.set(side * 1.34, 0.44, 0.35 - i * 0.3);
+        turretPivot.add(launcher);
+      }
+      turretPivot.add(box(0.72, 0.46, 0.84, materials.canvas, side * 1.2, 0.28, -1.2));
+    }
     antenna.position.set(-1.45, 1.0, -2.45);
   } else {
-    group.add(box(3.6, 0.9, 5.0, materials.hull, 0, 0.6, 0));
-    group.add(box(0.62, 0.42, 5.4, materials.dark, -2.02, 0.32, 0));
-    group.add(box(0.62, 0.42, 5.4, materials.dark, 2.02, 0.32, 0));
-    group.add(box(1.9, 0.08, 0.44, materials.accent, 0, 1.08, 2.15));
-    turretPivot.position.y = 1.25;
-    turretPivot.add(box(2.1, 0.65, 2.2, materials.dark, 0, 0, 0));
-    turretPivot.add(box(2.5, 0.05, 0.32, materials.accent, 0, 0.48, -0.2));
-    turretPivot.add(box(0.75, 0.12, 0.22, materials.lightBar, 0, 0.54, -0.9));
-    barrelPivot.position.set(0, 0.02, 1.05);
-    barrelPivot.add(box(0.28, 0.28, 3.2, gunmetal, 0, 0, 1.6));
+    // M-17 vertical slice: layered armour, readable running gear and a much
+    // stronger turret silhouette while keeping every shape cheap and shared.
+    group.add(box(3.5, 0.68, 4.75, materials.hull, 0, 0.62, -0.08));
+    group.add(angledBox(3.34, 0.32, 1.65, materials.hull, 0, 0.88, 1.88, -0.18));
+    group.add(angledBox(3.18, 0.24, 1.32, materials.dark, 0, 0.98, -1.88, 0.12));
+    group.add(box(2.72, 0.18, 1.42, materials.dark, 0, 1.06, -1.12));
+    group.add(box(2.5, 0.07, 0.12, materials.accent, 0, 1.16, 2.53));
+
+    for (const side of [-1, 1]) {
+      const x = side * 2.02;
+      group.add(box(0.7, 0.5, 5.42, materials.dark, x, 0.37, 0));
+      group.add(angledBox(0.16, 0.7, 4.72, materials.hull, side * 2.25, 0.76, 0.05, 0, 0, side * 0.045));
+      group.add(box(0.19, 0.1, 3.9, materials.accent, side * 2.35, 0.97, 0.08));
+      for (const z of [-1.8, -0.9, 0, 0.9, 1.8]) {
+        const wheel = new Mesh(sharedCylinderGeometry(0.46, 0.46, 0.3, 16), gunmetal);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(x, 0.4, z);
+        group.add(wheel);
+        const hub = new Mesh(sharedCylinderGeometry(0.17, 0.17, 0.33, 12), materials.accent);
+        hub.rotation.z = Math.PI / 2;
+        hub.position.copy(wheel.position);
+        group.add(hub);
+      }
+      for (const z of [-2.32, 2.32]) {
+        const sprocket = new Mesh(sharedCylinderGeometry(0.55, 0.55, 0.34, 16), gunmetal);
+        sprocket.rotation.z = Math.PI / 2;
+        sprocket.position.set(x, 0.48, z);
+        group.add(sprocket);
+      }
+      group.add(box(0.82, 0.12, 5.15, gunmetal, x, 0.02, 0));
+      group.add(box(0.82, 0.12, 5.15, gunmetal, x, 0.86, 0));
+    }
+
+    // Rear engine deck, stowage and exhausts help the vehicle read correctly
+    // from the RTS camera instead of looking like a single featureless block.
+    for (const x of [-0.9, -0.3, 0.3, 0.9]) {
+      group.add(box(0.42, 0.08, 1.05, gunmetal, x, 1.2, -1.42));
+    }
+    for (const side of [-1, 1]) {
+      const exhaust = new Mesh(sharedCylinderGeometry(0.13, 0.16, 0.72, 10), gunmetal);
+      exhaust.position.set(side * 1.42, 1.28, -1.82);
+      group.add(exhaust);
+      group.add(box(0.44, 0.36, 0.76, materials.canvas, side * 1.42, 1.22, -0.92));
+      group.add(box(0.26, 0.22, 0.18, materials.lightBar, side * 1.46, 0.78, 2.48));
+    }
+
+    turretPivot.position.y = 1.33;
+    const turretRing = new Mesh(sharedCylinderGeometry(1.12, 1.28, 0.22, 12), gunmetal);
+    turretRing.position.y = -0.12;
+    turretPivot.add(turretRing);
+    turretPivot.add(angledBox(2.32, 0.72, 2.36, materials.dark, 0, 0.18, -0.08, -0.04));
+    turretPivot.add(angledBox(1.92, 0.36, 1.4, materials.hull, 0, 0.58, -0.18, 0.05));
+    turretPivot.add(box(2.0, 0.08, 0.18, materials.accent, 0, 0.62, 0.72));
+    turretPivot.add(box(0.72, 0.14, 0.22, materials.lightBar, 0, 0.58, -1.22));
+
+    const mantlet = new Mesh(sharedCylinderGeometry(0.36, 0.4, 0.64, 12), gunmetal);
+    mantlet.rotation.x = Math.PI / 2;
+    mantlet.position.set(0, 0.22, 1.14);
+    turretPivot.add(mantlet);
+    barrelPivot.position.set(0, 0.22, 1.08);
+    barrelHomeZ = barrelPivot.position.z;
+    barrelPivot.add(box(0.3, 0.3, 3.15, gunmetal, 0, 0, 1.58));
+    barrelPivot.add(box(0.42, 0.42, 0.36, gunmetal, 0, 0, 3.16));
+    barrelPivot.add(box(0.52, 0.3, 0.16, gunmetal, 0, 0, 3.34));
+    muzzleFlash = new Mesh(sharedCylinderGeometry(0, 0.44, 1.05, 8), muzzleMaterial);
+    muzzleFlash.rotation.x = Math.PI / 2;
+    muzzleFlash.position.z = 3.92;
+    muzzleFlash.visible = false;
+    barrelPivot.add(muzzleFlash);
     turretPivot.add(barrelPivot);
-    const hatch = new Mesh(sharedCylinderGeometry(0.45, 0.55, 0.2, 8), materials.dark);
-    hatch.position.set(0, 0.45, -0.35);
+
+    const hatch = new Mesh(sharedCylinderGeometry(0.42, 0.52, 0.2, 10), materials.dark);
+    hatch.position.set(0.48, 0.82, -0.4);
     turretPivot.add(hatch);
-    antenna.position.set(1.1, 1.15, -1.65);
+    const cupola = new Mesh(sharedCylinderGeometry(0.27, 0.32, 0.22, 10), gunmetal);
+    cupola.position.set(0.48, 0.98, -0.4);
+    turretPivot.add(cupola);
+    turretPivot.add(box(0.12, 0.12, 1.15, gunmetal, -0.55, 0.84, 0.2));
+    turretPivot.add(box(0.22, 0.18, 0.42, gunmetal, -0.55, 0.84, -0.52));
+
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const launcher = new Mesh(sharedCylinderGeometry(0.09, 0.11, 0.42, 8), gunmetal);
+        launcher.rotation.x = Math.PI * 0.34;
+        launcher.rotation.z = side * 0.18;
+        launcher.position.set(side * (1.18 + i * 0.04), 0.42, 0.3 - i * 0.28);
+        turretPivot.add(launcher);
+      }
+    }
+    turretPivot.add(box(0.62, 0.4, 0.76, materials.canvas, -1.03, 0.28, -1.08));
+    turretPivot.add(box(0.62, 0.4, 0.76, materials.canvas, 1.03, 0.28, -1.08));
+    antenna.position.set(1.12, 1.83, -1.15);
   }
   const whip = new Mesh(sharedCylinderGeometry(0.012, 0.018, 1.15, 5), gunmetal);
   whip.position.y = 0.58;
   antenna.add(whip);
   group.add(antenna);
-  return { root: group, refs: { turretPivot, barrelPivot, antenna } };
+  compactVehicleMeshes(kind, group, turretPivot, barrelPivot, materials, gunmetal);
+  return {
+    root: group,
+    refs: {
+      turretPivot,
+      barrelPivot,
+      barrelHomeZ,
+      muzzleFlash,
+      groundDrive: true,
+      antenna,
+    },
+  };
 }
 
 function createHarvesterObject(materials: TeamMaterials, gunmetal: Material): BuiltUnit {
   const group = new Group();
 
-  group.add(box(4.4, 0.8, 5.7, materials.hull, 0, 0.5, 0));
-  group.add(box(3.55, 1.15, 3.05, materials.dark, 0, 1.08, -0.95));
-  group.add(box(2.55, 1.45, 1.8, materials.hull, 0, 1.25, 1.85));
-  group.add(box(1.78, 0.42, 0.08, materials.accent, 0, 1.55, 2.78));
-  group.add(box(2.5, 0.09, 0.34, materials.lightBar, 0, 2.05, 1.2));
+  // Oris collector: a low industrial chassis, protected cab and exposed ore
+  // hopper. The broad scoop and six-wheel running gear keep its role readable
+  // from both the command camera and direct-control view.
+  group.add(box(4.5, 0.72, 6.45, materials.hull, 0, 0.58, -0.12));
+  group.add(angledBox(4.18, 0.34, 1.42, materials.hull, 0, 0.9, 2.48, -0.16));
+  group.add(angledBox(3.92, 0.28, 1.18, materials.dark, 0, 0.98, -2.72, 0.11));
+  group.add(box(3.42, 0.22, 0.38, materials.accent, 0, 1.04, 3.05));
 
-  const load = box(2.85, 0.34, 2.15, materials.accent, 0, 1.82, -1.05);
+  for (const side of [-1, 1]) {
+    const trackX = side * 2.38;
+    group.add(box(0.78, 0.52, 6.3, materials.dark, trackX, 0.42, -0.05));
+    group.add(angledBox(0.18, 0.68, 5.72, materials.hull, side * 2.66, 0.78, -0.02, 0, 0, side * 0.045));
+    for (const z of [-2.08, 0, 2.08]) {
+      const wheel = new Mesh(sharedCylinderGeometry(0.58, 0.58, 0.38, 16), gunmetal);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(trackX, 0.43, z);
+      group.add(wheel);
+      const hub = new Mesh(sharedCylinderGeometry(0.2, 0.2, 0.41, 10), materials.accent);
+      hub.rotation.z = Math.PI / 2;
+      hub.position.copy(wheel.position);
+      group.add(hub);
+    }
+    group.add(box(0.88, 0.12, 6.02, gunmetal, trackX, 0.04, -0.05));
+    group.add(box(0.88, 0.12, 6.02, gunmetal, trackX, 0.92, -0.05));
+    group.add(box(0.3, 0.22, 0.28, materials.lightBar, side * 1.62, 0.84, 3.18));
+    group.add(box(0.38, 0.3, 0.32, materials.accent, side * 1.72, 0.72, -3.18));
+  }
+
+  // Armoured cab and high-contrast glazing.
+  group.add(angledBox(2.9, 1.34, 1.82, materials.hull, 0, 1.46, 1.68, -0.08));
+  group.add(angledBox(2.38, 0.54, 0.12, materials.lightBar, 0, 1.75, 2.62, -0.08));
+  group.add(box(0.12, 0.56, 1.22, materials.lightBar, -1.47, 1.64, 1.66));
+  group.add(box(0.12, 0.56, 1.22, materials.lightBar, 1.47, 1.64, 1.66));
+  group.add(box(1.05, 0.12, 0.16, materials.accent, 0, 2.16, 1.78));
+
+  // Rear hopper walls and braces frame the ore rather than hiding it in a box.
+  group.add(angledBox(3.72, 0.92, 0.22, materials.dark, 0, 1.5, -2.55, 0.18));
+  for (const side of [-1, 1]) {
+    group.add(angledBox(0.24, 0.94, 2.72, materials.dark, side * 1.92, 1.48, -1.1, 0, 0, side * 0.14));
+    for (const z of [-2.18, -1.48, -0.78, -0.08]) {
+      group.add(box(0.14, 1.05, 0.12, gunmetal, side * 2.02, 1.48, z));
+    }
+    group.add(box(0.48, 0.42, 1.18, materials.canvas, side * 1.72, 1.22, -2.2));
+  }
+  for (const x of [-1.35, -0.68, 0, 0.68, 1.35]) {
+    group.add(box(0.12, 0.1, 2.64, gunmetal, x, 1.08, -1.2));
+  }
+
+  const load = angledBox(3.2, 0.46, 2.28, materials.accent, 0, 1.7, -1.18, 0.04);
   group.add(load);
 
   const scoop = new Group();
-  scoop.position.set(0, 0.45, 3.35);
-  const scoopBlade = new Mesh(sharedBoxGeometry(4.8, 0.34, 0.72), materials.dark);
-  scoopBlade.rotation.x = -0.25;
-  scoop.add(scoopBlade);
-  scoop.add(box(0.22, 0.22, 1.45, materials.dark, -1.55, 0.22, -0.72));
-  scoop.add(box(0.22, 0.22, 1.45, materials.dark, 1.55, 0.22, -0.72));
+  scoop.position.set(0, 0.42, 3.22);
+  scoop.add(angledBox(5.35, 0.38, 0.86, materials.dark, 0, 0, 0.55, -0.28));
+  scoop.add(box(5.18, 0.14, 0.22, gunmetal, 0, -0.2, 0.98));
+  for (const x of [-2.25, -1.5, -0.75, 0, 0.75, 1.5, 2.25]) {
+    scoop.add(angledBox(0.14, 0.2, 0.92, gunmetal, x, -0.2, 1.22, -0.22));
+  }
+  for (const side of [-1, 1]) {
+    scoop.add(angledBox(0.24, 0.24, 1.75, materials.dark, side * 1.68, 0.22, -0.62, -0.16));
+    const ram = new Mesh(sharedCylinderGeometry(0.09, 0.12, 1.65, 8), gunmetal);
+    ram.rotation.x = Math.PI * 0.4;
+    ram.position.set(side * 2.08, 0.54, -0.42);
+    scoop.add(ram);
+  }
   group.add(scoop);
 
-  const tankL = new Mesh(sharedCylinderGeometry(0.36, 0.36, 2.55, 12), materials.dark);
-  tankL.rotation.z = Math.PI / 2;
-  tankL.position.set(-2.45, 0.92, -0.95);
-  group.add(tankL);
-  const tankR = new Mesh(sharedCylinderGeometry(0.36, 0.36, 2.55, 12), materials.dark);
-  tankR.rotation.z = Math.PI / 2;
-  tankR.position.set(2.45, 0.92, -0.95);
-  group.add(tankR);
-
-  group.add(box(0.72, 0.46, 6.25, materials.dark, -2.45, 0.28, 0));
-  group.add(box(0.72, 0.46, 6.25, materials.dark, 2.45, 0.28, 0));
-  group.add(box(3.0, 0.08, 0.34, materials.accent, 0, 2.04, -1.02));
+  // Exhausts and side tanks add a heavier utility-vehicle profile.
+  for (const side of [-1, 1]) {
+    const sideTank = new Mesh(sharedCylinderGeometry(0.34, 0.34, 2.05, 12), materials.dark);
+    sideTank.rotation.z = Math.PI / 2;
+    sideTank.position.set(side * 2.78, 1.22, -1.22);
+    group.add(sideTank);
+    const exhaust = new Mesh(sharedCylinderGeometry(0.12, 0.16, 1.18, 10), gunmetal);
+    exhaust.position.set(side * 1.72, 1.7, -2.3);
+    group.add(exhaust);
+    group.add(box(0.26, 0.12, 0.32, gunmetal, side * 1.72, 2.3, -2.3));
+  }
 
   const beaconMaterial = new MeshBasicMaterial({ color: 0xff3d24, transparent: true, opacity: 0.7, depthWrite: false, toneMapped: false });
-  const beacon = new Mesh(sharedBoxGeometry(0.68, 0.24, 0.68), beaconMaterial);
-  beacon.position.set(0, 2.32, 1.65);
+  const beacon = new Mesh(sharedCylinderGeometry(0.26, 0.32, 0.28, 10), beaconMaterial);
+  beacon.position.set(0.92, 2.46, 1.52);
   beacon.visible = false;
   group.add(beacon);
 
   const antenna = new Group();
-  antenna.position.set(1.15, 2.2, 0.95);
-  const whip = new Mesh(sharedCylinderGeometry(0.012, 0.018, 0.82, 5), gunmetal);
-  whip.position.y = 0.42;
+  antenna.position.set(-1.02, 2.2, 1.18);
+  antenna.add(new Mesh(sharedCylinderGeometry(0.12, 0.16, 0.14, 8), gunmetal));
+  const whip = new Mesh(sharedCylinderGeometry(0.012, 0.018, 1.05, 5), gunmetal);
+  whip.position.y = 0.56;
   antenna.add(whip);
   group.add(antenna);
-  return { root: group, refs: { cargoLoad: load, scoop, warningBeacon: beacon, antenna } };
+  compactHarvesterMeshes(group, scoop, materials, gunmetal, load);
+  return {
+    root: group,
+    refs: {
+      cargoLoad: load,
+      scoop,
+      warningBeacon: beacon,
+      antenna,
+      groundDrive: true,
+    },
+  };
 }
 
 function createAircraftObject(kind: UnitVisualKind, materials: TeamMaterials, rotorMaterial: Material): BuiltUnit {

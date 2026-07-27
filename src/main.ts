@@ -36,6 +36,12 @@ import { Input } from './engine/input';
 import { GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
 import { FirstContactGate, findFirstVisibleHostileEntity } from './firstContact';
 import { advanceTick } from './match/advanceTick';
+import {
+  openingFormationBasis,
+  openingFormationPoint,
+  openingStagingDepth,
+  type OpeningFormationBasis,
+} from './match/openingDeployment';
 import { aiControlledTeams, ensureOpposingSides, formatArmyMatchup, isVictoryFromHostileBuildingCounts, shouldAutostartFromUrl } from './match/startup';
 import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
@@ -3107,8 +3113,9 @@ function spawnStartingInfantry(
   ];
   const spawned = [];
   const basis = openingFormationBasis(team);
+  const stagingDepth = openingDeploymentDepth(sim, hf, baseX, baseZ, team, basis);
   for (const item of plan) {
-    const target = openingFormationPoint(baseX, baseZ, basis, item.side, item.depth);
+    const target = openingFormationPoint(baseX, baseZ, basis, item.side, stagingDepth + item.depth - 29);
     const cell = sim.nav.nearestWalkableCell(target.x, target.z, 26) ?? sim.nav.nearestWalkableCellGlobal(target.x, target.z);
     if (!cell) continue;
     const p = sim.nav.cellCenter(cell.x, cell.y);
@@ -3130,6 +3137,7 @@ function spawnStartingTanks(
 ): Array<ReturnType<typeof spawnTankAt>> {
   const spawned: Array<ReturnType<typeof spawnTankAt>> = [];
   const basis = openingFormationBasis(team);
+  const stagingDepth = openingDeploymentDepth(sim, hf, baseX, baseZ, team, basis);
   const columns = Math.max(2, Math.min(10, Math.ceil(Math.sqrt(count))));
   let cursor = 0;
   let guard = 0;
@@ -3138,7 +3146,7 @@ function spawnStartingTanks(
     const row = Math.floor(cursor / columns);
     cursor++;
     const side = (col - (columns - 1) / 2) * 7.1;
-    const depth = 29 + row * 7.3;
+    const depth = stagingDepth + row * 7.3;
     const target = openingFormationPoint(baseX, baseZ, basis, side, depth);
     const cell = sim.nav.nearestWalkableCell(target.x, target.z, 18) ?? sim.nav.nearestWalkableCellGlobal(target.x, target.z);
     if (!cell) continue;
@@ -3151,36 +3159,34 @@ function spawnStartingTanks(
   return spawned;
 }
 
-function openingFormationBasis(team: number): { forwardX: number; forwardZ: number; rightX: number; rightZ: number } {
-  const sx = team === 2 || team === 3 ? -1 : 1;
-  const sz = team === 2 || team === 4 ? -1 : 1;
-  const len = Math.hypot(sx, sz);
-  const forwardX = sx / len;
-  const forwardZ = sz / len;
-  return {
-    forwardX,
-    forwardZ,
-    rightX: forwardZ,
-    rightZ: -forwardX,
-  };
-}
-
-function openingFormationPoint(
+function openingDeploymentDepth(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
   baseX: number,
   baseZ: number,
-  basis: { forwardX: number; forwardZ: number; rightX: number; rightZ: number },
-  side: number,
-  depth: number,
-): { x: number; z: number } {
-  return {
-    x: baseX + basis.forwardX * depth + basis.rightX * side,
-    z: baseZ + basis.forwardZ * depth + basis.rightZ * side,
-  };
+  team: number,
+  basis: OpeningFormationBasis,
+): number {
+  const obstacles = Array.from(sim.world.entities)
+    .filter((entity) => entity.building && !entity.destroyed && entity.team?.id === team)
+    .filter((entity) => Math.hypot(entity.transform.x - baseX, entity.transform.z - baseZ) < 130)
+    .map((entity) => {
+      const footprint = entity.building?.footprint;
+      const footprintRadius = footprint
+        ? Math.hypot(footprint.w * hf.cellSize * 0.5, footprint.h * hf.cellSize * 0.5)
+        : 0;
+      return {
+        x: entity.transform.x,
+        z: entity.transform.z,
+        radius: Math.max(entity.collider?.radius ?? 0, footprintRadius),
+      };
+    });
+  return openingStagingDepth(baseX, baseZ, basis, obstacles);
 }
 
 function orientOpeningUnit(
   entity: ReturnType<typeof spawnTankAt> | ReturnType<typeof spawnInfantryAt>,
-  basis: { forwardX: number; forwardZ: number },
+  basis: OpeningFormationBasis,
 ): void {
   const yaw = Math.atan2(basis.forwardX, basis.forwardZ);
   entity.transform.rot = yaw;

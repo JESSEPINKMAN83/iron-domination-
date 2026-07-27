@@ -30,6 +30,7 @@ const SNIPER_SCOPE_FOV_WIDE = 30;
 const SNIPER_SCOPE_FOV_TIGHT = 11;
 const SQUAD_FOLLOW_REFRESH_TICKS = 12;
 const SQUAD_FOLLOW_MIN_DISTANCE = 14;
+export const MAX_DIRECT_CONTROL_SQUAD = 12;
 const TARGET_LOCK_SECONDS = 1;
 
 export interface CameraPose {
@@ -49,6 +50,25 @@ export function resolveExitCameraPose(prepared: CameraPose | undefined, fallback
     quaternion: pose.quaternion.clone(),
     fov: pose.fov,
   };
+}
+
+export function selectDirectControlSquad(
+  candidates: Entity[],
+  tick: number,
+  limit = MAX_DIRECT_CONTROL_SQUAD,
+): { leader?: Entity; squad: Entity[] } {
+  const eligible = candidates.filter((candidate) => candidate.possessable && candidate.mover && !candidate.destroyed);
+  if (eligible.length === 0) return { squad: [] };
+  const leader = eligible[Math.abs(Math.trunc(tick)) % eligible.length];
+  if (eligible.length <= limit) return { leader, squad: eligible };
+  const nearest = [...eligible]
+    .sort((a, b) => {
+      const ad = (a.transform.x - leader.transform.x) ** 2 + (a.transform.z - leader.transform.z) ** 2;
+      const bd = (b.transform.x - leader.transform.x) ** 2 + (b.transform.z - leader.transform.z) ** 2;
+      return ad - bd || a.id - b.id;
+    })
+    .slice(0, Math.max(1, limit));
+  return { leader, squad: nearest };
 }
 
 export interface FirstPersonCommandSink {
@@ -258,12 +278,11 @@ export class FirstPersonController {
 
   enter(candidates: Entity[]): boolean {
     if (this.active) return false;
-    const squad = candidates.filter((candidate) => candidate.possessable && candidate.mover && !candidate.destroyed);
-    const entity = squad.length > 0 ? squad[this.sim.tick % squad.length] : undefined;
+    const { leader: entity, squad } = selectDirectControlSquad(candidates, this.sim.tick);
     if (!entity) return false;
     this.squad = squad;
     this.squadIndex = squad.indexOf(entity);
-    this.nextSquadFollowTick = this.sim.tick;
+    this.nextSquadFollowTick = this.sim.tick + SQUAD_FOLLOW_REFRESH_TICKS;
     setSelected(this.sim, this.squad, false, this.localTeam);
     this.takeControl(entity);
     this.transitionT = 0;

@@ -1,6 +1,13 @@
 import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { keyboardAircraftClimb, resolveExitCameraPose, type CameraPose } from './firstPersonController';
+import type { Entity } from '../sim/components';
+import {
+  keyboardAircraftClimb,
+  MAX_DIRECT_CONTROL_SQUAD,
+  resolveExitCameraPose,
+  selectDirectControlSquad,
+  type CameraPose,
+} from './firstPersonController';
 
 function pose(x: number, y: number, z: number, fov: number): CameraPose {
   return {
@@ -42,5 +49,40 @@ describe('aircraft keyboard altitude', () => {
 
   it('does not descend when Control is pressed', () => {
     expect(keyboardAircraftClimb((code) => code === 'ControlLeft' || code === 'ControlRight')).toBe(0);
+  });
+});
+
+describe('direct-control squads', () => {
+  it('caps very large selections and keeps the nearest wingmen around the chosen leader', () => {
+    const candidates = Array.from({ length: 40 }, (_, index) => ({
+      id: index + 1,
+      transform: { x: index * 6, z: 0, rot: 0 },
+      mover: { speed: 12, radius: 2 },
+      possessable: { socketHeight: 1.5 },
+    })) as Entity[];
+
+    const result = selectDirectControlSquad(candidates, 20);
+
+    expect(result.leader).toBe(candidates[20]);
+    expect(result.squad).toHaveLength(MAX_DIRECT_CONTROL_SQUAD);
+    expect(result.squad).toContain(result.leader);
+    expect(Math.max(...result.squad.map((unit) => Math.abs(unit.transform.x - result.leader!.transform.x)))).toBeLessThan(40);
+  });
+
+  it('ignores destroyed and non-possessable units', () => {
+    const eligible = {
+      id: 1,
+      transform: { x: 0, z: 0, rot: 0 },
+      mover: { speed: 12, radius: 2 },
+      possessable: { socketHeight: 1.5 },
+    } as Entity;
+    const destroyed = {
+      ...eligible,
+      id: 2,
+      destroyed: { remaining: 10 },
+    } as Entity;
+    const result = selectDirectControlSquad([destroyed, eligible], 0);
+
+    expect(result).toEqual({ leader: eligible, squad: [eligible] });
   });
 });
