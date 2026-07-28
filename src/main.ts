@@ -2096,6 +2096,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const testStart = startMode === 'test' || startMode === 'sandbox';
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
+  const aircraftCrashPreview =
+    !multiplayerMode && !isPublicHost(location.hostname) && params.get('aircraft-crash-preview') === '1';
   const fortressPreviewParam = params.get('fortress-preview');
   const fortressPreview =
     !multiplayerMode &&
@@ -2502,7 +2504,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       firePrimary: () => firstPerson.firePrimary(),
       fireSecondary: () => firstPerson.fireSecondary(),
       useSpecial: () => firstPerson.useSpecialAbility(),
-      toggleTargetLock: () => firstPerson.toggleTargetLock(),
+      beginTargetScan: () => firstPerson.beginTargetScan(),
+      endTargetScan: () => firstPerson.endTargetScan(),
     });
   }
   input.onKeyDown('KeyV', () => {
@@ -2516,7 +2519,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     firstPerson.useSpecialAbility();
   });
   input.onKeyDown('KeyT', () => {
-    firstPerson.toggleTargetLock();
+    firstPerson.beginTargetScan();
+  });
+  input.onKeyUp('KeyT', () => {
+    firstPerson.endTargetScan();
   });
   input.onKeyDown('Escape', () => {
     if (firstPerson.active) firstPerson.exit();
@@ -2717,6 +2723,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         rig.setEmptyRightDragLook(controller.isEmptyRightLookActive());
         rig.update(dt);
       }
+      unitView.setFortressOpticsActive(firstPerson.fortress);
+      unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
       unitView.update(alpha, dt, ctx.camera);
       if (sim.tick - lastUiRefreshTick >= 3) {
         lastUiRefreshTick = sim.tick;
@@ -2820,11 +2828,38 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       const cell = sim.nav.nearestWalkableCell(targetX, targetZ, 20);
       if (cell) {
         const p = sim.nav.cellCenter(cell.x, cell.y);
-        spawnTankAt(sim, p.x, p.z, 'Lock Target — Armor', 2);
+        const armor = spawnTankAt(sim, p.x, p.z, 'Lock Target — Armor', 2);
         const aircraft = spawnWaspAt(sim, hf, p.x + 12, p.z + 8, 'Lock Target — Aircraft', 2);
-        const lowPreviewAltitude = sampleHeight(hf, aircraft.transform.x, aircraft.transform.z) + 8;
+        const lowPreviewAltitude =
+          sampleHeight(hf, aircraft.transform.x, aircraft.transform.z) + (aircraftCrashPreview ? 32 : 8);
         aircraft.transform.y = lowPreviewAltitude;
         aircraft.previousTransform.y = lowPreviewAltitude;
+        // Fortress preview targets are spawned outside the regular simulation tick,
+        // so register them with the renderer immediately as well as with the sim.
+        unitView.addEntity(armor);
+        unitView.addEntity(aircraft);
+        if (aircraftCrashPreview) {
+          const crashAircraft = [
+            aircraft,
+            spawnVultureAt(sim, hf, p.x - 13, p.z + 4, 'Crash Preview — Vulture', 2),
+            spawnHammerheadAt(sim, hf, p.x, p.z + 18, 'Crash Preview — Hammerhead', 2),
+          ];
+          for (let i = 1; i < crashAircraft.length; i++) {
+            const target = crashAircraft[i];
+            const altitude = sampleHeight(hf, target.transform.x, target.transform.z) + 34 + i * 4;
+            target.transform.y = altitude;
+            target.previousTransform.y = altitude;
+            unitView.addEntity(target);
+          }
+          window.setTimeout(() => {
+            for (const target of crashAircraft) {
+              if (target.destroyed) continue;
+              if (target.health) target.health.current = 0;
+              target.selectable!.selected = false;
+              target.destroyed = { remaining: 20 };
+            }
+          }, 900);
+        }
       }
       setSelected(sim, [tower], false, localTeam);
       firstPerson.enter([tower]);

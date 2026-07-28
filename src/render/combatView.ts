@@ -119,6 +119,10 @@ export class CombatView {
       const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : 2.2;
       const fromY = event.fromY ?? sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
       const toY = event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
+      if (event.kind === 'aircraft-crash-smoke') {
+        this.spawnAircraftCrashSmoke(event, toY);
+        continue;
+      }
       if (event.kind === 'crash') {
         this.spawnCrashBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.6, event.toZ);
         continue;
@@ -584,6 +588,33 @@ export class CombatView {
         spin: i % 2 ? 0.5 : -0.5,
       });
     }
+  }
+
+  private spawnAircraftCrashSmoke(event: CombatEvent, y: number): void {
+    const variant = Math.abs(event.targetId ?? 0) % 3;
+    const smokeMaterial = new MeshBasicMaterial({
+      color: variant === 0 ? 0x211f1c : variant === 1 ? 0x302b25 : 0x181817,
+      transparent: true,
+      opacity: 0.38,
+      depthWrite: false,
+    });
+    smokeMaterial.userData.baseOpacity = 0.38;
+    const puff = new Mesh(new SphereGeometry(0.72 + variant * 0.1, 8, 5), smokeMaterial);
+    puff.position.set(event.toX, y, event.toZ);
+    puff.renderOrder = 57;
+    this.group.add(puff);
+    const dx = event.toX - event.fromX;
+    const dz = event.toZ - event.fromZ;
+    const ttl = 1.3 + variant * 0.12;
+    this.smokePuffs.push({
+      mesh: puff,
+      material: smokeMaterial,
+      velocity: new Vector3(-dx * 1.8, 0.85 + variant * 0.16, -dz * 1.8),
+      ttl,
+      total: ttl,
+      spin: variant === 1 ? -0.55 : 0.48,
+    });
+    while (this.smokePuffs.length > 110) this.disposeSmokePuff(this.smokePuffs.shift());
   }
 
   private spawnHitIndicator(event: CombatEvent): void {

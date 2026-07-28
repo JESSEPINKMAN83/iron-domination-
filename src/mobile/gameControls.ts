@@ -8,7 +8,8 @@ interface MobileControlActions {
   firePrimary(): boolean;
   fireSecondary(): boolean;
   useSpecial(): boolean;
-  toggleTargetLock(): boolean;
+  beginTargetScan(): boolean;
+  endTargetScan(): boolean;
 }
 
 export interface MobileControlState {
@@ -75,7 +76,7 @@ export class MobileGameControls {
     fire.classList.add('mobile-fire-button');
     const secondary = button('MISSILE', 'Fire secondary weapon or use scope');
     const special = button('SPECIAL', 'Use special ability');
-    const lock = button('LOCK', 'Lock or release a target in the aiming cone');
+    const lock = button('SCAN', 'Hold to expand the targeting scan, then release to lock');
     const speed = button('SPEED', 'Hold for maximum movement speed');
     this.speedButton = speed;
     this.nextUnitButton = button('NEXT UNIT', 'Control the next unit in the selected group');
@@ -87,7 +88,10 @@ export class MobileGameControls {
     bindRepeatAction(fire, () => this.actions.firePrimary(), 115);
     bindRepeatAction(secondary, () => this.actions.fireSecondary());
     bindRepeatAction(special, () => this.actions.useSpecial());
-    lock.onclick = () => this.actions.toggleTargetLock();
+    bindHold(lock, (held) => {
+      if (held) this.actions.beginTargetScan();
+      else this.actions.endTargetScan();
+    });
     this.nextUnitButton.onclick = () => this.actions.cyclePossessed();
     this.resetSpeedHold = bindHold(speed, (held) => {
       this.input.setMobileDrive({ boost: held });

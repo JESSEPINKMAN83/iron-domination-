@@ -7,6 +7,7 @@ describe('How to Play platform instructions', () => {
     expect(guide).toContain('Ctrl/Cmd + 0–9');
     expect(guide).toContain('WASD / arrows');
     expect(guide).toContain('V / Escape');
+    expect(guide).toContain('use the wheel for optical zoom');
     expect(guide).not.toContain('Two fingers');
   });
 

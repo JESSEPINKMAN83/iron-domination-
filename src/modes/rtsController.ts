@@ -19,6 +19,13 @@ export interface PlacementControls {
 
 export interface BuildingPicker {
   pickAt(x: number, z: number): Entity | undefined;
+  pickAtScreen?(
+    camera: PerspectiveCamera,
+    screenX: number,
+    screenY: number,
+    viewportW: number,
+    viewportH: number,
+  ): Entity | undefined;
 }
 
 export interface OrderFeedback {
@@ -464,7 +471,14 @@ export class RtsController {
   private entityAt(clientX: number, clientY: number): Entity | undefined {
     const p = this.terrainPoint(clientX, clientY);
     const screenHit = this.units.pickAtScreen(this.camera, clientX, clientY, window.innerWidth, window.innerHeight);
-    return screenHit ?? (p ? this.buildings?.pickAt(p.x, p.z) ?? this.units.pickAt(p.x, p.z) : undefined);
+    const buildingScreenHit = this.buildings?.pickAtScreen?.(
+      this.camera,
+      clientX,
+      clientY,
+      window.innerWidth,
+      window.innerHeight,
+    );
+    return screenHit ?? buildingScreenHit ?? (p ? this.buildings?.pickAt(p.x, p.z) ?? this.units.pickAt(p.x, p.z) : undefined);
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -574,8 +588,16 @@ export class RtsController {
   private enemyTargetAt(clientX: number, clientY: number): Entity | undefined {
     const p = this.terrainPoint(clientX, clientY);
     const screenHit = this.units.pickAtScreen(this.camera, clientX, clientY, window.innerWidth, window.innerHeight);
+    const buildingScreenHit = this.buildings?.pickAtScreen?.(
+      this.camera,
+      clientX,
+      clientY,
+      window.innerWidth,
+      window.innerHeight,
+    );
     const candidates = [
       screenHit,
+      buildingScreenHit,
       p ? this.buildings?.pickAt(p.x, p.z) : undefined,
       p ? this.units.pickAt(p.x, p.z) : undefined,
     ];
