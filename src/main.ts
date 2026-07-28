@@ -1,5 +1,5 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
-import { betaPlayerName, hasBetaAccess, showLandingScreen } from './landing';
+import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic } from './landing';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
 import { sendTelemetryEvent, trackMatchTelemetry, type MatchTelemetry } from './telemetry';
@@ -28,7 +28,7 @@ import {
   type MapId,
   type MapSize,
 } from './content/maps';
-import type { StructureKind } from './content/phase3';
+import type { StructureKind, UnitKind } from './content/phase3';
 import { isFortressTower } from './content/fortress';
 import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phase6';
 import { COMBAT_MODE_DESCRIPTIONS, COMBAT_MODES, type CombatMode } from './content/rules';
@@ -89,6 +89,7 @@ import { VisibilityGrid } from './sim/visibility';
 import {
   createGameSim,
   areTeamsHostile,
+  issueMoveOrder,
   selectedEntities,
   setSelected,
   spawnHammerheadAt,
@@ -99,6 +100,7 @@ import {
   spawnWaspAt,
   type CombatEvent,
 } from './sim/world';
+import type { Entity } from './sim/components';
 import { BaseUnderAttackGate, findFriendlyBuildingUnderAttack } from './ui/baseUnderAttack';
 import { Hud } from './ui/hud';
 import { MissionComms } from './ui/missionComms';
@@ -141,6 +143,17 @@ interface ArmyRuntime {
   base: ReturnType<typeof createInitialBase>;
   vision: VisibilityGrid;
   commander?: EnemyCommander;
+}
+
+type CinematicShot = 'overview' | 'frontline' | 'base' | 'air';
+
+interface CinematicWarScene {
+  units: Entity[];
+  localAircraft: Entity[];
+  focus: { x: number; z: number };
+  friendlyBase: { x: number; z: number };
+  forward: { x: number; z: number };
+  right: { x: number; z: number };
 }
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'normal', 'hard'];
@@ -2099,9 +2112,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const startMode = params.get('start');
   const lineupStart = startMode === 'lineup';
+  const cinematicWar =
+    startMode === 'cinematic' && !multiplayerMode && !isPublicHost(location.hostname);
+  const cinematicShot = cinematicWar ? sanitizeCinematicShot(params.get('cinematic-shot')) : 'overview';
+  if (cinematicWar && params.get('cinematic-ui') === 'clean') {
+    document.documentElement.classList.add('cinematic-clean');
+  }
   const collectorPreview =
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
-  const testStart = startMode === 'test' || startMode === 'sandbox';
+  const testStart = startMode === 'test' || startMode === 'sandbox' || cinematicWar;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   const buildingShowcaseParam = params.get('building-showcase');
@@ -2128,7 +2147,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   sim.rules.allianceSides = Object.fromEntries(teams.map((team) => [team, settings.armySides[team - 1] ?? team]));
   const armies: ArmyRuntime[] = teams.map((team) => {
     const isLocal = team === localTeam;
-    const credits = isLocal && (testStart || lineupStart) ? 15000 : aiTeams.has(team) ? AI_DIFFICULTY[aiDifficulty].startCredits : 4600;
+    const credits = cinematicWar
+      ? 30000
+      : isLocal && (testStart || lineupStart)
+        ? 15000
+        : aiTeams.has(team)
+          ? AI_DIFFICULTY[aiDifficulty].startCredits
+          : 4600;
     const economy = createEconomy(team, credits);
     const start = startPosition(hf.size, settings.spawnSlots[team - 1] ?? team);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
@@ -2159,7 +2184,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       console.warn('[save] failed to load saved match', err);
     }
   }
-  if (testStart && !multiplayerMode && !loadedFromSave) seedTestStartBase(sim, hf, economy, localBase);
+  if (cinematicWar && !loadedFromSave) {
+    for (const army of armies) seedCinematicBase(sim, hf, army.economy, army.base);
+  } else if (testStart && !multiplayerMode && !loadedFromSave) {
+    seedTestStartBase(sim, hf, economy, localBase);
+  }
   const isVisibleToPlayer = lineupStart ? () => true : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
     if (!aiTeams.has(army.team)) continue;
@@ -2206,14 +2235,19 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       collectorPreviewEntity.previousTransform.z = collectorPreviewEntity.transform.z;
     }
   }
-  const startingUnits = lineupStart
-    ? []
-    : loadedFromSave
-      ? loadedUnits
-      : armies.flatMap((army) => [
-        ...spawnStartingTanks(sim, hf, army.base.transform.x, army.base.transform.z, army.team, army.team === localTeam && debugArmies ? 120 : debugArmies ? 40 : 2),
-        ...(debugArmies ? [] : spawnStartingInfantry(sim, hf, army.base.transform.x, army.base.transform.z, army.team)),
-      ]);
+  const cinematicScene = cinematicWar && !loadedFromSave
+    ? spawnCinematicWar(sim, hf, armies, localTeam)
+    : undefined;
+  const startingUnits = cinematicScene
+    ? cinematicScene.units
+    : lineupStart
+      ? []
+      : loadedFromSave
+        ? loadedUnits
+        : armies.flatMap((army) => [
+          ...spawnStartingTanks(sim, hf, army.base.transform.x, army.base.transform.z, army.team, army.team === localTeam && debugArmies ? 120 : debugArmies ? 40 : 2),
+          ...(debugArmies ? [] : spawnStartingInfantry(sim, hf, army.base.transform.x, army.base.transform.z, army.team)),
+        ]);
   for (const army of armies) army.vision.update(sim);
 
   const unitView = new UnitView([...lineupUnits, ...startingUnits], hf, ctx, isVisibleToPlayer, localTeam);
@@ -2290,6 +2324,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       { x: collectorPreviewEntity.transform.x - 12, z: collectorPreviewEntity.transform.z + 18 },
       28,
     );
+  } else if (cinematicScene && cinematicShot !== 'air') {
+    applyCinematicCamera(rig, cinematicScene, cinematicShot);
   } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else rig.jumpToOpeningView(localBase.transform.x, localBase.transform.z, localTeam);
   const tacticalPing = {
@@ -2660,7 +2696,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   };
 
   const checkFirstContact = (): void => {
-    if (lineupStart) return;
+    if (lineupStart || cinematicWar) return;
     const contact = firstContactGate.tryTrigger(() => findFirstVisibleHostileEntity(
       sim.world.entities,
       localTeam,
@@ -2824,7 +2860,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   overlay.remove();
   loop.start();
-  if (!lineupStart && !fortressPreview && !buildingShowcase) {
+  fadeOutLandingMusic(40_000);
+  if (!lineupStart && !fortressPreview && !buildingShowcase && !cinematicWar) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     showMissionBriefing({ enemyCount: hostileArmyCount });
     if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
@@ -2843,6 +2880,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       setSelected(sim, pool.slice(0, 1), false, localTeam);
       firstPerson.enter(pool.slice(0, 1));
     }, 400);
+  }
+  if (cinematicScene && cinematicShot === 'air') {
+    window.setTimeout(() => {
+      const aircraft = cinematicScene.localAircraft.find((entity) => !entity.destroyed);
+      if (!aircraft) return;
+      setSelected(sim, [aircraft], false, localTeam);
+      firstPerson.enter([aircraft]);
+    }, 450);
   }
   if (buildingShowcase) {
     window.setTimeout(() => {
@@ -3412,6 +3457,287 @@ function orientLineupUnit(entity: ReturnType<typeof spawnTankAt>, rot: number): 
   if (entity.turret) entity.turret.yaw = rot;
 }
 
+function sanitizeCinematicShot(value: string | null): CinematicShot {
+  return value === 'frontline' || value === 'base' || value === 'air' ? value : 'overview';
+}
+
+function spawnCinematicWar(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  armies: ArmyRuntime[],
+  localTeam: number,
+): CinematicWarScene | undefined {
+  const friendly = armies.find((army) => army.team === localTeam) ?? armies[0];
+  const hostile = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
+  if (!friendly || !hostile) return undefined;
+
+  const rawForwardX = hostile.base.transform.x - friendly.base.transform.x;
+  const rawForwardZ = hostile.base.transform.z - friendly.base.transform.z;
+  const forwardLength = Math.hypot(rawForwardX, rawForwardZ) || 1;
+  const forward = { x: rawForwardX / forwardLength, z: rawForwardZ / forwardLength };
+  const right = { x: forward.z, z: -forward.x };
+  const midpoint = {
+    x: (friendly.base.transform.x + hostile.base.transform.x) * 0.5,
+    z: (friendly.base.transform.z + hostile.base.transform.z) * 0.5,
+  };
+  const focusCell = sim.nav.nearestWalkableCell(midpoint.x, midpoint.z, 80)
+    ?? sim.nav.nearestWalkableCellGlobal(midpoint.x, midpoint.z);
+  const focus = focusCell ? sim.nav.cellCenter(focusCell.x, focusCell.y) : midpoint;
+  const occupied: Array<{ x: number; z: number; radius: number }> = [];
+  const units: Entity[] = [];
+  const localAircraft: Entity[] = [];
+
+  const spawnForce = (army: ArmyRuntime, toward: { x: number; z: number }): void => {
+    const teamForward = army.team === friendly.team
+      ? forward
+      : { x: -forward.x, z: -forward.z };
+    const teamRight = { x: teamForward.z, z: -teamForward.x };
+    const frontAnchor = {
+      x: focus.x - teamForward.x * 54,
+      z: focus.z - teamForward.z * 54,
+    };
+    const ground: Entity[] = [];
+    const aircraft: Entity[] = [];
+    const armorKinds: UnitKind[] = [
+      'scout-tank', 'tank', 'tank', 'siege-tank', 'tank', 'scout-tank',
+      'siege-tank', 'tank', 'scout-tank', 'tank', 'tank', 'siege-tank',
+    ];
+    const infantryKinds: UnitKind[] = [
+      'infantry', 'rocket-infantry', 'grenadier', 'infantry', 'sniper',
+      'rocket-infantry', 'infantry', 'grenadier', 'sniper', 'rocket-infantry',
+    ];
+    const aircraftKinds: UnitKind[] = ['wasp', 'vulture', 'hammerhead', 'vulture'];
+
+    armorKinds.forEach((kind, index) => {
+      const col = index % 6;
+      const row = Math.floor(index / 6);
+      const point = cinematicGroundPoint(
+        sim,
+        frontAnchor.x + teamRight.x * (col - 2.5) * 8.4 - teamForward.x * row * 9,
+        frontAnchor.z + teamRight.z * (col - 2.5) * 8.4 - teamForward.z * row * 9,
+        cinematicUnitRadius(kind),
+        occupied,
+      );
+      if (!point) return;
+      const entity = spawnCinematicUnit(sim, hf, kind, point.x, point.z, army.team);
+      orientCinematicUnit(entity, teamForward);
+      ground.push(entity);
+      units.push(entity);
+    });
+
+    infantryKinds.forEach((kind, index) => {
+      const col = index % 5;
+      const row = Math.floor(index / 5);
+      const point = cinematicGroundPoint(
+        sim,
+        frontAnchor.x + teamForward.x * 14 + teamRight.x * (col - 2) * 4.2 - teamForward.x * row * 4.8,
+        frontAnchor.z + teamForward.z * 14 + teamRight.z * (col - 2) * 4.2 - teamForward.z * row * 4.8,
+        cinematicUnitRadius(kind),
+        occupied,
+      );
+      if (!point) return;
+      const entity = spawnCinematicUnit(sim, hf, kind, point.x, point.z, army.team);
+      orientCinematicUnit(entity, teamForward);
+      ground.push(entity);
+      units.push(entity);
+    });
+
+    aircraftKinds.forEach((kind, index) => {
+      const x = frontAnchor.x - teamForward.x * (24 + index * 5) + teamRight.x * (index - 1.5) * 13;
+      const z = frontAnchor.z - teamForward.z * (24 + index * 5) + teamRight.z * (index - 1.5) * 13;
+      const entity = spawnCinematicUnit(sim, hf, kind, x, z, army.team);
+      orientCinematicUnit(entity, teamForward);
+      aircraft.push(entity);
+      units.push(entity);
+      if (army.team === localTeam) localAircraft.push(entity);
+    });
+
+    const reinforcementKinds: UnitKind[] = [
+      'scout-tank', 'tank', 'siege-tank', 'tank',
+      'rocket-infantry', 'grenadier', 'tank', 'scout-tank',
+    ];
+    reinforcementKinds.forEach((kind, index) => {
+      const col = index % 4;
+      const row = Math.floor(index / 4);
+      const point = cinematicGroundPoint(
+        sim,
+        frontAnchor.x + teamRight.x * (col - 1.5) * 8.6 - teamForward.x * (102 + row * 9),
+        frontAnchor.z + teamRight.z * (col - 1.5) * 8.6 - teamForward.z * (102 + row * 9),
+        cinematicUnitRadius(kind),
+        occupied,
+      );
+      if (!point) return;
+      const entity = spawnCinematicUnit(sim, hf, kind, point.x, point.z, army.team);
+      orientCinematicUnit(entity, teamForward);
+      ground.push(entity);
+      units.push(entity);
+    });
+
+    const convoy = [
+      ...spawnStartingTanks(sim, hf, army.base.transform.x, army.base.transform.z, army.team, 10),
+      ...spawnStartingInfantry(sim, hf, army.base.transform.x, army.base.transform.z, army.team),
+    ];
+    units.push(...convoy);
+
+    issueMoveOrder(sim, ground, toward.x, toward.z, true);
+    issueMoveOrder(sim, aircraft, toward.x, toward.z, true);
+    issueMoveOrder(sim, convoy, focus.x, focus.z, true);
+  };
+
+  const friendlyTarget = { x: focus.x + forward.x * 82, z: focus.z + forward.z * 82 };
+  const hostileTarget = { x: focus.x - forward.x * 82, z: focus.z - forward.z * 82 };
+  spawnForce(friendly, friendlyTarget);
+  spawnForce(hostile, hostileTarget);
+
+  return {
+    units,
+    localAircraft,
+    focus,
+    friendlyBase: { x: friendly.base.transform.x, z: friendly.base.transform.z },
+    forward,
+    right,
+  };
+}
+
+function cinematicGroundPoint(
+  sim: ReturnType<typeof createGameSim>,
+  targetX: number,
+  targetZ: number,
+  radius: number,
+  occupied: Array<{ x: number; z: number; radius: number }>,
+): { x: number; z: number } | undefined {
+  for (let ring = 0; ring <= 8; ring++) {
+    const samples = ring === 0 ? 1 : 12;
+    for (let step = 0; step < samples; step++) {
+      const angle = samples === 1 ? 0 : (step / samples) * Math.PI * 2;
+      const probeX = targetX + Math.cos(angle) * ring * 3.2;
+      const probeZ = targetZ + Math.sin(angle) * ring * 3.2;
+      const cell = sim.nav.nearestWalkableCell(probeX, probeZ, 4);
+      if (!cell) continue;
+      const point = sim.nav.cellCenter(cell.x, cell.y);
+      if (Math.hypot(point.x - probeX, point.z - probeZ) > 6) continue;
+      if (occupied.some((other) => Math.hypot(point.x - other.x, point.z - other.z) < radius + other.radius + 0.8)) {
+        continue;
+      }
+      occupied.push({ x: point.x, z: point.z, radius });
+      return point;
+    }
+  }
+  return undefined;
+}
+
+function cinematicUnitRadius(kind: UnitKind): number {
+  if (kind === 'siege-tank') return 2.7;
+  if (kind === 'tank') return 2.2;
+  if (kind === 'scout-tank') return 1.9;
+  return 1.1;
+}
+
+function spawnCinematicUnit(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  kind: UnitKind,
+  x: number,
+  z: number,
+  team: number,
+): Entity {
+  const prefix = team === 1 ? 'Dominion' : 'Ash';
+  if (kind === 'scout-tank') return spawnScoutTankAt(sim, x, z, `${prefix} Jackal`, team);
+  if (kind === 'tank') return spawnTankAt(sim, x, z, `${prefix} M-17`, team);
+  if (kind === 'siege-tank') return spawnSiegeTankAt(sim, x, z, `${prefix} Mauler`, team);
+  if (kind === 'wasp') return spawnWaspAt(sim, hf, x, z, `${prefix} Wasp`, team);
+  if (kind === 'vulture') return spawnVultureAt(sim, hf, x, z, `${prefix} Vulture`, team);
+  if (kind === 'hammerhead') return spawnHammerheadAt(sim, hf, x, z, `${prefix} Hammerhead`, team);
+  return spawnInfantryAt(sim, x, z, team, kind);
+}
+
+function orientCinematicUnit(entity: Entity, forward: { x: number; z: number }): void {
+  const yaw = Math.atan2(forward.x, forward.z);
+  entity.transform.rot = yaw;
+  entity.previousTransform.rot = yaw;
+  if (entity.turret) entity.turret.yaw = yaw;
+}
+
+function applyCinematicCamera(
+  rig: RtsCameraRig,
+  scene: CinematicWarScene,
+  shot: Exclude<CinematicShot, 'air'>,
+): void {
+  if (shot === 'frontline') {
+    rig.focusOn(
+      scene.focus.x,
+      scene.focus.z,
+      {
+        x: scene.focus.x - scene.forward.x * 78 + scene.right.x * 72,
+        z: scene.focus.z - scene.forward.z * 78 + scene.right.z * 72,
+      },
+      88,
+      -16,
+    );
+    return;
+  }
+  if (shot === 'base') {
+    const focusX = scene.friendlyBase.x + scene.forward.x * 25;
+    const focusZ = scene.friendlyBase.z + scene.forward.z * 25;
+    rig.focusOn(
+      focusX,
+      focusZ,
+      {
+        x: scene.friendlyBase.x - scene.forward.x * 90 + scene.right.x * 82,
+        z: scene.friendlyBase.z - scene.forward.z * 90 + scene.right.z * 82,
+      },
+      126,
+      -8,
+    );
+    return;
+  }
+  rig.focusOn(
+    scene.focus.x,
+    scene.focus.z,
+    {
+      x: scene.focus.x - scene.forward.x * 132 + scene.right.x * 105,
+      z: scene.focus.z - scene.forward.z * 132 + scene.right.z * 105,
+    },
+    168,
+    -4,
+  );
+}
+
+function seedCinematicBase(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  economy: ReturnType<typeof createEconomy>,
+  base: ReturnType<typeof createInitialBase>,
+): void {
+  seedTestStartBase(sim, hf, economy, base);
+  const reservePowerOffsets = [
+    { x: -76, z: -38 },
+    { x: 76, z: 34 },
+    { x: -74, z: 68 },
+  ];
+  for (const offset of reservePowerOffsets) {
+    economy.readyStructure = 'power-plant';
+    const placement = findValidTestPlacement(
+      sim,
+      hf,
+      economy,
+      base.transform.x,
+      base.transform.z,
+      'power-plant',
+      [offset],
+    );
+    if (!placement) {
+      economy.readyStructure = undefined;
+      continue;
+    }
+    const placed = placeStructure(sim, hf, economy, placement);
+    if (placed?.building) placed.building.buildProgress = 1;
+  }
+  economy.readyStructure = undefined;
+  economy.selectedStructure = undefined;
+  economy.placement = undefined;
+}
+
 function seedTestStartBase(sim: ReturnType<typeof createGameSim>, hf: ReturnType<typeof generateHeightfield>, economy: ReturnType<typeof createEconomy>, base: ReturnType<typeof createInitialBase>): void {
   const placements: Array<{ kind: StructureKind; offsets: Array<{ x: number; z: number }> }> = [
     { kind: 'power-plant', offsets: [{ x: -30, z: -10 }, { x: -34, z: 18 }, { x: 22, z: -30 }] },
@@ -3519,6 +3845,7 @@ async function start(): Promise<void> {
     return;
   }
   const localSetupPreview = !isPublicHost(location.hostname) && params.get('setup-preview') === '1';
+  startLandingMusic();
   if (!localSetupPreview && !(inviteRoom && hasBetaAccess())) await showLandingScreen({ inviteRoom });
   const chosen = await showSetupScreen(settings);
   document.getElementById('iron-landing')?.remove();

@@ -43,7 +43,7 @@ export function showMissionBriefing(options: MissionBriefingOptions): MissionBri
 
   const audio = new Audio(options.audioUrl ?? DEFAULT_AUDIO_URL);
   audio.preload = 'auto';
-  audio.volume = 0.9;
+  audio.volume = 0.75;
   const backingAudio = options.backingAudioUrl ? new Audio(options.backingAudioUrl) : undefined;
   if (backingAudio) {
     backingAudio.preload = 'auto';

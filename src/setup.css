@@ -682,3 +682,10 @@
   .war-lobby__color-picker, .war-lobby__color-display { grid-row: 2; }
   .war-lobby__actions { grid-template-columns: 1fr; position: sticky; bottom: 0; z-index: 8; padding-top: 7px; background: linear-gradient(transparent, #080c0d 22%); }
 }
+.cinematic-clean .iron-feedback,
+.cinematic-clean .iron-howto,
+.cinematic-clean .game-sidebar,
+.cinematic-clean .game-selection-bar,
+.cinematic-clean .game-chrome-controls {
+  display: none !important;
+}

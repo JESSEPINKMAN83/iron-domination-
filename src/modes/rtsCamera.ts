@@ -151,6 +151,7 @@ export class RtsCameraRig {
     z: number,
     viewPosition?: { x: number; z: number },
     distance = CONTROL_RETURN_DISTANCE,
+    pitchOffsetDegrees?: number,
   ): RtsCameraPose {
     this.jumpTo(x, z);
     if (viewPosition) {
@@ -161,6 +162,13 @@ export class RtsCameraRig {
     this.dist = MathUtils.clamp(distance, ZOOM_MIN, ZOOM_MAX);
     this.distGoal = this.dist;
     this.yawGoal = this.yaw;
+    if (pitchOffsetDegrees !== undefined) {
+      this.pitchOffset = MathUtils.clamp(
+        MathUtils.degToRad(pitchOffsetDegrees),
+        PITCH_OFFSET_MIN,
+        PITCH_OFFSET_MAX,
+      );
+    }
     this.pitchOffsetGoal = this.pitchOffset;
     return this.currentPose(50);
   }
