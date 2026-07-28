@@ -1,5 +1,6 @@
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
+import { isFortressTower } from '../content/fortress';
 import type { Entity } from '../sim/components';
 import { MAX_PRODUCER_JOBS, buildings, canBuildStructure, canQueueUnit, type EconomyState } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
@@ -162,7 +163,9 @@ export class Sidebar {
     const healthPct = possessed?.health ? Math.max(0, possessed.health.current / Math.max(1, possessed.health.max)) : 1;
     const speed = possessed?.velocity ? Math.hypot(possessed.velocity.x, possessed.velocity.z) : 0;
     const statusText = possessed
-      ? `${unitDisplayName(possessed).toUpperCase()}   HP ${Math.round(healthPct * 100)}%   SPD ${Math.round(speed)}`
+      ? isFortressTower(possessed)
+        ? `FORTRESS LINK   HULL ${Math.round(healthPct * 100)}%   SYSTEMS ARMED`
+        : `${unitDisplayName(possessed).toUpperCase()}   HP ${Math.round(healthPct * 100)}%   SPD ${Math.round(speed)}`
       : [
           `$${Math.floor(this.economy.credits)}`,
           `PWR ${powerDelta >= 0 ? '+' : ''}${powerDelta}${powerDelta < 0 ? ' LOW POWER' : ''}`,
@@ -187,10 +190,18 @@ export class Sidebar {
     if (possessed) {
       const primary = possessed.weapons?.primary ?? possessed.weapon;
       const secondary = possessed.weapons?.secondary;
+      const special = possessed.specialWeapon;
       const ready = (cooldown = 0): string => cooldown <= 0 ? 'READY' : `${cooldown.toFixed(1)}s`;
-      this.firstPersonStatus.textContent =
-        `LMB  ${(primary?.kind ?? 'NO PRIMARY').toUpperCase()}  ${ready(primary?.cooldown)}\n` +
-        `RMB  ${(secondary?.kind ?? 'NO SECONDARY').toUpperCase()}  ${ready(secondary?.cooldown)}   ·   V EXIT`;
+      const weaponLabel = (weapon: typeof primary): string =>
+        weapon ? WEAPONS[weapon.kind as WeaponKind]?.label ?? weapon.kind : 'NO WEAPON';
+      this.firstPersonStatus.textContent = isFortressTower(possessed)
+        ? `FORTRESS FIRE CONTROL\n` +
+          `T    LOCK / RELEASE TARGET\n` +
+          `LMB  ${weaponLabel(primary).toUpperCase()}  ${ready(primary?.cooldown)}\n` +
+          `RMB  ${weaponLabel(secondary).toUpperCase()}  ${ready(secondary?.cooldown)}\n` +
+          `F    ${weaponLabel(special).toUpperCase()}  ${ready(special?.cooldown)}   ·   V EXIT`
+        : `LMB  ${weaponLabel(primary).toUpperCase()}  ${ready(primary?.cooldown)}\n` +
+          `RMB  ${weaponLabel(secondary).toUpperCase()}  ${ready(secondary?.cooldown)}   ·   V EXIT`;
     }
     if (this.radarAlert || this.sim.tick - this.lastRadarTick >= 3) {
       this.lastRadarTick = this.sim.tick;
@@ -514,6 +525,14 @@ export class Sidebar {
       `<div style="font-size:14px;color:#f0f3e8">${entity.building?.label ?? entity.name ?? 'Building'}</div>` +
       `<div style="font-size:11px;color:#aebbc4">hull ${health} · ${queue}</div>`;
     copy.appendChild(this.capabilityChips(entity));
+    if (isFortressTower(entity)) {
+      const directControl = document.createElement('div');
+      directControl.style.cssText =
+        'margin-top:6px;padding:5px 7px;border-left:3px solid #f0c858;background:rgba(240,200,88,.08);' +
+        'font:700 10px/1.35 ui-monospace,Menlo,monospace;letter-spacing:.08em;color:#f2d675;';
+      directControl.textContent = 'PRESS V · ENTER FORTRESS FIRE CONTROL';
+      copy.appendChild(directControl);
+    }
 
     const controls = document.createElement('div');
     controls.style.cssText = 'display:grid;gap:4px;';

@@ -1,4 +1,5 @@
 import { WEAPONS, type ArmorClass, type WeaponKind } from '../content/phase4';
+import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { angleDelta, slewAngle } from './angles';
 import type { Entity, Weapon } from './components';
 import { hash2i, smoothstep } from './noise';
@@ -414,7 +415,7 @@ function launchWeaponProjectile(
 function validManualLockTarget(sim: GameSim, attacker: Entity, weapon: Weapon, targetId: number | undefined): Entity | undefined {
   if (targetId === undefined || !attacker.playerControlled || !isManualTargetLockWeapon(weapon.kind) || !attacker.team) return undefined;
   const target = entityById(sim, targetId);
-  if (!target || (!target.flight && target.selectable?.type !== 'tank')) return undefined;
+  if (!target || (!isFortressTower(attacker) && !target.flight && target.selectable?.type !== 'tank')) return undefined;
   if (!targetableByTeam(sim, attacker.team.id, target)) return undefined;
   return target;
 }
@@ -435,11 +436,13 @@ function isTankDirectMissile(kind: WeaponKind): boolean {
 
 function bombMuzzleY(attacker: Entity): number | undefined {
   if (attacker.transform.y === undefined) return undefined;
+  if (isFortressTower(attacker)) return attacker.transform.y + FORTRESS_TOWER.muzzleHeight;
   return attacker.flight ? attacker.transform.y - 0.45 : attacker.transform.y + 3.1;
 }
 
 function directMuzzleY(attacker: Entity): number | undefined {
   if (attacker.transform.y === undefined) return undefined;
+  if (isFortressTower(attacker)) return attacker.transform.y + FORTRESS_TOWER.muzzleHeight;
   if (attacker.flight) return attacker.transform.y - 0.15;
   if (attacker.weapon?.kind === 'sniperRifle' || attacker.weapons?.primary.kind === 'sniperRifle') return attacker.transform.y + 1.72;
   return attacker.transform.y + (attacker.selectable?.type === 'infantry' ? 1.35 : 2.2);

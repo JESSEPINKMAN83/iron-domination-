@@ -40,6 +40,7 @@ const sharedPlaneGeometry = new PlaneGeometry(1, 1);
 export class BuildingView {
   readonly group = new Group();
   private readonly objects = new Map<Entity, BuildingObject>();
+  private hiddenEntity?: Entity;
   private readonly selectedGlows = new Map<Entity, SelectionGlow>();
   private readonly producerGlows = new Map<Entity, SelectionGlow>();
   private readonly producerHighlightIds = new Set<number>();
@@ -177,10 +178,22 @@ export class BuildingView {
       if (currentlyVisible) object.everSeen = true;
       const fogged = !currentlyVisible;
       // enemy buildings never scouted stay hidden; once seen they persist as a frozen ghost
-      object.root.visible = object.everSeen;
+      const hiddenForFortressView = entity === this.hiddenEntity;
+      object.root.visible = object.everSeen && !hiddenForFortressView;
+      if (hiddenForFortressView) {
+        const selectedGlow = this.selectedGlows.get(entity);
+        const producerGlow = this.producerGlows.get(entity);
+        const healthBar = this.healthBars.get(entity);
+        if (selectedGlow) selectedGlow.root.visible = false;
+        if (producerGlow) producerGlow.root.visible = false;
+        if (healthBar) healthBar.root.visible = false;
+      }
       if (!object.root.visible) continue;
 
       if (!fogged) this.applyDamageDressing(entity, object);
+      if (object.turretPivot && entity.turret && !entity.destroyed) {
+        object.turretPivot.rotation.y = entity.turret.yaw - entity.transform.rot;
+      }
       object.root.rotation.x = entity.destroyed ? 0 : object.leanX;
       object.root.rotation.z = entity.destroyed ? object.leanZ * 0.35 : object.leanZ;
       this.updateDamageEffects(entity, object, camera);
@@ -196,6 +209,10 @@ export class BuildingView {
   setProducerHighlights(ids: Iterable<number>): void {
     this.producerHighlightIds.clear();
     for (const id of ids) this.producerHighlightIds.add(id);
+  }
+
+  setHiddenEntity(entity?: Entity): void {
+    this.hiddenEntity = entity;
   }
 
   pickAt(x: number, z: number): Entity | undefined {
@@ -259,6 +276,7 @@ export class BuildingView {
     root.add(accent, label);
     const details = createBuildingDetails(entity, fullW, fullD, buildingHeight, this.accentMaterials[factionId(entity.team?.id)]);
     root.add(details);
+    const turretPivot = details.userData.turretPivot as Group | undefined;
     const refineryDock = entity.building?.kind === 'refinery' ? createRefineryDock(fullW, fullD, buildingHeight) : undefined;
     if (refineryDock) root.add(refineryDock.root);
 
@@ -267,6 +285,7 @@ export class BuildingView {
       blocks,
       accents: [accent, label],
       details,
+      turretPivot,
       refineryDock,
       effects: [],
       appliedVersion: -1,
@@ -539,6 +558,7 @@ interface BuildingObject {
   blocks: DamageBlock[];
   accents: Mesh[];
   details: Group;
+  turretPivot?: Group;
   refineryDock?: RefineryDock;
   effects: DamageEffect[];
   appliedVersion: number;
@@ -852,11 +872,41 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     box('guard-cabin', width * 0.5, height * 0.28, depth * 0.5, 0, height + height * 0.9, 0, concrete, 5);
     box('guard-window', width * 0.36, height * 0.08, 0.12, 0, height + height * 0.94, depth * 0.26, glass, 3);
     cone('guard-roof', width * 0.36, height * 0.24, 0, height + height * 1.16, 0, roof, 4, 4).rotation.y = Math.PI * 0.25;
+    const launcher = new Group();
+    launcher.name = 'fortress-launcher-pivot';
+    launcher.position.set(0, height + height * 1.28, 0);
+    const deck = new Mesh(new CylinderGeometry(width * 0.3, width * 0.34, height * 0.13, 18), dark);
+    deck.castShadow = true;
+    launcher.add(deck);
+    const armoredCore = new Mesh(new BoxGeometry(width * 0.28, height * 0.2, depth * 0.32), metal);
+    armoredCore.position.y = height * 0.13;
+    armoredCore.castShadow = true;
+    launcher.add(armoredCore);
+    for (const x of [-width * 0.19, width * 0.19]) {
+      for (const y of [height * 0.04, height * 0.2]) {
+        const tube = new Mesh(new CylinderGeometry(width * 0.055, width * 0.065, depth * 0.72, 12), metal);
+        tube.position.set(x, y, depth * 0.12);
+        tube.rotation.x = Math.PI * 0.5;
+        tube.castShadow = true;
+        launcher.add(tube);
+        const nose = new Mesh(new ConeGeometry(width * 0.06, width * 0.19, 12), warning);
+        nose.position.set(x, y, depth * 0.52);
+        nose.rotation.x = Math.PI * 0.5;
+        nose.castShadow = true;
+        launcher.add(nose);
+      }
+    }
+    const sight = new Mesh(new CylinderGeometry(width * 0.055, width * 0.07, height * 0.42, 12), brass);
+    sight.position.set(0, height * 0.42, 0);
+    sight.castShadow = true;
+    launcher.add(sight);
+    add(launcher, 4);
+    root.userData.turretPivot = launcher;
     const spotlight = new Mesh(new ConeGeometry(width * 0.28, depth * 0.78, 24, 1, true), beam);
-    spotlight.position.set(0, height + height * 0.9, depth * 0.5);
+    spotlight.position.set(0, height * 0.08, depth * 0.62);
     spotlight.rotation.x = Math.PI * 0.5;
     spotlight.renderOrder = 18;
-    add(spotlight, 3);
+    launcher.add(spotlight);
     stripe(width * 0.26, depth * 0.08, 0, 0, 4);
   } else if (kind === 'aa-tower') {
     box('aa-platform', width * 0.64, height * 0.18, depth * 0.64, 0, height + height * 0.62, 0, metal, 6);
@@ -877,6 +927,7 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
       launcher.add(nose);
     }
     add(launcher, 4);
+    root.userData.turretPivot = launcher;
     const dish = cyl('aa-radar-dish', width * 0.16, width * 0.16, 0.12, -width * 0.28, height + height * 0.94, -depth * 0.2, metal, 3, 20);
     dish.rotation.x = Math.PI * 0.5;
     dish.rotation.z = 0.38;

@@ -8,11 +8,13 @@ interface MobileControlActions {
   firePrimary(): boolean;
   fireSecondary(): boolean;
   useSpecial(): boolean;
+  toggleTargetLock(): boolean;
 }
 
 export interface MobileControlState {
   firstPerson: boolean;
   flying: boolean;
+  fortress?: boolean;
   selectedCount: number;
   possessedName?: string;
 }
@@ -26,6 +28,8 @@ export class MobileGameControls {
   private readonly climbControls: HTMLDivElement;
   private readonly possessedLabel: HTMLDivElement;
   private readonly nextUnitButton: HTMLButtonElement;
+  private readonly joystick: HTMLDivElement;
+  private readonly speedButton: HTMLButtonElement;
   private readonly resetSpeedHold: () => void;
   private readonly resetJoystick: () => void;
   private lastState = '';
@@ -59,6 +63,7 @@ export class MobileGameControls {
 
     this.fps = div('mobile-game-controls__fps');
     const joystick = createJoystick((throttle, turn) => this.input.setMobileDrive({ throttle, turn }));
+    this.joystick = joystick.root;
     this.resetJoystick = joystick.reset;
 
     const lookPad = div('mobile-look-pad');
@@ -70,21 +75,25 @@ export class MobileGameControls {
     fire.classList.add('mobile-fire-button');
     const secondary = button('MISSILE', 'Fire secondary weapon or use scope');
     const special = button('SPECIAL', 'Use special ability');
+    const lock = button('LOCK', 'Lock or release a target in the aiming cone');
     const speed = button('SPEED', 'Hold for maximum movement speed');
+    this.speedButton = speed;
     this.nextUnitButton = button('NEXT UNIT', 'Control the next unit in the selected group');
     secondary.classList.add('mobile-secondary-button');
     special.classList.add('mobile-special-button');
+    lock.classList.add('mobile-lock-button');
     speed.classList.add('mobile-speed-button');
     this.nextUnitButton.classList.add('mobile-next-unit-button');
     bindRepeatAction(fire, () => this.actions.firePrimary(), 115);
     bindRepeatAction(secondary, () => this.actions.fireSecondary());
     bindRepeatAction(special, () => this.actions.useSpecial());
+    lock.onclick = () => this.actions.toggleTargetLock();
     this.nextUnitButton.onclick = () => this.actions.cyclePossessed();
     this.resetSpeedHold = bindHold(speed, (held) => {
       this.input.setMobileDrive({ boost: held });
       joystick.setSpeedHeld(held);
     });
-    weaponCluster.append(fire, secondary, special, speed, this.nextUnitButton);
+    weaponCluster.append(fire, secondary, special, lock, speed, this.nextUnitButton);
 
     this.climbControls = div('mobile-climb-controls');
     const climb = button('UP', 'Climb');
@@ -101,7 +110,7 @@ export class MobileGameControls {
   }
 
   update(state: MobileControlState): void {
-    const key = `${state.firstPerson}:${state.flying}:${state.selectedCount}:${state.possessedName ?? ''}`;
+    const key = `${state.firstPerson}:${state.flying}:${state.fortress ?? false}:${state.selectedCount}:${state.possessedName ?? ''}`;
     if (key === this.lastState) return;
     this.lastState = key;
     this.firstPerson = state.firstPerson;
@@ -115,6 +124,9 @@ export class MobileGameControls {
     this.nextUnitButton.hidden = !canCycleUnits;
     this.nextUnitButton.parentElement?.classList.toggle('has-next-unit', canCycleUnits);
     this.climbControls.hidden = !state.flying;
+    this.joystick.hidden = Boolean(state.fortress);
+    this.speedButton.hidden = Boolean(state.fortress);
+    this.fps.classList.toggle('is-fortress', Boolean(state.fortress));
     this.possessedLabel.textContent = state.possessedName?.toUpperCase() ?? '';
     if (!state.firstPerson) {
       this.resetJoystick();

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { advanceTick } from '../match/advanceTick';
-import { buildings, createEconomy, createInitialBase } from '../sim/economy';
+import { buildings, createEconomy, createInitialBase, placeStructure, updatePlacement } from '../sim/economy';
 import { generateHeightfield } from '../sim/heightfield';
 import { serializeMatchState } from '../sim/serialize';
 import { createGameSim, hashCriticalSimState, hashSim, spawnTankAt, type GameSim } from '../sim/world';
@@ -148,6 +148,42 @@ describe('multiplayer lockstep commands', () => {
     sim.tick = 4;
     lockstep.tick();
     expect(tank.playerControlled).toMatchObject({ throttle: 1, turn: 0.25, aimYaw: 0.5 });
+  });
+
+  it('accepts multiplayer aim control for both static fortress towers', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1);
+    const economy2 = createEconomy(2);
+    const base = createInitialBase(sim, hf, economy1);
+    economy1.readyStructure = 'guard-tower';
+    const placement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 28, base.transform.z, 1, economy1);
+    const tower = placeStructure(sim, hf, economy1, placement);
+    expect(tower?.possessable).toBeDefined();
+    expect(tower?.mover).toBeUndefined();
+    economy1.readyStructure = 'aa-tower';
+    const aaPlacement = updatePlacement(sim, hf, 'aa-tower', base.transform.x - 28, base.transform.z, 1, economy1);
+    const aaTower = placeStructure(sim, hf, economy1, aaPlacement);
+    expect(aaTower?.possessable).toBeDefined();
+    expect(aaTower?.mover).toBeUndefined();
+
+    const client = {
+      connect: () => undefined,
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const session = sessionFor(1);
+    session.room.inputDelay = 2;
+    const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
+    lockstep.issue({ type: 'possess-input', id: tower!.id, throttle: 1, turn: 1, aimYaw: 1.25 });
+    lockstep.issue({ type: 'possess-input', id: aaTower!.id, throttle: 0, turn: 0, aimYaw: -0.75 });
+    sim.tick = 2;
+    lockstep.tick();
+
+    expect(tower?.playerControlled).toMatchObject({ throttle: 1, turn: 1, aimYaw: 1.25 });
+    expect(tower?.turret?.yaw).toBe(1.25);
+    expect(aaTower?.playerControlled).toMatchObject({ aimYaw: -0.75 });
+    expect(aaTower?.turret?.yaw).toBe(-0.75);
   });
 
   it('applies tick-scheduled remote possession input, fire, and release to owned units only', () => {

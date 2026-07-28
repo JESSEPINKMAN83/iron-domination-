@@ -27,6 +27,7 @@ export class Hud {
   private readonly help: HTMLDivElement;
   private readonly reticle: HTMLDivElement;
   private readonly modeBanner: HTMLDivElement;
+  private readonly fortressFrame: HTMLDivElement;
   private readonly multiplayer: HTMLDivElement;
   private readonly multiplayerDetail: HTMLDivElement;
   private readonly tacticalCallout: HTMLDivElement;
@@ -34,6 +35,7 @@ export class Hud {
   private lastUpdate = 0;
   private tacticalTimer?: number;
   private reticleFlashTimer?: number;
+  private fortressMode = false;
 
   constructor(container: HTMLElement) {
     this.stats = document.createElement('div');
@@ -97,6 +99,21 @@ export class Hud {
       `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${mobileTouch ? 'Use the left arrows to move and drag the right side to aim' : 'Press V or Escape to return to command view'}</div>`;
     container.appendChild(this.modeBanner);
 
+    this.fortressFrame = document.createElement('div');
+    this.fortressFrame.style.cssText =
+      'position:fixed;inset:18px;display:none;pointer-events:none;z-index:12;color:#f3ce69;' +
+      'border:1px solid rgba(232,190,72,.28);box-shadow:inset 0 0 60px rgba(210,155,35,.035);' +
+      'font:700 9px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.12em;text-shadow:0 1px 2px #000;';
+    this.fortressFrame.innerHTML =
+      '<div style="position:absolute;left:-1px;top:-1px;width:74px;height:22px;border-left:3px solid #e7bd4d;border-top:3px solid #e7bd4d"></div>' +
+      '<div style="position:absolute;right:-1px;top:-1px;width:74px;height:22px;border-right:3px solid #e7bd4d;border-top:3px solid #e7bd4d"></div>' +
+      '<div style="position:absolute;left:-1px;bottom:-1px;width:74px;height:22px;border-left:3px solid #e7bd4d;border-bottom:3px solid #e7bd4d"></div>' +
+      '<div style="position:absolute;right:-1px;bottom:-1px;width:74px;height:22px;border-right:3px solid #e7bd4d;border-bottom:3px solid #e7bd4d"></div>' +
+      '<div style="position:absolute;left:15px;top:14px"><span style="color:#fff0b0">FORTRESS FIRE CONTROL</span><br><span style="color:#9d8d64">T // ACQUIRE OR RELEASE TARGET · 360° DEFENSE GRID</span></div>' +
+      '<div style="position:absolute;left:15px;bottom:12px;color:#9d8d64">DUAL HEAVY INTERCEPTOR // ONLINE</div>' +
+      '<div style="position:absolute;right:15px;bottom:12px;color:#9d8d64">TACTICAL WARHEAD INTERLOCK // ARMED</div>';
+    container.appendChild(this.fortressFrame);
+
     this.multiplayer = document.createElement('div');
     this.multiplayer.style.cssText =
       'position:fixed;left:50%;top:62px;transform:translateX(-50%);z-index:14;display:none;pointer-events:none;' +
@@ -131,7 +148,18 @@ export class Hud {
     return this.infoVisible;
   }
 
-  setFirstPerson(active: boolean): void {
+  setFirstPerson(active: boolean, fortress = false): void {
+    this.fortressMode = active && fortress;
+    const mobileTouch = typeof document !== 'undefined' && document.documentElement.classList.contains('mobile-touch-device');
+    this.modeBanner.innerHTML = this.fortressMode
+      ? '<div style="font-size:14px;color:#ffd96a;letter-spacing:.14em;">FORTRESS V-MODE</div>' +
+        `<div style="margin-top:4px;font-size:10px;color:#d7c897;letter-spacing:.04em;">${mobileTouch ? 'Drag to aim · LOCK target · FIRE interceptor · MISSILE barrage · SPECIAL warhead' : 'MOUSE AIM · T LOCK TARGET · LMB INTERCEPTOR · RMB SIEGE BARRAGE · F TACTICAL WARHEAD · V EXIT'}</div>`
+      : '<div style="font-size:13px;color:#f0d56a;letter-spacing:.08em;">FIRST-PERSON VIEW</div>' +
+        `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${mobileTouch ? 'Use the left arrows to move and drag the right side to aim' : 'Press V or Escape to return to command view'}</div>`;
+    this.modeBanner.style.minWidth = this.fortressMode ? '520px' : '260px';
+    this.modeBanner.style.borderColor = this.fortressMode ? 'rgba(255,199,69,.88)' : 'rgba(240,213,106,.58)';
+    this.fortressFrame.style.display = this.fortressMode ? 'block' : 'none';
+    this.applyReticleTheme();
     this.reticle.style.display = active ? 'block' : 'none';
     if (!active) this.clearReticleFlash();
     this.modeBanner.style.opacity = active ? '1' : '0';
@@ -156,9 +184,18 @@ export class Hud {
       window.clearTimeout(this.reticleFlashTimer);
       this.reticleFlashTimer = undefined;
     }
-    this.reticle.style.borderColor = 'rgba(210,230,210,.58)';
-    this.reticle.style.boxShadow = '0 0 0 1px rgba(0,0,0,.45),0 0 12px rgba(125,242,125,.16)';
+    this.applyReticleTheme();
     this.reticle.style.transform = 'translate(-50%,-50%)';
+  }
+
+  private applyReticleTheme(): void {
+    this.reticle.style.width = this.fortressMode ? '34px' : '22px';
+    this.reticle.style.height = this.fortressMode ? '34px' : '22px';
+    this.reticle.style.borderRadius = this.fortressMode ? '2px' : '50%';
+    this.reticle.style.borderColor = this.fortressMode ? 'rgba(255,213,91,.9)' : 'rgba(210,230,210,.58)';
+    this.reticle.style.boxShadow = this.fortressMode
+      ? '0 0 0 1px rgba(0,0,0,.7),0 0 20px rgba(255,183,48,.3),inset 0 0 12px rgba(255,199,62,.1)'
+      : '0 0 0 1px rgba(0,0,0,.45),0 0 12px rgba(125,242,125,.16)';
   }
 
   setMultiplayerStatus(message: string, bad = false, paused = false): void {
