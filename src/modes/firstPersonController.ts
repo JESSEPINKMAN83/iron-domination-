@@ -5,6 +5,7 @@ import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
 import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
+import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
 import { unitDisplayName } from '../ui/unitDisplayName';
 import {
@@ -32,6 +33,12 @@ const SQUAD_FOLLOW_REFRESH_TICKS = 12;
 const SQUAD_FOLLOW_MIN_DISTANCE = 14;
 export const MAX_DIRECT_CONTROL_SQUAD = 12;
 const TARGET_LOCK_SECONDS = 1;
+const FORTRESS_SCAN_SECONDS = 1.05;
+const FORTRESS_ZOOM_MIN = -1;
+const FORTRESS_ZOOM_MAX = 1;
+const FORTRESS_ZOOM_WIDE_FOV = 68;
+const FORTRESS_ZOOM_DEFAULT_FOV = 54;
+const FORTRESS_ZOOM_TIGHT_FOV = 18;
 
 export interface CameraPose {
   position: Vector3;
@@ -69,6 +76,22 @@ export function selectDirectControlSquad(
     })
     .slice(0, Math.max(1, limit));
   return { leader, squad: nearest };
+}
+
+export function fortressTargetScanConeRatio(progress: number): number {
+  return MathUtils.lerp(0.045, 0.21, MathUtils.clamp(progress, 0, 1));
+}
+
+export function fortressTargetScanRingSize(progress: number): number {
+  const t = MathUtils.clamp(progress, 0, 1);
+  return MathUtils.lerp(96, 340, 1 - (1 - t) ** 3);
+}
+
+export function fortressOpticalFov(zoom: number): number {
+  const clamped = MathUtils.clamp(zoom, FORTRESS_ZOOM_MIN, FORTRESS_ZOOM_MAX);
+  return clamped >= 0
+    ? MathUtils.lerp(FORTRESS_ZOOM_DEFAULT_FOV, FORTRESS_ZOOM_TIGHT_FOV, clamped)
+    : MathUtils.lerp(FORTRESS_ZOOM_DEFAULT_FOV, FORTRESS_ZOOM_WIDE_FOV, -clamped);
 }
 
 export interface FirstPersonCommandSink {
@@ -118,6 +141,8 @@ export class FirstPersonController {
   private chaseZoom = 0;
   private sniperScopeZoom = 0.35;
   private sniperScopeActive = false;
+  private fortressZoomTarget = 0;
+  private fortressZoom = 0;
   private orbitYaw = 0;
   private orbitPitch = 0;
   private savedCursor = '';
@@ -129,6 +154,8 @@ export class FirstPersonController {
   private readonly lowHpVignette: HTMLDivElement;
   private readonly lockHud: HTMLDivElement;
   private readonly lockStatus: HTMLDivElement;
+  private readonly targetScanHud: HTMLDivElement;
+  private readonly targetScanStatus: HTMLDivElement;
   private abilityStatusTimer = 0;
   private sniperReloadFlash = 0;
   private lastControlSentTick = -999;
@@ -143,6 +170,10 @@ export class FirstPersonController {
   private lockCandidateId?: number;
   private lockedTargetId?: number;
   private lockProgress = 0;
+  private manualTargetLock = false;
+  private targetScanActive = false;
+  private targetScanProgress = 0;
+  private targetScanCandidateId?: number;
 
   constructor(
     private readonly dom: HTMLElement,
@@ -211,6 +242,23 @@ export class FirstPersonController {
       'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#f0d56a;text-shadow:0 1px 3px #000;';
     this.lockHud.appendChild(this.lockStatus);
     document.body.appendChild(this.lockHud);
+    this.targetScanHud = document.createElement('div');
+    this.targetScanHud.className = 'game-fortress-target-scan';
+    this.targetScanHud.style.cssText =
+      'position:fixed;left:50%;top:50%;width:96px;height:96px;transform:translate(-50%,-50%);display:none;pointer-events:none;z-index:15;' +
+      'border:1px solid rgba(240,213,106,.7);border-radius:50%;box-sizing:border-box;' +
+      'box-shadow:0 0 22px rgba(240,213,106,.22),inset 0 0 26px rgba(240,213,106,.08);';
+    this.targetScanHud.innerHTML =
+      '<div style="position:absolute;left:50%;top:-8px;bottom:-8px;width:1px;background:linear-gradient(transparent,rgba(240,213,106,.72),transparent)"></div>' +
+      '<div style="position:absolute;top:50%;left:-8px;right:-8px;height:1px;background:linear-gradient(90deg,transparent,rgba(240,213,106,.72),transparent)"></div>' +
+      '<div style="position:absolute;inset:12%;border:1px dashed rgba(240,213,106,.34);border-radius:50%"></div>';
+    this.targetScanStatus = document.createElement('div');
+    this.targetScanStatus.style.cssText =
+      'position:absolute;left:50%;top:calc(100% + 12px);transform:translateX(-50%);white-space:nowrap;' +
+      'padding:5px 8px;background:rgba(7,12,12,.78);border-left:2px solid #f0d56a;color:#f0d56a;' +
+      'font:700 10px ui-monospace,Menlo,monospace;letter-spacing:.13em;text-shadow:0 1px 3px #000;';
+    this.targetScanHud.appendChild(this.targetScanStatus);
+    document.body.appendChild(this.targetScanHud);
 
     dom.addEventListener(
       'pointerdown',
@@ -254,8 +302,19 @@ export class FirstPersonController {
     return this.active && Boolean(this.possessed?.flight);
   }
 
+  get fortress(): boolean {
+    return this.active && isFortressTower(this.possessed);
+  }
+
   get possessedEntity(): Entity | undefined {
     return this.possessed;
+  }
+
+  get targetedEntity(): Entity | undefined {
+    const id = this.targetScanCandidateId ?? this.lockedTargetId ?? this.lockCandidateId;
+    if (id === undefined) return undefined;
+    const target = this.sim.byId.get(id);
+    return target && !target.destroyed && target.health && target.health.current > 0 ? target : undefined;
   }
 
   handleCombatEvents(events: CombatEvent[]): void {
@@ -278,7 +337,14 @@ export class FirstPersonController {
 
   enter(candidates: Entity[]): boolean {
     if (this.active) return false;
-    const { leader: entity, squad } = selectDirectControlSquad(candidates, this.sim.tick);
+    const eligible = candidates.filter(
+      (candidate) => candidate.possessable && (candidate.mover || isFortressTower(candidate)) && !candidate.destroyed,
+    );
+    const selectedFortress = eligible.find(isFortressTower);
+    const selection = selectedFortress
+      ? { leader: selectedFortress, squad: [selectedFortress] }
+      : selectDirectControlSquad(eligible, this.sim.tick);
+    const { leader: entity, squad } = selection;
     if (!entity) return false;
     this.squad = squad;
     this.squadIndex = squad.indexOf(entity);
@@ -329,20 +395,24 @@ export class FirstPersonController {
       return;
     }
     const mobile = this.input.getMobileDrive();
-    const forward = MathUtils.clamp((this.input.isDown('KeyW') ? 1 : 0) - (this.input.isDown('KeyS') ? 1 : 0) + mobile.throttle, -1, 1);
+    const fortress = isFortressTower(this.possessed);
+    const forward = fortress
+      ? 0
+      : MathUtils.clamp((this.input.isDown('KeyW') ? 1 : 0) - (this.input.isDown('KeyS') ? 1 : 0) + mobile.throttle, -1, 1);
     // heading uses (sin rot, cos rot): positive turn rotates toward -screen-right,
     // so D (turn right) must apply negative turn — matches mouse-look direction
     const baseTurn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
     const hardTurn = this.possessed.flight ? (this.input.isDown('KeyQ') ? 1 : 0) - (this.input.isDown('KeyE') ? 1 : 0) : 0;
-    const turn = MathUtils.clamp(baseTurn + hardTurn * 1.55 + mobile.turn, -1.75, 1.75);
+    const turn = fortress ? 0 : MathUtils.clamp(baseTurn + hardTurn * 1.55 + mobile.turn, -1.75, 1.75);
     const strafe = 0;
-    const climb = MathUtils.clamp(
+    const climb = fortress ? 0 : MathUtils.clamp(
       keyboardAircraftClimb((code) => this.input.isDown(code)) + mobile.climb,
       -1,
       1,
     );
     const boost = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') || mobile.boost;
     const control = { throttle: forward, turn, aimYaw: this.currentAimYaw(), climb, strafe, boost };
+    if (fortress && this.possessed.turret) this.possessed.turret.yaw = control.aimYaw;
     if (this.commandSink) this.publishControlState(control);
     else if (this.possessed.playerControlled) Object.assign(this.possessed.playerControlled, control);
     this.updateSquadFollowers();
@@ -383,16 +453,51 @@ export class FirstPersonController {
     return this.fire('secondary');
   }
 
+  beginTargetScan(): boolean {
+    if (this.mode !== 'fps' || !this.possessed || !isFortressTower(this.possessed)) return false;
+    if (this.manualTargetLock && this.lockedTarget()) {
+      this.resetTargetLock();
+      this.flashAbilityStatus('TARGET LOCK RELEASED');
+      return true;
+    }
+    if (this.targetScanActive) return true;
+    this.targetScanActive = true;
+    this.targetScanProgress = 0;
+    this.targetScanCandidateId = undefined;
+    this.updateTargetScan(0);
+    this.flashAbilityStatus('SCANNING · HOLD T TO EXPAND');
+    return true;
+  }
+
+  endTargetScan(): boolean {
+    if (!this.targetScanActive) return false;
+    return this.completeTargetScan();
+  }
+
   update(dt: number, alpha = 1): void {
     if (!this.active || !this.possessed) return;
     const sniperScoped = this.isSniperScoped();
+    const fortress = isFortressTower(this.possessed);
     this.sniperReloadFlash = Math.max(0, this.sniperReloadFlash - dt);
     this.abilityStatusTimer = Math.max(0, this.abilityStatusTimer - dt);
     if (this.abilityStatusTimer <= 0) this.abilityStatus.style.display = 'none';
     const wheel = this.input.consumeWheel();
     if (wheel !== 0) {
       if (sniperScoped) this.sniperScopeZoom = MathUtils.clamp(this.sniperScopeZoom - wheel * 0.0018, 0, 1);
-      else this.chaseZoom = MathUtils.clamp(this.chaseZoom + wheel * 0.0014, CHASE_ZOOM_MIN, CHASE_ZOOM_MAX);
+      else if (fortress) {
+        this.fortressZoomTarget = MathUtils.clamp(
+          this.fortressZoomTarget - wheel * 0.0018,
+          FORTRESS_ZOOM_MIN,
+          FORTRESS_ZOOM_MAX,
+        );
+        const magnification = FORTRESS_ZOOM_DEFAULT_FOV / fortressOpticalFov(this.fortressZoomTarget);
+        this.flashAbilityStatus(`OPTICAL ZOOM ${magnification.toFixed(1)}X`);
+      } else {
+        this.chaseZoom = MathUtils.clamp(this.chaseZoom + wheel * 0.0014, CHASE_ZOOM_MIN, CHASE_ZOOM_MAX);
+      }
+    }
+    if (fortress) {
+      this.fortressZoom += (this.fortressZoomTarget - this.fortressZoom) * (1 - Math.exp(-dt * 11));
     }
     this.updateScopeOverlay(sniperScoped);
     this.updateAbilityHud();
@@ -485,6 +590,7 @@ export class FirstPersonController {
 
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
     if (entity.flight) return this.flightPoseFor(entity, yaw, pitch, fov, alpha, dt);
+    if (isFortressTower(entity)) return this.fortressPoseFor(entity, yaw, pitch);
     if (this.isSniper(entity)) return this.sniperPoseFor(entity, yaw, pitch, this.isSniperScoped(entity) ? undefined : this.zoomedFov(54));
     const center = this.interpolatedCenter(entity, alpha);
     const groundY = sampleHeight(this.hf, center.x, center.z);
@@ -507,6 +613,17 @@ export class FirstPersonController {
     if (terrainAim) this.tmpAimTarget.copy(terrainAim);
     else this.tmpAimTarget.copy(position).addScaledVector(this.tmpForward, this.hf.size * 1.5);
     return this.lookPose(position, this.tmpCameraTarget, fov);
+  }
+
+  private fortressPoseFor(entity: Entity, yaw: number, pitch: number): CameraPose {
+    const center = this.interpolatedCenter(entity, 1);
+    this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    const position = new Vector3(center.x, center.y + FORTRESS_TOWER.socketHeight, center.z)
+      .addScaledVector(this.tmpForward, 1.1);
+    const terrainAim = this.rayTerrainPoint(position, this.tmpForward, this.hf.size * 2.2);
+    this.tmpAimTarget.copy(terrainAim ?? position.clone().addScaledVector(this.tmpForward, this.hf.size * 1.9));
+    this.tmpCameraTarget.copy(position).addScaledVector(this.tmpForward, this.hf.size * 2);
+    return this.lookPose(position, this.tmpCameraTarget, fortressOpticalFov(this.fortressZoom));
   }
 
   private sniperPoseFor(entity: Entity, yaw: number, pitch: number, regularFov?: number): CameraPose {
@@ -556,6 +673,7 @@ export class FirstPersonController {
 
   private fire(slot: 'primary' | 'secondary' | 'special'): boolean {
     if (!this.possessed) return false;
+    if (isFortressTower(this.possessed) && this.possessed.turret) this.possessed.turret.yaw = this.currentAimYaw();
     if (this.isSniper(this.possessed) && hasUnitUpgrade(this.possessed, 'combat-bike') && this.sniperBikeMoving(this.possessed)) {
       this.flashAbilityStatus('STOP COMBAT BIKE TO FIRE');
       return false;
@@ -627,6 +745,25 @@ export class FirstPersonController {
       this.resetTargetLock();
       return;
     }
+    if (this.targetScanActive) {
+      this.updateTargetScan(dt);
+      return;
+    }
+    if (this.manualTargetLock) {
+      const target = this.lockedTarget();
+      if (
+        !target ||
+        !target.team ||
+        !this.possessed.team ||
+        !areTeamsHostile(this.sim, this.possessed.team.id, target.team.id) ||
+        !this.isVisible(target.transform.x, target.transform.z)
+      ) {
+        this.resetTargetLock();
+        return;
+      }
+      this.renderTargetLock(target, true);
+      return;
+    }
     const candidate = this.reticleTarget(this.possessed, false);
     if (!candidate) {
       this.resetTargetLock();
@@ -640,20 +777,89 @@ export class FirstPersonController {
     this.lockProgress = Math.min(TARGET_LOCK_SECONDS, this.lockProgress + dt);
     if (this.lockProgress >= TARGET_LOCK_SECONDS) this.lockedTargetId = candidate.id;
     const locked = this.lockedTargetId === candidate.id;
+    this.renderTargetLock(candidate, locked);
+  }
+
+  private updateTargetScan(dt: number): void {
+    if (!this.possessed || !isFortressTower(this.possessed)) {
+      this.resetTargetLock();
+      return;
+    }
+    this.targetScanProgress = Math.min(1, this.targetScanProgress + dt / FORTRESS_SCAN_SECONDS);
+    const candidate = this.reticleTarget(this.possessed, false, this.targetScanProgress);
+    this.targetScanCandidateId = candidate?.id;
+    this.renderTargetScan(candidate);
+    if (this.targetScanProgress >= 1) this.completeTargetScan();
+  }
+
+  private completeTargetScan(): boolean {
+    const candidate = this.targetScanCandidateId === undefined
+      ? undefined
+      : this.sim.byId.get(this.targetScanCandidateId);
+    this.targetScanActive = false;
+    this.targetScanHud.style.display = 'none';
+    this.targetScanCandidateId = undefined;
+    if (!candidate || candidate.destroyed || !candidate.health || candidate.health.current <= 0) {
+      this.lockHud.style.display = 'none';
+      this.flashAbilityStatus('SCAN COMPLETE · NO VALID TARGET');
+      return false;
+    }
+    this.lockCandidateId = candidate.id;
+    this.lockedTargetId = candidate.id;
+    this.lockProgress = TARGET_LOCK_SECONDS;
+    this.manualTargetLock = true;
+    this.renderTargetLock(candidate, true);
+    this.flashAbilityStatus(`LOCKED ${unitDisplayName(candidate).toUpperCase()}`);
+    return true;
+  }
+
+  private renderTargetScan(candidate: Entity | undefined): void {
+    const progress = this.targetScanProgress;
+    const size = fortressTargetScanRingSize(progress);
+    this.targetScanHud.style.display = 'block';
+    this.targetScanHud.style.width = `${size}px`;
+    this.targetScanHud.style.height = `${size}px`;
+    this.targetScanHud.style.background =
+      `radial-gradient(circle,transparent 0 58%,rgba(240,213,106,.07) 59%,transparent 62%),` +
+      `conic-gradient(from ${Math.round(progress * 1080)}deg,transparent 0 73%,rgba(240,213,106,.32) 88%,rgba(255,226,126,.72) 97%,transparent 100%)`;
+    this.targetScanHud.style.borderColor = candidate ? 'rgba(255,190,72,.95)' : 'rgba(240,213,106,.62)';
+    this.targetScanStatus.textContent = candidate
+      ? `CONTACT · ${unitDisplayName(candidate).toUpperCase()} · RELEASE T TO LOCK`
+      : `SCANNING ${Math.round(progress * 100)}% · HOLD T`;
+    if (candidate) this.renderTargetLock(candidate, false, progress);
+    else this.lockHud.style.display = 'none';
+  }
+
+  private renderTargetLock(candidate: Entity, locked: boolean, scanProgress?: number): void {
+    const screen = this.targetScreenPosition(candidate);
+    const size = scanProgress === undefined ? 76 : MathUtils.lerp(76, 124, scanProgress);
     this.lockHud.style.display = 'block';
+    this.lockHud.style.left = `${screen.x}px`;
+    this.lockHud.style.top = `${screen.y}px`;
+    this.lockHud.style.width = `${size}px`;
+    this.lockHud.style.height = `${size}px`;
     this.lockHud.style.borderColor = locked ? 'rgba(255,82,62,.98)' : 'rgba(240,213,106,.9)';
     this.lockHud.style.boxShadow = locked
       ? '0 0 24px rgba(255,70,48,.62),inset 0 0 16px rgba(255,70,48,.16)'
       : '0 0 16px rgba(240,213,106,.34),inset 0 0 12px rgba(240,213,106,.1)';
-    this.lockHud.style.transform = `translate(-50%,-50%) scale(${locked ? 0.9 : 1.04 - this.lockProgress * 0.04})`;
+    this.lockHud.style.transform = `translate(-50%,-50%) scale(${locked ? 0.9 : scanProgress === undefined ? 1.04 - this.lockProgress * 0.04 : 1})`;
     this.lockStatus.style.color = locked ? '#ff6b57' : '#f0d56a';
-    this.lockStatus.textContent = locked ? `LOCKED  ${unitDisplayName(candidate).toUpperCase()}` : `TRACKING  ${Math.round(this.lockProgress * 100)}%`;
+    this.lockStatus.textContent = locked
+      ? `LOCKED  ${unitDisplayName(candidate).toUpperCase()}`
+      : scanProgress === undefined
+        ? `TRACKING  ${Math.round(this.lockProgress * 100)}%`
+        : `ACQUIRING  ${Math.round(scanProgress * 100)}%`;
   }
 
   private resetTargetLock(): void {
     this.lockCandidateId = undefined;
     this.lockedTargetId = undefined;
     this.lockProgress = 0;
+    this.manualTargetLock = false;
+    this.targetScanActive = false;
+    this.targetScanProgress = 0;
+    this.targetScanCandidateId = undefined;
+    this.targetScanHud.style.display = 'none';
     this.lockHud.style.display = 'none';
   }
 
@@ -667,29 +873,51 @@ export class FirstPersonController {
     return target;
   }
 
-  private reticleTarget(entity: Entity, aircraftOnly: boolean): Entity | undefined {
+  private reticleTarget(entity: Entity, aircraftOnly: boolean, scanProgress?: number): Entity | undefined {
     if (!entity.playerControlled || !entity.team) return undefined;
     const direction = this.camera.getWorldDirection(this.tmpCameraDirection);
     let best: Entity | undefined;
-    let bestAlong = Number.POSITIVE_INFINITY;
+    let bestScore = Number.POSITIVE_INFINITY;
     for (const candidate of this.sim.world.entities) {
       const tankTarget = candidate.selectable?.type === 'tank' && !!candidate.mover;
-      if ((!candidate.flight && (aircraftOnly || !tankTarget)) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
+      const fortressTarget = isFortressTower(entity) && Boolean(candidate.armor);
+      if ((!candidate.flight && (aircraftOnly || (!tankTarget && !fortressTarget))) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
+      if (isFortressTower(entity) && entity.weapons?.primary.kind === 'aaMissile' && candidate.armor?.kind !== 'air') continue;
       if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
       if (!this.isVisible(candidate.transform.x, candidate.transform.z)) continue;
       const offsetX = candidate.transform.x - this.camera.position.x;
-      const candidateY = candidate.transform.y ?? sampleHeight(this.hf, candidate.transform.x, candidate.transform.z) + (candidate.flight?.cruiseAltitude ?? 1.5);
+      const baseY = candidate.transform.y ?? sampleHeight(this.hf, candidate.transform.x, candidate.transform.z);
+      const candidateY = baseY + (candidate.flight ? 0 : candidate.building ? 3.2 : candidate.selectable?.type === 'infantry' ? 1 : 1.5);
       const offsetY = candidateY - this.camera.position.y;
       const offsetZ = candidate.transform.z - this.camera.position.z;
       const along = offsetX * direction.x + offsetY * direction.y + offsetZ * direction.z;
-      if (along <= 0 || along >= bestAlong) continue;
+      if (along <= 0) continue;
       const perpendicular = Math.sqrt(Math.max(0, offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ - along * along));
-      const tolerance = (candidate.collider?.radius ?? candidate.selectable?.radius ?? 3.5) + 1.6;
+      const tolerance =
+        (candidate.collider?.radius ?? candidate.selectable?.radius ?? 3.5) +
+        (scanProgress === undefined ? 1.6 : Math.max(4.5, along * fortressTargetScanConeRatio(scanProgress)));
       if (perpendicular > tolerance) continue;
+      const score = scanProgress === undefined
+        ? along
+        : perpendicular / Math.max(1, along) * 1000 + along * 0.0005;
+      if (score >= bestScore) continue;
       best = candidate;
-      bestAlong = along;
+      bestScore = score;
     }
     return best;
+  }
+
+  private targetScreenPosition(candidate: Entity): { x: number; y: number } {
+    const baseY = candidate.transform.y ?? sampleHeight(this.hf, candidate.transform.x, candidate.transform.z);
+    const candidateY = baseY + (candidate.flight ? 0 : candidate.building ? 3.2 : candidate.selectable?.type === 'infantry' ? 1 : 1.5);
+    this.tmpEntityCenter.set(candidate.transform.x, candidateY, candidate.transform.z).project(this.camera);
+    if (this.tmpEntityCenter.z < -1 || this.tmpEntityCenter.z > 1) {
+      return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    }
+    return {
+      x: (this.tmpEntityCenter.x * 0.5 + 0.5) * window.innerWidth,
+      y: (-this.tmpEntityCenter.y * 0.5 + 0.5) * window.innerHeight,
+    };
   }
 
   private sniperBikeMoving(entity: Entity | undefined): boolean {
@@ -721,7 +949,9 @@ export class FirstPersonController {
       this.abilityHud.textContent = 'F  SPECIAL LOCKED';
       this.abilityHud.style.color = '#85918d';
     } else {
-      const label = specialUpgradeForEntity(this.possessed)?.label ?? 'Special Weapon';
+      const label = isFortressTower(this.possessed)
+        ? 'Tactical Warhead'
+        : specialUpgradeForEntity(this.possessed)?.label ?? 'Special Weapon';
       this.abilityHud.textContent = `F  ${label.toUpperCase()}  ${weapon.cooldown > 0 ? `${weapon.cooldown.toFixed(1)}S` : 'READY'}`;
       this.abilityHud.style.color = weapon.cooldown > 0 ? '#d2b15f' : '#78df8b';
     }
@@ -883,15 +1113,31 @@ export class FirstPersonController {
       else delete this.possessed.playerControlled;
     }
     this.possessed = entity;
-    this.lookYaw = nearestEquivalentAngle(entity.transform.rot, this.lookYaw);
-    this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
+    const initialYaw = isFortressTower(entity) ? this.fortressOutwardYaw(entity) : entity.turret?.yaw ?? entity.transform.rot;
+    this.lookYaw = nearestEquivalentAngle(initialYaw, this.lookYaw);
+    this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : isFortressTower(entity) ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
     this.sniperScopeZoom = 0.35;
     this.sniperScopeActive = false;
+    this.fortressZoomTarget = 0;
+    this.fortressZoom = 0;
     const initialControl = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0, strafe: 0, boost: false };
     if (!this.commandSink) entity.playerControlled = initialControl;
     this.lastControlSentTick = -999;
     this.lastControlSignature = '';
     this.publishControlState(initialControl, true);
+  }
+
+  private fortressOutwardYaw(entity: Entity): number {
+    const commandYard = Array.from(this.sim.world.entities).find(
+      (candidate) =>
+        candidate.team?.id === entity.team?.id &&
+        candidate.building?.kind === 'command-yard' &&
+        !candidate.destroyed,
+    );
+    if (!commandYard) return entity.turret?.yaw ?? entity.transform.rot;
+    const dx = entity.transform.x - commandYard.transform.x;
+    const dz = entity.transform.z - commandYard.transform.z;
+    return Math.hypot(dx, dz) > 0.001 ? Math.atan2(dx, dz) : entity.turret?.yaw ?? entity.transform.rot;
   }
 
   private ensurePointerLock(): void {
@@ -926,7 +1172,9 @@ export class FirstPersonController {
   }
 
   private liveSquad(): Entity[] {
-    this.squad = this.squad.filter((entity) => this.sim.world.has(entity) && entity.possessable && entity.mover && !entity.destroyed);
+    this.squad = this.squad.filter(
+      (entity) => this.sim.world.has(entity) && entity.possessable && (entity.mover || isFortressTower(entity)) && !entity.destroyed,
+    );
     return this.squad;
   }
 

@@ -609,7 +609,10 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
   for (let i = 0; i < movers.length; i++) {
     const entity = movers[i];
-    if (entity.destroyed) continue;
+    if (entity.destroyed) {
+      if (entity.flight) stepDestroyedAircraft(sim, hf, entity, dt);
+      continue;
+    }
     const { transform, velocity, mover } = entity;
     transform.y ??= sampleHeight(hf, transform.x, transform.z);
     let desiredX = 0;
@@ -746,6 +749,96 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
   }
 
   sim.tick++;
+}
+
+function stepDestroyedAircraft(
+  sim: GameSim,
+  hf: Heightfield,
+  entity: With<Entity, 'transform' | 'previousTransform' | 'velocity' | 'mover'>,
+  dt: number,
+): void {
+  if (!entity.destroyed || !entity.flight) return;
+  let crash = entity.destroyed.aircraftCrash;
+  if (!crash) {
+    const random = mulberry32((entity.id * 0x9e3779b1) ^ 0xa17c9);
+    const side = random() < 0.5 ? -1 : 1;
+    const model = FLIGHT_MODELS[entity.flight.model];
+    const currentSpeed = Math.hypot(entity.velocity.x, entity.velocity.z);
+    const forwardSpeed = Math.max(currentSpeed, model.maxSpeed * (0.34 + random() * 0.12));
+    const forwardX = currentSpeed > 2 ? entity.velocity.x / currentSpeed : Math.sin(entity.transform.rot);
+    const forwardZ = currentSpeed > 2 ? entity.velocity.z / currentSpeed : Math.cos(entity.transform.rot);
+    const lateralSpeed = side * (2.5 + random() * 3.5);
+    crash = {
+      velocityX: forwardX * forwardSpeed + forwardZ * lateralSpeed,
+      velocityZ: forwardZ * forwardSpeed - forwardX * lateralSpeed,
+      verticalVelocity: Math.min(entity.flight.verticalVelocity, -2.8 - random() * 2.6),
+      yawRate: side * (0.72 + random() * 0.72),
+      rollRate: side * (1.05 + random() * 0.85),
+      pitchRate: 0.42 + random() * 0.4,
+      impacted: false,
+    };
+    entity.destroyed.aircraftCrash = crash;
+  }
+  if (crash.impacted) return;
+
+  const drag = Math.exp(-dt * 0.34);
+  crash.velocityX *= drag;
+  crash.velocityZ *= drag;
+  crash.verticalVelocity -= 17.5 * dt;
+  entity.velocity.x = crash.velocityX;
+  entity.velocity.z = crash.velocityZ;
+  entity.flight.verticalVelocity = crash.verticalVelocity;
+  entity.transform.x += crash.velocityX * dt;
+  entity.transform.z += crash.velocityZ * dt;
+  entity.transform.y = (entity.transform.y ?? sampleHeight(hf, entity.transform.x, entity.transform.z)) + crash.verticalVelocity * dt;
+  entity.transform.rot = normalizeAngle(entity.transform.rot + crash.yawRate * dt);
+  entity.flight.previousPitchAttitude = entity.flight.pitchAttitude;
+  entity.flight.previousRollAttitude = entity.flight.rollAttitude;
+  entity.flight.pitchAttitude = clamp(entity.flight.pitchAttitude + crash.pitchRate * dt, -0.25, 1.18);
+  entity.flight.rollAttitude = normalizeAngle(entity.flight.rollAttitude + crash.rollRate * dt);
+
+  if (sim.tick % 4 === entity.id % 4) {
+    sim.events.push({
+      kind: 'aircraft-crash-smoke',
+      fromX: entity.previousTransform.x,
+      fromY: entity.previousTransform.y,
+      fromZ: entity.previousTransform.z,
+      toX: entity.transform.x,
+      toY: entity.transform.y,
+      toZ: entity.transform.z,
+      sourceTeamId: entity.team?.id,
+      targetId: entity.id,
+      targetType: 'aircraft',
+      damage: 0,
+      killed: false,
+    });
+  }
+
+  const ground = sampleHeight(hf, entity.transform.x, entity.transform.z);
+  if ((entity.transform.y ?? ground) > ground + 0.55) return;
+  const impactFromY = entity.previousTransform.y;
+  entity.transform.y = ground + 0.42;
+  entity.previousTransform.y = entity.transform.y;
+  entity.velocity.x = 0;
+  entity.velocity.z = 0;
+  entity.flight.verticalVelocity = 0;
+  crash.impacted = true;
+  entity.destroyed.remaining = Math.min(entity.destroyed.remaining, 7);
+  sim.events.push({
+    kind: 'crash',
+    fromX: entity.previousTransform.x,
+    fromY: impactFromY,
+    fromZ: entity.previousTransform.z,
+    toX: entity.transform.x,
+    toY: entity.transform.y,
+    toZ: entity.transform.z,
+    sourceTeamId: entity.team?.id,
+    targetId: entity.id,
+    targetLabel: entity.name,
+    targetType: 'aircraft',
+    damage: entity.health?.max ?? 999,
+    killed: true,
+  });
 }
 
 function boostedTerrainPassable(sim: GameSim, hf: Heightfield, entity: MovingEntity, x: number, z: number): boolean {
@@ -919,7 +1012,18 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, movers: MovingEntity[],
     const hardImpact = flight.verticalVelocity < -9 || Math.hypot(velocity.x, velocity.z) > 18;
     if (hardImpact && transform.y < ground + 1.2) {
       if (entity.health) entity.health.current = 0;
-      entity.destroyed = { remaining: 20 };
+      entity.destroyed = {
+        remaining: 20,
+        aircraftCrash: {
+          velocityX: 0,
+          velocityZ: 0,
+          verticalVelocity: 0,
+          yawRate: 0,
+          rollRate: 0,
+          pitchRate: 0,
+          impacted: true,
+        },
+      };
       sim.events.push({ kind: 'crash', fromX: transform.x, fromZ: transform.z, toX: transform.x, toZ: transform.z, damage: 999, killed: true });
       return;
     }
@@ -1136,6 +1240,15 @@ export function hashSim(sim: GameSim): number {
       mix(Math.round(entity.flight.pitchAttitude * 1000));
       mix(Math.round(entity.flight.rollAttitude * 1000));
       mix(Math.round(entity.flight.verticalVelocity * 1000));
+    }
+    if (entity.destroyed?.aircraftCrash) {
+      mix(Math.round(entity.destroyed.aircraftCrash.velocityX * 1000));
+      mix(Math.round(entity.destroyed.aircraftCrash.velocityZ * 1000));
+      mix(Math.round(entity.destroyed.aircraftCrash.verticalVelocity * 1000));
+      mix(Math.round(entity.destroyed.aircraftCrash.yawRate * 1000));
+      mix(Math.round(entity.destroyed.aircraftCrash.rollRate * 1000));
+      mix(Math.round(entity.destroyed.aircraftCrash.pitchRate * 1000));
+      mix(entity.destroyed.aircraftCrash.impacted ? 1 : 0);
     }
     if (entity.structureDamage) {
       mix(entity.structureDamage.cols);

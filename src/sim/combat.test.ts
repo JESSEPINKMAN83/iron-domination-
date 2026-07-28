@@ -633,7 +633,7 @@ describe('phase 4 combat simulation', () => {
     expect(sim.nav.isWalkableCell(cell.x, cell.y)).toBe(true);
   });
 
-  it('guard towers automatically fire at nearby enemies', () => {
+  it('fortress guard towers mount a possessable missile rack and automatically defend their base', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const economy = createEconomy(1, 5200);
@@ -648,13 +648,71 @@ describe('phase 4 combat simulation', () => {
     for (let i = 0; i < 30 * 7; i++) stepEconomy(sim, hf, economy, 1 / 30);
     placement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 24, base.transform.z);
     const tower = placeStructure(sim, hf, economy, placement);
-    expect(tower?.weapon?.kind).toBe('cannon');
+    expect(tower?.weapon?.kind).toBe('siegeMissile');
+    expect(tower?.weapons?.secondary?.kind).toBe('tankBomb');
+    expect(tower?.weapons?.secondary?.salvoCount).toBe(4);
+    expect(tower?.specialWeapon?.kind).toBe('annihilatorMissile');
+    expect(tower?.possessable?.socketHeight).toBeGreaterThan(25);
+    expect(tower?.mover).toBeUndefined();
+    expect(tower?.transform.y).toBeTypeOf('number');
 
     const enemy = spawnTankAt(sim, tower!.transform.x + 34, tower!.transform.z, 'Raider', 2);
     settle(sim, 4);
 
     expect(enemy.health?.current).toBeLessThan(100);
-    expect(sim.events.some((event) => event.kind === 'cannon')).toBe(true);
+    expect(sim.events.some((event) => event.kind === 'siegeMissile')).toBe(true);
+  });
+
+  it('AA towers expose fortress control with lock-guided air defense and ground missiles', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+
+    economy.readyStructure = 'aa-tower';
+    const placement = updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy);
+    const tower = placeStructure(sim, hf, economy, placement);
+
+    expect(tower?.weapon?.kind).toBe('aaMissile');
+    expect(tower?.weapons?.secondary?.kind).toBe('swarmRocket');
+    expect(tower?.specialWeapon?.kind).toBe('annihilatorMissile');
+    expect(tower?.possessable?.socketHeight).toBeGreaterThan(25);
+    expect(tower?.turret?.turnRate).toBeGreaterThan(3);
+    expect(tower?.vision?.radius).toBe(300);
+  });
+
+  it('launches homing missiles from explicit locks on both fortress tower types', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+
+    economy.readyStructure = 'guard-tower';
+    const guard = placeStructure(
+      sim,
+      hf,
+      economy,
+      updatePlacement(sim, hf, 'guard-tower', base.transform.x + 26, base.transform.z, 1, economy),
+    )!;
+    economy.readyStructure = 'aa-tower';
+    const aa = placeStructure(
+      sim,
+      hf,
+      economy,
+      updatePlacement(sim, hf, 'aa-tower', base.transform.x - 26, base.transform.z, 1, economy),
+    )!;
+    const tank = spawnTankAt(sim, guard.transform.x + 90, guard.transform.z, 'Locked Armor', 2);
+    const aircraft = spawnWaspAt(sim, hf, aa.transform.x - 90, aa.transform.z, 'Locked Aircraft', 2);
+
+    guard.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    guard.turret!.yaw = Math.PI / 2;
+    expect(manualFireAt(sim, guard, tank.transform.x, tank.transform.z, 'primary', tank.transform.y, tank.id)).toBe(true);
+    expect(sim.projectiles.at(-1)?.homing?.targetId).toBe(tank.id);
+
+    aa.playerControlled = { throttle: 0, turn: 0, aimYaw: -Math.PI / 2 };
+    aa.turret!.yaw = -Math.PI / 2;
+    expect(manualFireAt(sim, aa, aircraft.transform.x, aircraft.transform.z, 'primary', aircraft.transform.y, aircraft.id)).toBe(true);
+    expect(sim.projectiles.at(-1)?.homing?.targetId).toBe(aircraft.id);
   });
 
   it('alerts nearby defenders when a friendly building is hit from long range', () => {

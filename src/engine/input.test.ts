@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Input, isTextEntryTarget } from './input';
+import { Input, eventTargetsGameSurface, isTextEntryTarget } from './input';
 
 describe('keyboard event targets', () => {
   it('recognizes fields that must receive normal text editing keys', () => {
@@ -9,6 +9,17 @@ describe('keyboard event targets', () => {
     expect(isTextEntryTarget({ tagName: 'DIV', isContentEditable: true } as unknown as EventTarget)).toBe(true);
     expect(isTextEntryTarget({ tagName: 'CANVAS' } as unknown as EventTarget)).toBe(false);
     expect(isTextEntryTarget(null)).toBe(false);
+  });
+});
+
+describe('pointer camera ownership', () => {
+  it('accepts pointer events whose composed path includes the game surface', () => {
+    const surface = {} as EventTarget;
+    const child = {} as EventTarget;
+    const panel = {} as EventTarget;
+
+    expect(eventTargetsGameSurface({ composedPath: () => [child, surface] } as Event, surface)).toBe(true);
+    expect(eventTargetsGameSurface({ composedPath: () => [panel] } as Event, surface)).toBe(false);
   });
 });
 

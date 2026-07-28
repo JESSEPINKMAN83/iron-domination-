@@ -2,6 +2,9 @@ import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import type { Entity } from '../sim/components';
 import {
+  fortressOpticalFov,
+  fortressTargetScanConeRatio,
+  fortressTargetScanRingSize,
   keyboardAircraftClimb,
   MAX_DIRECT_CONTROL_SQUAD,
   resolveExitCameraPose,
@@ -84,5 +87,35 @@ describe('direct-control squads', () => {
     const result = selectDirectControlSquad([destroyed, eligible], 0);
 
     expect(result).toEqual({ leader: eligible, squad: [eligible] });
+  });
+});
+
+describe('fortress target scan', () => {
+  it('expands both the visible sweep and assisted acquisition cone while held', () => {
+    expect(fortressTargetScanRingSize(0)).toBe(96);
+    expect(fortressTargetScanRingSize(0.5)).toBeGreaterThan(fortressTargetScanRingSize(0));
+    expect(fortressTargetScanRingSize(1)).toBe(340);
+    expect(fortressTargetScanConeRatio(0)).toBeCloseTo(0.045);
+    expect(fortressTargetScanConeRatio(1)).toBeCloseTo(0.21);
+  });
+
+  it('clamps scan expansion safely outside the animation range', () => {
+    expect(fortressTargetScanRingSize(-1)).toBe(96);
+    expect(fortressTargetScanRingSize(2)).toBe(340);
+    expect(fortressTargetScanConeRatio(-1)).toBeCloseTo(0.045);
+    expect(fortressTargetScanConeRatio(2)).toBeCloseTo(0.21);
+  });
+});
+
+describe('fortress optical zoom', () => {
+  it('provides a wider overview and a strong long-range zoom', () => {
+    expect(fortressOpticalFov(-1)).toBe(68);
+    expect(fortressOpticalFov(0)).toBe(54);
+    expect(fortressOpticalFov(1)).toBe(18);
+  });
+
+  it('clamps wheel zoom safely at both optical limits', () => {
+    expect(fortressOpticalFov(-5)).toBe(68);
+    expect(fortressOpticalFov(5)).toBe(18);
   });
 });

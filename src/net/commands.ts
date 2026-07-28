@@ -1,4 +1,5 @@
 import type { StructureKind, UnitKind } from '../content/phase3';
+import { isFortressTower } from '../content/fortress';
 import type { Entity } from '../sim/components';
 import {
   cancelStructureBuild,
@@ -367,7 +368,7 @@ export class LockstepRuntime {
       purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, playerIndex);
     } else if (command.type === 'possess-input') {
       const entity = ownedEntity(this.options.sim, command.id, playerIndex);
-      if (!entity?.possessable || !entity.mover) return;
+      if (!entity?.possessable || (!entity.mover && !isFortressTower(entity))) return;
       entity.playerControlled = {
         throttle: clampUnit(command.throttle),
         turn: clampUnit(command.turn),

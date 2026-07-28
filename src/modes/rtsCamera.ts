@@ -244,7 +244,7 @@ export class RtsCameraRig {
     if (input.isDown('KeyD') || input.isDown('ArrowRight')) keyboardX += 1;
     let edgeX = 0;
     let edgeForward = 0;
-    if (!input.isTouchDevice && !grabbing && !lookAdjusting && input.pointerInWindow && document.hasFocus()) {
+    if (!input.isTouchDevice && !grabbing && !lookAdjusting && input.isCameraPointerActive() && document.hasFocus()) {
       const edge = getEdgePanInput(input.mouseX, input.mouseY, window.innerWidth, window.innerHeight);
       edgeX = edge.x;
       edgeForward = edge.forward;
