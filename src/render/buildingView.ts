@@ -1,5 +1,6 @@
 import {
   AdditiveBlending,
+  Box3,
   BoxGeometry,
   CanvasTexture,
   CircleGeometry,
@@ -33,6 +34,8 @@ const DEFAULT_BUILDING_HEIGHT = 5.4;
 const DESTROYED_TOTAL = 20;
 const COLLAPSE_SECONDS = 1.2;
 const BLOCK_GAP = 0.02;
+const BUILDING_PICK_PADDING_PX = 14;
+const BUILDING_PICK_MIN_SIZE_PX = 38;
 
 const sharedBlockGeometry = new BoxGeometry(1, 1, 1);
 const sharedPlaneGeometry = new PlaneGeometry(1, 1);
@@ -229,6 +232,33 @@ export class BuildingView {
       if (inFootprint && d2 < bestD2) {
         best = entity;
         bestD2 = d2;
+      }
+    }
+    return best;
+  }
+
+  pickAtScreen(
+    camera: Camera,
+    screenX: number,
+    screenY: number,
+    viewportW: number,
+    viewportH: number,
+  ): Entity | undefined {
+    let best: Entity | undefined;
+    let bestDepth = Number.POSITIVE_INFINITY;
+    let bestCenterDistance = Number.POSITIVE_INFINITY;
+    const box = new Box3();
+    for (const [entity, object] of this.objects) {
+      if (!entity.building || !object.root.visible) continue;
+      object.root.updateWorldMatrix(true, true);
+      box.setFromObject(object.root, true);
+      const bounds = projectBuildingHitBounds(box, camera, viewportW, viewportH);
+      if (!bounds || screenX < bounds.left || screenX > bounds.right || screenY < bounds.top || screenY > bounds.bottom) continue;
+      const centerDistance = Math.hypot(screenX - bounds.centerX, screenY - bounds.centerY);
+      if (bounds.depth < bestDepth || (bounds.depth === bestDepth && centerDistance < bestCenterDistance)) {
+        best = entity;
+        bestDepth = bounds.depth;
+        bestCenterDistance = centerDistance;
       }
     }
     return best;
@@ -540,6 +570,63 @@ export class BuildingView {
     glow.fill.scale.set(scale, scale, 1);
     glow.ring.scale.set(1.02 + pulse * 0.035, 1.02 + pulse * 0.035, 1);
   }
+}
+
+export interface BuildingScreenHitBounds {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  centerX: number;
+  centerY: number;
+  depth: number;
+}
+
+export function projectBuildingHitBounds(
+  box: Box3,
+  camera: Camera,
+  viewportW: number,
+  viewportH: number,
+  padding = BUILDING_PICK_PADDING_PX,
+  minSize = BUILDING_PICK_MIN_SIZE_PX,
+): BuildingScreenHitBounds | undefined {
+  if (box.isEmpty() || viewportW <= 0 || viewportH <= 0) return undefined;
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  let projected = 0;
+  const point = new Vector3();
+  for (const x of [box.min.x, box.max.x]) {
+    for (const y of [box.min.y, box.max.y]) {
+      for (const z of [box.min.z, box.max.z]) {
+        point.set(x, y, z).project(camera);
+        if (point.z < -1 || point.z > 1) continue;
+        const sx = (point.x * 0.5 + 0.5) * viewportW;
+        const sy = (-point.y * 0.5 + 0.5) * viewportH;
+        left = Math.min(left, sx);
+        right = Math.max(right, sx);
+        top = Math.min(top, sy);
+        bottom = Math.max(bottom, sy);
+        projected++;
+      }
+    }
+  }
+  if (projected === 0) return undefined;
+  const center = box.getCenter(new Vector3()).project(camera);
+  const centerX = (center.x * 0.5 + 0.5) * viewportW;
+  const centerY = (-center.y * 0.5 + 0.5) * viewportH;
+  const widthExpansion = Math.max(padding, (minSize - (right - left)) * 0.5);
+  const heightExpansion = Math.max(padding, (minSize - (bottom - top)) * 0.5);
+  return {
+    left: left - widthExpansion,
+    right: right + widthExpansion,
+    top: top - heightExpansion,
+    bottom: bottom + heightExpansion,
+    centerX,
+    centerY,
+    depth: center.z,
+  };
 }
 
 interface DamageBlock {
