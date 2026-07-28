@@ -3,7 +3,7 @@ import { MAP01 } from '../content/map01';
 import { FlowField } from './flowfield';
 import { generateHeightfield, sampleHeight, type Heightfield } from './heightfield';
 import { createEconomy, createInitialBase } from './economy';
-import { attackStandoffPoint, createGameSim, hashSim, issueMoveOrder, selectedEntities, setSelected, spawnDebugTanks, spawnTankAt, spawnVultureAt, stepSim } from './world';
+import { attackStandoffPoint, createGameSim, hashSim, issueMoveOrder, selectedEntities, setSelected, spawnDebugTanks, spawnHammerheadAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
 
 describe('phase 2 movement simulation', () => {
   it('builds a flow field between distant walkable cells', () => {
@@ -537,6 +537,47 @@ describe('phase 2 movement simulation', () => {
     expect(a.distance).toBeGreaterThan(90);
     expect(Math.abs(a.pitch)).toBeGreaterThan(0.01);
     expect(Math.abs(a.roll)).toBeGreaterThan(0.01);
+  });
+
+  it('spirals every aircraft class down and emits one crash per ground impact', () => {
+    const run = () => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const aircraft = [
+        spawnWaspAt(sim, hf, -20, -12, 'Wasp'),
+        spawnVultureAt(sim, hf, 0, -12, 'Vulture'),
+        spawnHammerheadAt(sim, hf, 20, -12, 'Hammerhead'),
+      ];
+      const starts = aircraft.map((entity) => ({
+        x: entity.transform.x,
+        y: entity.transform.y ?? 0,
+        z: entity.transform.z,
+      }));
+      for (const entity of aircraft) {
+        entity.velocity!.x = Math.sin(entity.transform.rot) * entity.mover!.speed * 0.55;
+        entity.velocity!.z = Math.cos(entity.transform.rot) * entity.mover!.speed * 0.55;
+        entity.destroyed = { remaining: 20 };
+      }
+      for (let i = 0; i < 210; i++) stepSim(sim, hf, 1 / 30);
+      return { sim, hf, aircraft, starts, hash: hashSim(sim) };
+    };
+
+    const a = run();
+    const b = run();
+    expect(a.hash).toBe(b.hash);
+    for (let i = 0; i < a.aircraft.length; i++) {
+      const entity = a.aircraft[i];
+      const start = a.starts[i];
+      expect(entity.destroyed?.aircraftCrash?.impacted).toBe(true);
+      expect(entity.transform.y).toBeCloseTo(sampleHeight(a.hf, entity.transform.x, entity.transform.z) + 0.42, 2);
+      expect(Math.hypot(entity.transform.x - start.x, entity.transform.z - start.z)).toBeGreaterThan(10);
+      expect((entity.transform.y ?? 0)).toBeLessThan(start.y);
+    }
+    expect(a.sim.events.filter((event) => event.kind === 'crash')).toHaveLength(3);
+    expect(a.sim.events.filter((event) => event.kind === 'aircraft-crash-smoke').length).toBeGreaterThan(6);
+
+    for (let i = 0; i < 30; i++) stepSim(a.sim, a.hf, 1 / 30);
+    expect(a.sim.events.filter((event) => event.kind === 'crash')).toHaveLength(3);
   });
 });
 

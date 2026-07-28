@@ -643,11 +643,16 @@ export class UnitView {
         Boolean(entity.flight) &&
         entity.team?.id !== this.localTeam &&
         dx * dx + dy * dy + dz * dz <= FORTRESS_OPTICS_DETAIL_RANGE_SQ;
+      const crashingAircraft =
+        entity.flight !== undefined &&
+        entity.destroyed !== undefined &&
+        entity.destroyed.aircraftCrash?.impacted !== true;
       const keepDetailed =
-        (Boolean(entity.playerControlled) ||
+        crashingAircraft ||
+        ((Boolean(entity.playerControlled) ||
           entity === this.priorityDetailedEntity ||
           resolvedByFortressOptics) &&
-        !entity.destroyed;
+          !entity.destroyed);
       if (keepDetailed) {
         obj.visible = true;
         obj.position.set(x, y, z);
@@ -749,6 +754,28 @@ export class UnitView {
     const isInfantry = entity.selectable?.type === 'infantry';
     const refs = this.refs.get(entity);
     if (entity.destroyed) {
+      if (entity.flight) {
+        const crash = entity.destroyed.aircraftCrash;
+        const pitch = lerp(entity.flight.previousPitchAttitude, entity.flight.pitchAttitude, 0.65);
+        const roll = lerp(entity.flight.previousRollAttitude, entity.flight.rollAttitude, 0.65);
+        obj.rotation.x = pitch + (crash?.impacted ? 0.2 : 0);
+        obj.rotation.z = -roll;
+        const sinceDeath = Math.max(0, 20 - entity.destroyed.remaining);
+        const rotorSpeed = crash?.impacted ? 0 : Math.max(2.4, 17 - sinceDeath * 4.2);
+        for (const mainRotor of refs?.mainRotors ?? []) {
+          mainRotor.rotation.x = -pitch * 0.42;
+          mainRotor.rotation.z = roll * 0.42;
+          mainRotor.rotation.y += dt * rotorSpeed;
+        }
+        for (const tailRotor of refs?.tailRotors ?? []) tailRotor.rotation.x += dt * rotorSpeed * 1.35;
+        if (crash?.impacted && !this.wrecked.has(entity)) {
+          this.wrecked.add(entity);
+          obj.traverse((child) => {
+            if (child instanceof Mesh) child.material = this.wreckMaterial;
+          });
+        }
+        return;
+      }
       const sinceDeath = Math.max(0, 20 - entity.destroyed.remaining);
       const fall = Math.min(1, sinceDeath / 0.55);
       if (isInfantry) {

@@ -141,6 +141,15 @@ export interface Armor {
 
 export interface Destroyed {
   remaining: number;
+  aircraftCrash?: {
+    velocityX: number;
+    velocityZ: number;
+    verticalVelocity: number;
+    yawRate: number;
+    rollRate: number;
+    pitchRate: number;
+    impacted: boolean;
+  };
 }
 
 export interface Building {
