@@ -303,11 +303,16 @@ export class BuildingView {
       new BoxGeometry(fullW * 0.5, 0.22, Math.max(0.5, fullD * 0.12)),
       this.accentMaterials[factionId(entity.team?.id)],
     );
-    accent.position.set(0, buildingHeight + 0.16, fullD * 0.18);
+    // Keep the identity plate on a clear roof edge. The previous central
+    // position intersected large roof machinery and could flicker or appear
+    // partially hidden at normal RTS camera angles.
+    accent.position.set(0, buildingHeight + 0.16, fullD * 0.4);
     accent.castShadow = true;
     const label = createBuildingLabel(entity.building?.label ?? entity.name ?? 'Building', fullW * 0.5, Math.max(0.5, fullD * 0.12), buildingHeight);
     label.position.copy(accent.position);
-    label.position.y += 0.13;
+    // The label plane needs a meaningful gap above the accent box; a 2 cm
+    // separation is below depth-buffer precision at far RTS zoom levels.
+    label.position.y += 0.23;
     label.position.z += 0.01;
     root.add(accent, label);
     const details = createBuildingDetails(entity, fullW, fullD, buildingHeight, this.accentMaterials[factionId(entity.team?.id)]);
@@ -855,7 +860,9 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
   const dark = detailMaterial(0x1d2424, 0.78, 0.12);
   const metal = detailMaterial(0x4e5759, 0.66, 0.28);
   const roof = detailMaterial(0x303839, 0.82, 0.1);
-  const glass = detailMaterial(0x9fb8bd, 0.42, 0.02, 0.88);
+  // Opaque armored glass is more stable than transparent panes layered over
+  // the damage-block façade and still reads as glass through color/roughness.
+  const glass = detailMaterial(0x9fb8bd, 0.38, 0.08);
   const brass = detailMaterial(0xd1aa55, 0.58, 0.16);
   const warning = detailMaterial(0xe0b95b, 0.64, 0.08);
   const beam = transparentBasic(0xf3c86b, 0.26);
@@ -941,9 +948,9 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     return object;
   };
   const frontPanel = (name: string, w: number, h: number, x: number, y: number, material: Material = dark, fragility = 5): Mesh =>
-    box(name, w, h, 0.2, x, y, depth * 0.505, material, fragility);
+    box(name, w, h, 0.26, x, y, depth * 0.512, material, fragility);
   const sidePanel = (name: string, w: number, h: number, z: number, y: number, material: Material = dark, fragility = 5): Mesh => {
-    const panel = box(name, w, h, 0.2, width * 0.505, y, z, material, fragility);
+    const panel = box(name, w, h, 0.26, width * 0.512, y, z, material, fragility);
     panel.rotation.y = Math.PI / 2;
     return panel;
   };
@@ -962,19 +969,21 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     return add(vents, 4);
   };
   const perimeterLight = (name: string, x: number, y: number, z: number, fragility = 3): Mesh =>
-    box(name, 0.34, 0.2, 0.18, x, y, z, signal, fragility);
+    // Each light gets its own material so an animated beacon cannot pulse every
+    // signal, gauge, and façade light that happens to share the base material.
+    box(name, 0.34, 0.2, 0.18, x, y, z, signal.clone(), fragility);
 
   box('foundation', width * 1.06, 0.38, depth * 1.06, 0, 0.18, 0, dark, 10);
   if (kind !== 'wall') {
-    box('front-armored-skirt', width * 0.9, 0.52, 0.28, 0, 0.48, depth * 0.505, metal, 8);
-    box('side-armored-skirt', 0.28, 0.52, depth * 0.9, width * 0.505, 0.48, 0, metal, 8);
+    box('front-armored-skirt', width * 0.9, 0.52, 0.28, 0, 0.48, depth * 0.512, metal, 8);
+    box('side-armored-skirt', 0.28, 0.52, depth * 0.9, width * 0.512, 0.48, 0, metal, 8);
     for (const x of [-width * 0.43, width * 0.43]) {
-      box('front-corner-pier', width * 0.065, height * 0.72, 0.36, x, height * 0.38, depth * 0.51, dark, 7);
+      box('front-corner-pier', width * 0.065, height * 0.72, 0.36, x, height * 0.38, depth * 0.518, dark, 7);
     }
     for (const z of [-depth * 0.43, depth * 0.43]) {
-      box('side-corner-pier', 0.36, height * 0.72, depth * 0.065, width * 0.51, height * 0.38, z, dark, 7);
+      box('side-corner-pier', 0.36, height * 0.72, depth * 0.065, width * 0.518, height * 0.38, z, dark, 7);
     }
-    for (const x of [-width * 0.38, width * 0.38]) perimeterLight('faction-status-light', x, height * 0.72, depth * 0.525);
+    for (const x of [-width * 0.38, width * 0.38]) perimeterLight('faction-status-light', x, height * 0.72, depth * 0.532);
   }
 
   if (kind === 'command-yard') {
@@ -1091,8 +1100,9 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
   } else if (kind === 'barracks') {
     frontPanel('barracks-armored-front', width * 0.64, height * 0.48, 0, height * 0.44, concrete, 7);
     frontPanel('barracks-entry-recess', width * 0.22, height * 0.4, -width * 0.24, height * 0.32, dark, 6);
-    box('barracks-roof-left', width * 0.48, height * 0.12, depth * 0.58, -width * 0.13, height + height * 0.18, 0, roof, 5).rotation.z = -0.12;
-    box('barracks-roof-right', width * 0.48, height * 0.12, depth * 0.58, width * 0.13, height + height * 0.18, 0, roof, 5).rotation.z = 0.12;
+    box('barracks-roof-left', width * 0.43, height * 0.12, depth * 0.58, -width * 0.22, height + height * 0.18, 0, roof, 5).rotation.z = -0.12;
+    box('barracks-roof-right', width * 0.43, height * 0.12, depth * 0.58, width * 0.22, height + height * 0.18, 0, roof, 5).rotation.z = 0.12;
+    box('barracks-roof-ridge', width * 0.075, height * 0.15, depth * 0.62, 0, height + height * 0.26, 0, metal, 6);
     box('barracks-entry', width * 0.2, height * 0.35, depth * 0.12, -width * 0.24, height + height * 0.08, depth * 0.36, concrete, 5);
     door(width * 0.15, height * 0.3, -width * 0.24, depth * 0.53, 4);
     for (const x of [-width * 0.02, width * 0.16, width * 0.32]) box('barracks-window', width * 0.07, height * 0.08, 0.16, x, height * 0.78, depth * 0.52, glass, 3);
@@ -1162,8 +1172,8 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
       frontPanel('helipad-bay-door-panel', width * 0.095, height * 0.34, -width * 0.08 + i * width * 0.11, height * 0.38, metal, 5);
     }
     box('helipad-deck', width * 0.92, 0.38, depth * 0.92, 0, height + 0.16, 0, roof, 6);
-    box('helipad-h-cross-a', width * 0.14, 0.08, depth * 0.62, 0, height + 0.42, 0, warning, 3);
-    box('helipad-h-cross-b', width * 0.52, 0.08, depth * 0.12, 0, height + 0.44, 0, warning, 3);
+    box('helipad-h-cross-a', width * 0.14, 0.08, depth * 0.62, 0, height + 0.44, 0, warning, 3);
+    box('helipad-h-cross-b', width * 0.52, 0.08, depth * 0.12, 0, height + 0.52, 0, warning, 3);
     box('helipad-control-hut', width * 0.2, height * 0.32, depth * 0.18, -width * 0.34, height + height * 0.18, -depth * 0.28, concrete, 5);
     box('helipad-glass', width * 0.16, height * 0.08, 0.14, -width * 0.34, height + height * 0.37, -depth * 0.38, glass, 3);
     const windsock = cyl('windsock-pole', 0.05, 0.05, height * 0.78, width * 0.34, height + height * 0.38, depth * 0.32, metal, 3, 8);
@@ -1321,9 +1331,9 @@ function updateBuildingActivity(root: Group, tick: number, entityId: number, act
         const materials = Array.isArray(child.material) ? child.material : [child.material];
         for (const material of materials) {
           if (material instanceof MeshStandardMaterial && material.emissive.getHex() !== 0) {
-            material.emissiveIntensity = active ? 0.72 + (wave + 1) * 0.62 * part.amplitude : 0.12;
+            material.emissiveIntensity = active ? 0.88 + wave * 0.18 * part.amplitude : 0.12;
           } else if (material instanceof MeshBasicMaterial && material.transparent) {
-            material.opacity = active ? 0.45 + (wave + 1) * 0.2 * part.amplitude : 0.18;
+            material.opacity = active ? 0.54 + wave * 0.08 * part.amplitude : 0.18;
           }
         }
       });
