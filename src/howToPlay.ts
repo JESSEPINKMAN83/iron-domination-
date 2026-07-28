@@ -121,6 +121,7 @@ export function controlGuideSections(mobile: boolean): GuideSection[] {
         { control: 'V / Escape', action: 'Take over the selected unit or return to command view.' },
         { control: 'W/S · A/D · Shift', action: 'Drive, steer, and boost. Move the mouse to aim.' },
         { control: 'Left / right click', action: 'Fire primary and secondary weapons. F uses a special ability.' },
+        { control: 'Defense tower', action: 'In V-mode, use the wheel for optical zoom. Hold T to scan; release to lock.' },
         { control: 'Tab', action: 'Swap to the next unit in the currently selected squad.' },
         { control: 'Aircraft', action: 'Q/E hard turn, Space climbs, and C descends.' },
       ],

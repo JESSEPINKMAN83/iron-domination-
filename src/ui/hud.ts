@@ -110,6 +110,7 @@ export class Hud {
       '<div style="position:absolute;left:-1px;bottom:-1px;width:74px;height:22px;border-left:3px solid #e7bd4d;border-bottom:3px solid #e7bd4d"></div>' +
       '<div style="position:absolute;right:-1px;bottom:-1px;width:74px;height:22px;border-right:3px solid #e7bd4d;border-bottom:3px solid #e7bd4d"></div>' +
       '<div style="position:absolute;left:15px;top:14px"><span style="color:#fff0b0">FORTRESS FIRE CONTROL</span><br><span style="color:#9d8d64">HOLD T // EXPAND SCAN · RELEASE // LOCK TARGET</span></div>' +
+      '<div style="position:absolute;right:15px;top:14px;color:#9d8d64;text-align:right">MOUSE WHEEL // OPTICAL ZOOM</div>' +
       '<div style="position:absolute;left:15px;bottom:12px;color:#9d8d64">DUAL HEAVY INTERCEPTOR // ONLINE</div>' +
       '<div style="position:absolute;right:15px;bottom:12px;color:#9d8d64">TACTICAL WARHEAD INTERLOCK // ARMED</div>';
     container.appendChild(this.fortressFrame);
@@ -153,7 +154,7 @@ export class Hud {
     const mobileTouch = typeof document !== 'undefined' && document.documentElement.classList.contains('mobile-touch-device');
     this.modeBanner.innerHTML = this.fortressMode
       ? '<div style="font-size:14px;color:#ffd96a;letter-spacing:.14em;">FORTRESS V-MODE</div>' +
-        `<div style="margin-top:4px;font-size:10px;color:#d7c897;letter-spacing:.04em;">${mobileTouch ? 'Drag to aim · Hold SCAN, release to lock · FIRE interceptor · MISSILE barrage' : 'MOUSE AIM · HOLD T EXPAND SCAN · RELEASE TO LOCK · LMB INTERCEPTOR · RMB BARRAGE · V EXIT'}</div>`
+        `<div style="margin-top:4px;font-size:10px;color:#d7c897;letter-spacing:.04em;">${mobileTouch ? 'Drag to aim · Hold SCAN, release to lock · FIRE interceptor · MISSILE barrage' : 'MOUSE AIM · WHEEL OPTICAL ZOOM · HOLD T SCAN · RELEASE TO LOCK · LMB/RMB FIRE · V EXIT'}</div>`
       : '<div style="font-size:13px;color:#f0d56a;letter-spacing:.08em;">FIRST-PERSON VIEW</div>' +
         `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${mobileTouch ? 'Use the left arrows to move and drag the right side to aim' : 'Press V or Escape to return to command view'}</div>`;
     this.modeBanner.style.minWidth = this.fortressMode ? '520px' : '260px';

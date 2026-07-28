@@ -197,6 +197,7 @@ export class Sidebar {
       this.firstPersonStatus.textContent = isFortressTower(possessed)
         ? `FORTRESS FIRE CONTROL\n` +
           `T    HOLD SCAN / RELEASE LOCK\n` +
+          `WHEEL  OPTICAL ZOOM\n` +
           `LMB  ${weaponLabel(primary).toUpperCase()}  ${ready(primary?.cooldown)}\n` +
           `RMB  ${weaponLabel(secondary).toUpperCase()}  ${ready(secondary?.cooldown)}\n` +
           `F    ${weaponLabel(special).toUpperCase()}  ${ready(special?.cooldown)}   ·   V EXIT`

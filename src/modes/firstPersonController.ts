@@ -33,6 +33,11 @@ const SQUAD_FOLLOW_REFRESH_TICKS = 12;
 const SQUAD_FOLLOW_MIN_DISTANCE = 14;
 const TARGET_LOCK_SECONDS = 1;
 const FORTRESS_SCAN_SECONDS = 1.05;
+const FORTRESS_ZOOM_MIN = -1;
+const FORTRESS_ZOOM_MAX = 1;
+const FORTRESS_ZOOM_WIDE_FOV = 68;
+const FORTRESS_ZOOM_DEFAULT_FOV = 54;
+const FORTRESS_ZOOM_TIGHT_FOV = 18;
 
 export interface CameraPose {
   position: Vector3;
@@ -60,6 +65,13 @@ export function fortressTargetScanConeRatio(progress: number): number {
 export function fortressTargetScanRingSize(progress: number): number {
   const t = MathUtils.clamp(progress, 0, 1);
   return MathUtils.lerp(96, 340, 1 - (1 - t) ** 3);
+}
+
+export function fortressOpticalFov(zoom: number): number {
+  const clamped = MathUtils.clamp(zoom, FORTRESS_ZOOM_MIN, FORTRESS_ZOOM_MAX);
+  return clamped >= 0
+    ? MathUtils.lerp(FORTRESS_ZOOM_DEFAULT_FOV, FORTRESS_ZOOM_TIGHT_FOV, clamped)
+    : MathUtils.lerp(FORTRESS_ZOOM_DEFAULT_FOV, FORTRESS_ZOOM_WIDE_FOV, -clamped);
 }
 
 export interface FirstPersonCommandSink {
@@ -109,6 +121,8 @@ export class FirstPersonController {
   private chaseZoom = 0;
   private sniperScopeZoom = 0.35;
   private sniperScopeActive = false;
+  private fortressZoomTarget = 0;
+  private fortressZoom = 0;
   private orbitYaw = 0;
   private orbitPitch = 0;
   private savedCursor = '';
@@ -434,13 +448,27 @@ export class FirstPersonController {
   update(dt: number, alpha = 1): void {
     if (!this.active || !this.possessed) return;
     const sniperScoped = this.isSniperScoped();
+    const fortress = isFortressTower(this.possessed);
     this.sniperReloadFlash = Math.max(0, this.sniperReloadFlash - dt);
     this.abilityStatusTimer = Math.max(0, this.abilityStatusTimer - dt);
     if (this.abilityStatusTimer <= 0) this.abilityStatus.style.display = 'none';
     const wheel = this.input.consumeWheel();
     if (wheel !== 0) {
       if (sniperScoped) this.sniperScopeZoom = MathUtils.clamp(this.sniperScopeZoom - wheel * 0.0018, 0, 1);
-      else this.chaseZoom = MathUtils.clamp(this.chaseZoom + wheel * 0.0014, CHASE_ZOOM_MIN, CHASE_ZOOM_MAX);
+      else if (fortress) {
+        this.fortressZoomTarget = MathUtils.clamp(
+          this.fortressZoomTarget - wheel * 0.0018,
+          FORTRESS_ZOOM_MIN,
+          FORTRESS_ZOOM_MAX,
+        );
+        const magnification = FORTRESS_ZOOM_DEFAULT_FOV / fortressOpticalFov(this.fortressZoomTarget);
+        this.flashAbilityStatus(`OPTICAL ZOOM ${magnification.toFixed(1)}X`);
+      } else {
+        this.chaseZoom = MathUtils.clamp(this.chaseZoom + wheel * 0.0014, CHASE_ZOOM_MIN, CHASE_ZOOM_MAX);
+      }
+    }
+    if (fortress) {
+      this.fortressZoom += (this.fortressZoomTarget - this.fortressZoom) * (1 - Math.exp(-dt * 11));
     }
     this.updateScopeOverlay(sniperScoped);
     this.updateAbilityHud();
@@ -566,7 +594,7 @@ export class FirstPersonController {
     const terrainAim = this.rayTerrainPoint(position, this.tmpForward, this.hf.size * 2.2);
     this.tmpAimTarget.copy(terrainAim ?? position.clone().addScaledVector(this.tmpForward, this.hf.size * 1.9));
     this.tmpCameraTarget.copy(position).addScaledVector(this.tmpForward, this.hf.size * 2);
-    return this.lookPose(position, this.tmpCameraTarget, 54);
+    return this.lookPose(position, this.tmpCameraTarget, fortressOpticalFov(this.fortressZoom));
   }
 
   private sniperPoseFor(entity: Entity, yaw: number, pitch: number, regularFov?: number): CameraPose {
@@ -1061,6 +1089,8 @@ export class FirstPersonController {
     this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : isFortressTower(entity) ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);
     this.sniperScopeZoom = 0.35;
     this.sniperScopeActive = false;
+    this.fortressZoomTarget = 0;
+    this.fortressZoom = 0;
     const initialControl = { throttle: 0, turn: 0, aimYaw: this.lookYaw, climb: 0, strafe: 0, boost: false };
     if (!this.commandSink) entity.playerControlled = initialControl;
     this.lastControlSentTick = -999;
