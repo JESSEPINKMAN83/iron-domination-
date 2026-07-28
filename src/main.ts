@@ -2860,7 +2860,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   overlay.remove();
   loop.start();
-  fadeOutLandingMusic(20_000);
+  fadeOutLandingMusic(40_000);
   if (!lineupStart && !fortressPreview && !buildingShowcase && !cinematicWar) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     showMissionBriefing({ enemyCount: hostileArmyCount });
