@@ -138,6 +138,7 @@ const MAX_FRIENDLY_GLOWS = 1024;
 const BIKE_DUST_GEOM = new SphereGeometry(1, 8, 5);
 const MAX_BIKE_DUST_PARTICLES = 256;
 const MAX_LOW_DETAIL_UNITS = 1024;
+const FORTRESS_OPTICS_DETAIL_RANGE_SQ = 500 * 500;
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
@@ -220,6 +221,8 @@ export class UnitView {
   private readonly airShadowMaterial = new MeshBasicMaterial({ color: 0x020403, transparent: true, opacity: 0.26, depthWrite: false });
   private readonly wrecked = new Set<Entity>();
   private hiddenEntity?: Entity;
+  private priorityDetailedEntity?: Entity;
+  private fortressOpticsActive = false;
   private selectionOverlayVisible = true;
 
   constructor(
@@ -445,6 +448,14 @@ export class UnitView {
     this.hiddenEntity = entity;
   }
 
+  setPriorityDetailedEntity(entity?: Entity): void {
+    this.priorityDetailedEntity = entity;
+  }
+
+  setFortressOpticsActive(active: boolean): void {
+    this.fortressOpticsActive = active;
+  }
+
   setSelectionOverlayVisible(visible: boolean): void {
     this.selectionOverlayVisible = visible;
   }
@@ -604,7 +615,6 @@ export class UnitView {
       const obj = this.objects.get(entity);
       const ring = this.selectedRings.get(entity);
       if (!obj || !ring) continue;
-      const keepDetailed = Boolean(entity.playerControlled) && !entity.destroyed;
       obj.visible = false;
       const shadow = this.airShadows.get(entity);
       if (shadow) shadow.visible = false;
@@ -625,6 +635,19 @@ export class UnitView {
       const y = entity.flight
         ? lerp(entity.previousTransform.y ?? entity.transform.y ?? groundY, entity.transform.y ?? groundY, alpha)
         : groundY + 0.35;
+      const dx = x - camera.position.x;
+      const dy = y - camera.position.y;
+      const dz = z - camera.position.z;
+      const resolvedByFortressOptics =
+        this.fortressOpticsActive &&
+        Boolean(entity.flight) &&
+        entity.team?.id !== this.localTeam &&
+        dx * dx + dy * dy + dz * dz <= FORTRESS_OPTICS_DETAIL_RANGE_SQ;
+      const keepDetailed =
+        (Boolean(entity.playerControlled) ||
+          entity === this.priorityDetailedEntity ||
+          resolvedByFortressOptics) &&
+        !entity.destroyed;
       if (keepDetailed) {
         obj.visible = true;
         obj.position.set(x, y, z);
@@ -1238,14 +1261,19 @@ const LOW_DETAIL_GEOMETRY: Record<LowDetailKind, { body: BufferGeometry; color: 
   },
   aircraft: {
     body: mergeLowDetailBoxes([
-      [0.5, 0.48, 1.72, 0, 0, 0],
-      [0.22, 0.28, 0.86, 0, 0.08, -1.12],
+      [0.62, 0.66, 1.9, 0, 0, 0],
+      [0.3, 0.46, 1.02, 0, 0.14, -1.28],
+      [0.4, 0.5, 0.92, -0.92, -0.06, 0.08],
+      [0.4, 0.5, 0.92, 0.92, -0.06, 0.08],
     ]),
     color: mergeLowDetailBoxes([
-      [2.25, 0.12, 0.62, 0, -0.03, 0.08],
-      [0.92, 0.1, 0.34, 0, 0.08, -1.42],
+      [2.7, 0.24, 0.76, 0, -0.03, 0.08],
+      [1.08, 0.2, 0.42, 0, 0.12, -1.55],
     ]),
-    detail: mergeLowDetailBoxes([[0.34, 0.28, 0.58, 0, 0.27, 0.46]]),
+    detail: mergeLowDetailBoxes([
+      [0.46, 0.38, 0.7, 0, 0.4, 0.48],
+      [0.18, 0.26, 0.82, 0, 0.56, -1.42],
+    ]),
   },
 };
 

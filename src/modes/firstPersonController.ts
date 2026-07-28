@@ -290,6 +290,13 @@ export class FirstPersonController {
     return this.possessed;
   }
 
+  get targetedEntity(): Entity | undefined {
+    const id = this.targetScanCandidateId ?? this.lockedTargetId ?? this.lockCandidateId;
+    if (id === undefined) return undefined;
+    const target = this.sim.byId.get(id);
+    return target && !target.destroyed && target.health && target.health.current > 0 ? target : undefined;
+  }
+
   handleCombatEvents(events: CombatEvent[]): void {
     if (!this.active || !this.possessed) return;
     for (const event of events) {

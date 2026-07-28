@@ -2721,6 +2721,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         rig.setEmptyRightDragLook(controller.isEmptyRightLookActive());
         rig.update(dt);
       }
+      unitView.setFortressOpticsActive(firstPerson.fortress);
+      unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
       unitView.update(alpha, dt, ctx.camera);
       if (sim.tick - lastUiRefreshTick >= 3) {
         lastUiRefreshTick = sim.tick;
@@ -2824,11 +2826,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       const cell = sim.nav.nearestWalkableCell(targetX, targetZ, 20);
       if (cell) {
         const p = sim.nav.cellCenter(cell.x, cell.y);
-        spawnTankAt(sim, p.x, p.z, 'Lock Target — Armor', 2);
+        const armor = spawnTankAt(sim, p.x, p.z, 'Lock Target — Armor', 2);
         const aircraft = spawnWaspAt(sim, hf, p.x + 12, p.z + 8, 'Lock Target — Aircraft', 2);
         const lowPreviewAltitude = sampleHeight(hf, aircraft.transform.x, aircraft.transform.z) + 8;
         aircraft.transform.y = lowPreviewAltitude;
         aircraft.previousTransform.y = lowPreviewAltitude;
+        // Fortress preview targets are spawned outside the regular simulation tick,
+        // so register them with the renderer immediately as well as with the sim.
+        unitView.addEntity(armor);
+        unitView.addEntity(aircraft);
       }
       setSelected(sim, [tower], false, localTeam);
       firstPerson.enter([tower]);
