@@ -2099,6 +2099,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const startMode = params.get('start');
   const lineupStart = startMode === 'lineup';
+  const collectorPreview =
+    lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
   const testStart = startMode === 'test' || startMode === 'sandbox';
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
@@ -2184,6 +2186,21 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const loadedUnits = loadedFromSave ? Array.from(sim.world.entities).filter((entity) => entity.selectable && !entity.building) : [];
   const lineupUnits = !loadedFromSave && lineupStart ? spawnLineupUnits(sim, hf, economy, localBase.transform.x, localBase.transform.z) : [];
+  const collectorPreviewEntity = collectorPreview
+    ? lineupUnits.find((entity) => entity.harvester && entity.team?.id === localTeam)
+    : undefined;
+  if (collectorPreview) {
+    const collectors = lineupUnits.filter((entity) => entity.harvester);
+    for (const [index, collector] of collectors.entries()) {
+      if (collector.cargo) collector.cargo.amount = collector.cargo.capacity * (index === 0 ? 0.78 : 0.48);
+      if (collector.harvester) collector.harvester.state = 'gathering';
+      if (collector.selectable) collector.selectable.selected = index === 0;
+    }
+    if (collectorPreviewEntity) {
+      collectorPreviewEntity.transform.z -= 55;
+      collectorPreviewEntity.previousTransform.z = collectorPreviewEntity.transform.z;
+    }
+  }
   const startingUnits = lineupStart
     ? []
     : loadedFromSave
@@ -2261,7 +2278,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (multiplayerMode) setNetworkStatus(`Room ${multiplayer.session.room.code} · army ${localTeam} · online`);
 
   const rig = new RtsCameraRig(ctx.camera, input, hf);
-  if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
+  if (collectorPreviewEntity) {
+    rig.focusOn(
+      collectorPreviewEntity.transform.x,
+      collectorPreviewEntity.transform.z,
+      { x: collectorPreviewEntity.transform.x - 12, z: collectorPreviewEntity.transform.z + 18 },
+      28,
+    );
+  } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else rig.jumpToOpeningView(localBase.transform.x, localBase.transform.z, localTeam);
   const tacticalPing = {
     isActive: () => tacticalPingKind !== undefined,
@@ -2654,6 +2678,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const loop = new GameLoop({
     simTick: () => {
       if (uiPaused || networkPaused) return;
+      if (collectorPreview) return;
       firstPerson.simTick();
       const tickResult = advanceTick({
         sim,

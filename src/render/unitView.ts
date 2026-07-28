@@ -64,6 +64,8 @@ interface UnitRefs {
   tailRotors?: Object3D[];
   cargoLoad?: Object3D;
   scoop?: Object3D;
+  harvestingRotor?: Object3D;
+  conveyorRollers?: Object3D[];
   warningBeacon?: Mesh;
   antenna?: Object3D;
   missileRack?: Object3D[];
@@ -198,6 +200,7 @@ const MAX_BIKE_DUST_PARTICLES = 256;
 const MAX_LOW_DETAIL_UNITS = 1024;
 const FORTRESS_OPTICS_DETAIL_RANGE_SQ = 500 * 500;
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
+const ORE_CHUNK_GEOM = markShared(new SphereGeometry(1, 6, 4));
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
 const ringGeometryCache = new Map<number, RingGeometry>();
@@ -931,7 +934,14 @@ export class UnitView {
       const scoop = refs?.scoop;
       if (scoop && entity.harvester) {
         const gathering = entity.harvester.state === 'gathering';
-        scoop.rotation.x = gathering ? -0.12 + Math.sin(performance.now() * 0.012 + entity.id) * 0.08 : 0;
+        const workingPulse = Math.sin(performance.now() * 0.012 + entity.id);
+        scoop.rotation.x += ((gathering ? -0.16 + workingPulse * 0.035 : 0.04) - scoop.rotation.x) * Math.min(1, dt * 5);
+        if (refs.harvestingRotor) {
+          refs.harvestingRotor.rotation.x += dt * (gathering ? 7.5 : speedT * 1.6);
+        }
+        for (const roller of refs.conveyorRollers ?? []) {
+          roller.rotation.x += dt * (gathering ? 9 : speedT * 0.8);
+        }
       }
       const warning = refs?.warningBeacon;
       if (warning && entity.harvester) {
@@ -1593,6 +1603,7 @@ function compactHarvesterMeshes(
   materials: TeamMaterials,
   gunmetal: Material,
   cargoLoad: Object3D,
+  movingParts: ReadonlyArray<Object3D> = [],
 ): void {
   const materialGroups: Array<[string, Material]> = [
     ['hull', materials.hull],
@@ -1602,7 +1613,7 @@ function compactHarvesterMeshes(
     ['light', materials.lightBar],
     ['metal', gunmetal],
   ];
-  const excluded = new Set<Object3D>([cargoLoad]);
+  const excluded = new Set<Object3D>([cargoLoad, ...movingParts]);
   for (const [key, material] of materialGroups) {
     mergeDirectMeshesByMaterial(group, material, `harvester-chassis-${key}`, excluded);
     mergeDirectMeshesByMaterial(scoop, material, `harvester-scoop-${key}`);
@@ -1834,104 +1845,152 @@ function createVehicleObject(
 function createHarvesterObject(materials: TeamMaterials, gunmetal: Material): BuiltUnit {
   const group = new Group();
 
-  // Oris collector: a low industrial chassis, protected cab and exposed ore
-  // hopper. The broad scoop and six-wheel running gear keep its role readable
-  // from both the command camera and direct-control view.
-  group.add(box(4.5, 0.72, 6.45, materials.hull, 0, 0.58, -0.12));
-  group.add(angledBox(4.18, 0.34, 1.42, materials.hull, 0, 0.9, 2.48, -0.16));
-  group.add(angledBox(3.92, 0.28, 1.18, materials.dark, 0, 0.98, -2.72, 0.11));
-  group.add(box(3.42, 0.22, 0.38, materials.accent, 0, 1.04, 3.05));
+  // The Oris is a self-contained strip miner: low tracked propulsion, an
+  // offset armored cab, exposed intake/conveyor machinery, and a deep rear
+  // hopper. Its job is readable from the silhouette before any UI appears.
+  group.add(box(4.65, 0.7, 6.65, materials.hull, 0, 0.62, -0.05));
+  group.add(angledBox(4.25, 0.34, 1.4, materials.hull, 0, 0.92, 2.55, -0.15));
+  group.add(angledBox(4.1, 0.28, 1.2, materials.dark, 0, 0.96, -2.78, 0.12));
+  group.add(box(3.1, 0.12, 0.28, materials.accent, 0, 1.0, 3.16));
 
+  // Wide crawler units keep the collector visually heavier than combat tanks.
   for (const side of [-1, 1]) {
-    const trackX = side * 2.38;
-    group.add(box(0.78, 0.52, 6.3, materials.dark, trackX, 0.42, -0.05));
-    group.add(angledBox(0.18, 0.68, 5.72, materials.hull, side * 2.66, 0.78, -0.02, 0, 0, side * 0.045));
-    for (const z of [-2.08, 0, 2.08]) {
-      const wheel = new Mesh(sharedCylinderGeometry(0.58, 0.58, 0.38, 16), gunmetal);
+    const trackX = side * 2.42;
+    group.add(box(0.86, 0.62, 6.42, materials.dark, trackX, 0.42, -0.02));
+    group.add(angledBox(0.2, 0.72, 5.8, materials.hull, side * 2.72, 0.78, -0.04, 0, 0, side * 0.04));
+    for (const z of [-2.35, -1.18, 0, 1.18, 2.35]) {
+      const wheel = new Mesh(sharedCylinderGeometry(z === 0 ? 0.5 : 0.58, z === 0 ? 0.5 : 0.58, 0.4, 16), gunmetal);
       wheel.rotation.z = Math.PI / 2;
       wheel.position.set(trackX, 0.43, z);
       group.add(wheel);
-      const hub = new Mesh(sharedCylinderGeometry(0.2, 0.2, 0.41, 10), materials.accent);
+      const hub = new Mesh(sharedCylinderGeometry(0.19, 0.19, 0.43, 10), materials.accent);
       hub.rotation.z = Math.PI / 2;
       hub.position.copy(wheel.position);
       group.add(hub);
     }
-    group.add(box(0.88, 0.12, 6.02, gunmetal, trackX, 0.04, -0.05));
-    group.add(box(0.88, 0.12, 6.02, gunmetal, trackX, 0.92, -0.05));
-    group.add(box(0.3, 0.22, 0.28, materials.lightBar, side * 1.62, 0.84, 3.18));
-    group.add(box(0.38, 0.3, 0.32, materials.accent, side * 1.72, 0.72, -3.18));
+    group.add(box(0.94, 0.13, 6.15, gunmetal, trackX, 0.02, -0.02));
+    group.add(box(0.94, 0.13, 6.15, gunmetal, trackX, 0.92, -0.02));
+    group.add(box(0.28, 0.2, 0.28, materials.lightBar, side * 1.66, 0.88, 3.24));
+    group.add(box(0.38, 0.28, 0.28, materials.accent, side * 1.72, 0.76, -3.28));
   }
 
-  // Armoured cab and high-contrast glazing.
-  group.add(angledBox(2.9, 1.34, 1.82, materials.hull, 0, 1.46, 1.68, -0.08));
-  group.add(angledBox(2.38, 0.54, 0.12, materials.lightBar, 0, 1.75, 2.62, -0.08));
-  group.add(box(0.12, 0.56, 1.22, materials.lightBar, -1.47, 1.64, 1.66));
-  group.add(box(0.12, 0.56, 1.22, materials.lightBar, 1.47, 1.64, 1.66));
-  group.add(box(1.05, 0.12, 0.16, materials.accent, 0, 2.16, 1.78));
+  // Asymmetric cab and engine module make it feel engineered rather than
+  // assembled from centered boxes.
+  group.add(angledBox(2.2, 1.42, 1.88, materials.hull, -0.92, 1.52, 1.68, -0.08, 0.03));
+  group.add(angledBox(1.72, 0.55, 0.13, materials.lightBar, -0.92, 1.84, 2.65, -0.08, 0.03));
+  group.add(box(0.13, 0.56, 1.15, materials.lightBar, -2.04, 1.72, 1.7));
+  group.add(box(1.28, 0.13, 1.7, materials.dark, -0.92, 2.27, 1.64));
+  group.add(box(1.05, 0.11, 0.18, materials.accent, -0.92, 2.37, 1.78));
 
-  // Rear hopper walls and braces frame the ore rather than hiding it in a box.
-  group.add(angledBox(3.72, 0.92, 0.22, materials.dark, 0, 1.5, -2.55, 0.18));
+  group.add(box(1.55, 0.98, 1.8, materials.dark, 1.08, 1.42, 1.46));
+  for (const z of [0.92, 1.34, 1.76]) {
+    group.add(box(1.25, 0.08, 0.2, gunmetal, 1.08, 1.92, z));
+  }
+  const exhaust = new Mesh(sharedCylinderGeometry(0.14, 0.19, 1.38, 10), gunmetal);
+  exhaust.position.set(1.62, 2.02, 0.88);
+  group.add(exhaust);
+  group.add(box(0.32, 0.12, 0.36, gunmetal, 1.62, 2.72, 0.88));
+
+  // An open, reinforced hopper shows the player's haul growing in real time.
+  group.add(angledBox(3.78, 1.0, 0.24, materials.dark, 0.18, 1.55, -2.62, 0.18));
   for (const side of [-1, 1]) {
-    group.add(angledBox(0.24, 0.94, 2.72, materials.dark, side * 1.92, 1.48, -1.1, 0, 0, side * 0.14));
+    group.add(angledBox(0.25, 1.02, 2.72, materials.dark, 0.18 + side * 1.9, 1.52, -1.2, 0, 0, side * 0.15));
     for (const z of [-2.18, -1.48, -0.78, -0.08]) {
-      group.add(box(0.14, 1.05, 0.12, gunmetal, side * 2.02, 1.48, z));
+      group.add(box(0.14, 1.12, 0.13, gunmetal, 0.18 + side * 2.0, 1.52, z));
     }
-    group.add(box(0.48, 0.42, 1.18, materials.canvas, side * 1.72, 1.22, -2.2));
   }
-  for (const x of [-1.35, -0.68, 0, 0.68, 1.35]) {
-    group.add(box(0.12, 0.1, 2.64, gunmetal, x, 1.08, -1.2));
+  for (const x of [-1.18, -0.5, 0.18, 0.86, 1.54]) {
+    group.add(box(0.12, 0.1, 2.58, gunmetal, x, 1.08, -1.25));
   }
 
-  const load = angledBox(3.2, 0.46, 2.28, materials.accent, 0, 1.7, -1.18, 0.04);
+  const load = new Group();
+  load.position.set(0.18, 1.72, -1.28);
+  const oreChunks = [
+    [-1.22, 0.02, -0.58, 0.72, 0.34, 0.62, -0.18],
+    [-0.55, 0.2, -0.78, 0.86, 0.46, 0.72, 0.12],
+    [0.2, 0.1, -0.58, 0.78, 0.38, 0.68, -0.08],
+    [0.92, 0.18, -0.74, 0.76, 0.44, 0.66, 0.16],
+    [-0.92, 0.14, 0.12, 0.82, 0.42, 0.68, 0.1],
+    [-0.12, 0.26, 0.05, 0.92, 0.5, 0.74, -0.14],
+    [0.75, 0.12, 0.18, 0.88, 0.4, 0.7, 0.08],
+  ] as const;
+  for (const [x, y, z, w, h, d, rot] of oreChunks) {
+    const chunk = new Mesh(ORE_CHUNK_GEOM, materials.accent);
+    chunk.position.set(x, y, z);
+    chunk.scale.set(w * 0.62, h, d * 0.62);
+    chunk.rotation.set(rot * 0.55, rot, rot * 0.35);
+    load.add(chunk);
+  }
   group.add(load);
 
+  // The intake is a real articulated mining head, with a powered cutting drum
+  // feeding a sloped conveyor instead of a decorative bulldozer blade.
   const scoop = new Group();
-  scoop.position.set(0, 0.42, 3.22);
-  scoop.add(angledBox(5.35, 0.38, 0.86, materials.dark, 0, 0, 0.55, -0.28));
-  scoop.add(box(5.18, 0.14, 0.22, gunmetal, 0, -0.2, 0.98));
-  for (const x of [-2.25, -1.5, -0.75, 0, 0.75, 1.5, 2.25]) {
-    scoop.add(angledBox(0.14, 0.2, 0.92, gunmetal, x, -0.2, 1.22, -0.22));
-  }
+  scoop.position.set(0, 0.5, 3.18);
+  scoop.add(angledBox(5.45, 0.3, 0.82, materials.dark, 0, 0.08, 0.42, -0.22));
+  scoop.add(box(5.35, 0.16, 0.24, gunmetal, 0, -0.15, 0.92));
   for (const side of [-1, 1]) {
-    scoop.add(angledBox(0.24, 0.24, 1.75, materials.dark, side * 1.68, 0.22, -0.62, -0.16));
-    const ram = new Mesh(sharedCylinderGeometry(0.09, 0.12, 1.65, 8), gunmetal);
+    scoop.add(angledBox(0.28, 0.3, 1.95, materials.hull, side * 2.42, 0.38, -0.28, -0.18));
+    scoop.add(angledBox(0.24, 0.24, 1.78, materials.dark, side * 1.7, 0.44, -0.68, -0.2));
+    const ram = new Mesh(sharedCylinderGeometry(0.1, 0.13, 1.72, 8), gunmetal);
     ram.rotation.x = Math.PI * 0.4;
-    ram.position.set(side * 2.08, 0.54, -0.42);
+    ram.position.set(side * 2.05, 0.76, -0.45);
     scoop.add(ram);
   }
+  const harvestingRotor = new Group();
+  harvestingRotor.position.set(0, 0.05, 1.05);
+  const drum = new Mesh(sharedCylinderGeometry(0.58, 0.58, 5.08, 16), gunmetal);
+  drum.rotation.z = Math.PI / 2;
+  harvestingRotor.add(drum);
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2;
+    const toothBar = box(5.18, 0.12, 0.16, i % 2 === 0 ? materials.accent : gunmetal, 0, Math.cos(angle) * 0.65, Math.sin(angle) * 0.65);
+    toothBar.rotation.x = angle;
+    harvestingRotor.add(toothBar);
+  }
+  for (const side of [-1, 1]) {
+    const cap = new Mesh(sharedCylinderGeometry(0.72, 0.72, 0.2, 16), materials.hull);
+    cap.rotation.z = Math.PI / 2;
+    cap.position.x = side * 2.62;
+    harvestingRotor.add(cap);
+  }
+  scoop.add(harvestingRotor);
   group.add(scoop);
 
-  // Exhausts and side tanks add a heavier utility-vehicle profile.
+  const conveyorRollers: Object3D[] = [];
+  group.add(angledBox(1.2, 0.18, 3.25, materials.dark, 0.18, 1.26, 0.25, -0.38));
+  for (const z of [-0.88, -0.24, 0.4, 1.04]) {
+    const roller = new Mesh(sharedCylinderGeometry(0.16, 0.16, 1.05, 10), gunmetal);
+    roller.rotation.z = Math.PI / 2;
+    roller.position.set(0.18, 1.32 + (z + 0.88) * 0.2, z);
+    group.add(roller);
+    conveyorRollers.push(roller);
+  }
   for (const side of [-1, 1]) {
-    const sideTank = new Mesh(sharedCylinderGeometry(0.34, 0.34, 2.05, 12), materials.dark);
-    sideTank.rotation.z = Math.PI / 2;
-    sideTank.position.set(side * 2.78, 1.22, -1.22);
-    group.add(sideTank);
-    const exhaust = new Mesh(sharedCylinderGeometry(0.12, 0.16, 1.18, 10), gunmetal);
-    exhaust.position.set(side * 1.72, 1.7, -2.3);
-    group.add(exhaust);
-    group.add(box(0.26, 0.12, 0.32, gunmetal, side * 1.72, 2.3, -2.3));
+    group.add(angledBox(0.12, 0.22, 3.4, materials.accent, 0.18 + side * 0.66, 1.38, 0.22, -0.38));
   }
 
   const beaconMaterial = new MeshBasicMaterial({ color: 0xff3d24, transparent: true, opacity: 0.7, depthWrite: false, toneMapped: false });
-  const beacon = new Mesh(sharedCylinderGeometry(0.26, 0.32, 0.28, 10), beaconMaterial);
-  beacon.position.set(0.92, 2.46, 1.52);
+  const beacon = new Mesh(sharedCylinderGeometry(0.24, 0.3, 0.27, 10), beaconMaterial);
+  beacon.position.set(-0.3, 2.52, 1.62);
   beacon.visible = false;
   group.add(beacon);
 
   const antenna = new Group();
-  antenna.position.set(-1.02, 2.2, 1.18);
+  antenna.position.set(-1.65, 2.34, 1.18);
   antenna.add(new Mesh(sharedCylinderGeometry(0.12, 0.16, 0.14, 8), gunmetal));
   const whip = new Mesh(sharedCylinderGeometry(0.012, 0.018, 1.05, 5), gunmetal);
   whip.position.y = 0.56;
   antenna.add(whip);
   group.add(antenna);
-  compactHarvesterMeshes(group, scoop, materials, gunmetal, load);
+  compactHarvesterMeshes(group, scoop, materials, gunmetal, load, conveyorRollers);
   return {
     root: group,
     refs: {
       cargoLoad: load,
       scoop,
+      harvestingRotor,
+      conveyorRollers,
       warningBeacon: beacon,
       antenna,
       groundDrive: true,
