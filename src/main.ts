@@ -7,6 +7,7 @@ import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHo
 import { showMissionBriefing } from './missionBriefing';
 import './setup.css';
 import './mobile.css';
+import './durabilityPreview.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
 import {
@@ -28,7 +29,8 @@ import {
   type MapId,
   type MapSize,
 } from './content/maps';
-import type { StructureKind, UnitKind } from './content/phase3';
+import { STRUCTURES, type StructureKind, type UnitKind } from './content/phase3';
+import { WEAPONS, type WeaponKind } from './content/phase4';
 import { isFortressTower } from './content/fortress';
 import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phase6';
 import { COMBAT_MODE_DESCRIPTIONS, COMBAT_MODES, type CombatMode } from './content/rules';
@@ -83,6 +85,7 @@ import {
   updatePlacement,
 } from './sim/economy';
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
+import { damageForArmor } from './sim/combat';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from './sim/serialize';
 import { purchaseUnitUpgrade } from './sim/upgrades';
 import { VisibilityGrid } from './sim/visibility';
@@ -152,6 +155,22 @@ interface CinematicWarScene {
   localAircraft: Entity[];
   focus: { x: number; z: number };
   friendlyBase: { x: number; z: number };
+  forward: { x: number; z: number };
+  right: { x: number; z: number };
+}
+
+interface DurabilityPreviewSquad {
+  kind: 'jackal' | 'm17' | 'mauler';
+  label: string;
+  weaponKind: WeaponKind;
+  units: Entity[];
+}
+
+interface DurabilityPreviewScene {
+  units: Entity[];
+  squads: DurabilityPreviewSquad[];
+  targets: Entity[];
+  focus: { x: number; z: number };
   forward: { x: number; z: number };
   right: { x: number; z: number };
 }
@@ -2114,13 +2133,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const lineupStart = startMode === 'lineup';
   const cinematicWar =
     startMode === 'cinematic' && !multiplayerMode && !isPublicHost(location.hostname);
+  const durabilityPreview =
+    !multiplayerMode &&
+    !isPublicHost(location.hostname) &&
+    params.get('durability-preview') === '1';
   const cinematicShot = cinematicWar ? sanitizeCinematicShot(params.get('cinematic-shot')) : 'overview';
   if (cinematicWar && params.get('cinematic-ui') === 'clean') {
     document.documentElement.classList.add('cinematic-clean');
   }
   const collectorPreview =
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
-  const testStart = startMode === 'test' || startMode === 'sandbox' || cinematicWar;
+  const testStart = startMode === 'test' || startMode === 'sandbox' || cinematicWar || durabilityPreview;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   const buildingShowcaseParam = params.get('building-showcase');
@@ -2143,6 +2166,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const sim = createGameSim(hf);
   sim.rules.autoCombat = settings.combatMode !== 'manual';
   sim.rules.autoDefense = settings.combatMode !== 'manual';
+  if (durabilityPreview) {
+    sim.rules.autoCombat = false;
+    sim.rules.autoDefense = false;
+  }
   const teams = activeTeams(settings);
   sim.rules.allianceSides = Object.fromEntries(teams.map((team) => [team, settings.armySides[team - 1] ?? team]));
   const armies: ArmyRuntime[] = teams.map((team) => {
@@ -2186,12 +2213,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   if (cinematicWar && !loadedFromSave) {
     for (const army of armies) seedCinematicBase(sim, hf, army.economy, army.base);
+  } else if (durabilityPreview && !loadedFromSave) {
+    const hostileArmy = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
+    if (hostileArmy) seedTestStartBase(sim, hf, hostileArmy.economy, hostileArmy.base);
   } else if (testStart && !multiplayerMode && !loadedFromSave) {
     seedTestStartBase(sim, hf, economy, localBase);
   }
   const isVisibleToPlayer = lineupStart ? () => true : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
-    if (!aiTeams.has(army.team)) continue;
+    if (durabilityPreview || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
@@ -2238,8 +2268,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const cinematicScene = cinematicWar && !loadedFromSave
     ? spawnCinematicWar(sim, hf, armies, localTeam)
     : undefined;
+  const durabilityScene = durabilityPreview && !loadedFromSave
+    ? spawnDurabilityPreview(sim, hf, armies, localTeam)
+    : undefined;
   const startingUnits = cinematicScene
     ? cinematicScene.units
+    : durabilityScene
+      ? durabilityScene.units
     : lineupStart
       ? []
       : loadedFromSave
@@ -2326,6 +2361,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     );
   } else if (cinematicScene && cinematicShot !== 'air') {
     applyCinematicCamera(rig, cinematicScene, cinematicShot);
+  } else if (durabilityScene) {
+    rig.focusOn(
+      durabilityScene.focus.x,
+      durabilityScene.focus.z,
+      {
+        x: durabilityScene.focus.x - durabilityScene.forward.x * 112 + durabilityScene.right.x * 88,
+        z: durabilityScene.focus.z - durabilityScene.forward.z * 112 + durabilityScene.right.z * 88,
+      },
+      138,
+      -6,
+    );
   } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else rig.jumpToOpeningView(localBase.transform.x, localBase.transform.z, localTeam);
   const tacticalPing = {
@@ -2495,6 +2541,20 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       return result;
     },
   }, localTeam);
+  const durabilityPanel = durabilityScene
+    ? createDurabilityPreviewPanel(durabilityScene, sim, localTeam, (target) => {
+        rig.focusOn(
+          target.transform.x,
+          target.transform.z,
+          {
+            x: target.transform.x - durabilityScene.forward.x * 54 + durabilityScene.right.x * 35,
+            z: target.transform.z - durabilityScene.forward.z * 54 + durabilityScene.right.z * 35,
+          },
+          64,
+          -10,
+        );
+      })
+    : undefined;
   let uiPaused = false;
   const setUiPaused = (paused: boolean): void => {
     uiPaused = paused;
@@ -2613,7 +2673,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let outcome: 'victory' | 'defeat' | undefined;
   let matchTelemetry: MatchTelemetry | undefined;
   const checkOutcome = (): void => {
-    if (outcome || sim.tick < 60) return;
+    if (durabilityPreview || outcome || sim.tick < 60) return;
     const alive = (team: number) => buildings(sim, team).filter((entity) => !entity.destroyed).length;
     const hostileTeams = teams.filter((team) => areTeamsHostile(sim, localTeam, team));
     if (isVictoryFromHostileBuildingCounts(hostileTeams.map(alive))) outcome = 'victory';
@@ -2696,7 +2756,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   };
 
   const checkFirstContact = (): void => {
-    if (lineupStart || cinematicWar) return;
+    if (lineupStart || cinematicWar || durabilityPreview) return;
     const contact = firstContactGate.tryTrigger(() => findFirstVisibleHostileEntity(
       sim.world.entities,
       localTeam,
@@ -2728,8 +2788,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         visions: armies.map((army) => army.vision),
         commanders,
         lockstep,
-        autoFire: !lineupStart,
-        runCommanders: !lineupStart,
+        autoFire: !lineupStart && !durabilityPreview,
+        runCommanders: !lineupStart && !durabilityPreview,
       });
       const spawned = tickResult.spawned;
       for (const entity of spawned) {
@@ -2803,6 +2863,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         buildingView.setProducerHighlights(sidebar.producerHighlightIds());
         selectionBar.update();
         sidebar.update();
+        durabilityPanel?.update();
       }
       mobileControls?.update({
         firstPerson: firstPerson.active,
@@ -2861,7 +2922,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   overlay.remove();
   loop.start();
   fadeOutLandingMusic(40_000);
-  if (!lineupStart && !fortressPreview && !buildingShowcase && !cinematicWar) {
+  if (!lineupStart && !fortressPreview && !buildingShowcase && !cinematicWar && !durabilityPreview) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     showMissionBriefing({ enemyCount: hostileArmyCount });
     if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
@@ -3459,6 +3520,214 @@ function orientLineupUnit(entity: ReturnType<typeof spawnTankAt>, rot: number): 
 
 function sanitizeCinematicShot(value: string | null): CinematicShot {
   return value === 'frontline' || value === 'base' || value === 'air' ? value : 'overview';
+}
+
+function spawnDurabilityPreview(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  armies: ArmyRuntime[],
+  localTeam: number,
+): DurabilityPreviewScene | undefined {
+  const friendly = armies.find((army) => army.team === localTeam) ?? armies[0];
+  const hostile = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
+  if (!friendly || !hostile) return undefined;
+
+  const rawForwardX = hostile.base.transform.x - friendly.base.transform.x;
+  const rawForwardZ = hostile.base.transform.z - friendly.base.transform.z;
+  const forwardLength = Math.hypot(rawForwardX, rawForwardZ) || 1;
+  const forward = { x: rawForwardX / forwardLength, z: rawForwardZ / forwardLength };
+  const right = { x: forward.z, z: -forward.x };
+  const occupied: Array<{ x: number; z: number; radius: number }> = [];
+  const units: Entity[] = [];
+  const squads: DurabilityPreviewSquad[] = [];
+  const squadPlans: Array<{
+    kind: DurabilityPreviewSquad['kind'];
+    label: string;
+    unitKind: Extract<UnitKind, 'scout-tank' | 'tank' | 'siege-tank'>;
+    weaponKind: WeaponKind;
+    lane: number;
+    depth: number;
+  }> = [
+    { kind: 'jackal', label: 'JACKAL ×3', unitKind: 'scout-tank', weaponKind: 'scoutMissile', lane: -20, depth: 78 },
+    { kind: 'm17', label: 'M-17 ×3', unitKind: 'tank', weaponKind: 'tankMissile', lane: 0, depth: 84 },
+    { kind: 'mauler', label: 'MAULER ×3', unitKind: 'siege-tank', weaponKind: 'siegeMissile', lane: 22, depth: 94 },
+  ];
+
+  for (const plan of squadPlans) {
+    const squadUnits: Entity[] = [];
+    for (let index = 0; index < 3; index++) {
+      const side = plan.lane + (index - 1) * 6.5;
+      const targetX = hostile.base.transform.x - forward.x * plan.depth + right.x * side;
+      const targetZ = hostile.base.transform.z - forward.z * plan.depth + right.z * side;
+      const point = cinematicGroundPoint(
+        sim,
+        targetX,
+        targetZ,
+        cinematicUnitRadius(plan.unitKind),
+        occupied,
+      );
+      if (!point) continue;
+      const entity = spawnCinematicUnit(sim, hf, plan.unitKind, point.x, point.z, localTeam);
+      entity.name = `${plan.label.replace(' ×3', '')} TEST ${index + 1}`;
+      orientCinematicUnit(entity, forward);
+      squadUnits.push(entity);
+      units.push(entity);
+    }
+    squads.push({ kind: plan.kind, label: plan.label, weaponKind: plan.weaponKind, units: squadUnits });
+  }
+
+  const targets = buildings(sim, hostile.team)
+    .filter((entity) => entity.health && !entity.destroyed)
+    .sort((a, b) => durabilityTargetOrder(a) - durabilityTargetOrder(b));
+  const m17 = squads.find((squad) => squad.kind === 'm17');
+  if (m17?.units.length) setSelected(sim, m17.units, false, localTeam);
+
+  return {
+    units,
+    squads,
+    targets,
+    focus: { x: hostile.base.transform.x, z: hostile.base.transform.z },
+    forward,
+    right,
+  };
+}
+
+function durabilityTargetOrder(entity: Entity): number {
+  const order = [
+    'command-yard',
+    'power-plant',
+    'refinery',
+    'barracks',
+    'factory',
+    'helipad',
+    'wall',
+    'guard-tower',
+    'aa-tower',
+  ];
+  const index = order.indexOf(entity.building?.kind ?? '');
+  return index < 0 ? order.length : index;
+}
+
+function durabilityTargetLabel(entity: Entity): string {
+  const kind = entity.building?.kind;
+  if (kind === 'command-yard') return 'Command Yard';
+  if (kind && kind in STRUCTURES) return STRUCTURES[kind as StructureKind].label;
+  return entity.name ?? 'Building';
+}
+
+function createDurabilityPreviewPanel(
+  scene: DurabilityPreviewScene,
+  sim: ReturnType<typeof createGameSim>,
+  localTeam: number,
+  focusTarget: (target: Entity) => void,
+): { update: () => void } {
+  const panel = document.createElement('aside');
+  panel.className = 'durability-lab';
+  panel.setAttribute('aria-label', 'Building durability test controls');
+  panel.innerHTML = `
+    <header class="durability-lab__header">
+      <div class="durability-lab__eyebrow">LOCAL QA RANGE · DAMAGE IS LIVE</div>
+      <h2>BUILDING DURABILITY LAB</h2>
+      <p>Choose three matching tanks, press <strong>V</strong>, then fire at a building. Click a building row to frame it.</p>
+    </header>
+  `;
+
+  const controls = document.createElement('div');
+  controls.className = 'durability-lab__controls';
+  const squadButtons = new Map<DurabilityPreviewSquad['kind'], HTMLButtonElement>();
+  let activeSquad = scene.squads.find((squad) => squad.kind === 'm17') ?? scene.squads[0];
+  for (const squad of scene.squads) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = squad.label;
+    button.title = `Select the ${squad.label.toLowerCase()} test squad`;
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const living = squad.units.filter((entity) => !entity.destroyed && sim.world.has(entity));
+      setSelected(sim, living, false, localTeam);
+      activeSquad = squad;
+      update();
+    };
+    controls.appendChild(button);
+    squadButtons.set(squad.kind, button);
+  }
+  panel.appendChild(controls);
+
+  const targets = document.createElement('div');
+  targets.className = 'durability-lab__targets';
+  const targetRows = scene.targets.map((target) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'durability-lab__target';
+    const name = document.createElement('span');
+    name.className = 'durability-lab__target-name';
+    name.textContent = durabilityTargetLabel(target);
+    const hp = document.createElement('span');
+    hp.className = 'durability-lab__target-hp';
+    const bar = document.createElement('span');
+    bar.className = 'durability-lab__bar';
+    const fill = document.createElement('span');
+    fill.className = 'durability-lab__bar-fill';
+    bar.appendChild(fill);
+    const estimate = document.createElement('span');
+    estimate.className = 'durability-lab__estimate';
+    row.append(name, hp, bar, estimate);
+    row.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      focusTarget(target);
+    };
+    targets.appendChild(row);
+    return { target, row, hp, fill, estimate };
+  });
+  panel.appendChild(targets);
+
+  const footer = document.createElement('footer');
+  footer.className = 'durability-lab__footer';
+  const hint = document.createElement('span');
+  hint.textContent = 'Best-case estimates assume every direct missile registers.';
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.className = 'durability-lab__reset';
+  reset.textContent = 'RESET RANGE';
+  reset.onclick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    location.reload();
+  };
+  footer.append(hint, reset);
+  panel.appendChild(footer);
+  panel.onpointerdown = (event) => event.stopPropagation();
+  panel.onwheel = (event) => event.stopPropagation();
+  document.body.appendChild(panel);
+
+  const update = (): void => {
+    for (const [kind, button] of squadButtons) button.classList.toggle('is-active', kind === activeSquad?.kind);
+    const weapon = activeSquad ? WEAPONS[activeSquad.weaponKind] : undefined;
+    const damage = activeSquad ? damageForArmor(activeSquad.weaponKind, 'building') : 0;
+    const livingAttackers = activeSquad?.units.filter((entity) => !entity.destroyed && sim.world.has(entity)).length ?? 0;
+    for (const item of targetRows) {
+      const health = item.target.health;
+      const current = Math.max(0, Math.ceil(health?.current ?? 0));
+      const max = Math.max(1, Math.ceil(health?.max ?? 1));
+      const fraction = Math.max(0, Math.min(1, current / max));
+      const destroyed = !!item.target.destroyed || current <= 0;
+      item.row.classList.toggle('is-destroyed', destroyed);
+      item.hp.textContent = destroyed ? 'DESTROYED' : `${current} / ${max} HP`;
+      item.fill.style.transform = `scaleX(${fraction})`;
+      if (damage > 0 && weapon && livingAttackers > 0) {
+        const directHits = Math.ceil(max / damage);
+        const bestCaseSeconds = (directHits * weapon.cooldown) / livingAttackers;
+        item.estimate.textContent =
+          `${activeSquad?.label}: ${damage.toFixed(1)} damage/hit · ${directHits} missiles · ~${bestCaseSeconds.toFixed(0)}s best case`;
+      } else {
+        item.estimate.textContent = 'No living attackers in this squad';
+      }
+    }
+  };
+  update();
+  return { update };
 }
 
 function spawnCinematicWar(
