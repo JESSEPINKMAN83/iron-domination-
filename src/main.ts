@@ -2502,7 +2502,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       firePrimary: () => firstPerson.firePrimary(),
       fireSecondary: () => firstPerson.fireSecondary(),
       useSpecial: () => firstPerson.useSpecialAbility(),
-      toggleTargetLock: () => firstPerson.toggleTargetLock(),
+      beginTargetScan: () => firstPerson.beginTargetScan(),
+      endTargetScan: () => firstPerson.endTargetScan(),
     });
   }
   input.onKeyDown('KeyV', () => {
@@ -2516,7 +2517,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     firstPerson.useSpecialAbility();
   });
   input.onKeyDown('KeyT', () => {
-    firstPerson.toggleTargetLock();
+    firstPerson.beginTargetScan();
+  });
+  input.onKeyUp('KeyT', () => {
+    firstPerson.endTargetScan();
   });
   input.onKeyDown('Escape', () => {
     if (firstPerson.active) firstPerson.exit();

@@ -49,6 +49,7 @@ export class Input {
   private touchCamera: TouchCameraGesture = { panX: 0, panY: 0, pinch: 0, twist: 0 };
   private mobileDrive: MobileDriveState = { throttle: 0, turn: 0, climb: 0, boost: false };
   private readonly keyHandlers = new Map<string, Set<() => void>>();
+  private readonly keyUpHandlers = new Map<string, Set<() => void>>();
   private gameSurface?: HTMLElement;
   private pointerEventOnGameSurface = false;
 
@@ -72,6 +73,7 @@ export class Input {
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
       if (e.key === ' ') this.keys.delete('Space');
+      this.keyUpHandlers.get(e.code)?.forEach((fn) => fn());
     });
     window.addEventListener('blur', () => {
       this.resetTransientInputs();
@@ -156,6 +158,15 @@ export class Input {
     if (!set) {
       set = new Set();
       this.keyHandlers.set(code, set);
+    }
+    set.add(fn);
+  }
+
+  onKeyUp(code: string, fn: () => void): void {
+    let set = this.keyUpHandlers.get(code);
+    if (!set) {
+      set = new Set();
+      this.keyUpHandlers.set(code, set);
     }
     set.add(fn);
   }
