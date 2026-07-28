@@ -136,15 +136,15 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     tab: 'defense',
     cost: 780,
     buildTime: 7,
-    health: 680,
+    health: 980,
     footprint: { w: 4, h: 4 },
     powerProduced: 0,
     powerUsed: 8,
     requires: 'power-plant',
     blocksMovement: true,
     weaponKind: 'aaMissile',
-    weaponRange: 145,
-    visionRadius: 165,
+    weaponRange: 320,
+    visionRadius: 300,
   },
 };
 

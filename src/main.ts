@@ -76,7 +76,7 @@ import {
   stepEconomy,
   updatePlacement,
 } from './sim/economy';
-import { generateHeightfield } from './sim/heightfield';
+import { generateHeightfield, sampleHeight } from './sim/heightfield';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from './sim/serialize';
 import { purchaseUnitUpgrade } from './sim/upgrades';
 import { VisibilityGrid } from './sim/visibility';
@@ -2096,7 +2096,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const testStart = startMode === 'test' || startMode === 'sandbox';
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
-  const fortressPreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('fortress-preview') === '1';
+  const fortressPreviewParam = params.get('fortress-preview');
+  const fortressPreview =
+    !multiplayerMode &&
+    !isPublicHost(location.hostname) &&
+    (fortressPreviewParam === '1' || fortressPreviewParam === 'guard' || fortressPreviewParam === 'aa');
   let nextHitJuicePreviewTick = 0;
   const aiDifficulty: Difficulty = settings.ai;
   const aiPersonality: Personality = settings.aiStyle;
@@ -2498,6 +2502,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       firePrimary: () => firstPerson.firePrimary(),
       fireSecondary: () => firstPerson.fireSecondary(),
       useSpecial: () => firstPerson.useSpecialAbility(),
+      toggleTargetLock: () => firstPerson.toggleTargetLock(),
     });
   }
   input.onKeyDown('KeyV', () => {
@@ -2509,6 +2514,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   });
   input.onKeyDown('KeyF', () => {
     firstPerson.useSpecialAbility();
+  });
+  input.onKeyDown('KeyT', () => {
+    firstPerson.toggleTargetLock();
   });
   input.onKeyDown('Escape', () => {
     if (firstPerson.active) firstPerson.exit();
@@ -2794,10 +2802,30 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   if (fortressPreview) {
     window.setTimeout(() => {
+      const previewKind = fortressPreviewParam === 'aa' ? 'aa-tower' : 'guard-tower';
       const tower = Array.from(sim.world.entities).find(
-        (entity) => entity.team?.id === localTeam && isFortressTower(entity) && !entity.destroyed,
+        (entity) =>
+          entity.team?.id === localTeam &&
+          entity.building?.kind === previewKind &&
+          isFortressTower(entity) &&
+          !entity.destroyed,
       );
       if (!tower) return;
+      const commandYard = commandBaseForTeam(sim, localTeam);
+      const outwardYaw = commandYard
+        ? Math.atan2(tower.transform.x - commandYard.transform.x, tower.transform.z - commandYard.transform.z)
+        : tower.transform.rot;
+      const targetX = tower.transform.x + Math.sin(outwardYaw) * 150;
+      const targetZ = tower.transform.z + Math.cos(outwardYaw) * 150;
+      const cell = sim.nav.nearestWalkableCell(targetX, targetZ, 20);
+      if (cell) {
+        const p = sim.nav.cellCenter(cell.x, cell.y);
+        spawnTankAt(sim, p.x, p.z, 'Lock Target — Armor', 2);
+        const aircraft = spawnWaspAt(sim, hf, p.x + 12, p.z + 8, 'Lock Target — Aircraft', 2);
+        const lowPreviewAltitude = sampleHeight(hf, aircraft.transform.x, aircraft.transform.z) + 8;
+        aircraft.transform.y = lowPreviewAltitude;
+        aircraft.previousTransform.y = lowPreviewAltitude;
+      }
       setSelected(sim, [tower], false, localTeam);
       firstPerson.enter([tower]);
     }, 400);
@@ -3291,6 +3319,7 @@ function seedTestStartBase(sim: ReturnType<typeof createGameSim>, hf: ReturnType
     { kind: 'factory', offsets: [{ x: 34, z: 32 }, { x: 56, z: 4 }, { x: -20, z: 52 }] },
     { kind: 'helipad', offsets: [{ x: -38, z: 58 }, { x: 10, z: 62 }, { x: 64, z: 38 }] },
     { kind: 'guard-tower', offsets: [{ x: 52, z: -32 }, { x: -56, z: -8 }, { x: 58, z: 58 }] },
+    { kind: 'aa-tower', offsets: [{ x: 68, z: -4 }, { x: -68, z: 30 }, { x: 28, z: 76 }] },
   ];
   for (const item of placements) {
     economy.readyStructure = item.kind;

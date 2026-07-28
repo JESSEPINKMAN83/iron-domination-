@@ -927,6 +927,7 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
       launcher.add(nose);
     }
     add(launcher, 4);
+    root.userData.turretPivot = launcher;
     const dish = cyl('aa-radar-dish', width * 0.16, width * 0.16, 0.12, -width * 0.28, height + height * 0.94, -depth * 0.2, metal, 3, 20);
     dish.rotation.x = Math.PI * 0.5;
     dish.rotation.z = 0.38;

@@ -1,5 +1,5 @@
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
-import { createFortressWeapons, FORTRESS_TOWER, isFortressTower } from '../content/fortress';
+import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, type FortressTowerKind } from '../content/fortress';
 import { startPosition } from '../content/startPositions';
 import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
@@ -172,7 +172,10 @@ function createPlacedStructure(
   z: number,
 ): Entity {
   const groundY = sampleHeight(hf, x, z);
-  const fortressWeapons = def.kind === 'guard-tower' ? createFortressWeapons() : undefined;
+  const fortressKind = FORTRESS_TOWER_KINDS.includes(def.kind as FortressTowerKind)
+    ? def.kind as FortressTowerKind
+    : undefined;
+  const fortressWeapons = fortressKind ? createFortressWeapons(fortressKind) : undefined;
   const entity = sim.world.add({
     id: sim.nextEntityId++,
     name: def.label,
@@ -195,12 +198,12 @@ function createPlacedStructure(
     weapon: fortressWeapons?.weapon ?? (def.weaponKind ? { kind: def.weaponKind, range: def.weaponRange ?? 80, cooldown: 0 } : undefined),
     weapons: fortressWeapons?.weapons,
     specialWeapon: fortressWeapons?.specialWeapon,
-    turret: def.weaponKind ? { yaw: 0, turnRate: def.kind === 'guard-tower' ? FORTRESS_TOWER.turretTurnRate : 2.4 } : undefined,
-    possessable: def.kind === 'guard-tower' ? { socketHeight: FORTRESS_TOWER.socketHeight } : undefined,
+    turret: def.weaponKind ? { yaw: 0, turnRate: fortressKind ? FORTRESS_TOWER.turretTurnRate : 2.4 } : undefined,
+    possessable: fortressKind ? { socketHeight: FORTRESS_TOWER.socketHeight } : undefined,
     collider: { radius: def.blocksMovement ? footprintRadius(hf, def.footprint) : Math.max(def.footprint.w, def.footprint.h) },
     armor: { kind: 'building' },
   });
-  if (isFortressTower(entity)) entity.vision = { radius: FORTRESS_TOWER.visionRadius };
+  if (fortressKind) entity.vision = { radius: def.visionRadius ?? FORTRESS_TOWER.visionRadius };
   entity.structureDamage = createStructureDamage(entity);
   if (def.blocksMovement) sim.nav.setDynamicBlocker(entity.id, entity.transform.x, entity.transform.z, entity.collider?.radius ?? 4);
   return entity;

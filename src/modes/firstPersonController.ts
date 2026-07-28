@@ -124,6 +124,7 @@ export class FirstPersonController {
   private lockCandidateId?: number;
   private lockedTargetId?: number;
   private lockProgress = 0;
+  private manualTargetLock = false;
 
   constructor(
     private readonly dom: HTMLElement,
@@ -375,6 +376,27 @@ export class FirstPersonController {
       return true;
     }
     return this.fire('secondary');
+  }
+
+  toggleTargetLock(): boolean {
+    if (this.mode !== 'fps' || !this.possessed || !isFortressTower(this.possessed)) return false;
+    if (this.manualTargetLock && this.lockedTarget()) {
+      this.resetTargetLock();
+      this.flashAbilityStatus('TARGET LOCK RELEASED');
+      return true;
+    }
+    const candidate = this.reticleTarget(this.possessed, false, true);
+    if (!candidate) {
+      this.flashAbilityStatus('NO VALID TARGET IN LOCK CONE');
+      return false;
+    }
+    this.lockCandidateId = candidate.id;
+    this.lockedTargetId = candidate.id;
+    this.lockProgress = TARGET_LOCK_SECONDS;
+    this.manualTargetLock = true;
+    this.renderTargetLock(candidate, true);
+    this.flashAbilityStatus(`LOCKED ${unitDisplayName(candidate).toUpperCase()}`);
+    return true;
   }
 
   update(dt: number, alpha = 1): void {
@@ -634,6 +656,21 @@ export class FirstPersonController {
       this.resetTargetLock();
       return;
     }
+    if (this.manualTargetLock) {
+      const target = this.lockedTarget();
+      if (
+        !target ||
+        !target.team ||
+        !this.possessed.team ||
+        !areTeamsHostile(this.sim, this.possessed.team.id, target.team.id) ||
+        !this.isVisible(target.transform.x, target.transform.z)
+      ) {
+        this.resetTargetLock();
+        return;
+      }
+      this.renderTargetLock(target, true);
+      return;
+    }
     const candidate = this.reticleTarget(this.possessed, false);
     if (!candidate) {
       this.resetTargetLock();
@@ -647,6 +684,10 @@ export class FirstPersonController {
     this.lockProgress = Math.min(TARGET_LOCK_SECONDS, this.lockProgress + dt);
     if (this.lockProgress >= TARGET_LOCK_SECONDS) this.lockedTargetId = candidate.id;
     const locked = this.lockedTargetId === candidate.id;
+    this.renderTargetLock(candidate, locked);
+  }
+
+  private renderTargetLock(candidate: Entity, locked: boolean): void {
     this.lockHud.style.display = 'block';
     this.lockHud.style.borderColor = locked ? 'rgba(255,82,62,.98)' : 'rgba(240,213,106,.9)';
     this.lockHud.style.boxShadow = locked
@@ -661,6 +702,7 @@ export class FirstPersonController {
     this.lockCandidateId = undefined;
     this.lockedTargetId = undefined;
     this.lockProgress = 0;
+    this.manualTargetLock = false;
     this.lockHud.style.display = 'none';
   }
 
@@ -674,7 +716,7 @@ export class FirstPersonController {
     return target;
   }
 
-  private reticleTarget(entity: Entity, aircraftOnly: boolean): Entity | undefined {
+  private reticleTarget(entity: Entity, aircraftOnly: boolean, assisted = false): Entity | undefined {
     if (!entity.playerControlled || !entity.team) return undefined;
     const direction = this.camera.getWorldDirection(this.tmpCameraDirection);
     let best: Entity | undefined;
@@ -683,6 +725,7 @@ export class FirstPersonController {
       const tankTarget = candidate.selectable?.type === 'tank' && !!candidate.mover;
       const fortressTarget = isFortressTower(entity) && Boolean(candidate.armor);
       if ((!candidate.flight && (aircraftOnly || (!tankTarget && !fortressTarget))) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
+      if (isFortressTower(entity) && entity.weapons?.primary.kind === 'aaMissile' && candidate.armor?.kind !== 'air') continue;
       if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
       if (!this.isVisible(candidate.transform.x, candidate.transform.z)) continue;
       const offsetX = candidate.transform.x - this.camera.position.x;
@@ -693,7 +736,9 @@ export class FirstPersonController {
       const along = offsetX * direction.x + offsetY * direction.y + offsetZ * direction.z;
       if (along <= 0 || along >= bestAlong) continue;
       const perpendicular = Math.sqrt(Math.max(0, offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ - along * along));
-      const tolerance = (candidate.collider?.radius ?? candidate.selectable?.radius ?? 3.5) + 1.6;
+      const tolerance =
+        (candidate.collider?.radius ?? candidate.selectable?.radius ?? 3.5) +
+        (assisted ? Math.max(4.5, along * 0.08) : 1.6);
       if (perpendicular > tolerance) continue;
       best = candidate;
       bestAlong = along;

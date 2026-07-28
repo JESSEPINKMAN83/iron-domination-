@@ -8,6 +8,7 @@ interface MobileControlActions {
   firePrimary(): boolean;
   fireSecondary(): boolean;
   useSpecial(): boolean;
+  toggleTargetLock(): boolean;
 }
 
 export interface MobileControlState {
@@ -74,22 +75,25 @@ export class MobileGameControls {
     fire.classList.add('mobile-fire-button');
     const secondary = button('MISSILE', 'Fire secondary weapon or use scope');
     const special = button('SPECIAL', 'Use special ability');
+    const lock = button('LOCK', 'Lock or release a target in the aiming cone');
     const speed = button('SPEED', 'Hold for maximum movement speed');
     this.speedButton = speed;
     this.nextUnitButton = button('NEXT UNIT', 'Control the next unit in the selected group');
     secondary.classList.add('mobile-secondary-button');
     special.classList.add('mobile-special-button');
+    lock.classList.add('mobile-lock-button');
     speed.classList.add('mobile-speed-button');
     this.nextUnitButton.classList.add('mobile-next-unit-button');
     bindRepeatAction(fire, () => this.actions.firePrimary(), 115);
     bindRepeatAction(secondary, () => this.actions.fireSecondary());
     bindRepeatAction(special, () => this.actions.useSpecial());
+    lock.onclick = () => this.actions.toggleTargetLock();
     this.nextUnitButton.onclick = () => this.actions.cyclePossessed();
     this.resetSpeedHold = bindHold(speed, (held) => {
       this.input.setMobileDrive({ boost: held });
       joystick.setSpeedHeld(held);
     });
-    weaponCluster.append(fire, secondary, special, speed, this.nextUnitButton);
+    weaponCluster.append(fire, secondary, special, lock, speed, this.nextUnitButton);
 
     this.climbControls = div('mobile-climb-controls');
     const climb = button('UP', 'Climb');
