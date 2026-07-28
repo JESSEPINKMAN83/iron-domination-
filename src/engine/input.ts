@@ -24,6 +24,13 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
     || tagName === 'SELECT';
 }
 
+export function eventTargetsGameSurface(
+  event: Pick<Event, 'composedPath'>,
+  gameSurface: EventTarget,
+): boolean {
+  return event.composedPath().includes(gameSurface);
+}
+
 // Central keyboard/mouse/touch state. Consumers poll state per frame;
 // discrete key presses can also be subscribed via onKeyDown.
 export class Input {
@@ -42,12 +49,15 @@ export class Input {
   private touchCamera: TouchCameraGesture = { panX: 0, panY: 0, pinch: 0, twist: 0 };
   private mobileDrive: MobileDriveState = { throttle: 0, turn: 0, climb: 0, boost: false };
   private readonly keyHandlers = new Map<string, Set<() => void>>();
+  private gameSurface?: HTMLElement;
+  private pointerEventOnGameSurface = false;
 
   constructor(touchDevice = isMobileTouchDevice()) {
     this.isTouchDevice = touchDevice;
   }
 
   attach(target: HTMLElement): void {
+    this.gameSurface = target;
     window.addEventListener('keydown', (e) => {
       if (isTextEntryTarget(e.target)) return;
       if (e.code === 'Space' || e.code === 'Tab' || e.code === 'F1' || e.code === 'F3' || e.code.startsWith('Arrow')) {
@@ -75,6 +85,9 @@ export class Input {
       this.mouseY = e.clientY;
       this.pointerInWindow = true;
       this.metaPointer = e.metaKey;
+      this.pointerEventOnGameSurface =
+        document.pointerLockElement === target || eventTargetsGameSurface(e, target);
+      if (!this.pointerEventOnGameSurface) return;
       if (e.buttons !== undefined) this.buttons = pointerButtonsToMask(e.buttons);
       if (e instanceof PointerEvent && e.pointerType === 'touch' && this.touchPointers.has(e.pointerId)) {
         this.trackTouchMove(e);
@@ -91,6 +104,7 @@ export class Input {
       this.buttons |= 1 << e.button;
       this.mouseX = e.clientX;
       this.mouseY = e.clientY;
+      this.pointerEventOnGameSurface = true;
       if (e instanceof PointerEvent && e.pointerType === 'touch') {
         // A fresh primary contact begins a new gesture. This also recovers from
         // Safari occasionally omitting pointerup after browser/UI interruption.
@@ -130,7 +144,10 @@ export class Input {
       },
       { passive: false },
     );
-    document.addEventListener('mouseleave', () => (this.pointerInWindow = false));
+    document.addEventListener('mouseleave', () => {
+      this.pointerInWindow = false;
+      this.pointerEventOnGameSurface = false;
+    });
     document.addEventListener('mouseenter', () => (this.pointerInWindow = true));
   }
 
@@ -157,6 +174,14 @@ export class Input {
 
   isCommandLookModifierDown(): boolean {
     return this.isMetaDown() || this.keys.has('ControlLeft') || this.keys.has('ControlRight');
+  }
+
+  isCameraPointerActive(): boolean {
+    if (!this.pointerInWindow || !this.gameSurface) return false;
+    if (document.pointerLockElement === this.gameSurface) return true;
+    const hit = document.elementFromPoint(this.mouseX, this.mouseY);
+    if (!hit) return this.pointerEventOnGameSurface;
+    return hit === this.gameSurface || this.gameSurface.contains(hit);
   }
 
   consumeWheel(): number {
