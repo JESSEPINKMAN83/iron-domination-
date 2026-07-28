@@ -2096,6 +2096,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const testStart = startMode === 'test' || startMode === 'sandbox';
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
+  const buildingShowcaseParam = params.get('building-showcase');
+  const buildingShowcase =
+    !multiplayerMode &&
+    !isPublicHost(location.hostname) &&
+    (buildingShowcaseParam === '1' || buildingShowcaseParam === 'industry' || buildingShowcaseParam === 'defense');
   const aircraftCrashPreview =
     !multiplayerMode && !isPublicHost(location.hostname) && params.get('aircraft-crash-preview') === '1';
   const fortressPreviewParam = params.get('fortress-preview');
@@ -2788,7 +2793,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   overlay.remove();
   loop.start();
-  if (!lineupStart && !fortressPreview) {
+  if (!lineupStart && !fortressPreview && !buildingShowcase) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     showMissionBriefing({ enemyCount: hostileArmyCount });
     if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
@@ -2807,6 +2812,36 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       setSelected(sim, pool.slice(0, 1), false, localTeam);
       firstPerson.enter(pool.slice(0, 1));
     }, 400);
+  }
+  if (buildingShowcase) {
+    window.setTimeout(() => {
+      const showcaseKinds: StructureKind[] =
+        buildingShowcaseParam === 'defense'
+          ? ['wall', 'guard-tower', 'aa-tower']
+          : buildingShowcaseParam === 'industry'
+            ? ['power-plant', 'refinery', 'factory']
+            : ['power-plant', 'refinery', 'barracks', 'factory', 'helipad'];
+      const showcaseBuildings = Array.from(sim.world.entities).filter(
+        (entity) =>
+          entity.team?.id === localTeam &&
+          entity.building &&
+          showcaseKinds.includes(entity.building.kind as StructureKind),
+      );
+      const focusX =
+        showcaseBuildings.length > 0
+          ? showcaseBuildings.reduce((sum, entity) => sum + entity.transform.x, 0) / showcaseBuildings.length
+          : localBase.transform.x + 4;
+      const focusZ =
+        showcaseBuildings.length > 0
+          ? showcaseBuildings.reduce((sum, entity) => sum + entity.transform.z, 0) / showcaseBuildings.length
+          : localBase.transform.z + 20;
+      rig.focusOn(
+        focusX,
+        focusZ,
+        { x: focusX + 74, z: focusZ + 86 },
+        buildingShowcaseParam === 'defense' ? 72 : buildingShowcaseParam === 'industry' ? 82 : 108,
+      );
+    }, 120);
   }
   if (fortressPreview) {
     window.setTimeout(() => {
@@ -3353,6 +3388,7 @@ function seedTestStartBase(sim: ReturnType<typeof createGameSim>, hf: ReturnType
     { kind: 'barracks', offsets: [{ x: -28, z: 28 }, { x: -52, z: 16 }, { x: 18, z: 34 }] },
     { kind: 'factory', offsets: [{ x: 34, z: 32 }, { x: 56, z: 4 }, { x: -20, z: 52 }] },
     { kind: 'helipad', offsets: [{ x: -38, z: 58 }, { x: 10, z: 62 }, { x: 64, z: 38 }] },
+    { kind: 'wall', offsets: [{ x: 2, z: -44 }, { x: -12, z: -44 }, { x: 16, z: -44 }] },
     { kind: 'guard-tower', offsets: [{ x: 52, z: -32 }, { x: -56, z: -8 }, { x: 58, z: 58 }] },
     { kind: 'aa-tower', offsets: [{ x: 68, z: -4 }, { x: -68, z: 30 }, { x: 28, z: 76 }] },
   ];
