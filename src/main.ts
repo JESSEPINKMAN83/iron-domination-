@@ -55,6 +55,7 @@ import { LockstepRuntime } from './net/commands';
 import { multiplayerInviteUrl, roomFromInvite } from './net/invite';
 import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, shouldLaunchLocalSkirmish, waitForMultiplayerServer, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession, type TacticalPingKind } from './net/multiplayer';
 import { AssetPipeline } from './render/assets';
+import { BattlefieldAtmosphere } from './render/atmosphere';
 import { BuildingView } from './render/buildingView';
 import { CombatView } from './render/combatView';
 import { EconomyFxView } from './render/economyFxView';
@@ -2104,6 +2105,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         : undefined;
   const ctx = new RenderContext(app, { multiplayer: multiplayerMode, initialQualityTier, mobileSafeMode: mobileTouch });
   applyMapAtmosphere(ctx, selectedMap);
+  const atmosphere = new BattlefieldAtmosphere(
+    hf,
+    selectedMap.atmosphere,
+    settings.seed,
+    ctx.sunDirection,
+    mobileTouch ? 0.55 : 1,
+  );
+  ctx.scene.add(atmosphere.group);
   const input = new Input(mobileTouch);
   input.attach(ctx.renderer.domElement);
 
@@ -2855,6 +2864,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         rig.setEmptyRightDragLook(controller.isEmptyRightLookActive());
         rig.update(dt);
       }
+      atmosphere.update(time, ctx.camera, ctx.scene.fog as Fog, firstPerson.flying);
       unitView.setFortressOpticsActive(firstPerson.fortress);
       unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
       unitView.update(alpha, dt, ctx.camera);
@@ -2890,7 +2900,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         lastResourceVisualTick = sim.tick;
         terrain.updateResources(sim.resourceNodes);
       }
-      water.update(time);
+      water.update(time, ctx.scene.fog as Fog);
       ctx.render(dt);
 
       fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
