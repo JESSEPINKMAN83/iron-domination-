@@ -19,13 +19,38 @@ export interface MapSizePreset {
   description: string;
 }
 
+export interface CloudLayerPreset {
+  clusters: number;
+  puffsPerCluster: number;
+  altitudeMin: number;
+  altitudeMax: number;
+  radiusMin: number;
+  radiusMax: number;
+  thicknessMin: number;
+  thicknessMax: number;
+  opacity: number;
+}
+
 export interface MapAtmosphere {
+  /** Solid fallback colour used by fog and before the sky shader compiles. */
   sky: string;
+  skyZenith: string;
+  skyHorizon: string;
+  sunGlow: string;
+  sunStrength: number;
   fogNear: number;
   fogFar: number;
   hemisphereSky: number;
   hemisphereGround: number;
   hemisphereIntensity: number;
+  cloudLight: string;
+  cloudShade: string;
+  /** 0 keeps a faceted storm-bank silhouette; 1 uses fully rounded puffs. */
+  cloudSoftness: number;
+  cloudWindX: number;
+  cloudWindZ: number;
+  lowClouds: CloudLayerPreset;
+  highClouds: CloudLayerPreset;
   waterDeep: string;
   waterShallow: string;
 }
@@ -49,11 +74,42 @@ export const MAP_PRESETS = {
     biome: 'temperate',
     atmosphere: {
       sky: '#8fb3d6',
+      skyZenith: '#4f91cc',
+      skyHorizon: '#d7e9f4',
+      sunGlow: '#fff1bd',
+      sunStrength: 0.82,
       fogNear: 650,
       fogFar: 1900,
       hemisphereSky: 0xcfe0f2,
       hemisphereGround: 0x8a795d,
       hemisphereIntensity: 0.75,
+      cloudLight: '#fffdf4',
+      cloudShade: '#d8e4eb',
+      cloudSoftness: 1,
+      cloudWindX: 0.58,
+      cloudWindZ: 0.16,
+      lowClouds: {
+        clusters: 9,
+        puffsPerCluster: 8,
+        altitudeMin: 46,
+        altitudeMax: 70,
+        radiusMin: 28,
+        radiusMax: 54,
+        thicknessMin: 8,
+        thicknessMax: 15,
+        opacity: 0.43,
+      },
+      highClouds: {
+        clusters: 14,
+        puffsPerCluster: 6,
+        altitudeMin: 138,
+        altitudeMax: 188,
+        radiusMin: 48,
+        radiusMax: 92,
+        thicknessMin: 5,
+        thicknessMax: 11,
+        opacity: 0.32,
+      },
       waterDeep: '#061a24',
       waterShallow: '#296b6b',
     },
@@ -74,11 +130,42 @@ export const MAP_PRESETS = {
     biome: 'desert',
     atmosphere: {
       sky: '#dcbf8b',
+      skyZenith: '#5c94b7',
+      skyHorizon: '#efd09f',
+      sunGlow: '#ffd58b',
+      sunStrength: 1.05,
       fogNear: 520,
       fogFar: 1500,
       hemisphereSky: 0xffdfaa,
       hemisphereGround: 0x9b7042,
       hemisphereIntensity: 0.88,
+      cloudLight: '#fff0d1',
+      cloudShade: '#caa77c',
+      cloudSoftness: 0.32,
+      cloudWindX: 0.82,
+      cloudWindZ: 0.34,
+      lowClouds: {
+        clusters: 2,
+        puffsPerCluster: 4,
+        altitudeMin: 64,
+        altitudeMax: 80,
+        radiusMin: 36,
+        radiusMax: 58,
+        thicknessMin: 5,
+        thicknessMax: 9,
+        opacity: 0.3,
+      },
+      highClouds: {
+        clusters: 10,
+        puffsPerCluster: 4,
+        altitudeMin: 152,
+        altitudeMax: 212,
+        radiusMin: 66,
+        radiusMax: 118,
+        thicknessMin: 3,
+        thicknessMax: 7,
+        opacity: 0.3,
+      },
       waterDeep: '#073540',
       waterShallow: '#21a5a6',
     },
@@ -99,11 +186,42 @@ export const MAP_PRESETS = {
     biome: 'snow',
     atmosphere: {
       sky: '#b9cce0',
+      skyZenith: '#849bad',
+      skyHorizon: '#e0e8ed',
+      sunGlow: '#eef7fb',
+      sunStrength: 0.42,
       fogNear: 360,
       fogFar: 1220,
       hemisphereSky: 0xeaf7ff,
       hemisphereGround: 0x8793a0,
       hemisphereIntensity: 0.96,
+      cloudLight: '#eaf1f4',
+      cloudShade: '#98a8b4',
+      cloudSoftness: 0.46,
+      cloudWindX: 0.4,
+      cloudWindZ: -0.24,
+      lowClouds: {
+        clusters: 14,
+        puffsPerCluster: 8,
+        altitudeMin: 42,
+        altitudeMax: 68,
+        radiusMin: 34,
+        radiusMax: 72,
+        thicknessMin: 11,
+        thicknessMax: 19,
+        opacity: 0.72,
+      },
+      highClouds: {
+        clusters: 12,
+        puffsPerCluster: 7,
+        altitudeMin: 112,
+        altitudeMax: 158,
+        radiusMin: 68,
+        radiusMax: 124,
+        thicknessMin: 10,
+        thicknessMax: 18,
+        opacity: 0.6,
+      },
       waterDeep: '#23394f',
       waterShallow: '#9bd8e5',
     },

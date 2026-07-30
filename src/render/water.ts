@@ -131,8 +131,13 @@ export class WaterView {
     this.mesh.updateMatrix();
   }
 
-  update(timeSeconds: number): void {
+  update(timeSeconds: number, fog?: Fog): void {
     this.material.uniforms.uTime.value = timeSeconds;
+    if (fog) {
+      this.material.uniforms.uFogColor.value.copy(fog.color);
+      this.material.uniforms.uFogNear.value = fog.near;
+      this.material.uniforms.uFogFar.value = fog.far;
+    }
   }
 
   setDebugOverlay(enabled: boolean): void {
