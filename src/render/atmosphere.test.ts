@@ -23,6 +23,18 @@ describe('battlefield atmosphere cloud layout', () => {
     expect(clouds.every((cloud) => cloud.puffs.length === preset.puffsPerCluster)).toBe(true);
   });
 
+  it('builds rounded cloud masses instead of flat stacked discs', () => {
+    const preset = MAP_PRESETS.highlands.atmosphere.lowClouds;
+    const [cloud] = createCloudLayout(1024, 4242, preset, 17);
+    const centralPuff = cloud.puffs[0];
+    const edgePuffs = cloud.puffs.slice(Math.ceil(cloud.puffs.length * 0.42));
+
+    expect(centralPuff.offsetY).toBeGreaterThan(0);
+    expect(centralPuff.scaleY).toBeGreaterThan(cloud.thickness);
+    expect(edgePuffs.some((puff) => puff.scaleY < centralPuff.scaleY)).toBe(true);
+    expect(edgePuffs.some((puff) => puff.offsetY < centralPuff.offsetY)).toBe(true);
+  });
+
   it('gives each biome a meaningfully different cloud profile', () => {
     const highlands = MAP_PRESETS.highlands.atmosphere;
     const desert = MAP_PRESETS['crater-oasis'].atmosphere;
