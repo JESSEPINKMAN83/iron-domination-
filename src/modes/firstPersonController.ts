@@ -9,6 +9,7 @@ import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
 import { unitDisplayName } from '../ui/unitDisplayName';
 import {
+  directionalHitFeedback,
   hitFlashOpacity,
   hitShakeProfile,
   impactForceFromEvent,
@@ -136,6 +137,7 @@ export class FirstPersonController {
   private readonly tmpAppliedQuaternion = new Quaternion();
   private readonly tmpYawKick = new Quaternion();
   private readonly tmpPitchKick = new Quaternion();
+  private readonly tmpRollKick = new Quaternion();
   private readonly smoothFlightCenter = new Vector3();
   private hasSmoothFlightCenter = false;
   private chaseZoom = 0;
@@ -165,6 +167,10 @@ export class FirstPersonController {
   private impactShakeDuration = 0;
   private impactShakeSeed = 0;
   private impactSide = 0;
+  private impactLongitudinal = 0;
+  private impactVertical = 0;
+  private impactRoll = 0;
+  private impactPitch = 0;
   private impactOverlayOpacity = 0;
   private lowHpVignetteOpacity = 0;
   private lockCandidateId?: number;
@@ -323,13 +329,22 @@ export class FirstPersonController {
       if (event.kind !== 'impact-reaction' || event.targetId !== this.possessed.id) continue;
       const force = impactForceFromEvent(event);
       const shake = hitShakeProfile(force);
-      this.impactShakeStrength = Math.max(this.impactShakeStrength * 0.45, shake.strength);
-      this.impactShakeDuration = Math.max(this.impactShakeDuration, shake.duration);
+      const directional = directionalHitFeedback(event, this.lookYaw);
+      const rapidHitBoost = this.impactShakeRemaining > 0 ? 1.14 : 1;
+      this.impactShakeStrength = Math.min(2.2, Math.max(this.impactShakeStrength * 0.58, shake.strength) * rapidHitBoost);
+      this.impactShakeDuration = Math.min(1.35, Math.max(this.impactShakeDuration, shake.duration) * rapidHitBoost);
       this.impactShakeRemaining = Math.max(this.impactShakeRemaining, shake.duration);
       this.impactShakeSeed = (event.targetId * 31 + this.sim.tick * 17) % 997;
-      const impactYaw = Math.atan2(event.toX - event.fromX, event.toZ - event.fromZ);
-      this.impactSide = Math.sin(impactYaw - this.lookYaw) >= 0 ? 1 : -1;
+      this.impactSide = directional.side;
+      this.impactLongitudinal = directional.longitudinal;
+      this.impactVertical = directional.vertical;
+      this.impactRoll = directional.roll;
+      this.impactPitch = directional.pitch;
       this.impactOverlayOpacity = Math.max(this.impactOverlayOpacity, hitFlashOpacity(force));
+      const flashX = Math.round(50 - directional.side * 34);
+      const flashY = Math.round(50 + directional.vertical * 28 - directional.longitudinal * 18);
+      this.impactOverlay.style.background =
+        `radial-gradient(circle at ${flashX}% ${flashY}%,transparent 0 34%,rgba(255,150,90,.1) 62%,rgba(255,58,32,.82) 100%)`;
       this.impactOverlay.style.display = 'block';
       this.callbacks.onHitFeedback?.(reticleFlashIntensity(force));
     }
@@ -580,6 +595,11 @@ export class FirstPersonController {
     this.lowHpVignetteOpacity = 0;
     this.resetTargetLock();
     this.impactShakeRemaining = 0;
+    this.impactSide = 0;
+    this.impactLongitudinal = 0;
+    this.impactVertical = 0;
+    this.impactRoll = 0;
+    this.impactPitch = 0;
     this.updateScopeOverlay(false);
     this.mode = 'rts';
     this.camera.fov = 50;
@@ -1238,11 +1258,21 @@ export class FirstPersonController {
       const vertical = Math.sin(phase * 1.43 + 0.8) * kick;
       this.tmpShakeRight.set(1, 0, 0).applyQuaternion(quaternion);
       this.tmpShakeUp.set(0, 1, 0).applyQuaternion(quaternion);
-      position.addScaledVector(this.tmpShakeRight, lateral * 0.52 + this.impactSide * kick * 0.32);
-      position.addScaledVector(this.tmpShakeUp, vertical * 0.34);
-      const yawKick = this.tmpYawKick.setFromAxisAngle(this.tmpShakeUp, (lateral + this.impactSide * kick * 0.7) * 0.028);
-      const pitchKick = this.tmpPitchKick.setFromAxisAngle(this.tmpShakeRight, vertical * 0.022);
-      quaternion.premultiply(yawKick).premultiply(pitchKick);
+      position.addScaledVector(this.tmpShakeRight, lateral * 0.38 + this.impactSide * kick * 0.45);
+      position.addScaledVector(this.tmpShakeUp, vertical * 0.25 - this.impactVertical * kick * 0.42);
+      const yawKick = this.tmpYawKick.setFromAxisAngle(
+        this.tmpShakeUp,
+        (lateral * 0.6 + this.impactSide * kick * 0.72) * 0.032,
+      );
+      const pitchKick = this.tmpPitchKick.setFromAxisAngle(
+        this.tmpShakeRight,
+        (vertical * 0.45 + this.impactPitch * kick + this.impactLongitudinal * kick * 0.2) * 0.034,
+      );
+      const rollKick = this.tmpRollKick.setFromAxisAngle(
+        this.tmpForward.set(0, 0, -1).applyQuaternion(quaternion),
+        this.impactRoll * kick * 0.026,
+      );
+      quaternion.premultiply(yawKick).premultiply(pitchKick).premultiply(rollKick);
     }
     this.impactOverlayOpacity = Math.max(0, this.impactOverlayOpacity - dt * 1.35);
     if (this.impactOverlayOpacity > 0.001) {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { FlowField } from './flowfield';
 import { generateHeightfield, sampleHeight, type Heightfield } from './heightfield';
-import { createEconomy, createInitialBase } from './economy';
+import { createEconomy, createInitialBase, spawnInfantryAt } from './economy';
 import { attackStandoffPoint, createGameSim, hashSim, issueMoveOrder, selectedEntities, setSelected, spawnDebugTanks, spawnHammerheadAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
 
 describe('phase 2 movement simulation', () => {
@@ -58,6 +58,29 @@ describe('phase 2 movement simulation', () => {
     expect(Math.hypot(tank.transform.x - start.x, tank.transform.z - start.z)).toBeGreaterThan(8);
     expect(tank.mover?.target).toBeUndefined();
     expect(tank.mover?.flow).toBeUndefined();
+  });
+
+  it('briefly holds knocked-down infantry, then restores its move order', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const startCell = sim.nav.nearestWalkableCell(-40, -40) ?? sim.nav.nearestWalkableCellGlobal(-40, -40);
+    const endCell = sim.nav.nearestWalkableCell(40, 40) ?? sim.nav.nearestWalkableCellGlobal(40, 40);
+    expect(startCell).toBeDefined();
+    expect(endCell).toBeDefined();
+    const start = sim.nav.cellCenter(startCell!.x, startCell!.y);
+    const end = sim.nav.cellCenter(endCell!.x, endCell!.y);
+    const soldier = spawnInfantryAt(sim, start.x, start.z, 1, 'infantry');
+    expect(issueMoveOrder(sim, [soldier], end.x, end.z)).toBe(true);
+    soldier.impactMomentum = { x: 0, z: 0, yaw: 0, ttl: 1, stagger: 1 };
+
+    for (let i = 0; i < 15; i++) stepSim(sim, hf, 1 / 30);
+    const duringFall = Math.hypot(soldier.transform.x - start.x, soldier.transform.z - start.z);
+    expect(duringFall).toBeLessThan(0.25);
+
+    for (let i = 0; i < 60; i++) stepSim(sim, hf, 1 / 30);
+    const afterRecovery = Math.hypot(soldier.transform.x - start.x, soldier.transform.z - start.z);
+    expect(afterRecovery).toBeGreaterThan(2);
+    expect(soldier.mover?.target).toBeDefined();
   });
 
   it('does not turn an idle tank to face passive blast momentum', () => {

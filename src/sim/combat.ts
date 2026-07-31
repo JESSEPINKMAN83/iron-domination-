@@ -3,6 +3,7 @@ import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { angleDelta, slewAngle } from './angles';
 import type { Entity, Weapon } from './components';
 import { hash2i, smoothstep } from './noise';
+import { directionalImpactResponse } from './impactModel';
 import { applyStructureDamage } from './structureDamage';
 import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, stopEntities, type GameSim } from './world';
 
@@ -243,6 +244,7 @@ export function manualFireAt(
       hitZ,
       hitY: structureHitY(target, attacker),
       fromX: attacker.transform.x,
+      fromY: directMuzzleY(attacker),
       fromZ: attacker.transform.z,
       splashRadius: 0,
       trajectory: attacker.flight ? 'flat' : 'flat',
@@ -524,6 +526,7 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
         hitZ: z,
         hitY: structureHitY(directTarget, attacker, impactTrajectory),
         fromX: projectile.fromX,
+        fromY: projectile.fromY,
         fromZ: projectile.fromZ,
         splashRadius: 0,
         trajectory: impactTrajectory,
@@ -565,6 +568,7 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
       hitZ: target.transform.z,
       hitY: structureHitY(target, attacker),
       fromX: attacker.transform.x,
+      fromY: directMuzzleY(attacker),
       fromZ: attacker.transform.z,
       splashRadius: 0,
       trajectory: attacker.flight ? 'flat' : 'flat',
@@ -759,9 +763,10 @@ interface DamageImpact {
   hitZ: number;
   hitY?: number;
   fromX: number;
+  fromY?: number;
   fromZ: number;
   splashRadius: number;
-  trajectory?: 'arc' | 'drop' | 'flat';
+  trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
   weaponKind: WeaponKind;
 }
 
@@ -780,7 +785,7 @@ function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: Dama
       fromZ: impact.fromZ,
       amount: dealt,
       splashRadius: impact.splashRadius,
-      trajectory: impact.trajectory,
+      trajectory: impact.trajectory === 'homing' ? 'flat' : impact.trajectory,
     });
   }
   if (target.health.current <= 0 && !target.destroyed) {
@@ -796,33 +801,56 @@ function applyImpactPhysics(sim: GameSim, target: Entity, dealt: number, impact:
   if (!target.health || !target.velocity || !target.mover) return;
   const force = normalizedImpactForce(target, dealt, impact.weaponKind);
   if (force <= 0.012) return;
-  const originX = impact.splashRadius > 0 ? impact.hitX : impact.fromX;
-  const originZ = impact.splashRadius > 0 ? impact.hitZ : impact.fromZ;
-  let dx = target.transform.x - originX;
-  let dz = target.transform.z - originZ;
-  let distance = Math.hypot(dx, dz);
-  if (distance < 0.001) {
-    dx = -Math.sin(target.transform.rot);
-    dz = -Math.cos(target.transform.rot);
-    distance = 1;
+  const response = directionalImpactResponse({
+    targetX: target.transform.x,
+    targetY: target.transform.y,
+    targetZ: target.transform.z,
+    targetRot: target.transform.rot,
+    targetRadius: target.collider?.radius ?? target.mover.radius,
+    armor: target.armor?.kind ?? 'light',
+    force,
+    fromX: impact.fromX,
+    fromY: impact.fromY,
+    fromZ: impact.fromZ,
+    hitX: impact.hitX,
+    hitY: impact.hitY,
+    hitZ: impact.hitZ,
+    splashRadius: impact.splashRadius,
+    trajectory: impact.trajectory,
+  });
+  if (!target.flight) {
+    const existing = target.impactMomentum;
+    const carry = existing ? 0.62 : 0;
+    const physicalScale = target.playerControlled ? 1 : 0.12;
+    const stagger = target.armor?.kind === 'infantry' && force > 0.18
+      ? Math.min(1.28, 0.34 + force * 0.9)
+      : 0;
+    // Preserve a small velocity kick for existing movement/combat consumers;
+    // the momentum layer below carries the readable, slower recoil.
+    target.velocity.x += response.directionX * response.impulseSpeed * 0.18;
+    target.velocity.z += response.directionZ * response.impulseSpeed * 0.18;
+    target.impactMomentum = {
+      x: Math.max(-8, Math.min(8, response.directionX * response.impulseSpeed * physicalScale + (existing?.x ?? 0) * carry)),
+      z: Math.max(-8, Math.min(8, response.directionZ * response.impulseSpeed * physicalScale + (existing?.z ?? 0) * carry)),
+      yaw: Math.max(-1.25, Math.min(1.25, response.angularImpulse * 0.56 * physicalScale + (existing?.yaw ?? 0) * carry)),
+      ttl: Math.max(existing?.ttl ?? 0, 0.72 + force * 0.48, stagger),
+      stagger: Math.max(existing?.stagger ?? 0, stagger),
+    };
   }
-  dx /= distance;
-  dz /= distance;
-  const impulseSpeed = force * (target.armor?.kind === 'infantry' ? 10.5 : target.armor?.kind === 'air' ? 7.5 : target.armor?.kind === 'heavy' ? 4.2 : 6.2);
-  target.velocity.x += dx * impulseSpeed;
-  target.velocity.z += dz * impulseSpeed;
   if (target.flight) {
-    const side = Math.sin(Math.atan2(dx, dz) - target.transform.rot) >= 0 ? 1 : -1;
-    target.flight.verticalVelocity += force * 3.8;
-    target.flight.rollAttitude += side * force * 0.42;
-    target.flight.pitchAttitude -= force * 0.18;
+    target.velocity.x += response.directionX * response.impulseSpeed;
+    target.velocity.z += response.directionZ * response.impulseSpeed;
+    target.flight.verticalVelocity += response.verticalImpulse * 1.5;
+    target.flight.rollAttitude += response.angularImpulse * 0.42;
+    target.flight.pitchAttitude -= response.localForward * force * 0.18;
   }
   sim.events.push({
     kind: 'impact-reaction',
     impactKind: impact.weaponKind,
     force,
-    fromX: originX,
-    fromZ: originZ,
+    fromX: impact.fromX,
+    fromY: impact.fromY,
+    fromZ: impact.fromZ,
     toX: target.transform.x,
     toY: target.transform.y,
     toZ: target.transform.z,
@@ -834,6 +862,12 @@ function applyImpactPhysics(sim: GameSim, target: Entity, dealt: number, impact:
     damage: dealt,
     killed: target.health.current <= 0,
     trajectory: impact.trajectory,
+    impactZone: response.zone,
+    impulseX: response.directionX * response.impulseSpeed,
+    impulseZ: response.directionZ * response.impulseSpeed,
+    verticalImpulse: response.verticalImpulse,
+    angularImpulse: response.angularImpulse,
+    topFactor: response.topFactor,
   });
 }
 
@@ -904,6 +938,7 @@ function applyAreaDamage(
       hitZ: z,
       hitY: trajectory ? structureHitY(target, attacker, trajectory) : structureHitY(target, attacker),
       fromX: attacker?.transform.x ?? x,
+      fromY: attacker ? directMuzzleY(attacker) : undefined,
       fromZ: attacker?.transform.z ?? z,
       splashRadius: radius,
       trajectory: trajectory ?? (attacker?.flight ? 'flat' : 'flat'),

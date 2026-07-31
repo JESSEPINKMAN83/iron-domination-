@@ -111,6 +111,7 @@ import { MissionComms } from './ui/missionComms';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
+import { unitDisplayName } from './ui/unitDisplayName';
 
 const nextFrame = (): Promise<number> => new Promise((resolve) => requestAnimationFrame(resolve));
 const SKIRMISH_STORAGE_KEY = 'iron-dominion.skirmish.v1';
@@ -150,12 +151,25 @@ interface ArmyRuntime {
 }
 
 type CinematicShot = 'overview' | 'frontline' | 'base' | 'air';
+type ImpactPreview = 'side' | 'top' | 'salvo' | 'near';
 
 interface CinematicWarScene {
   units: Entity[];
   localAircraft: Entity[];
   focus: { x: number; z: number };
   friendlyBase: { x: number; z: number };
+  forward: { x: number; z: number };
+  right: { x: number; z: number };
+}
+
+interface ImpactMovementDemoScene {
+  units: Entity[];
+  tanks: Entity[];
+  infantry: Entity[];
+  aircraft: Entity[];
+  focus: { x: number; z: number };
+  routeA: { x: number; z: number };
+  routeB: { x: number; z: number };
   forward: { x: number; z: number };
   right: { x: number; z: number };
 }
@@ -2140,6 +2154,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const startMode = params.get('start');
   const lineupStart = startMode === 'lineup';
+  const impactMovementDemo =
+    startMode === 'impact-demo' && !multiplayerMode && !isPublicHost(location.hostname);
   const cinematicWar =
     startMode === 'cinematic' && !multiplayerMode && !isPublicHost(location.hostname);
   const durabilityPreview =
@@ -2152,9 +2168,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const collectorPreview =
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
-  const testStart = startMode === 'test' || startMode === 'sandbox' || cinematicWar || durabilityPreview;
+  const testStart = startMode === 'test' || startMode === 'sandbox' || cinematicWar || durabilityPreview || impactMovementDemo;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
+  const impactPreview =
+    !multiplayerMode && !isPublicHost(location.hostname)
+      ? sanitizeImpactPreview(params.get('impact-preview'))
+      : undefined;
   const buildingShowcaseParam = params.get('building-showcase');
   const buildingShowcase =
     !multiplayerMode &&
@@ -2168,6 +2188,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     !isPublicHost(location.hostname) &&
     (fortressPreviewParam === '1' || fortressPreviewParam === 'guard' || fortressPreviewParam === 'aa');
   let nextHitJuicePreviewTick = 0;
+  let impactPreviewSequence = 0;
+  let impactPreviewSalvoRemaining = 0;
+  let nextImpactPreviewSalvoTick = 0;
+  let impactDemoSequence = 0;
+  let impactDemoRouteToB = true;
+  let nextImpactDemoRouteTick = 240;
+  let nextImpactDemoTick = 36;
+  let impactDemoSalvoRemaining = 0;
+  let impactDemoSalvoShot = 0;
+  let nextImpactDemoSalvoTick = 0;
+  let impactDemoSalvoTarget: Entity | undefined;
   const aiDifficulty: Difficulty = settings.ai;
   const aiPersonality: Personality = settings.aiStyle;
   const savedMatch = multiplayerMode ? undefined : consumeLoadStoredMatch();
@@ -2230,7 +2261,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const isVisibleToPlayer = lineupStart ? () => true : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
-    if (durabilityPreview || !aiTeams.has(army.team)) continue;
+    if (durabilityPreview || impactMovementDemo || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
@@ -2280,7 +2311,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const durabilityScene = durabilityPreview && !loadedFromSave
     ? spawnDurabilityPreview(sim, hf, armies, localTeam)
     : undefined;
-  const startingUnits = cinematicScene
+  const impactDemoScene = impactMovementDemo && !loadedFromSave
+    ? spawnImpactMovementDemo(sim, hf, armies, localTeam)
+    : undefined;
+  const startingUnits = impactDemoScene
+    ? impactDemoScene.units
+    : cinematicScene
     ? cinematicScene.units
     : durabilityScene
       ? durabilityScene.units
@@ -2312,6 +2348,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastFogTextureTick = -2;
   let lastResourceVisualTick = -1;
   const hud = new Hud(document.body);
+  const impactDemoPanel = impactDemoScene ? createImpactMovementDemoPanel() : undefined;
   let sidebar!: Sidebar;
   let tacticalPingKind: TacticalPingKind | undefined;
   let networkPaused = false;
@@ -2367,6 +2404,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       collectorPreviewEntity.transform.z,
       { x: collectorPreviewEntity.transform.x - 12, z: collectorPreviewEntity.transform.z + 18 },
       28,
+    );
+  } else if (impactDemoScene) {
+    rig.focusOn(
+      impactDemoScene.focus.x,
+      impactDemoScene.focus.z,
+      {
+        x: impactDemoScene.focus.x - impactDemoScene.forward.x * 72 + impactDemoScene.right.x * 64,
+        z: impactDemoScene.focus.z - impactDemoScene.forward.z * 72 + impactDemoScene.right.z * 64,
+      },
+      104,
+      -4,
     );
   } else if (cinematicScene && cinematicShot !== 'air') {
     applyCinematicCamera(rig, cinematicScene, cinematicShot);
@@ -2797,8 +2845,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         visions: armies.map((army) => army.vision),
         commanders,
         lockstep,
-        autoFire: !lineupStart && !durabilityPreview,
-        runCommanders: !lineupStart && !durabilityPreview,
+        autoFire: !lineupStart && !durabilityPreview && !impactMovementDemo,
+        runCommanders: !lineupStart && !durabilityPreview && !impactMovementDemo,
       });
       const spawned = tickResult.spawned;
       for (const entity of spawned) {
@@ -2814,33 +2862,92 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         fogView.refresh();
       }
       const events = tickResult.events;
-      if (hitJuicePreview && firstPerson.inFirstPerson) {
+      if (impactDemoScene) {
+        if (sim.tick >= nextImpactDemoRouteTick) {
+          impactDemoRouteToB = !impactDemoRouteToB;
+          const destination = impactDemoRouteToB ? impactDemoScene.routeB : impactDemoScene.routeA;
+          const facing = impactDemoRouteToB
+            ? Math.atan2(impactDemoScene.forward.x, impactDemoScene.forward.z)
+            : Math.atan2(-impactDemoScene.forward.x, -impactDemoScene.forward.z);
+          const groundUnits = impactDemoScene.units.filter((entity) => !entity.flight);
+          issueMoveOrder(sim, groundUnits, destination.x, destination.z, false, facing, 0.72);
+          issueMoveOrder(
+            sim,
+            impactDemoScene.aircraft,
+            destination.x - impactDemoScene.forward.x * 20,
+            destination.z - impactDemoScene.forward.z * 20,
+            false,
+            facing,
+            0.88,
+          );
+          nextImpactDemoRouteTick = sim.tick + 240;
+        }
+
+        const demoImpactDue =
+          impactDemoSalvoRemaining > 0
+            ? sim.tick >= nextImpactDemoSalvoTick
+            : sim.tick >= nextImpactDemoTick;
+        if (demoImpactDue) {
+          if (impactDemoSalvoRemaining > 0 && impactDemoSalvoTarget) {
+            impactDemoPanel?.announce('salvo', impactDemoSalvoTarget, impactDemoSalvoShot + 1, 4);
+            events.push(...createImpactPreviewEvents(impactDemoSalvoTarget, 'salvo', impactDemoSequence * 10 + impactDemoSalvoShot++));
+            impactDemoSalvoRemaining--;
+            nextImpactDemoSalvoTick = sim.tick + 3;
+            if (impactDemoSalvoRemaining <= 0) {
+              impactDemoSalvoTarget = undefined;
+              nextImpactDemoTick = sim.tick + 54;
+            }
+          } else {
+            const scenarios: ImpactPreview[] = ['side', 'near', 'top', 'side', 'salvo', 'near'];
+            const scenario = scenarios[impactDemoSequence % scenarios.length];
+            const preferInfantry = impactDemoSequence % 2 === 1;
+            const pool = preferInfantry ? impactDemoScene.infantry : impactDemoScene.tanks;
+            const target = pool[Math.floor(impactDemoSequence / 2) % Math.max(1, pool.length)];
+            if (target && !target.destroyed) {
+              if (scenario === 'salvo') {
+                impactDemoSalvoTarget = target;
+                impactDemoSalvoRemaining = 4;
+                impactDemoSalvoShot = 0;
+                nextImpactDemoSalvoTick = sim.tick;
+                impactDemoSequence++;
+              } else {
+                impactDemoPanel?.announce(scenario, target);
+                events.push(...createImpactPreviewEvents(target, scenario, impactDemoSequence++));
+                nextImpactDemoTick = sim.tick + 54;
+              }
+            } else {
+              impactDemoSequence++;
+              nextImpactDemoTick = sim.tick + 18;
+            }
+          }
+        }
+      }
+      if ((hitJuicePreview || impactPreview) && firstPerson.inFirstPerson) {
         const possessed = firstPerson.possessedEntity;
-        if (possessed && !possessed.destroyed && sim.tick >= nextHitJuicePreviewTick) {
-          nextHitJuicePreviewTick = sim.tick + 18; // ~0.6s at 30 Hz
-          const force = 0.35 + (sim.tick % 5) * 0.12;
-          const yaw = possessed.playerControlled?.aimYaw ?? possessed.transform.rot;
-          const fromX = possessed.transform.x - Math.sin(yaw) * 18;
-          const fromZ = possessed.transform.z - Math.cos(yaw) * 18;
-          events.push({
-            kind: 'impact-reaction',
-            impactKind: 'tankMissile',
-            force,
-            fromX,
-            fromZ,
-            toX: possessed.transform.x,
-            toY: possessed.transform.y,
-            toZ: possessed.transform.z,
-            targetId: possessed.id,
-            targetLabel: possessed.name ?? 'unit',
-            targetType: possessed.selectable?.type ?? 'tank',
-            targetHealth: possessed.health?.current,
-            targetMaxHealth: possessed.health?.max,
-            damage: Math.max(8, Math.round((possessed.health?.max ?? 100) * force * 0.08)),
-            killed: false,
-          });
+        const scenario = impactPreview ?? 'side';
+        const previewDue =
+          scenario === 'salvo' && impactPreviewSalvoRemaining > 0
+            ? sim.tick >= nextImpactPreviewSalvoTick
+            : sim.tick >= nextHitJuicePreviewTick;
+        if (possessed && !possessed.destroyed && previewDue) {
+          if (scenario === 'salvo') {
+            if (impactPreviewSalvoRemaining <= 0) {
+              impactPreviewSalvoRemaining = 4;
+              nextImpactPreviewSalvoTick = sim.tick;
+              nextHitJuicePreviewTick = sim.tick + 84;
+            }
+            if (sim.tick >= nextImpactPreviewSalvoTick && impactPreviewSalvoRemaining > 0) {
+              events.push(...createImpactPreviewEvents(possessed, scenario, impactPreviewSequence++));
+              impactPreviewSalvoRemaining--;
+              nextImpactPreviewSalvoTick = sim.tick + 3;
+            }
+          } else {
+            events.push(...createImpactPreviewEvents(possessed, scenario, impactPreviewSequence++));
+            nextHitJuicePreviewTick = sim.tick + (hitJuicePreview && !impactPreview ? 18 : 66);
+          }
           if (possessed.health) {
-            possessed.health.current = Math.max(12, possessed.health.current - Math.max(6, Math.round(possessed.health.max * 0.045)));
+            if (possessed.health.current < possessed.health.max * 0.3) possessed.health.current = possessed.health.max;
+            else possessed.health.current = Math.max(12, possessed.health.current - Math.max(4, Math.round(possessed.health.max * 0.025)));
           }
         }
       }
@@ -2932,14 +3039,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   overlay.remove();
   loop.start();
   fadeOutLandingMusic(40_000);
-  if (!lineupStart && !fortressPreview && !buildingShowcase && !cinematicWar && !durabilityPreview) {
+  if (!lineupStart && !fortressPreview && !buildingShowcase && !cinematicWar && !durabilityPreview && !impactMovementDemo) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     showMissionBriefing({ enemyCount: hostileArmyCount });
     if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
       window.setTimeout(showEnemyFirstContact, 250);
     }
   }
-  if (hitJuicePreview) {
+  if (hitJuicePreview || impactPreview) {
     window.setTimeout(() => {
       const tanks = selectedEntities(sim, localTeam);
       const pool = tanks.length > 0
@@ -3532,6 +3639,144 @@ function sanitizeCinematicShot(value: string | null): CinematicShot {
   return value === 'frontline' || value === 'base' || value === 'air' ? value : 'overview';
 }
 
+function sanitizeImpactPreview(value: string | null): ImpactPreview | undefined {
+  return value === 'side' || value === 'top' || value === 'salvo' || value === 'near' ? value : undefined;
+}
+
+function createImpactPreviewEvent(entity: Entity, scenario: ImpactPreview, sequence: number): CombatEvent {
+  const rot = entity.transform.rot;
+  const forwardX = Math.sin(rot);
+  const forwardZ = Math.cos(rot);
+  const rightX = Math.cos(rot);
+  const rightZ = -Math.sin(rot);
+  const alternating = sequence % 2 === 0 ? 1 : -1;
+  let fromX = entity.transform.x + rightX * 18 * alternating;
+  let fromZ = entity.transform.z + rightZ * 18 * alternating;
+  let fromY = (entity.transform.y ?? 0) + 1.4;
+  let impulseX = -rightX * alternating * 3.2;
+  let impulseZ = -rightZ * alternating * 3.2;
+  let verticalImpulse = 0.42;
+  let angularImpulse = -alternating * 0.74;
+  let topFactor = 0.08;
+  let impactZone: NonNullable<CombatEvent['impactZone']> = alternating > 0 ? 'right' : 'left';
+  let trajectory: NonNullable<CombatEvent['trajectory']> = 'flat';
+  let force = 0.68;
+  let impactKind = 'tankMissile';
+
+  if (scenario === 'top') {
+    fromX = entity.transform.x - forwardX * 5;
+    fromZ = entity.transform.z - forwardZ * 5;
+    fromY = (entity.transform.y ?? 0) + 34;
+    impulseX = forwardX * 0.72;
+    impulseZ = forwardZ * 0.72;
+    verticalImpulse = 2.25;
+    angularImpulse = alternating * 0.18;
+    topFactor = 0.94;
+    impactZone = 'top';
+    trajectory = 'drop';
+    force = 0.82;
+    impactKind = 'agMissile';
+  } else if (scenario === 'salvo') {
+    const sideOffset = ((sequence % 4) - 1.5) * 2.2;
+    fromX = entity.transform.x - forwardX * 22 + rightX * sideOffset;
+    fromZ = entity.transform.z - forwardZ * 22 + rightZ * sideOffset;
+    impulseX = forwardX * 2.15 - rightX * sideOffset * 0.09;
+    impulseZ = forwardZ * 2.15 - rightZ * sideOffset * 0.09;
+    verticalImpulse = 0.55;
+    angularImpulse = -sideOffset * 0.075;
+    impactZone = 'front';
+    force = 0.48;
+    impactKind = 'swarmRocket';
+  } else if (scenario === 'near') {
+    fromX = entity.transform.x + rightX * 25;
+    fromZ = entity.transform.z + rightZ * 25;
+    impulseX = -rightX * 1.35;
+    impulseZ = -rightZ * 1.35;
+    verticalImpulse = 0.34;
+    angularImpulse = -0.28;
+    impactZone = 'near';
+    force = 0.34;
+    impactKind = 'siegeMissile';
+  }
+
+  if (!entity.flight && entity.mover) {
+    const existing = entity.impactMomentum;
+    const carry = existing ? 0.62 : 0;
+    const stagger = entity.armor?.kind === 'infantry' ? Math.min(1.28, 0.34 + force * 0.9) : 0;
+    entity.impactMomentum = {
+      x: Math.max(-8, Math.min(8, impulseX + (existing?.x ?? 0) * carry)),
+      z: Math.max(-8, Math.min(8, impulseZ + (existing?.z ?? 0) * carry)),
+      yaw: Math.max(-1.25, Math.min(1.25, angularImpulse * 0.56 + (existing?.yaw ?? 0) * carry)),
+      ttl: Math.max(existing?.ttl ?? 0, 0.9, stagger),
+      stagger: Math.max(existing?.stagger ?? 0, stagger),
+    };
+    if (entity.velocity) {
+      entity.velocity.x += impulseX * 0.12;
+      entity.velocity.z += impulseZ * 0.12;
+    }
+  }
+
+  const damage = Math.max(4, Math.round((entity.health?.max ?? 100) * force * 0.035));
+  return {
+    kind: 'impact-reaction',
+    impactKind,
+    force,
+    fromX,
+    fromY,
+    fromZ,
+    toX: entity.transform.x,
+    toY: entity.transform.y,
+    toZ: entity.transform.z,
+    targetId: entity.id,
+    targetLabel: entity.name ?? 'unit',
+    targetType: entity.selectable?.type ?? 'tank',
+    targetHealth: entity.health?.current,
+    targetMaxHealth: entity.health?.max,
+    damage,
+    killed: false,
+    trajectory,
+    impactZone,
+    impulseX,
+    impulseZ,
+    verticalImpulse,
+    angularImpulse,
+    topFactor,
+  };
+}
+
+function createImpactPreviewEvents(entity: Entity, scenario: ImpactPreview, sequence: number): CombatEvent[] {
+  const reaction = createImpactPreviewEvent(entity, scenario, sequence);
+  const impulseLength = Math.hypot(reaction.impulseX ?? 0, reaction.impulseZ ?? 0) || 1;
+  const dirX = (reaction.impulseX ?? 0) / impulseLength;
+  const dirZ = (reaction.impulseZ ?? 0) / impulseLength;
+  const nearOffset = scenario === 'near' ? 5.8 : 0;
+  const impactX = reaction.toX - dirX * nearOffset;
+  const impactZ = reaction.toZ - dirZ * nearOffset;
+  const impactKind =
+    scenario === 'top' ? 'agMissile-impact'
+      : scenario === 'near' ? 'siegeMissile-impact'
+        : 'tankMissile-impact';
+  const impactFx: CombatEvent = {
+    kind: impactKind,
+    fromX: reaction.fromX,
+    fromY: reaction.fromY,
+    fromZ: reaction.fromZ,
+    toX: impactX,
+    toY: (reaction.toY ?? 0) + (scenario === 'top' ? 1.6 : 0.7),
+    toZ: impactZ,
+    sourceTeamId: 2,
+    targetId: scenario === 'near' ? undefined : reaction.targetId,
+    targetLabel: scenario === 'near' ? undefined : reaction.targetLabel,
+    targetType: scenario === 'near' ? undefined : reaction.targetType,
+    targetHealth: reaction.targetHealth,
+    targetMaxHealth: reaction.targetMaxHealth,
+    damage: reaction.damage,
+    killed: false,
+    trajectory: reaction.trajectory,
+  };
+  return [impactFx, reaction];
+}
+
 function spawnDurabilityPreview(
   sim: ReturnType<typeof createGameSim>,
   hf: ReturnType<typeof generateHeightfield>,
@@ -3738,6 +3983,148 @@ function createDurabilityPreviewPanel(
   };
   update();
   return { update };
+}
+
+function spawnImpactMovementDemo(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  armies: ArmyRuntime[],
+  localTeam: number,
+): ImpactMovementDemoScene | undefined {
+  const friendly = armies.find((army) => army.team === localTeam) ?? armies[0];
+  const hostile = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
+  if (!friendly || !hostile) return undefined;
+
+  const rawForwardX = hostile.base.transform.x - friendly.base.transform.x;
+  const rawForwardZ = hostile.base.transform.z - friendly.base.transform.z;
+  const forwardLength = Math.hypot(rawForwardX, rawForwardZ) || 1;
+  const forward = { x: rawForwardX / forwardLength, z: rawForwardZ / forwardLength };
+  const right = { x: forward.z, z: -forward.x };
+  const midpoint = {
+    x: (friendly.base.transform.x + hostile.base.transform.x) * 0.5,
+    z: (friendly.base.transform.z + hostile.base.transform.z) * 0.5,
+  };
+  const focusCell = sim.nav.nearestWalkableCell(midpoint.x, midpoint.z, 100)
+    ?? sim.nav.nearestWalkableCellGlobal(midpoint.x, midpoint.z);
+  const focus = focusCell ? sim.nav.cellCenter(focusCell.x, focusCell.y) : midpoint;
+  const routeA = { x: focus.x - forward.x * 68, z: focus.z - forward.z * 68 };
+  const routeB = { x: focus.x + forward.x * 68, z: focus.z + forward.z * 68 };
+  const occupied: Array<{ x: number; z: number; radius: number }> = [];
+  const tanks: Entity[] = [];
+  const infantry: Entity[] = [];
+  const aircraft: Entity[] = [];
+  const tankKinds: UnitKind[] = ['scout-tank', 'tank', 'tank', 'siege-tank'];
+  const tankHealth = [1, 0.74, 0.49, 0.24];
+  const infantryKinds: UnitKind[] = [
+    'infantry',
+    'grenadier',
+    'rocket-infantry',
+    'infantry',
+    'sniper',
+    'infantry',
+    'rocket-infantry',
+    'grenadier',
+  ];
+
+  tankKinds.forEach((kind, index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const point = cinematicGroundPoint(
+      sim,
+      routeA.x + right.x * (col === 0 ? -6 : 6) - forward.x * row * 9,
+      routeA.z + right.z * (col === 0 ? -6 : 6) - forward.z * row * 9,
+      cinematicUnitRadius(kind),
+      occupied,
+    );
+    if (!point) return;
+    const entity = spawnCinematicUnit(sim, hf, kind, point.x, point.z, friendly.team);
+    orientCinematicUnit(entity, forward);
+    setPreviewHealth(entity, tankHealth[index]);
+    tanks.push(entity);
+  });
+
+  infantryKinds.forEach((kind, index) => {
+    const side = (index % 4 - 1.5) * 3.6;
+    const depth = Math.floor(index / 4) * 4.4;
+    const point = cinematicGroundPoint(
+      sim,
+      routeA.x + right.x * side + forward.x * (10 - depth),
+      routeA.z + right.z * side + forward.z * (10 - depth),
+      cinematicUnitRadius(kind),
+      occupied,
+    );
+    if (!point) return;
+    const entity = spawnCinematicUnit(sim, hf, kind, point.x, point.z, friendly.team);
+    orientCinematicUnit(entity, forward);
+    infantry.push(entity);
+  });
+
+  const aircraftKinds: UnitKind[] = ['wasp', 'vulture', 'hammerhead'];
+  const aircraftHealth = [0.74, 0.49, 0.24];
+  aircraftKinds.forEach((kind, index) => {
+    const lane = (index - 1) * 17;
+    const entity = spawnCinematicUnit(
+      sim,
+      hf,
+      kind,
+      routeA.x + forward.x * (18 - index * 5) + right.x * lane,
+      routeA.z + forward.z * (18 - index * 5) + right.z * lane,
+      friendly.team,
+    );
+    orientCinematicUnit(entity, forward);
+    setPreviewHealth(entity, aircraftHealth[index]);
+    aircraft.push(entity);
+  });
+
+  const groundUnits = [...tanks, ...infantry];
+  const units = [...groundUnits, ...aircraft];
+  const facing = Math.atan2(forward.x, forward.z);
+  issueMoveOrder(sim, groundUnits, routeB.x, routeB.z, false, facing, 0.72);
+  issueMoveOrder(sim, aircraft, routeB.x - forward.x * 20, routeB.z - forward.z * 20, false, facing, 0.88);
+  return { units, tanks, infantry, aircraft, focus, routeA, routeB, forward, right };
+}
+
+function setPreviewHealth(entity: Entity, fraction: number): void {
+  if (!entity.health) return;
+  entity.health.current = Math.max(1, entity.health.max * Math.max(0, Math.min(1, fraction)));
+}
+
+function createImpactMovementDemoPanel(): {
+  announce: (scenario: ImpactPreview, target: Entity, shot?: number, total?: number) => void;
+} {
+  const panel = document.createElement('aside');
+  panel.style.cssText =
+    'position:fixed;left:22px;top:22px;z-index:18;width:min(330px,calc(100vw - 44px));pointer-events:none;' +
+    'border:1px solid rgba(210,177,95,.7);border-left:4px solid #e2bd59;background:rgba(8,13,13,.88);' +
+    'box-shadow:0 14px 38px rgba(0,0,0,.42);padding:13px 15px;color:#e5ece8;font-family:ui-monospace,Menlo,monospace;';
+  const eyebrow = document.createElement('div');
+  eyebrow.textContent = 'FIELD TEST · MOVING TARGETS';
+  eyebrow.style.cssText = 'font-size:9px;letter-spacing:.18em;color:#d2b15f;margin-bottom:6px;';
+  const title = document.createElement('div');
+  title.textContent = 'IMPACT + DAMAGE STATES';
+  title.style.cssText = 'font-size:17px;font-weight:900;letter-spacing:.08em;color:#fff;margin-bottom:9px;';
+  const status = document.createElement('div');
+  status.textContent = 'CONVOY ENTERING TEST RANGE';
+  status.style.cssText =
+    'border-top:1px solid rgba(210,177,95,.28);border-bottom:1px solid rgba(210,177,95,.28);' +
+    'padding:8px 0;color:#ffcf62;font-size:12px;font-weight:800;letter-spacing:.09em;';
+  const note = document.createElement('div');
+  note.textContent = 'Moving armor: new / 75% / 50% / 25% · aircraft: 75% / 50% / 25% · impacts cycle automatically';
+  note.style.cssText = 'font-size:9px;line-height:1.5;color:#aebbb5;margin-top:8px;';
+  panel.append(eyebrow, title, status, note);
+  document.body.appendChild(panel);
+
+  return {
+    announce: (scenario, target, shot, total) => {
+      const scenarioLabel =
+        scenario === 'side' ? 'SIDE STRIKE'
+          : scenario === 'top' ? 'TOP-DOWN STRIKE'
+            : scenario === 'near' ? 'NEAR MISS'
+              : `MISSILE SALVO${shot && total ? ` ${shot}/${total}` : ''}`;
+      status.textContent = `${scenarioLabel} · ${unitDisplayName(target).toUpperCase()}`;
+      status.style.color = scenario === 'near' ? '#9fd8ff' : scenario === 'top' ? '#ff9c6a' : '#ffcf62';
+    },
+  };
 }
 
 function spawnCinematicWar(

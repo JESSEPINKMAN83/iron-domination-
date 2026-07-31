@@ -5,6 +5,15 @@ export interface HitShakeProfile {
   duration: number;
 }
 
+export interface DirectionalHitFeedback {
+  side: number;
+  longitudinal: number;
+  vertical: number;
+  roll: number;
+  pitch: number;
+  zone: NonNullable<CombatEvent['impactZone']>;
+}
+
 export function impactForceFromEvent(event: Pick<CombatEvent, 'force' | 'damage' | 'targetMaxHealth'>): number {
   const fromForce = event.force;
   if (typeof fromForce === 'number' && Number.isFinite(fromForce)) {
@@ -20,6 +29,34 @@ export function hitShakeProfile(force: number): HitShakeProfile {
   return {
     strength: 0.22 + f * 1.25,
     duration: 0.22 + f * 0.62,
+  };
+}
+
+export function directionalHitFeedback(event: CombatEvent, lookYaw: number): DirectionalHitFeedback {
+  let dirX = event.impulseX ?? event.toX - event.fromX;
+  let dirZ = event.impulseZ ?? event.toZ - event.fromZ;
+  const length = Math.hypot(dirX, dirZ);
+  if (length > 0.001) {
+    dirX /= length;
+    dirZ /= length;
+  }
+  const localAngle = Math.atan2(dirX, dirZ) - lookYaw;
+  const side = Math.sin(localAngle);
+  const longitudinal = Math.cos(localAngle);
+  const zone = event.impactZone
+    ?? (event.trajectory === 'drop'
+      ? 'top'
+      : Math.abs(side) > Math.abs(longitudinal)
+        ? side >= 0 ? 'left' : 'right'
+        : longitudinal >= 0 ? 'rear' : 'front');
+  const top = Math.max(event.topFactor ?? 0, zone === 'top' ? 0.9 : 0);
+  return {
+    side,
+    longitudinal,
+    vertical: top,
+    roll: (zone === 'left' || zone === 'right' ? side : side * 0.32) * (1 - top * 0.35),
+    pitch: zone === 'top' ? 0.72 : -longitudinal * 0.62,
+    zone,
   };
 }
 

@@ -15,6 +15,16 @@ export interface Velocity {
   z: number;
 }
 
+/** Short-lived battlefield impulse layered over commanded movement. */
+export interface ImpactMomentum {
+  x: number;
+  z: number;
+  yaw: number;
+  ttl: number;
+  /** Brief movement suppression while infantry contacts the ground and braces. */
+  stagger?: number;
+}
+
 export interface Health {
   current: number;
   max: number;
@@ -190,6 +200,7 @@ export interface Entity {
   transform: Transform;
   previousTransform: Transform;
   velocity?: Velocity;
+  impactMomentum?: ImpactMomentum;
   health?: Health;
   team?: Team;
   selectable?: Selectable;

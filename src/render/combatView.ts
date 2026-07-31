@@ -378,9 +378,17 @@ export class CombatView {
     const heavy = isBombImpact(event.kind);
     const count = heavy ? 18 : isTankMissileImpact(event.kind) || event.killed ? 11 : 6;
     const force = heavy ? 8.5 : isTankMissileImpact(event.kind) ? 6.4 : 4.2;
+    const awayX = event.toX - event.fromX;
+    const awayZ = event.toZ - event.fromZ;
+    const awayLength = Math.hypot(awayX, awayZ);
+    const awayAngle = awayLength > 0.001 ? Math.atan2(awayZ, awayX) : 0;
+    const topStrike = event.trajectory === 'drop';
     for (let i = 0; i < count; i++) {
       const seed = deterministicAngle(event.toX + i * 1.73, event.toZ - i * 0.91, event.kind);
-      const angle = seed + (i / count) * Math.PI * 2;
+      // Most fragments leave in a cone away from the incoming missile. A few
+      // remain radial so explosions do not look mechanically identical.
+      const coneOffset = (((i * 37) % count) / Math.max(1, count - 1) - 0.5) * Math.PI * 0.9;
+      const angle = i % 4 === 0 ? seed + (i / count) * Math.PI * 2 : awayAngle + coneOffset;
       const spark = i % 3 === 0;
       const material = new MeshBasicMaterial({
         color: spark ? 0xffc45c : i % 2 === 0 ? 0x2c2924 : 0x696158,
@@ -394,12 +402,16 @@ export class CombatView {
       mesh.rotation.set(angle * 0.31, angle, angle * 0.19);
       mesh.renderOrder = 59;
       this.group.add(mesh);
-      const speed = force * (0.55 + ((i * 37) % 11) / 16);
+      const speed = force * (topStrike ? 0.46 : 0.55) * (1 + ((i * 37) % 11) / 16);
       const ttl = heavy ? 1.05 + (i % 5) * 0.06 : 0.62 + (i % 4) * 0.07;
       this.hitFragments.push({
         mesh,
         material,
-        velocity: new Vector3(Math.cos(angle) * speed, force * (0.72 + (i % 5) * 0.1), Math.sin(angle) * speed),
+        velocity: new Vector3(
+          Math.cos(angle) * speed,
+          force * ((topStrike ? 0.94 : 0.72) + (i % 5) * 0.1),
+          Math.sin(angle) * speed,
+        ),
         ttl,
         total: ttl,
         spin: new Vector3(2.5 + (i % 3), 3.2 + (i % 4), 2.1 + (i % 5)),
