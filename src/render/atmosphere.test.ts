@@ -13,13 +13,14 @@ describe('battlefield atmosphere cloud layout', () => {
     expect(changed).not.toEqual(first);
   });
 
-  it('places Highlands low clouds inside the flyable aircraft envelope', () => {
+  it('keeps Highlands low clouds above the normal command-camera envelope', () => {
     const preset = MAP_PRESETS.highlands.atmosphere.lowClouds;
     const clouds = createCloudLayout(1024, 4242, preset, 17);
 
     expect(clouds).toHaveLength(preset.clusters);
-    expect(clouds.every((cloud) => cloud.y >= 46 && cloud.y <= 70)).toBe(true);
-    expect(clouds.some((cloud) => cloud.y < 60)).toBe(true);
+    expect(clouds.every((cloud) => cloud.y >= 108 && cloud.y <= 128)).toBe(true);
+    expect(clouds.every((cloud) => cloud.y - cloud.thickness >= 96)).toBe(true);
+    expect(preset.opacity).toBeLessThanOrEqual(0.24);
     expect(clouds.every((cloud) => cloud.puffs.length === preset.puffsPerCluster)).toBe(true);
   });
 

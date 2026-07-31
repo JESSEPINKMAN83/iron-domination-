@@ -91,13 +91,13 @@ export const MAP_PRESETS = {
       lowClouds: {
         clusters: 9,
         puffsPerCluster: 8,
-        altitudeMin: 46,
-        altitudeMax: 70,
+        altitudeMin: 108,
+        altitudeMax: 128,
         radiusMin: 28,
         radiusMax: 54,
-        thicknessMin: 8,
-        thicknessMax: 15,
-        opacity: 0.43,
+        thicknessMin: 7,
+        thicknessMax: 12,
+        opacity: 0.24,
       },
       highClouds: {
         clusters: 14,

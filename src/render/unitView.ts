@@ -78,13 +78,25 @@ interface BuiltUnit {
 
 interface UnitDamagePatch {
   mesh: Mesh;
-  threshold: number;
+  stage: UnitDamageStage;
   kind: 'scorch' | 'crack' | 'ember';
+}
+
+interface UnitDamageEffect {
+  mesh: Mesh;
+  stage: UnitDamageStage;
+  kind: 'smoke' | 'fire';
+  baseX: number;
+  baseY: number;
+  baseZ: number;
+  baseScale: number;
+  phase: number;
 }
 
 interface UnitDamageOverlay {
   root: Group;
   patches: UnitDamagePatch[];
+  effects: UnitDamageEffect[];
 }
 
 interface FriendlyGlowMesh {
@@ -125,6 +137,11 @@ interface UnitHitReaction {
   localSide: number;
   localForward: number;
   sign: number;
+  zone: NonNullable<CombatEvent['impactZone']>;
+  topFactor: number;
+  hitCount: number;
+  intensity: number;
+  killed: boolean;
 }
 
 export interface ImpactReactionProfile {
@@ -133,6 +150,18 @@ export interface ImpactReactionProfile {
   shove: number;
   lift: number;
   angular: number;
+}
+
+export type UnitDamageStage = 0 | 1 | 2 | 3;
+
+/** Three readable visual states: worn at 75%, damaged at 50%, critical at 25%. */
+export function unitDamageStage(currentHealth: number, maxHealth: number): UnitDamageStage {
+  if (!Number.isFinite(currentHealth) || !Number.isFinite(maxHealth) || maxHealth <= 0) return 0;
+  const health = Math.max(0, Math.min(1, currentHealth / maxHealth));
+  if (health <= 0.25) return 3;
+  if (health <= 0.5) return 2;
+  if (health <= 0.75) return 1;
+  return 0;
 }
 
 export function impactReactionProfile(
@@ -160,9 +189,10 @@ export function impactReactionProfile(
   const intensity = Math.max(0, Math.min(1.6, force * weaponResponse * targetResponse));
   if (infantry) {
     const fatalBoost = killed ? 1.16 : 1;
+    const knockdown = smoothRange(0.28, 0.72, intensity);
     return {
       intensity,
-      duration: (0.62 + intensity * 0.58 + (killed ? 0.18 : 0)) * fatalBoost,
+      duration: (0.72 + intensity * 0.46 + knockdown * 1.18 + (killed ? 0.28 : 0)) * fatalBoost,
       shove: (0.18 + intensity * 2.8) * fatalBoost,
       lift: (0.12 + intensity * 1.38) * (killed ? 1.24 : 1),
       angular: (0.28 + intensity * 2.25) * fatalBoost,
@@ -175,6 +205,122 @@ export function impactReactionProfile(
     lift: 0.015 + intensity * 0.34,
     angular: Math.min(0.44, 0.025 + intensity * 0.27),
   };
+}
+
+export type InfantryImpactPhase = 'stumble' | 'airborne' | 'grounded' | 'brace' | 'recover';
+
+export interface InfantryImpactPose {
+  phase: InfantryImpactPhase;
+  lift: number;
+  shove: number;
+  pitch: number;
+  roll: number;
+  grounded: number;
+  brace: number;
+  crouch: number;
+  limbBlend: number;
+}
+
+/** Staged procedural knockdown: launch, contact, brace, then stand. */
+export function infantryImpactPose(
+  progress: number,
+  intensity: number,
+  localSide: number,
+  localForward: number,
+  killed = false,
+): InfantryImpactPose {
+  const t = Math.max(0, Math.min(1, progress));
+  const strength = Math.max(0, Math.min(1.6, intensity));
+  const knockdown = smoothRange(0.28, 0.72, strength);
+  const sign = localSide >= 0 ? 1 : -1;
+  if (knockdown < 0.08) {
+    const pulse = Math.sin(t * Math.PI);
+    return {
+      phase: 'stumble',
+      lift: pulse * 0.04 * strength,
+      shove: pulse * 0.28,
+      pitch: -localForward * pulse * (0.08 + strength * 0.18),
+      roll: (localSide || sign * 0.3) * pulse * (0.08 + strength * 0.16),
+      grounded: 0,
+      brace: 0,
+      crouch: pulse * 0.42,
+      limbBlend: pulse * 0.5,
+    };
+  }
+
+  const maxAngle = 0.34 + knockdown * 1.08;
+  const pitchShare = Math.max(0.18, Math.abs(localForward));
+  const rollShare = Math.max(0.22, Math.abs(localSide));
+  const pitchSign = -Math.sign(localForward || 1);
+  const rollSign = Math.sign(localSide || sign);
+  const rotation = (factor: number) => ({
+    pitch: pitchSign * maxAngle * pitchShare * factor,
+    roll: rollSign * maxAngle * rollShare * factor,
+  });
+
+  if (t < 0.22) {
+    const q = t / 0.22;
+    const eased = 1 - (1 - q) * (1 - q);
+    const angles = rotation(eased);
+    return {
+      phase: 'airborne',
+      lift: Math.sin(q * Math.PI) * (0.28 + strength * 0.72),
+      shove: eased * 0.7,
+      ...angles,
+      grounded: 0,
+      brace: 0,
+      crouch: 0,
+      limbBlend: eased * 0.72,
+    };
+  }
+
+  if (t < 0.5 || killed) {
+    const q = Math.max(0, Math.min(1, (t - 0.22) / 0.28));
+    const angles = rotation(1 - q * 0.04);
+    return {
+      phase: 'grounded',
+      lift: Math.sin(q * Math.PI) * 0.06 * knockdown,
+      shove: 0.7 + (1 - Math.exp(-q * 3)) * 0.22,
+      ...angles,
+      grounded: 1,
+      brace: 0,
+      crouch: 0,
+      limbBlend: 1,
+    };
+  }
+
+  if (t < 0.72) {
+    const q = smoothRange(0, 1, (t - 0.5) / 0.22);
+    const angles = rotation(1 - q * 0.68);
+    return {
+      phase: 'brace',
+      lift: 0,
+      shove: 0.92,
+      ...angles,
+      grounded: 1 - q,
+      brace: q,
+      crouch: q,
+      limbBlend: 1,
+    };
+  }
+
+  const q = smoothRange(0, 1, (t - 0.72) / 0.28);
+  const angles = rotation(0.32 * (1 - q));
+  return {
+    phase: 'recover',
+    lift: 0,
+    shove: 0.92 * (1 - q),
+    ...angles,
+    grounded: 0,
+    brace: 1 - q,
+    crouch: 1 - q,
+    limbBlend: 1 - q,
+  };
+}
+
+function smoothRange(edge0: number, edge1: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - edge0) / Math.max(0.0001, edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 
 export function groundVehicleImpactPose(force: number, progress: number): { angle: number; lift: number } {
@@ -196,10 +342,12 @@ const ROTOR_WASH_GEOM = new RingGeometry(1.8, 5.2, 48);
 const FRIENDLY_GLOW_GEOM = new SphereGeometry(1, 16, 10);
 const MAX_FRIENDLY_GLOWS = 1024;
 const BIKE_DUST_GEOM = new SphereGeometry(1, 8, 5);
+const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
+const UNIT_DAMAGE_SMOKE_GEOM = markShared(new SphereGeometry(1, 8, 6));
+const UNIT_DAMAGE_FIRE_GEOM = markShared(new SphereGeometry(1, 7, 5));
 const MAX_BIKE_DUST_PARTICLES = 256;
 const MAX_LOW_DETAIL_UNITS = 1024;
 const FORTRESS_OPTICS_DETAIL_RANGE_SQ = 500 * 500;
-const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
 const ORE_CHUNK_GEOM = markShared(new SphereGeometry(1, 6, 4));
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
@@ -267,6 +415,7 @@ export class UnitView {
   private readonly vehicleScorchMaterial: Material;
   private readonly vehicleCrackMaterial: Material;
   private readonly vehicleEmberMaterial: Material;
+  private readonly vehicleSmokeMaterial: Material;
   private readonly ringMaterial: Material;
   private readonly healthBackMaterial: Material;
   private readonly skinMaterial: Material;
@@ -323,6 +472,14 @@ export class UnitView {
       depthWrite: false,
       side: DoubleSide,
       blending: AdditiveBlending,
+    });
+    this.vehicleSmokeMaterial = new MeshBasicMaterial({
+      color: 0x252321,
+      transparent: true,
+      opacity: 0.32,
+      depthWrite: false,
+      side: DoubleSide,
+      toneMapped: true,
     });
     this.skinMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0xb98a63, roughness: 0.85, metalness: 0 }));
     this.gunmetalMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x23262a, roughness: 0.55, metalness: 0.45 }));
@@ -407,7 +564,14 @@ export class UnitView {
     this.group.add(unit);
 
     if (entity.health && kind !== 'rifle' && kind !== 'grenadier' && kind !== 'rocket' && kind !== 'sniper') {
-      const overlay = createUnitDamageOverlay(entity, kind, this.vehicleScorchMaterial, this.vehicleCrackMaterial, this.vehicleEmberMaterial);
+      const overlay = createUnitDamageOverlay(
+        entity,
+        kind,
+        this.vehicleScorchMaterial,
+        this.vehicleCrackMaterial,
+        this.vehicleEmberMaterial,
+        this.vehicleSmokeMaterial,
+      );
       this.damageOverlays.set(entity, overlay);
       unit.add(overlay.root);
     }
@@ -527,8 +691,8 @@ export class UnitView {
       if (event.kind !== 'impact-reaction' || event.targetId === undefined) continue;
       const entity = this.entitiesById.get(event.targetId);
       if (!entity || entity.building) continue;
-      let dirX = event.toX - event.fromX;
-      let dirZ = event.toZ - event.fromZ;
+      let dirX = event.impulseX ?? event.toX - event.fromX;
+      let dirZ = event.impulseZ ?? event.toZ - event.fromZ;
       const distance = Math.hypot(dirX, dirZ);
       if (distance > 0.001) {
         dirX /= distance;
@@ -546,18 +710,25 @@ export class UnitView {
       const localAngle = Math.atan2(dirX, dirZ) - entity.transform.rot;
       const localSide = Math.sin(localAngle);
       const localForward = Math.cos(localAngle);
+      const hitCount = Math.min(4, (existing?.hitCount ?? 0) + 1);
+      const salvoBoost = 1 + (hitCount - 1) * 0.16;
       this.hitReactions.set(entity, {
         elapsed: 0,
-        duration: Math.max(duration, existing?.duration ?? 0),
-        force: Math.min(1, force + (existing?.force ?? 0) * 0.28),
-        shove: Math.max(profile.shove, (existing?.shove ?? 0) * 0.72),
-        lift: Math.max(profile.lift, (existing?.lift ?? 0) * 0.72),
-        angular: Math.max(profile.angular, (existing?.angular ?? 0) * 0.72),
+        duration: Math.min(1.65, Math.max(duration, existing?.duration ?? 0) * salvoBoost),
+        force: Math.min(1.35, force + (existing?.force ?? 0) * 0.38),
+        shove: Math.min(4.6, Math.max(profile.shove, (existing?.shove ?? 0) * 0.78) * salvoBoost),
+        lift: Math.min(2.8, Math.max(profile.lift, event.verticalImpulse ?? 0, (existing?.lift ?? 0) * 0.76) * salvoBoost),
+        angular: Math.min(1.55, Math.max(profile.angular, Math.abs(event.angularImpulse ?? 0), (existing?.angular ?? 0) * 0.76) * salvoBoost),
         dirX,
         dirZ,
         localSide,
         localForward,
         sign: localSide >= 0 ? 1 : -1,
+        zone: event.impactZone ?? (Math.abs(localSide) > Math.abs(localForward) ? (localSide >= 0 ? 'left' : 'right') : (localForward >= 0 ? 'rear' : 'front')),
+        topFactor: event.topFactor ?? (event.trajectory === 'drop' ? 0.9 : 0.08),
+        hitCount,
+        intensity: Math.min(1.6, profile.intensity + (existing?.intensity ?? 0) * 0.3),
+        killed: event.killed,
       });
     }
   }
@@ -628,7 +799,7 @@ export class UnitView {
       if (updateDetails && !entity.destroyed) this.updateFriendlyGlow(entity, x, y, z, glowTime);
       this.applyPose(entity, obj, dt);
       this.applyHitReaction(entity, obj, dt);
-      if (updateDetails) this.updateUnitDamage(entity, obj);
+      if (updateDetails) this.updateUnitDamage(entity);
       const turret = this.refs.get(entity)?.turretPivot;
       if (turret && entity.turret && !entity.destroyed) turret.rotation.y = entity.turret.yaw - rot;
       ring.position.set(x, groundY + 0.08, z);
@@ -725,7 +896,7 @@ export class UnitView {
         obj.rotation.y = rot;
         this.applyPose(entity, obj, dt);
         this.applyHitReaction(entity, obj, dt);
-        this.updateUnitDamage(entity, obj);
+        this.updateUnitDamage(entity);
         const turret = this.refs.get(entity)?.turretPivot;
         if (turret && entity.turret) turret.rotation.y = entity.turret.yaw - rot;
       } else {
@@ -788,15 +959,36 @@ export class UnitView {
     reaction.elapsed += dt;
     const t = Math.min(1, reaction.elapsed / reaction.duration);
     const arc = Math.sin(t * Math.PI);
-    const recoil = Math.sin(Math.min(1, t * 2.4) * Math.PI) * Math.exp(-t * 2.2);
     const { localSide, localForward } = reaction;
     if (entity.selectable?.type === 'infantry') {
-      const tumble = reaction.angular * arc * (0.62 + t * 1.75);
-      obj.rotation.x += -localForward * tumble;
-      obj.rotation.z += localSide * tumble + reaction.sign * recoil * reaction.angular * 0.38;
-      obj.position.y += arc * reaction.lift;
-      obj.position.x += reaction.dirX * arc * reaction.shove;
-      obj.position.z += reaction.dirZ * arc * reaction.shove;
+      const pose = infantryImpactPose(t, reaction.intensity, localSide, localForward, reaction.killed);
+      obj.rotation.x += pose.pitch;
+      obj.rotation.z += pose.roll;
+      obj.position.y += pose.lift;
+      obj.position.x += reaction.dirX * pose.shove * reaction.shove;
+      obj.position.z += reaction.dirZ * pose.shove * reaction.shove;
+      const rig = this.soldierRigs.get(entity);
+      if (rig && pose.limbBlend > 0.001) {
+        const ground = pose.grounded;
+        const brace = pose.brace;
+        const crouch = pose.crouch;
+        const blend = pose.limbBlend;
+        const targetHipL = ground * 0.48 - brace * 0.84 - crouch * 0.28;
+        const targetHipR = ground * -0.18 - brace * 0.34 - crouch * 0.22;
+        const targetKneeL = ground * 0.72 + brace * 1.32 + crouch * 0.42;
+        const targetKneeR = ground * 0.38 + brace * 0.88 + crouch * 0.36;
+        rig.hipL.rotation.x = lerp(rig.hipL.rotation.x, targetHipL, blend);
+        rig.hipR.rotation.x = lerp(rig.hipR.rotation.x, targetHipR, blend);
+        rig.kneeL.rotation.x = lerp(rig.kneeL.rotation.x, targetKneeL, blend);
+        rig.kneeR.rotation.x = lerp(rig.kneeR.rotation.x, targetKneeR, blend);
+        rig.shoulderL.rotation.x = lerp(rig.shoulderL.rotation.x, ground * -0.18 + brace * -1.18 + crouch * -0.82, blend);
+        rig.shoulderR.rotation.x = lerp(rig.shoulderR.rotation.x, ground * 0.28 + brace * -1.02 + crouch * -0.74, blend);
+        rig.elbowL.rotation.x = lerp(rig.elbowL.rotation.x, ground * -0.3 + brace * -0.92 + crouch * -0.56, blend);
+        rig.elbowR.rotation.x = lerp(rig.elbowR.rotation.x, ground * 0.42 + brace * -0.68 + crouch * -0.48, blend);
+        rig.torso.rotation.x = lerp(rig.torso.rotation.x, ground * 0.08 + brace * 0.52 + crouch * 0.24, blend);
+        rig.rifle.position.y -= (ground * 0.18 + brace * 0.11) * blend;
+        rig.rifle.rotation.x += (ground * 0.24 - brace * 0.18) * blend;
+      }
     } else if (entity.flight) {
       obj.rotation.x += -localForward * (0.12 + reaction.force * 0.72) * arc;
       obj.rotation.z += reaction.sign * (0.18 + reaction.force * 1.35) * arc;
@@ -804,12 +996,22 @@ export class UnitView {
       obj.position.x += reaction.dirX * arc * reaction.force * 1.1;
       obj.position.z += reaction.dirZ * arc * reaction.force * 1.1;
     } else {
-      const axisX = Math.abs(localForward) >= Math.abs(localSide);
       const settle = arc * Math.exp(-t * 1.35);
       const angle = reaction.angular * settle;
-      if (axisX) obj.rotation.x += -Math.sign(localForward || 1) * angle;
-      else obj.rotation.z += reaction.sign * angle;
-      obj.position.y += reaction.lift * arc;
+      if (reaction.zone === 'top') {
+        const compression = Math.sin(Math.min(1, t * 2.2) * Math.PI) * Math.exp(-t * 2.8);
+        obj.position.y += reaction.lift * (arc * 0.34 - compression * 0.2);
+        obj.rotation.x += -localForward * angle * 0.42;
+        obj.rotation.z += localSide * angle * 0.5;
+      } else if (reaction.zone === 'left' || reaction.zone === 'right') {
+        obj.rotation.z += reaction.sign * angle * 1.08;
+        obj.rotation.x += -localForward * angle * 0.18;
+        obj.position.y += reaction.lift * arc * 0.72;
+      } else {
+        obj.rotation.x += -Math.sign(localForward || 1) * angle;
+        obj.rotation.z += localSide * angle * 0.22;
+        obj.position.y += reaction.lift * arc * 0.62;
+      }
       obj.position.x += reaction.dirX * arc * reaction.shove;
       obj.position.z += reaction.dirZ * arc * reaction.shove;
     }
@@ -1177,17 +1379,43 @@ export class UnitView {
     this.bikeDustMesh.instanceMatrix.needsUpdate = true;
   }
 
-  private updateUnitDamage(entity: Entity, obj: Object3D): void {
+  private updateUnitDamage(entity: Entity): void {
     const overlay = this.damageOverlays.get(entity);
     if (!overlay || !entity.health) return;
-    const damage = entity.destroyed ? 1 : Math.max(0, Math.min(1, 1 - entity.health.current / entity.health.max));
-    overlay.root.visible = damage >= 0.035;
+    const stage: UnitDamageStage = entity.destroyed ? 3 : unitDamageStage(entity.health.current, entity.health.max);
+    overlay.root.visible = stage > 0;
     if (!overlay.root.visible) return;
-    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.011 + entity.id);
+    const time = performance.now() * 0.001;
+    const pulse = 0.5 + 0.5 * Math.sin(time * 11 + entity.id);
     for (const patch of overlay.patches) {
-      patch.mesh.visible = damage >= patch.threshold;
+      patch.mesh.visible = stage >= patch.stage;
       if (!patch.mesh.visible) continue;
-      if (patch.kind === 'ember') patch.mesh.scale.setScalar(0.78 + pulse * 0.22 + damage * 0.35);
+      if (patch.kind === 'ember') patch.mesh.scale.setScalar(0.9 + pulse * 0.34 + stage * 0.08);
+    }
+    for (const effect of overlay.effects) {
+      effect.mesh.visible = stage >= effect.stage;
+      if (!effect.mesh.visible) continue;
+      const wave = 0.5 + 0.5 * Math.sin(time * (effect.kind === 'smoke' ? 1.9 : 8.5) + effect.phase);
+      if (effect.kind === 'smoke') {
+        const drift = Math.sin(time * 1.15 + effect.phase) * effect.baseScale * 0.2;
+        effect.mesh.position.set(
+          effect.baseX + drift,
+          effect.baseY + wave * effect.baseScale * 0.42,
+          effect.baseZ + Math.cos(time * 0.92 + effect.phase) * effect.baseScale * 0.12,
+        );
+        effect.mesh.scale.set(
+          effect.baseScale * (0.88 + wave * 0.3),
+          effect.baseScale * (1.15 + wave * 0.52),
+          effect.baseScale * (0.88 + wave * 0.3),
+        );
+      } else {
+        effect.mesh.position.set(effect.baseX, effect.baseY + wave * 0.12, effect.baseZ);
+        effect.mesh.scale.set(
+          effect.baseScale * (0.72 + wave * 0.38),
+          effect.baseScale * (1.05 + wave * 0.72),
+          effect.baseScale * (0.72 + wave * 0.38),
+        );
+      }
     }
   }
 
@@ -1293,32 +1521,40 @@ function createHealthBar(backMaterial: Material): { root: Group; fill: Mesh; fil
   return { root, fill, fillMaterial };
 }
 
-function createUnitDamageOverlay(entity: Entity, kind: UnitVisualKind, scorch: Material, crack: Material, ember: Material): UnitDamageOverlay {
+function createUnitDamageOverlay(
+  entity: Entity,
+  kind: UnitVisualKind,
+  scorch: Material,
+  crack: Material,
+  ember: Material,
+  smoke: Material,
+): UnitDamageOverlay {
   const root = new Group();
   root.visible = false;
   const patches: UnitDamagePatch[] = [];
+  const effects: UnitDamageEffect[] = [];
   const isAircraft = kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead';
   const isHarvester = kind === 'harvester';
   const topY = isAircraft ? 0.92 : isHarvester ? 2.22 : kind === 'mauler' ? 1.2 : 1.28;
   const spanX = isAircraft ? (kind === 'hammerhead' ? 3.0 : 1.45) : isHarvester ? 2.25 : kind === 'mauler' ? 1.9 : 1.65;
   const spanZ = isAircraft ? (kind === 'wasp' ? 2.25 : kind === 'hammerhead' ? 2.4 : 2.85) : isHarvester ? 2.55 : kind === 'mauler' ? 3.25 : 2.35;
-  const scorchThresholds = [0.035, 0.16, 0.3, 0.48, 0.66];
-  const crackThresholds = [0.22, 0.38, 0.58, 0.76];
-  const emberThresholds = [0.52, 0.7, 0.86];
+  const scorchStages: UnitDamageStage[] = [1, 1, 2, 2, 3, 3];
+  const crackStages: UnitDamageStage[] = [1, 2, 2, 3, 3];
+  const emberStages: UnitDamageStage[] = [3, 3, 3];
 
-  for (let i = 0; i < scorchThresholds.length; i++) {
+  for (let i = 0; i < scorchStages.length; i++) {
     const mesh = new Mesh(sharedBoxGeometry(1, 0.035, 1), scorch);
     const px = deterministicUnitSigned(entity.id, 0x110 + i) * spanX;
     const pz = deterministicUnitSigned(entity.id, 0x210 + i) * spanZ;
     mesh.position.set(px, topY + i * 0.008, pz);
     mesh.rotation.y = deterministicUnit(entity.id, 0x310 + i) * Math.PI;
-    mesh.scale.set(0.78 + deterministicUnit(entity.id, 0x410 + i) * 0.55, 1, 0.42 + deterministicUnit(entity.id, 0x510 + i) * 0.42);
+    mesh.scale.set(0.9 + deterministicUnit(entity.id, 0x410 + i) * 0.75, 1, 0.5 + deterministicUnit(entity.id, 0x510 + i) * 0.52);
     mesh.renderOrder = 34;
     root.add(mesh);
-    patches.push({ mesh, threshold: scorchThresholds[i], kind: 'scorch' });
+    patches.push({ mesh, stage: scorchStages[i], kind: 'scorch' });
   }
 
-  for (let i = 0; i < crackThresholds.length; i++) {
+  for (let i = 0; i < crackStages.length; i++) {
     const mesh = new Mesh(sharedBoxGeometry(1.1, 0.045, 0.08), crack);
     const px = deterministicUnitSigned(entity.id, 0x610 + i) * spanX * 0.92;
     const pz = deterministicUnitSigned(entity.id, 0x710 + i) * spanZ * 0.92;
@@ -1327,21 +1563,68 @@ function createUnitDamageOverlay(entity: Entity, kind: UnitVisualKind, scorch: M
     mesh.scale.set(0.85 + deterministicUnit(entity.id, 0x910 + i) * 0.75, 1, 1);
     mesh.renderOrder = 35;
     root.add(mesh);
-    patches.push({ mesh, threshold: crackThresholds[i], kind: 'crack' });
+    patches.push({ mesh, stage: crackStages[i], kind: 'crack' });
   }
 
-  for (let i = 0; i < emberThresholds.length; i++) {
+  for (let i = 0; i < emberStages.length; i++) {
     const mesh = new Mesh(sharedBoxGeometry(0.34, 0.04, 0.34), ember);
     const px = deterministicUnitSigned(entity.id, 0xa10 + i) * spanX * 0.78;
     const pz = deterministicUnitSigned(entity.id, 0xb10 + i) * spanZ * 0.78;
     mesh.position.set(px, topY + 0.09 + i * 0.012, pz);
     mesh.renderOrder = 36;
     root.add(mesh);
-    patches.push({ mesh, threshold: emberThresholds[i], kind: 'ember' });
+    patches.push({ mesh, stage: emberStages[i], kind: 'ember' });
   }
 
+  // Smoke begins at the 50% state. Critical units reveal the full plume and
+  // a compact engine fire. These meshes stay attached while units move.
+  const engineX = deterministicUnitSigned(entity.id, 0xc10) * spanX * (isAircraft ? 0.42 : 0.58);
+  const engineZ = isAircraft
+    ? deterministicUnitSigned(entity.id, 0xc20) * spanZ * 0.35
+    : -spanZ * 0.5;
+  for (let i = 0; i < 4; i++) {
+    const mesh = new Mesh(UNIT_DAMAGE_SMOKE_GEOM, smoke);
+    const stage: UnitDamageStage = i < 2 ? 2 : 3;
+    const baseScale = (isAircraft ? 0.42 : 0.5) + i * (isAircraft ? 0.1 : 0.12);
+    const baseX = engineX + deterministicUnitSigned(entity.id, 0xc30 + i) * 0.18;
+    const baseY = topY + 0.42 + i * baseScale * 0.72;
+    const baseZ = engineZ + deterministicUnitSigned(entity.id, 0xc40 + i) * 0.15;
+    mesh.position.set(baseX, baseY, baseZ);
+    mesh.scale.setScalar(baseScale);
+    mesh.renderOrder = 37;
+    root.add(mesh);
+    effects.push({
+      mesh,
+      stage,
+      kind: 'smoke',
+      baseX,
+      baseY,
+      baseZ,
+      baseScale,
+      phase: deterministicUnit(entity.id, 0xc50 + i) * Math.PI * 2,
+    });
+  }
+
+  const fire = new Mesh(UNIT_DAMAGE_FIRE_GEOM, ember);
+  const fireScale = isAircraft ? 0.36 : 0.42;
+  const fireY = topY + 0.28;
+  fire.position.set(engineX, fireY, engineZ);
+  fire.renderOrder = 38;
+  root.add(fire);
+  effects.push({
+    mesh: fire,
+    stage: 3,
+    kind: 'fire',
+    baseX: engineX,
+    baseY: fireY,
+    baseZ: engineZ,
+    baseScale: fireScale,
+    phase: deterministicUnit(entity.id, 0xcf1) * Math.PI * 2,
+  });
+
   for (const patch of patches) patch.mesh.visible = false;
-  return { root, patches };
+  for (const effect of effects) effect.mesh.visible = false;
+  return { root, patches, effects };
 }
 
 function createTeamMaterials(ctx: RenderContext, id: FactionId, own: boolean): TeamMaterials {

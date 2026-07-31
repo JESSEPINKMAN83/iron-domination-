@@ -8,6 +8,7 @@ import { mulberry32 } from './noise';
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { startMusterPosition } from '../content/startPositions';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
+import type { ImpactZone } from './impactModel';
 
 const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -45,6 +46,12 @@ export interface CombatEvent {
   /** Original weapon and normalized physical force for per-target hit reactions. */
   impactKind?: string;
   force?: number;
+  impactZone?: ImpactZone;
+  impulseX?: number;
+  impulseZ?: number;
+  verticalImpulse?: number;
+  angularImpulse?: number;
+  topFactor?: number;
 }
 
 /** In-flight ballistic ordnance. Damage happens on impact, at the aimed location. */
@@ -719,11 +726,19 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       desiredX = (desiredX / desiredLen) * desiredSpeed;
       desiredZ = (desiredZ / desiredLen) * desiredSpeed;
     }
-    velocity.x += (desiredX - velocity.x) * Math.min(1, dt * 8);
-    velocity.z += (desiredZ - velocity.z) * Math.min(1, dt * 8);
+    const staggerRemaining = entity.impactMomentum?.stagger ?? 0;
+    const staggerScale = staggerRemaining > 0 ? Math.max(0, Math.min(1, 1 - staggerRemaining / 0.38)) : 1;
+    if (entity.armor?.kind === 'infantry' && staggerScale < 1) {
+      desiredX *= staggerScale;
+      desiredZ *= staggerScale;
+    }
+    const movementDamping = entity.armor?.kind === 'infantry' && staggerScale < 1 ? 14 : 8;
+    velocity.x += (desiredX - velocity.x) * Math.min(1, dt * movementDamping);
+    velocity.z += (desiredZ - velocity.z) * Math.min(1, dt * movementDamping);
 
-    const nextX = transform.x + velocity.x * dt;
-    const nextZ = transform.z + velocity.z * dt;
+    const momentum = entity.impactMomentum;
+    const nextX = transform.x + (velocity.x + (momentum?.x ?? 0)) * dt;
+    const nextZ = transform.z + (velocity.z + (momentum?.z ?? 0)) * dt;
     const cell = sim.nav.worldToCell(nextX, nextZ);
     if (sim.nav.isWalkableCell(cell.x, cell.y) || boostedTerrainPassable(sim, hf, entity, nextX, nextZ)) {
       transform.x = nextX;
@@ -734,12 +749,33 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       if (sim.nav.isWalkableCell(xCell.x, xCell.y) || boostedTerrainPassable(sim, hf, entity, nextX, transform.z)) {
         transform.x = nextX;
         velocity.z = 0;
+        if (momentum) momentum.z = 0;
       } else if (sim.nav.isWalkableCell(zCell.x, zCell.y) || boostedTerrainPassable(sim, hf, entity, transform.x, nextZ)) {
         transform.z = nextZ;
         velocity.x = 0;
+        if (momentum) momentum.x = 0;
       } else {
         velocity.x = 0;
         velocity.z = 0;
+        if (momentum) {
+          momentum.x = 0;
+          momentum.z = 0;
+        }
+      }
+    }
+
+    if (momentum) {
+      const decay = Math.exp(-3.25 * dt);
+      momentum.x *= decay;
+      momentum.z *= decay;
+      momentum.yaw *= Math.exp(-4.6 * dt);
+      momentum.ttl -= dt;
+      if (momentum.stagger !== undefined) momentum.stagger = Math.max(0, momentum.stagger - dt);
+      if (
+        momentum.ttl <= 0 ||
+        (Math.hypot(momentum.x, momentum.z) < 0.025 && Math.abs(momentum.yaw) < 0.008 && (momentum.stagger ?? 0) <= 0)
+      ) {
+        entity.impactMomentum = undefined;
       }
     }
 
@@ -1210,6 +1246,13 @@ export function hashSim(sim: GameSim): number {
     if (entity.velocity) {
       mix(Math.round(entity.velocity.x * 100));
       mix(Math.round(entity.velocity.z * 100));
+    }
+    if (entity.impactMomentum) {
+      mix(Math.round(entity.impactMomentum.x * 1000));
+      mix(Math.round(entity.impactMomentum.z * 1000));
+      mix(Math.round(entity.impactMomentum.yaw * 1000));
+      mix(Math.round(entity.impactMomentum.ttl * 1000));
+      mix(Math.round((entity.impactMomentum.stagger ?? 0) * 1000));
     }
     if (entity.turret) mix(Math.round(entity.turret.yaw * 10000));
     if (entity.mover) {

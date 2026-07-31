@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  directionalHitFeedback,
   hitFlashOpacity,
   hitShakeProfile,
   impactForceFromEvent,
@@ -36,5 +37,22 @@ describe('v-mode hit juice', () => {
     expect(lowHpVignetteOpacity(0.35)).toBe(0);
     expect(lowHpVignetteOpacity(0.2)).toBeGreaterThan(0.3);
     expect(lowHpVignetteOpacity(0.05)).toBeGreaterThan(lowHpVignetteOpacity(0.2));
+  });
+
+  it('gives side and top impacts distinct camera directions', () => {
+    const baseEvent = {
+      kind: 'impact-reaction',
+      fromX: 10,
+      fromZ: 0,
+      toX: 0,
+      toZ: 0,
+      damage: 20,
+      killed: false,
+    };
+    const side = directionalHitFeedback({ ...baseEvent, impactZone: 'right', impulseX: -4, impulseZ: 0 }, 0);
+    const top = directionalHitFeedback({ ...baseEvent, impactZone: 'top', topFactor: 0.94, trajectory: 'drop' }, 0);
+    expect(Math.abs(side.roll)).toBeGreaterThan(Math.abs(top.roll));
+    expect(top.vertical).toBeGreaterThan(side.vertical);
+    expect(top.pitch).toBeGreaterThan(side.pitch);
   });
 });
