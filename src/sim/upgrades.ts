@@ -41,72 +41,72 @@ export interface UnitUpgradeDef {
 
 export const UNIT_UPGRADES: Record<UnitUpgradeId, UnitUpgradeDef> = {
   'combat-bike': {
-    id: 'combat-bike', label: 'Combat Bike', category: 'frame', cost: 170,
+    id: 'combat-bike', label: 'Combat Bike', category: 'frame', cost: 119,
     description: 'Mounts the soldier on a high-speed attack bike. Snipers must stop the bike before aiming or firing.',
     kinds: ['infantry', 'grenadier', 'sniper', 'rocket-infantry'], speedMultiplier: 2.65, healthBonus: 14,
   },
   'tesla-dart': {
-    id: 'tesla-dart', label: 'Tesla Dart', category: 'ability', cost: 290, hotkey: 'F',
+    id: 'tesla-dart', label: 'Tesla Dart', category: 'ability', cost: 203, hotkey: 'F',
     description: 'F fires a charged anti-armor electric dart with a long recharge.', kinds: ['infantry'], specialWeapon: 'overchargeRifle',
   },
   'cluster-satchel': {
-    id: 'cluster-satchel', label: 'Cluster Satchel', category: 'ability', cost: 330, hotkey: 'F',
+    id: 'cluster-satchel', label: 'Cluster Satchel', category: 'ability', cost: 231, hotkey: 'F',
     description: 'F launches a wide explosive cluster shell into grouped enemies.', kinds: ['grenadier'], specialWeapon: 'clusterGrenade',
   },
   'rail-lance': {
-    id: 'rail-lance', label: 'Rail Lance', category: 'ability', cost: 440, hotkey: 'F',
+    id: 'rail-lance', label: 'Rail Lance', category: 'ability', cost: 308, hotkey: 'F',
     description: 'F fires an extreme-range armor-piercing shot. The sniper must be completely still.', kinds: ['sniper'], specialWeapon: 'railShot',
   },
   'hydra-volley': {
-    id: 'hydra-volley', label: 'Hydra Volley', category: 'ability', cost: 390, hotkey: 'F',
+    id: 'hydra-volley', label: 'Hydra Volley', category: 'ability', cost: 273, hotkey: 'F',
     description: 'F launches a smart heavy rocket with a violent impact.', kinds: ['rocket-infantry'], specialWeapon: 'swarmRocket',
   },
   'jackal-overdrive': {
-    id: 'jackal-overdrive', label: 'Predator Drive', category: 'frame', cost: 260,
+    id: 'jackal-overdrive', label: 'Predator Drive', category: 'frame', cost: 182,
     description: 'High-torque treads increase speed and extend forward reconnaissance.', kinds: ['scout-tank'], speedMultiplier: 1.28, visionBonus: 24,
   },
   'jackal-hunter': {
-    id: 'jackal-hunter', label: 'Hunter Missile', category: 'ability', cost: 410, hotkey: 'F',
+    id: 'jackal-hunter', label: 'Hunter Missile', category: 'ability', cost: 287, hotkey: 'F',
     description: 'F launches a precision hunter missile built to finish damaged armor.', kinds: ['scout-tank'], specialWeapon: 'swarmRocket',
   },
   'reactive-plating': {
-    id: 'reactive-plating', label: 'Reactive Plating', category: 'frame', cost: 380,
-    description: 'Explosive armor tiles add 60 maximum health to this exact tank.', kinds: ['tank'], healthBonus: 60,
+    id: 'reactive-plating', label: 'Aegis Micro-Drone', category: 'frame', cost: 266,
+    description: 'Adds 60 maximum health and deploys an orbiting escort drone. Its rapid micro-laser intercepts nearby infantry and assists against the tank’s current target.', kinds: ['tank'], healthBonus: 60,
   },
   'ion-spear': {
-    id: 'ion-spear', label: 'Ion Spear', category: 'ability', cost: 560, hotkey: 'F',
+    id: 'ion-spear', label: 'Ion Spear', category: 'ability', cost: 392, hotkey: 'F',
     description: 'F fires a costly high-energy missile that punches through heavy formations.', kinds: ['tank'], specialWeapon: 'annihilatorMissile',
   },
   'siege-stabilizers': {
-    id: 'siege-stabilizers', label: 'Siege Gyros', category: 'frame', cost: 470,
+    id: 'siege-stabilizers', label: 'Siege Gyros', category: 'frame', cost: 329,
     description: 'Braced suspension adds 85 health and makes the heavy turret traverse faster.', kinds: ['siege-tank'], healthBonus: 85, turretRateMultiplier: 1.45,
   },
   'earthshaker-round': {
-    id: 'earthshaker-round', label: 'Earthshaker', category: 'ability', cost: 720, hotkey: 'F',
+    id: 'earthshaker-round', label: 'Earthshaker', category: 'ability', cost: 504, hotkey: 'F',
     description: 'F launches a rare siege warhead with massive impact and a very long reload.', kinds: ['siege-tank'], specialWeapon: 'annihilatorMissile',
   },
   'vector-thrusters': {
-    id: 'vector-thrusters', label: 'Vector Thrusters', category: 'frame', cost: 360,
+    id: 'vector-thrusters', label: 'Vector Thrusters', category: 'frame', cost: 252,
     description: 'Experimental rotors increase flight speed and climb authority.', kinds: ['wasp'], speedMultiplier: 1.22, climbMultiplier: 1.3,
   },
   'needle-storm': {
-    id: 'needle-storm', label: 'Needle Storm', category: 'ability', cost: 480, hotkey: 'F',
+    id: 'needle-storm', label: 'Needle Storm', category: 'ability', cost: 336, hotkey: 'F',
     description: 'F releases a compact anti-ground missile from the scout frame.', kinds: ['wasp'], specialWeapon: 'swarmRocket',
   },
   'specter-plating': {
-    id: 'specter-plating', label: 'Specter Plating', category: 'frame', cost: 520,
+    id: 'specter-plating', label: 'Specter Plating', category: 'frame', cost: 364,
     description: 'Composite armor adds 75 health without sacrificing gunship speed.', kinds: ['vulture'], healthBonus: 75,
   },
   'bunker-buster': {
-    id: 'bunker-buster', label: 'Bunker Buster', category: 'ability', cost: 680, hotkey: 'F',
+    id: 'bunker-buster', label: 'Bunker Buster', category: 'ability', cost: 476, hotkey: 'F',
     description: 'F drives a heavy warhead into vehicles and structures below.', kinds: ['vulture'], specialWeapon: 'annihilatorMissile',
   },
   'titan-lift': {
-    id: 'titan-lift', label: 'Titan Lift', category: 'frame', cost: 680,
+    id: 'titan-lift', label: 'Titan Lift', category: 'frame', cost: 476,
     description: 'Reinforced lift system adds 120 health and stronger vertical control.', kinds: ['hammerhead'], healthBonus: 120, climbMultiplier: 1.22,
   },
   'skyfall-warhead': {
-    id: 'skyfall-warhead', label: 'Skyfall Warhead', category: 'ability', cost: 890, hotkey: 'F',
+    id: 'skyfall-warhead', label: 'Skyfall Warhead', category: 'ability', cost: 623, hotkey: 'F',
     description: 'F fires the heaviest purchasable tactical warhead in the aircraft roster.', kinds: ['hammerhead'], specialWeapon: 'annihilatorMissile',
   },
 };
@@ -191,6 +191,12 @@ function applyUpgrade(entity: Entity, def: UnitUpgradeDef): void {
   if (entity.unitUpgrades.ids.includes(def.id)) return;
   entity.unitUpgrades.ids.push(def.id);
   entity.unitUpgrades.ids.sort();
+  if (def.id === 'reactive-plating') {
+    entity.unitUpgrades.escortDrone ??= {
+      cooldown: 0,
+      orbitAngle: (entity.id * 2.399963229728653) % (Math.PI * 2),
+    };
+  }
   if (entity.mover && def.speedMultiplier) entity.mover.speed *= def.speedMultiplier;
   if (entity.health && def.healthBonus) {
     entity.health.max += def.healthBonus;

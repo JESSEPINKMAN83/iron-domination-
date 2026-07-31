@@ -7,6 +7,13 @@ import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { selectedEntities, type GameSim } from '../sim/world';
 import type { TacticalPing, TacticalPingKind } from '../net/multiplayer';
+import {
+  radarPointerAction,
+  radarNorthDirection,
+  radarToWorldPoint,
+  radarTransformMetrics,
+  worldToRadarPoint,
+} from './radarTransform';
 import { unitDisplayName } from './unitDisplayName';
 
 type Tab = 'buildings' | 'defense' | 'infantry' | 'vehicles' | 'aircraft';
@@ -18,6 +25,7 @@ export interface SidebarActions {
   cancelUnit(kind: UnitKind, producer?: Entity): void;
   setPrimaryProducer(producer: Entity): void;
   focusMap(x: number, z: number): void;
+  orderMap(x: number, z: number, attackGround: boolean): boolean;
   radarYaw(): number;
   radarViewport(): { x: number; z: number }[];
   beginTacticalPing?(kind: TacticalPingKind): void;
@@ -62,7 +70,7 @@ export class Sidebar {
   private lastLiveTick = -2;
   private fogImage?: ImageData;
   private lastSelectedBuildingId?: number;
-  private radarFocus?: { x: number; z: number; ttl: number };
+  private radarFocus?: { x: number; z: number; ttl: number; kind: 'focus' | 'move' | 'attack-ground' };
   private radarAlert?: { x: number; z: number; expiresAt: number };
   private readonly fogCanvas: HTMLCanvasElement;
   private readonly tacticalButtons = new Map<TacticalPingKind, HTMLButtonElement>();
@@ -101,7 +109,11 @@ export class Sidebar {
     this.radar.dataset.role = 'radar-map';
     this.radar.width = 298;
     this.radar.height = 298;
-    this.radar.style.cssText = 'display:block;width:100%;aspect-ratio:1 / 1;height:auto;image-rendering:pixelated;background:#07100c;';
+    this.radar.style.cssText =
+      'display:block;width:100%;aspect-ratio:1 / 1;height:auto;image-rendering:pixelated;background:#07100c;' +
+      'touch-action:none;cursor:crosshair;user-select:none;-webkit-user-select:none;';
+    this.radar.title = 'Left-click: focus camera · Right-click: move units · Command + right-click: fire at point';
+    this.radar.setAttribute('aria-label', this.radar.title);
     this.radar.addEventListener('pointerdown', (event) => this.onRadarPointerDown(event));
     const radarCtx = this.radar.getContext('2d');
     if (!radarCtx) throw new Error('radar canvas unavailable');
@@ -970,6 +982,9 @@ export class Sidebar {
       this.radarFocus.ttl -= 1 / 30;
       if (this.radarFocus.ttl <= 0) this.radarFocus = undefined;
     }
+    this.radarCtx.clearRect(0, 0, this.radar.width, this.radar.height);
+    this.radarCtx.fillStyle = '#07100c';
+    this.radarCtx.fillRect(0, 0, this.radar.width, this.radar.height);
     this.drawOrientedRadarImage(this.radarTerrain);
     this.radarCtx.fillStyle = 'rgba(0,0,0,.22)';
     this.radarCtx.fillRect(0, 0, this.radar.width, this.radar.height);
@@ -984,20 +999,26 @@ export class Sidebar {
       this.radarCtx.fillRect(Math.round(p.x) - (isBuilding ? 2 : 1), Math.round(p.y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
     this.drawRadarFog();
+    this.drawRadarBoundary();
     this.drawRadarViewport();
     this.drawTacticalPings(now);
     this.drawUnderAttackAlert(now);
     if (this.radarFocus) {
       const p = this.worldToRadar(this.radarFocus.x, this.radarFocus.z);
-      this.radarCtx.strokeStyle = '#f0d56a';
-      this.radarCtx.lineWidth = 1;
+      this.radarCtx.strokeStyle = this.radarFocus.kind === 'attack-ground' ? '#ff6d5e' : this.radarFocus.kind === 'move' ? '#56d184' : '#f0d56a';
+      this.radarCtx.lineWidth = this.radarFocus.kind === 'focus' ? 1 : 2;
       this.radarCtx.beginPath();
       this.radarCtx.moveTo(p.x - 6, p.y);
       this.radarCtx.lineTo(p.x + 6, p.y);
       this.radarCtx.moveTo(p.x, p.y - 6);
       this.radarCtx.lineTo(p.x, p.y + 6);
+      if (this.radarFocus.kind !== 'focus') {
+        this.radarCtx.moveTo(p.x + 8, p.y);
+        this.radarCtx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+      }
       this.radarCtx.stroke();
     }
+    this.drawRadarOrientation();
     this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
   }
@@ -1072,8 +1093,13 @@ export class Sidebar {
       if (!entity) return;
       const p = this.worldToRadar(entity.transform.x, entity.transform.z);
       const yaw = entity.playerControlled?.aimYaw ?? entity.transform.rot;
-      const dx = Math.sin(yaw);
-      const dy = -Math.cos(yaw);
+      const facing = this.worldToRadar(
+        entity.transform.x + Math.sin(yaw) * 12,
+        entity.transform.z + Math.cos(yaw) * 12,
+      );
+      const facingLength = Math.hypot(facing.x - p.x, facing.y - p.y) || 1;
+      const dx = (facing.x - p.x) / facingLength;
+      const dy = (facing.y - p.y) / facingLength;
       const sideX = -dy;
       const sideY = dx;
       this.radarCtx.save();
@@ -1126,38 +1152,121 @@ export class Sidebar {
     this.drawOrientedRadarImage(this.fogCanvas);
   }
 
+  private drawRadarBoundary(): void {
+    const half = this.hf.size / 2;
+    const corners = [
+      this.worldToRadar(-half, -half),
+      this.worldToRadar(half, -half),
+      this.worldToRadar(half, half),
+      this.worldToRadar(-half, half),
+    ];
+    this.radarCtx.save();
+    this.radarCtx.beginPath();
+    this.radarCtx.moveTo(corners[0].x, corners[0].y);
+    for (let index = 1; index < corners.length; index++) {
+      this.radarCtx.lineTo(corners[index].x, corners[index].y);
+    }
+    this.radarCtx.closePath();
+    this.radarCtx.strokeStyle = 'rgba(210,177,95,.5)';
+    this.radarCtx.lineWidth = 1.2;
+    this.radarCtx.stroke();
+    this.radarCtx.restore();
+  }
+
   private onRadarPointerDown(event: PointerEvent): void {
     event.preventDefault();
     event.stopPropagation();
+    const action = radarPointerAction(event.button, event.metaKey);
+    if (action === 'ignore') return;
     const rect = this.radar.getBoundingClientRect();
-    const u = (event.clientX - rect.left) / rect.width;
-    const v = (event.clientY - rect.top) / rect.height;
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const u = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const v = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
     const { x, z } = this.radarToWorld(u, v);
-    this.radarFocus = { x, z, ttl: 0.8 };
-    this.actions.focusMap(x, z);
+    if (action === 'focus') {
+      this.radarFocus = { x, z, ttl: 0.8, kind: 'focus' };
+      this.actions.focusMap(x, z);
+    } else {
+      if (this.actions.orderMap(x, z, action === 'attack-ground')) {
+        this.radarFocus = { x, z, ttl: 0.8, kind: action };
+      }
+    }
     this.drawRadar();
   }
 
   private worldToRadar(x: number, z: number): { x: number; y: number } {
-    return {
-      x: (x / this.hf.size + 0.5) * this.radar.width,
-      y: (0.5 - z / this.hf.size) * this.radar.height,
-    };
+    return worldToRadarPoint(
+      this.hf.size,
+      this.radar.width,
+      this.radar.height,
+      x,
+      z,
+      this.actions.radarYaw(),
+    );
   }
 
   private radarToWorld(u: number, v: number): { x: number; z: number } {
-    return {
-      x: (u - 0.5) * this.hf.size,
-      z: (0.5 - v) * this.hf.size,
-    };
+    return radarToWorldPoint(
+      this.hf.size,
+      this.radar.width,
+      this.radar.height,
+      u * this.radar.width,
+      v * this.radar.height,
+      this.actions.radarYaw(),
+    );
   }
 
   private drawOrientedRadarImage(image: HTMLCanvasElement): void {
+    const yaw = this.actions.radarYaw();
+    const metrics = radarTransformMetrics(this.radar.width, this.radar.height, yaw);
     this.radarCtx.save();
-    this.radarCtx.translate(0, this.radar.height);
-    this.radarCtx.scale(1, -1);
-    this.radarCtx.drawImage(image, 0, 0, this.radar.width, this.radar.height);
+    this.radarCtx.translate(metrics.centerX, metrics.centerY);
+    this.radarCtx.rotate(yaw);
+    this.radarCtx.drawImage(
+      image,
+      -metrics.drawSize / 2,
+      -metrics.drawSize / 2,
+      metrics.drawSize,
+      metrics.drawSize,
+    );
     this.radarCtx.restore();
+  }
+
+  private drawRadarOrientation(): void {
+    const ctx = this.radarCtx;
+    const yaw = this.actions.radarYaw();
+    const north = radarNorthDirection(yaw);
+    const compassX = this.radar.width - 19;
+    const compassY = 20;
+    ctx.save();
+    ctx.fillStyle = 'rgba(5,9,8,.78)';
+    ctx.strokeStyle = 'rgba(240,213,106,.72)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(compassX, compassY, 13, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = '#f0d56a';
+    ctx.fillStyle = '#f0d56a';
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.moveTo(compassX, compassY);
+    ctx.lineTo(compassX + north.x * 8, compassY + north.y * 8);
+    ctx.stroke();
+    ctx.font = '700 7px ui-monospace,Menlo,monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('N', compassX + north.x * 10, compassY + north.y * 10);
+
+    ctx.fillStyle = 'rgba(5,9,8,.76)';
+    ctx.fillRect(7, 7, 49, 15);
+    ctx.strokeStyle = 'rgba(240,213,106,.48)';
+    ctx.strokeRect(7.5, 7.5, 48, 14);
+    ctx.fillStyle = '#e7d78e';
+    ctx.font = '700 7px ui-monospace,Menlo,monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('VIEW  ↑', 13, 15);
+    ctx.restore();
   }
 }
 

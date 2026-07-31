@@ -304,7 +304,7 @@ describe('phase 2 movement simulation', () => {
     expect(attackers.every((tank) => tank.mover?.target && tank.mover.attackMove)).toBe(true);
   });
 
-  it('honors right-drag style move orders with a final facing direction and line formation', () => {
+  it('honors right-drag style move orders with a final facing direction and combat formation', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const tanks = spawnDebugTanks(sim, hf, 4);
@@ -327,7 +327,7 @@ describe('phase 2 movement simulation', () => {
     expect(tanks.every((tank) => tank.mover?.faceYaw === faceYaw)).toBe(true);
   });
 
-  it('uses right-drag distance to spread selected units into a wider facing line', () => {
+  it('uses right-drag distance to transition from a deep formation into wider battle ranks', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const tanks = spawnDebugTanks(sim, hf, 6);
@@ -338,15 +338,17 @@ describe('phase 2 movement simulation', () => {
 
     expect(issueMoveOrder(sim, tanks, p.x, p.z, false, faceYaw, 18)).toBe(true);
     const tightDestinations = tanks.map((tank) => tank.mover?.target);
-    const tightSpan = Math.max(...tightDestinations.map((point) => point!.z)) - Math.min(...tightDestinations.map((point) => point!.z));
+    const tightSpanZ = Math.max(...tightDestinations.map((point) => point!.z)) - Math.min(...tightDestinations.map((point) => point!.z));
+    const tightSpanX = Math.max(...tightDestinations.map((point) => point!.x)) - Math.min(...tightDestinations.map((point) => point!.x));
 
     expect(issueMoveOrder(sim, tanks, p.x, p.z, false, faceYaw, 72)).toBe(true);
     const wideDestinations = tanks.map((tank) => tank.mover?.target);
     const wideSpanZ = Math.max(...wideDestinations.map((point) => point!.z)) - Math.min(...wideDestinations.map((point) => point!.z));
     const wideSpanX = Math.max(...wideDestinations.map((point) => point!.x)) - Math.min(...wideDestinations.map((point) => point!.x));
 
-    expect(wideSpanZ).toBeGreaterThan(tightSpan * 1.7);
-    expect(wideSpanX).toBeLessThan(0.001);
+    expect(wideSpanZ).toBeGreaterThan(tightSpanZ * 1.7);
+    expect(wideSpanX).toBeGreaterThan(5);
+    expect(wideSpanX).toBeLessThanOrEqual(tightSpanX);
     expect(tanks.every((tank) => tank.mover?.faceYaw === faceYaw)).toBe(true);
   });
 
@@ -383,7 +385,7 @@ describe('phase 2 movement simulation', () => {
     });
   });
 
-  it('assigns mixed ground and air units to distinct slots in one formation line', () => {
+  it('assigns mixed ground and air units to distinct combat-formation slots', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const tanks = spawnDebugTanks(sim, hf, 2);

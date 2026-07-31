@@ -26,13 +26,19 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Entity } from '../sim/components';
+import { escortDroneLocalPosition } from '../sim/combat';
 import type { CombatEvent } from '../sim/world';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { factionId, FACTION, type FactionId } from './palette';
 import type { RenderContext, VisualQualityTier } from './renderer';
 import { buildSoldier, type SoldierMaterials, type SoldierRig } from './soldier';
 import { unitVisualKind, type UnitVisualKind } from './unitKinds';
-import { hasUnitUpgrade } from '../sim/upgrades';
+import {
+  hasUnitUpgrade,
+  unitKindForUpgrade,
+  upgradeOptionsForKind,
+  type UnitUpgradeId,
+} from '../sim/upgrades';
 
 interface AnimState {
   phase: number; // walk-cycle phase, radians
@@ -41,6 +47,10 @@ interface AnimState {
   crouch: number;
   recoil: number;
   lastCooldown: number;
+  bikeLean: number;
+  bikeSteer: number;
+  bikePitch: number;
+  bikeSpeed: number;
 }
 
 interface TeamMaterials {
@@ -69,6 +79,9 @@ interface UnitRefs {
   warningBeacon?: Mesh;
   antenna?: Object3D;
   missileRack?: Object3D[];
+  upgradeVisuals?: Map<UnitUpgradeId, Object3D>;
+  escortDrone?: Object3D;
+  escortDroneRotors?: Object3D[];
 }
 
 interface BuiltUnit {
@@ -524,7 +537,18 @@ export class UnitView {
     if (kind === 'rifle' || kind === 'grenadier' || kind === 'rocket' || kind === 'sniper') {
       const rig = buildSoldier(this.soldierMaterials(materials), kind);
       this.soldierRigs.set(entity, rig);
-      this.anims.set(entity, { phase: 0, swing: 0, aim: 0, crouch: 0, recoil: 0, lastCooldown: entity.weapon?.cooldown ?? entity.weapons?.primary.cooldown ?? 0 });
+      this.anims.set(entity, {
+        phase: 0,
+        swing: 0,
+        aim: 0,
+        crouch: 0,
+        recoil: 0,
+        lastCooldown: entity.weapon?.cooldown ?? entity.weapons?.primary.cooldown ?? 0,
+        bikeLean: 0,
+        bikeSteer: 0,
+        bikePitch: 0,
+        bikeSpeed: 0,
+      });
       built = { root: rig.root, refs: { turretPivot: rig.torso, antenna: rig.antenna } };
     } else if (kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead') {
       built = createAircraftObject(kind, materials, this.gunmetalMaterial);
@@ -552,6 +576,11 @@ export class UnitView {
       built = createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial);
     }
     const unit = built.root;
+    built.refs.upgradeVisuals = createUnitUpgradeVisuals(entity, materials, this.gunmetalMaterial);
+    for (const visual of built.refs.upgradeVisuals.values()) unit.add(visual);
+    const escortVisual = built.refs.upgradeVisuals.get('reactive-plating');
+    built.refs.escortDrone = escortVisual?.getObjectByName('escortDrone');
+    built.refs.escortDroneRotors = built.refs.escortDrone?.children.filter((child) => child.name === 'escortDroneRotor');
     const scale = visualScaleForEntity(entity);
     unit.scale.set(scale.x, scale.y, scale.z);
     unit.castShadow = false;
@@ -789,6 +818,7 @@ export class UnitView {
         continue;
       }
       obj.visible = true;
+      this.updateUpgradeVisuals(entity);
       const x = lerp(entity.previousTransform.x, entity.transform.x, alpha);
       const z = lerp(entity.previousTransform.z, entity.transform.z, alpha);
       const rot = lerpAngle(entity.previousTransform.rot, entity.transform.rot, alpha);
@@ -892,6 +922,7 @@ export class UnitView {
           !entity.destroyed);
       if (keepDetailed) {
         obj.visible = true;
+        this.updateUpgradeVisuals(entity);
         obj.position.set(x, y, z);
         obj.rotation.y = rot;
         this.applyPose(entity, obj, dt);
@@ -951,6 +982,12 @@ export class UnitView {
     this.glowTransform.updateMatrix();
     this.friendlyGlow.mesh.setMatrixAt(this.friendlyGlow.count, this.glowTransform.matrix);
     this.friendlyGlow.count++;
+  }
+
+  private updateUpgradeVisuals(entity: Entity): void {
+    for (const [upgradeId, visual] of this.refs.get(entity)?.upgradeVisuals ?? []) {
+      visual.visible = hasUnitUpgrade(entity, upgradeId);
+    }
   }
 
   private applyHitReaction(entity: Entity, obj: Object3D, dt: number): void {
@@ -1203,6 +1240,7 @@ export class UnitView {
       } else if (refs?.barrelPivot) {
         refs.barrelPivot.rotation.x += (0 - refs.barrelPivot.rotation.x) * Math.min(1, dt * 7);
       }
+      this.updateEscortDrone(entity, refs, dt);
       return;
     }
 
@@ -1243,20 +1281,46 @@ export class UnitView {
       rig.kneeL.rotation.x = 1.2;
       rig.kneeR.rotation.x = 1.2;
       for (const wheel of rig.bikeWheels) wheel.rotation.x -= (speed / 0.43) * dt;
-      const moveYaw = speed > 0.4 && entity.velocity ? Math.atan2(entity.velocity.x, entity.velocity.z) : entity.transform.rot;
-      const slip = Math.atan2(Math.sin(moveYaw - entity.transform.rot), Math.cos(moveYaw - entity.transform.rot));
-      const lean = Math.max(-0.22, Math.min(0.22, -slip * 0.48));
-      rig.combatBike.rotation.z += (lean - rig.combatBike.rotation.z) * Math.min(1, dt * 8);
-      rig.combatBike.position.y = Math.sin(anim.phase * 1.7) * 0.028 * speedT;
+      const headingStep = Math.atan2(
+        Math.sin(entity.transform.rot - entity.previousTransform.rot),
+        Math.cos(entity.transform.rot - entity.previousTransform.rot),
+      );
+      const speedWeight = 0.16 + speedT * 0.84;
+      const leanTarget = Math.max(-0.48, Math.min(0.48, -headingStep * (4.5 + speedT * 10.5) * speedWeight));
+      const steerTarget = Math.max(-0.58, Math.min(0.58, headingStep * (15 - speedT * 4)));
+      const acceleration = speed - anim.bikeSpeed;
+      const pitchTarget = Math.max(-0.14, Math.min(0.16, -acceleration * 0.035));
+      const leanResponse = Math.abs(leanTarget) > Math.abs(anim.bikeLean) ? 9.5 : 4.2;
+      anim.bikeLean += (leanTarget - anim.bikeLean) * Math.min(1, dt * leanResponse);
+      anim.bikeSteer += (steerTarget - anim.bikeSteer) * Math.min(1, dt * 11);
+      anim.bikePitch += (pitchTarget - anim.bikePitch) * Math.min(1, dt * 6.5);
+      anim.bikeSpeed += (speed - anim.bikeSpeed) * Math.min(1, dt * 4.5);
+      // Lean the complete rider/bike assembly; leaning only the wheels made the
+      // rider appear unnaturally locked upright during high-speed turns.
+      obj.rotation.z = anim.bikeLean;
+      rig.combatBike.rotation.z = 0;
+      rig.bikeSteering.rotation.y = anim.bikeSteer;
+      rig.bikeSteering.rotation.z = -anim.bikeSteer * 0.08;
+      const roadPulse = Math.sin(anim.phase * 1.7) * (0.012 + speedT * 0.025);
+      const cornerCompression = Math.abs(anim.bikeLean) * 0.055;
+      rig.combatBike.position.y = roadPulse - cornerCompression;
+      rig.bikeSteering.position.y = Math.max(-0.09, -anim.bikePitch * 0.42);
       this.emitBikeDust(entity, speed, dt);
     } else {
+      anim.bikeLean += (0 - anim.bikeLean) * Math.min(1, dt * 8);
+      anim.bikeSteer += (0 - anim.bikeSteer) * Math.min(1, dt * 10);
+      anim.bikePitch += (0 - anim.bikePitch) * Math.min(1, dt * 7);
+      anim.bikeSpeed += (0 - anim.bikeSpeed) * Math.min(1, dt * 5);
       rig.combatBike.rotation.z += (0 - rig.combatBike.rotation.z) * Math.min(1, dt * 8);
+      rig.bikeSteering.rotation.y += (0 - rig.bikeSteering.rotation.y) * Math.min(1, dt * 10);
+      rig.bikeSteering.rotation.z += (0 - rig.bikeSteering.rotation.z) * Math.min(1, dt * 10);
+      rig.bikeSteering.position.y += (0 - rig.bikeSteering.position.y) * Math.min(1, dt * 8);
       rig.combatBike.position.y = 0;
       this.bikeDustSpawn.delete(entity);
     }
     // gait bob + a touch of forward lean when running
     obj.position.y += onCombatBike ? 0.34 : (Math.abs(Math.sin(anim.phase * 2)) * 0.05 - 0.02) * anim.swing - anim.crouch * 0.12 - rocketKneel * 0.08;
-    rig.root.rotation.x = onCombatBike ? -0.1 : 0.04 + 0.1 * speedT * anim.swing - anim.crouch * 0.05;
+    rig.root.rotation.x = onCombatBike ? -0.08 + anim.bikePitch : 0.04 + 0.1 * speedT * anim.swing - anim.crouch * 0.05;
     // idle breathing
     rig.torso.position.y = 1.12 - anim.crouch * 0.08 + Math.sin(anim.phase * 0.35 + entity.id) * 0.008 * (1 - anim.swing);
     rig.torso.rotation.x = -anim.crouch * 0.08 - (anim.recoil > 0 ? 0.035 : 0);
@@ -1284,6 +1348,24 @@ export class UnitView {
       rig.backBlast.scale.setScalar(1.2 + recoilT * 0.5);
     }
     if (rig.antenna) rig.antenna.rotation.z = Math.sin(anim.phase * 1.15 + entity.id) * 0.13 * Math.max(0.25, anim.swing);
+  }
+
+  private updateEscortDrone(entity: Entity, refs: UnitRefs | undefined, dt: number): void {
+    const drone = refs?.escortDrone;
+    const state = entity.unitUpgrades?.escortDrone;
+    if (!drone || !state || !hasUnitUpgrade(entity, 'reactive-plating')) return;
+    const orbit = escortDroneLocalPosition(state.orbitAngle);
+    drone.position.set(orbit.x, orbit.y, orbit.z);
+    const target = state.targetId === undefined ? undefined : this.entitiesById.get(state.targetId);
+    if (target) {
+      const worldBearing = Math.atan2(target.transform.x - entity.transform.x, target.transform.z - entity.transform.z);
+      drone.rotation.y = worldBearing - entity.transform.rot;
+    } else {
+      drone.rotation.y = -state.orbitAngle + Math.PI * 0.5;
+    }
+    drone.rotation.x = Math.sin(state.orbitAngle * 2.4 + entity.id) * 0.08;
+    drone.rotation.z = Math.cos(state.orbitAngle * 1.7 + entity.id) * 0.12;
+    for (const rotor of refs?.escortDroneRotors ?? []) rotor.rotation.y += dt * 28;
   }
 
   private emitBikeDust(entity: Entity, speed: number, dt: number): void {
@@ -1827,6 +1909,181 @@ function angledBox(
   const mesh = box(x, y, z, material, px, py, pz);
   mesh.rotation.set(rx, ry, rz);
   return mesh;
+}
+
+/**
+ * Small, readable bolt-on modules for purchased upgrades. These stay outside
+ * the compacted base meshes so they can be toggled without rebuilding a unit.
+ */
+function createUnitUpgradeVisuals(
+  entity: Entity,
+  materials: TeamMaterials,
+  gunmetal: Material,
+): Map<UnitUpgradeId, Object3D> {
+  const visuals = new Map<UnitUpgradeId, Object3D>();
+  const kind = unitKindForUpgrade(entity);
+  if (!kind) return visuals;
+  for (const def of upgradeOptionsForKind(kind)) {
+    if (def.id === 'combat-bike') continue; // The animated bike already lives in the soldier rig.
+    const visual = createUnitUpgradeModule(def.id, materials, gunmetal);
+    visual.name = `upgrade-${def.id}`;
+    visual.visible = hasUnitUpgrade(entity, def.id);
+    visuals.set(def.id, visual);
+  }
+  return visuals;
+}
+
+function createUnitUpgradeModule(id: UnitUpgradeId, materials: TeamMaterials, gunmetal: Material): Group {
+  const group = new Group();
+  const addTube = (
+    radius: number,
+    length: number,
+    material: Material,
+    x: number,
+    y: number,
+    z: number,
+    alongZ = true,
+  ): Mesh => {
+    const mesh = new Mesh(sharedCylinderGeometry(radius * 0.76, radius, length, 8), material);
+    if (alongZ) mesh.rotation.x = Math.PI / 2;
+    mesh.position.set(x, y, z);
+    group.add(mesh);
+    return mesh;
+  };
+  const addMissile = (x: number, y: number, z: number, scale = 1): void => {
+    addTube(0.12 * scale, 0.78 * scale, gunmetal, x, y, z);
+    const tip = new Mesh(sharedCylinderGeometry(0, 0.13 * scale, 0.28 * scale, 8), materials.lightBar);
+    tip.rotation.x = Math.PI / 2;
+    tip.position.set(x, y, z + 0.52 * scale);
+    group.add(tip);
+  };
+
+  switch (id) {
+    case 'tesla-dart': {
+      group.add(box(0.34, 0.52, 0.18, materials.dark, 0, 1.52, -0.27));
+      for (const x of [-0.12, 0.12]) addTube(0.055, 0.46, materials.lightBar, x, 1.54, -0.39, false);
+      group.add(box(0.38, 0.055, 0.08, materials.accent, 0, 1.76, -0.39));
+      break;
+    }
+    case 'cluster-satchel': {
+      for (const x of [-0.34, 0.34]) {
+        group.add(box(0.18, 0.42, 0.24, materials.canvas, x, 1.39, -0.2));
+        group.add(box(0.19, 0.055, 0.26, materials.accent, x, 1.54, -0.2));
+      }
+      break;
+    }
+    case 'rail-lance': {
+      const rail = addTube(0.035, 1.42, gunmetal, -0.28, 1.51, -0.32);
+      rail.rotation.z = -0.16;
+      group.add(angledBox(0.08, 0.07, 0.72, materials.lightBar, -0.21, 1.54, -0.33, 0, 0, -0.16));
+      group.add(box(0.22, 0.22, 0.18, materials.dark, 0.2, 1.4, -0.28));
+      break;
+    }
+    case 'hydra-volley': {
+      group.add(box(0.48, 0.48, 0.25, materials.dark, 0, 1.48, -0.32));
+      for (const x of [-0.15, 0, 0.15]) addTube(0.055, 0.48, materials.lightBar, x, 1.5, -0.48);
+      break;
+    }
+    case 'jackal-overdrive': {
+      for (const x of [-1.48, 1.48]) {
+        group.add(box(0.2, 0.26, 2.9, materials.accent, x, 0.82, -0.15));
+        addTube(0.16, 0.72, materials.lightBar, x, 0.94, -1.8);
+      }
+      break;
+    }
+    case 'jackal-hunter': {
+      group.add(box(1.08, 0.3, 0.86, materials.dark, 0, 1.63, -0.55));
+      for (const x of [-0.34, 0, 0.34]) addMissile(x, 1.68, -0.38, 0.72);
+      break;
+    }
+    case 'reactive-plating': {
+      for (const x of [-1.78, 1.78]) {
+        for (const z of [-1.55, -0.52, 0.52, 1.55]) {
+          group.add(angledBox(0.18, 0.55, 0.76, materials.accent, x, 0.9, z, 0, 0, x < 0 ? -0.06 : 0.06));
+        }
+      }
+      for (const x of [-0.78, 0, 0.78]) group.add(box(0.62, 0.11, 0.72, materials.accent, x, 1.32, -1.25));
+      const drone = new Group();
+      drone.name = 'escortDrone';
+      drone.add(box(0.82, 0.25, 0.72, materials.dark, 0, 0, 0));
+      drone.add(angledBox(0.62, 0.18, 0.55, materials.hull, 0, 0.15, -0.04, -0.08));
+      drone.add(box(1.42, 0.08, 0.16, gunmetal, 0, 0.02, -0.04));
+      drone.add(box(0.18, 0.16, 0.62, gunmetal, 0, -0.02, 0.48));
+      drone.add(box(0.16, 0.13, 0.24, materials.lightBar, 0, 0, 0.83));
+      drone.add(box(0.52, 0.06, 0.12, materials.accent, 0, 0.27, -0.1));
+      for (const x of [-0.7, 0.7]) {
+        const rotor = new Group();
+        rotor.name = 'escortDroneRotor';
+        rotor.position.set(x, 0.14, -0.04);
+        rotor.add(box(0.72, 0.025, 0.08, materials.lightBar, 0, 0, 0));
+        rotor.add(box(0.08, 0.025, 0.72, materials.lightBar, 0, 0, 0));
+        drone.add(rotor);
+      }
+      group.add(drone);
+      break;
+    }
+    case 'ion-spear': {
+      group.add(box(1.24, 0.38, 1.18, materials.dark, 0, 1.72, -1.02));
+      addMissile(0, 1.83, -0.72, 1.25);
+      for (const x of [-0.42, 0.42]) group.add(box(0.16, 0.16, 0.92, materials.lightBar, x, 1.78, -0.72));
+      break;
+    }
+    case 'siege-stabilizers': {
+      for (const x of [-2.9, 2.9]) {
+        group.add(angledBox(0.34, 0.34, 2.25, gunmetal, x, 0.55, -0.2, 0, 0, x < 0 ? -0.22 : 0.22));
+        group.add(box(0.86, 0.2, 0.84, materials.accent, x, 0.16, 0.74));
+        group.add(box(0.86, 0.2, 0.84, materials.accent, x, 0.16, -1.16));
+      }
+      break;
+    }
+    case 'earthshaker-round': {
+      group.add(box(1.8, 0.44, 1.52, materials.dark, 0, 2.32, -2.18));
+      addMissile(0, 2.5, -1.92, 1.75);
+      group.add(box(1.45, 0.12, 0.22, materials.accent, 0, 2.57, -2.05));
+      break;
+    }
+    case 'vector-thrusters': {
+      for (const x of [-1.2, 1.2]) {
+        addTube(0.28, 1.35, gunmetal, x, 0.12, -0.3);
+        group.add(box(0.38, 0.12, 0.66, materials.lightBar, x, 0.12, -1.13));
+      }
+      break;
+    }
+    case 'needle-storm': {
+      for (const x of [-1.12, 1.12]) {
+        group.add(box(0.58, 0.34, 0.92, materials.dark, x, -0.06, 0.72));
+        for (const dx of [-0.16, 0.16]) addMissile(x + dx, -0.02, 0.84, 0.55);
+      }
+      break;
+    }
+    case 'specter-plating': {
+      for (const x of [-1.18, 1.18]) group.add(angledBox(0.22, 0.82, 3.65, materials.accent, x, 0.4, -0.1, 0, 0, x < 0 ? -0.09 : 0.09));
+      group.add(angledBox(1.55, 0.15, 2.1, materials.dark, 0, 0.84, -0.2, -0.04));
+      break;
+    }
+    case 'bunker-buster': {
+      addMissile(0, -0.48, 0.68, 1.8);
+      group.add(box(0.92, 0.12, 1.8, materials.accent, 0, -0.38, 0.35));
+      break;
+    }
+    case 'titan-lift': {
+      for (const x of [-2.7, 2.7]) {
+        addTube(0.35, 1.4, materials.accent, x, 0.35, -0.25, false);
+        group.add(box(0.7, 0.16, 0.7, materials.lightBar, x, 1.02, -0.25));
+      }
+      group.add(box(4.2, 0.18, 0.36, gunmetal, 0, 0.72, -0.25));
+      break;
+    }
+    case 'skyfall-warhead': {
+      addMissile(0, -0.6, 0.82, 2.25);
+      group.add(box(1.25, 0.14, 2.4, materials.accent, 0, -0.47, 0.35));
+      for (const x of [-0.55, 0.55]) group.add(box(0.16, 0.42, 0.9, materials.lightBar, x, -0.42, 0.72));
+      break;
+    }
+    case 'combat-bike':
+      break;
+  }
+  return group;
 }
 
 function mergeDirectMeshesByMaterial(

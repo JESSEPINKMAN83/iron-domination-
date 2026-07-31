@@ -35,6 +35,7 @@ export interface SoldierRig {
   backBlast?: Mesh;
   antenna?: Group;
   combatBike: Group;
+  bikeSteering: Group;
   bikeWheels: Group[];
   kit: SoldierKit;
 }
@@ -164,7 +165,7 @@ function addShoulders(torso: Group, m: SoldierMaterials): void {
   torso.add(box(0.14, 0.035, 0.19, m.accent, -0.31, 0.685, 0));
 }
 
-function buildCombatBike(m: SoldierMaterials): { root: Group; wheels: Group[] } {
+function buildCombatBike(m: SoldierMaterials): { root: Group; steering: Group; wheels: Group[] } {
   const bike = new Group();
   bike.name = 'combatBikeUpgrade';
   const wheel = (z: number): Group => {
@@ -175,21 +176,42 @@ function buildCombatBike(m: SoldierMaterials): { root: Group; wheels: Group[] } 
     pivot.add(mesh);
     return pivot;
   };
-  const wheels = [wheel(-0.82), wheel(0.86)];
-  bike.add(...wheels);
+  const rearWheel = wheel(-0.82);
+  const steering = new Group();
+  steering.name = 'combatBikeSteering';
+  steering.position.z = 0.65;
+  const frontWheel = wheel(0.21);
+  steering.add(frontWheel);
+  const wheels = [rearWheel, frontWheel];
+  bike.add(rearWheel, steering);
   const frame = box(0.15, 0.15, 1.42, m.accent, 0, 0.56, 0.04);
   frame.rotation.x = 0.06;
   bike.add(frame);
   const engine = box(0.56, 0.42, 0.56, m.gear, 0, 0.63, -0.08);
   bike.add(engine);
+  for (const side of [-1, 1]) {
+    const rearArm = box(0.07, 0.08, 0.78, m.gunmetal, side * 0.2, 0.5, -0.48);
+    rearArm.rotation.x = -0.12;
+    bike.add(rearArm);
+    const fork = box(0.055, 0.66, 0.055, m.gunmetal, side * 0.18, 0.72, 0.03);
+    fork.rotation.x = -0.18;
+    steering.add(fork);
+  }
   bike.add(box(0.42, 0.12, 0.42, m.canvas, 0, 0.91, -0.28));
-  bike.add(box(0.64, 0.09, 0.09, m.gunmetal, 0, 1.04, 0.62));
-  bike.add(box(0.07, 0.58, 0.07, m.gunmetal, 0, 0.79, 0.62));
-  bike.add(box(0.38, 0.3, 0.22, m.accent, 0, 0.68, 0.78));
-  bike.add(box(0.27, 0.19, 0.12, m.lightBar, 0, 0.7, 0.91));
+  bike.add(box(0.5, 0.25, 0.46, m.accent, 0, 0.75, 0.2));
+  steering.add(box(0.68, 0.09, 0.09, m.gunmetal, 0, 1.04, -0.03));
+  steering.add(box(0.07, 0.58, 0.07, m.gunmetal, 0, 0.79, -0.03));
+  steering.add(box(0.4, 0.32, 0.22, m.accent, 0, 0.7, 0.13));
+  steering.add(box(0.27, 0.19, 0.12, m.lightBar, 0, 0.7, 0.26));
+  // Fender silhouettes make wheel travel and steering much easier to read.
+  bike.add(box(0.38, 0.07, 0.72, m.accent, 0, 0.87, -0.82));
+  steering.add(box(0.38, 0.07, 0.72, m.accent, 0, 0.87, 0.21));
+  // Exhaust and rear field packs add weight to the upgraded frame.
   bike.add(box(0.08, 0.08, 0.7, m.gunmetal, -0.3, 0.55, -0.35));
+  bike.add(box(0.16, 0.2, 0.42, m.canvas, -0.32, 0.72, -0.55));
+  bike.add(box(0.16, 0.2, 0.42, m.canvas, 0.32, 0.72, -0.55));
   bike.visible = false;
-  return { root: bike, wheels };
+  return { root: bike, steering, wheels };
 }
 
 function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, kit: SoldierKit): { antenna?: Group; backBlast?: Mesh } {
@@ -296,6 +318,7 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): So
     backBlast: kitRefs.backBlast,
     antenna: kitRefs.antenna,
     combatBike: combatBike.root,
+    bikeSteering: combatBike.steering,
     bikeWheels: combatBike.wheels,
     kit,
   };

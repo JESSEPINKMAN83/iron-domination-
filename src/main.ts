@@ -2158,6 +2158,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     startMode === 'impact-demo' && !multiplayerMode && !isPublicHost(location.hostname);
   const cinematicWar =
     startMode === 'cinematic' && !multiplayerMode && !isPublicHost(location.hostname);
+  const battleStaging =
+    startMode === 'battle-test' && !multiplayerMode && !isPublicHost(location.hostname);
+  const largeBattleScenario = cinematicWar || battleStaging;
   const durabilityPreview =
     !multiplayerMode &&
     !isPublicHost(location.hostname) &&
@@ -2168,7 +2171,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const collectorPreview =
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
-  const testStart = startMode === 'test' || startMode === 'sandbox' || cinematicWar || durabilityPreview || impactMovementDemo;
+  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   const impactPreview =
@@ -2214,7 +2217,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   sim.rules.allianceSides = Object.fromEntries(teams.map((team) => [team, settings.armySides[team - 1] ?? team]));
   const armies: ArmyRuntime[] = teams.map((team) => {
     const isLocal = team === localTeam;
-    const credits = cinematicWar
+    const credits = largeBattleScenario
       ? 30000
       : isLocal && (testStart || lineupStart)
         ? 15000
@@ -2251,7 +2254,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       console.warn('[save] failed to load saved match', err);
     }
   }
-  if (cinematicWar && !loadedFromSave) {
+  if (largeBattleScenario && !loadedFromSave) {
     for (const army of armies) seedCinematicBase(sim, hf, army.economy, army.base);
   } else if (durabilityPreview && !loadedFromSave) {
     const hostileArmy = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
@@ -2261,7 +2264,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const isVisibleToPlayer = lineupStart ? () => true : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
-    if (durabilityPreview || impactMovementDemo || !aiTeams.has(army.team)) continue;
+    if (durabilityPreview || impactMovementDemo || battleStaging || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
@@ -2305,8 +2308,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       collectorPreviewEntity.previousTransform.z = collectorPreviewEntity.transform.z;
     }
   }
-  const cinematicScene = cinematicWar && !loadedFromSave
-    ? spawnCinematicWar(sim, hf, armies, localTeam)
+  const cinematicScene = largeBattleScenario && !loadedFromSave
+    ? spawnCinematicWar(sim, hf, armies, localTeam, battleStaging)
     : undefined;
   const durabilityScene = durabilityPreview && !loadedFromSave
     ? spawnDurabilityPreview(sim, hf, armies, localTeam)
@@ -2489,8 +2492,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         orderMarkers.push(x, z, kind);
         audio.playUi(kind === 'attack' ? 'build' : 'order');
       },
-      showFacingOrder: (x, z, yaw, kind, length, count) => orderMarkers.pushFacing(x, z, yaw, kind, length, count),
-      showFacingPreview: (fromX, fromZ, toX, toZ, kind, count) => orderMarkers.showFacingPreview(fromX, fromZ, toX, toZ, kind, count),
+      showFacingOrder: (x, z, yaw, kind, length, count, baseSpacing) => orderMarkers.pushFacing(x, z, yaw, kind, length, count, baseSpacing),
+      showFacingPreview: (fromX, fromZ, toX, toZ, kind, count, baseSpacing) =>
+        orderMarkers.showFacingPreview(fromX, fromZ, toX, toZ, kind, count, baseSpacing),
       clearFacingPreview: () => orderMarkers.clearFacingPreview(),
       showTargetHover: (target) => orderMarkers.showTargetHover(target),
       clearTargetHover: () => orderMarkers.clearTargetHover(),
@@ -2509,6 +2513,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       ? {
           move: (ids, x, z, attackMove, faceYaw, formationSpread) => lockstep.issue({ type: 'move', ids, x, z, attackMove, faceYaw, formationSpread }),
           attack: (ids, targetId) => lockstep.issue({ type: 'attack', ids, targetId }),
+          attackGround: (ids, x, z) => lockstep.issue({ type: 'ground-fire', ids, x, z }),
           harvest: (ids, x, z) => {
             const node = sim.resourceNodes.find((candidate) => Math.hypot(candidate.x - x, candidate.z - z) <= candidate.radius + 4 && candidate.remaining > 0);
             return node ? lockstep.issue({ type: 'harvest', ids, x, z }) : false;
@@ -2573,6 +2578,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     focusMap: (x, z) => {
       rig.jumpTo(x, z);
     },
+    orderMap: (x, z, attackGround) => attackGround ? controller.attackGroundAt(x, z) : controller.orderSelectedTo(x, z),
     radarYaw: () => rig.yawRadians,
     radarViewport: () => rig.getGroundViewportFootprint(),
   });
@@ -2597,7 +2603,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       if (!result.ok) audio.playUi('error');
       return result;
     },
-  }, localTeam);
+  }, localTeam, ctx.camera, hf);
   const durabilityPanel = durabilityScene
     ? createDurabilityPreviewPanel(durabilityScene, sim, localTeam, (target) => {
         rig.focusOn(
@@ -2813,7 +2819,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   };
 
   const checkFirstContact = (): void => {
-    if (lineupStart || cinematicWar || durabilityPreview) return;
+    if (lineupStart || largeBattleScenario || durabilityPreview) return;
     const contact = firstContactGate.tryTrigger(() => findFirstVisibleHostileEntity(
       sim.world.entities,
       localTeam,
@@ -2975,6 +2981,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       unitView.setFortressOpticsActive(firstPerson.fortress);
       unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
       unitView.update(alpha, dt, ctx.camera);
+      selectionBar.updateWorldAnchors();
       if (sim.tick - lastUiRefreshTick >= 3) {
         lastUiRefreshTick = sim.tick;
         buildingView.setProducerHighlights(sidebar.producerHighlightIds());
@@ -3039,7 +3046,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   overlay.remove();
   loop.start();
   fadeOutLandingMusic(40_000);
-  if (!lineupStart && !fortressPreview && !buildingShowcase && !cinematicWar && !durabilityPreview && !impactMovementDemo) {
+  if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !impactMovementDemo) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     showMissionBriefing({ enemyCount: hostileArmyCount });
     if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
@@ -4132,6 +4139,7 @@ function spawnCinematicWar(
   hf: ReturnType<typeof generateHeightfield>,
   armies: ArmyRuntime[],
   localTeam: number,
+  staged = false,
 ): CinematicWarScene | undefined {
   const friendly = armies.find((army) => army.team === localTeam) ?? armies[0];
   const hostile = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
@@ -4158,9 +4166,10 @@ function spawnCinematicWar(
       ? forward
       : { x: -forward.x, z: -forward.z };
     const teamRight = { x: teamForward.z, z: -teamForward.x };
+    const frontDistance = staged ? 112 : 54;
     const frontAnchor = {
-      x: focus.x - teamForward.x * 54,
-      z: focus.z - teamForward.z * 54,
+      x: focus.x - teamForward.x * frontDistance,
+      z: focus.z - teamForward.z * frontDistance,
     };
     const ground: Entity[] = [];
     const aircraft: Entity[] = [];
@@ -4245,15 +4254,24 @@ function spawnCinematicWar(
     ];
     units.push(...convoy);
 
-    issueMoveOrder(sim, ground, toward.x, toward.z, true);
-    issueMoveOrder(sim, aircraft, toward.x, toward.z, true);
-    issueMoveOrder(sim, convoy, focus.x, focus.z, true);
+    if (!staged) {
+      issueMoveOrder(sim, ground, toward.x, toward.z, true);
+      issueMoveOrder(sim, aircraft, toward.x, toward.z, true);
+      issueMoveOrder(sim, convoy, focus.x, focus.z, true);
+    }
   };
 
   const friendlyTarget = { x: focus.x + forward.x * 82, z: focus.z + forward.z * 82 };
   const hostileTarget = { x: focus.x - forward.x * 82, z: focus.z - forward.z * 82 };
   spawnForce(friendly, friendlyTarget);
   spawnForce(hostile, hostileTarget);
+
+  if (staged) {
+    const openingCommand = units
+      .filter((entity) => entity.team?.id === localTeam && entity.mover && !entity.flight && !entity.destroyed)
+      .slice(0, 12);
+    setSelected(sim, openingCommand, false, localTeam);
+  }
 
   return {
     units,

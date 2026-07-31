@@ -52,6 +52,7 @@ export class Input {
   private readonly keyUpHandlers = new Map<string, Set<() => void>>();
   private gameSurface?: HTMLElement;
   private pointerEventOnGameSurface = false;
+  private ignoreNextMouseDelta = false;
 
   constructor(touchDevice = isMobileTouchDevice()) {
     this.isTouchDevice = touchDevice;
@@ -93,6 +94,11 @@ export class Input {
       if (e.buttons !== undefined) this.buttons = pointerButtonsToMask(e.buttons);
       if (e instanceof PointerEvent && e.pointerType === 'touch' && this.touchPointers.has(e.pointerId)) {
         this.trackTouchMove(e);
+        return;
+      }
+      if (this.ignoreNextMouseDelta) {
+        this.ignoreNextMouseDelta = false;
+        this.discardMouseDelta();
         return;
       }
       const dx = e.movementX || 0;
@@ -149,8 +155,16 @@ export class Input {
     document.addEventListener('mouseleave', () => {
       this.pointerInWindow = false;
       this.pointerEventOnGameSurface = false;
+      this.ignoreNextMouseDelta = true;
+      this.discardMouseDelta();
     });
-    document.addEventListener('mouseenter', () => (this.pointerInWindow = true));
+    document.addEventListener('mouseenter', (event) => {
+      this.pointerInWindow = true;
+      this.mouseX = event.clientX;
+      this.mouseY = event.clientY;
+      this.ignoreNextMouseDelta = true;
+      this.discardMouseDelta();
+    });
   }
 
   onKeyDown(code: string, fn: () => void): void {
@@ -208,6 +222,11 @@ export class Input {
     return d;
   }
 
+  discardMouseDelta(): void {
+    this.dxAcc = 0;
+    this.dyAcc = 0;
+  }
+
   addLookDelta(dx: number, dy: number): void {
     this.dxAcc += dx;
     this.dyAcc += dy;
@@ -251,6 +270,7 @@ export class Input {
     this.wheelAcc = 0;
     this.dxAcc = 0;
     this.dyAcc = 0;
+    this.ignoreNextMouseDelta = true;
     this.touchPointers.clear();
     this.clearTouchCameraGesture();
     this.resetMobileDrive();

@@ -16,6 +16,7 @@ export type WeaponKind =
   | 'rocketPod'
   | 'agMissile'
   | 'aaMissile'
+  | 'microLaser'
   | 'overchargeRifle'
   | 'clusterGrenade'
   | 'railShot'
@@ -46,6 +47,16 @@ export interface WeaponDef {
 }
 
 export const WEAPONS: Record<WeaponKind, WeaponDef> = {
+  microLaser: {
+    kind: 'microLaser',
+    label: 'Escort Micro-Laser',
+    damage: 7,
+    cooldown: 0.5,
+    range: 96,
+    splashRadius: 0,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 1.35, light: 0.22, heavy: 0.06, building: 0.025, air: 0 },
+  },
   rifle: {
     kind: 'rifle',
     label: 'Rifle Burst',

@@ -1,5 +1,7 @@
+import { Vector3, type Camera } from 'three';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import type { Entity } from '../sim/components';
+import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { selectedEntities, type GameSim } from '../sim/world';
 import {
   hasUnitUpgrade,
@@ -22,6 +24,11 @@ interface SelectionGroup {
 
 export class SelectionBar {
   private readonly root: HTMLDivElement;
+  private readonly worldOverlay: HTMLDivElement;
+  private readonly worldButtons = new Map<number, HTMLButtonElement>();
+  private readonly projectedAnchor = new Vector3();
+  private worldPopover?: HTMLDivElement;
+  private worldPopoverEntityId?: number;
   private lastKey = '';
   private visible = true;
 
@@ -33,6 +40,8 @@ export class SelectionBar {
       purchaseUpgrade: (ids: number[], upgradeId: UnitUpgradeId) => UpgradePurchaseResult;
     },
     private readonly localTeam = 1,
+    private readonly camera?: Camera,
+    private readonly hf?: Heightfield,
   ) {
     this.root = document.createElement('div');
     this.root.className = 'game-selection-bar';
@@ -43,12 +52,20 @@ export class SelectionBar {
       'border-radius:3px;padding:9px 10px;box-shadow:inset 0 0 0 1px rgba(210,177,95,.25),0 12px 30px rgba(0,0,0,.38);';
     this.root.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
+    this.worldOverlay = document.createElement('div');
+    this.worldOverlay.className = 'game-world-upgrades';
+    this.worldOverlay.style.cssText = 'position:fixed;inset:0;z-index:14;pointer-events:none;overflow:hidden;';
     document.body.appendChild(this.root);
+    document.body.appendChild(this.worldOverlay);
   }
 
   setVisible(visible: boolean): void {
     this.visible = visible;
-    if (!visible) this.root.style.display = 'none';
+    this.worldOverlay.style.display = visible ? 'block' : 'none';
+    if (!visible) {
+      this.root.style.display = 'none';
+      this.closeWorldPopover();
+    }
     else this.lastKey = '';
   }
 
@@ -58,8 +75,10 @@ export class SelectionBar {
     if (selected.length === 0) {
       this.lastKey = '';
       this.root.style.display = 'none';
+      this.syncWorldUpgradeButtons([]);
       return;
     }
+    this.syncWorldUpgradeButtons(selected);
     const groups = selectionGroups(selected);
     const key = groups
       .map((group) => `${group.key}:${group.entities.map((entity) => `${entity.id}.${entity.unitUpgrades?.ids.join('+') ?? ''}`).join(',')}:${group.healthPct ?? ''}`)
@@ -67,6 +86,27 @@ export class SelectionBar {
     if (key === this.lastKey) return;
     this.lastKey = key;
     this.render(groups, selected.length);
+  }
+
+  updateWorldAnchors(): void {
+    if (!this.visible || !this.camera || !this.hf) return;
+    const selectedIds = new Set(selectedEntities(this.sim, this.localTeam).filter((entity) => !entity.destroyed).map((entity) => entity.id));
+    for (const [id, button] of this.worldButtons) {
+      const entity = this.sim.byId.get(id);
+      if (!entity || !selectedIds.has(id)) {
+        button.style.display = 'none';
+        continue;
+      }
+      const anchor = this.projectUpgradeAnchor(entity);
+      button.style.display = anchor.visible ? 'grid' : 'none';
+      if (!anchor.visible) {
+        if (this.worldPopoverEntityId === id) this.closeWorldPopover();
+        continue;
+      }
+      button.style.left = `${anchor.x}px`;
+      button.style.top = `${anchor.y}px`;
+      if (this.worldPopoverEntityId === id) this.positionWorldPopover(entity, anchor.x, anchor.y);
+    }
   }
 
   private render(groups: SelectionGroup[], selectedCount: number): void {
@@ -170,7 +210,7 @@ export class SelectionBar {
   }
 
   private openUpgradePopover(group: SelectionGroup, anchor: HTMLElement): void {
-    this.root.querySelector('[data-upgrade-popover]')?.remove();
+    this.closeAllUpgradePopovers();
     if (!group.unitKind) return;
     const popover = document.createElement('div');
     popover.dataset.upgradePopover = 'true';
@@ -179,6 +219,13 @@ export class SelectionBar {
       'display:grid;gap:8px;padding:10px;background:linear-gradient(180deg,#1d2625,#0b1110);border:1px solid #717b74;' +
       'box-shadow:0 16px 36px rgba(0,0,0,.55),inset 0 0 0 1px rgba(210,177,95,.18);z-index:20;';
     popover.onpointerdown = (event) => event.stopPropagation();
+    this.populateUpgradePopover(popover, group, () => popover.remove());
+    this.root.appendChild(popover);
+    anchor.blur();
+  }
+
+  private populateUpgradePopover(popover: HTMLDivElement, group: SelectionGroup, closePopover: () => void): void {
+    if (!group.unitKind) return;
 
     const heading = document.createElement('div');
     heading.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;color:#f0d56a;font-size:12px;';
@@ -206,6 +253,10 @@ export class SelectionBar {
         `<span style="grid-column:1/-1;color:#76847f;font-size:9px">${owned}/${group.entities.length} OWN THIS · $${def.cost} PER UNIT</span>`;
       row.onclick = () => {
         const result = this.actions.purchaseUpgrade(group.entities.map((entity) => entity.id), def.id);
+        if (result.ok) {
+          popover.replaceChildren();
+          this.populateUpgradePopover(popover, group, closePopover);
+        }
         this.showPurchaseResult(popover, result);
         this.lastKey = '';
       };
@@ -216,10 +267,8 @@ export class SelectionBar {
     close.type = 'button';
     close.textContent = 'CLOSE';
     close.style.cssText = 'justify-self:end;padding:4px 8px;border:1px solid #46514e;background:#111817;color:#b8c3bf;cursor:pointer;font:10px ui-monospace,Menlo,monospace;';
-    close.onclick = () => popover.remove();
+    close.onclick = closePopover;
     popover.appendChild(close);
-    this.root.appendChild(popover);
-    anchor.blur();
   }
 
   private showPurchaseResult(popover: HTMLElement, result: UpgradePurchaseResult): void {
@@ -231,6 +280,114 @@ export class SelectionBar {
     status.style.cssText = `font-size:10px;color:${result.ok ? '#78df8b' : '#ff7d67'};`;
     popover.appendChild(status);
     if (result.ok) setTimeout(() => this.update(), 0);
+  }
+
+  private syncWorldUpgradeButtons(selected: Entity[]): void {
+    const upgradeable = selected.filter((entity) => unitKindForUpgrade(entity) !== undefined);
+    const activeIds = new Set(upgradeable.map((entity) => entity.id));
+    for (const [id, button] of this.worldButtons) {
+      if (activeIds.has(id)) continue;
+      button.remove();
+      this.worldButtons.delete(id);
+      if (this.worldPopoverEntityId === id) this.closeWorldPopover();
+    }
+    for (const entity of upgradeable) {
+      let button = this.worldButtons.get(entity.id);
+      const kind = unitKindForUpgrade(entity)!;
+      const options = upgradeOptionsForKind(kind);
+      const missing = options.filter((def) => !hasUnitUpgrade(entity, def.id)).length;
+      if (!button) {
+        button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.worldUpgradeId = String(entity.id);
+        button.style.cssText =
+          'position:fixed;display:grid;place-items:center;width:25px;height:25px;padding:0;transform:translate(-50%,-100%);' +
+          'pointer-events:auto;border:1px solid #f0d56a;border-radius:50%;background:rgba(8,14,13,.94);color:#f6dc72;' +
+          'font:900 17px/1 ui-monospace,Menlo,monospace;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.62),0 0 0 2px rgba(8,14,13,.55),0 0 12px rgba(240,213,106,.24);';
+        button.onpointerdown = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        };
+        button.onclick = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const current = this.sim.byId.get(entity.id);
+          if (current) this.openWorldUpgradePopover(current);
+        };
+        button.oncontextmenu = (event) => event.preventDefault();
+        this.worldButtons.set(entity.id, button);
+        this.worldOverlay.appendChild(button);
+      }
+      button.textContent = missing > 0 ? '↑' : '✓';
+      button.style.borderColor = missing > 0 ? '#f0d56a' : '#70db87';
+      button.style.color = missing > 0 ? '#f6dc72' : '#70db87';
+      button.title = missing > 0 ? `${missing} upgrades available for ${unitDisplayName(entity)}` : `${unitDisplayName(entity)} fully upgraded`;
+      button.setAttribute('aria-label', button.title);
+    }
+    this.updateWorldAnchors();
+  }
+
+  private openWorldUpgradePopover(entity: Entity): void {
+    const unitKind = unitKindForUpgrade(entity);
+    if (!unitKind) return;
+    this.closeAllUpgradePopovers();
+    const descriptor = selectionDescriptor(entity);
+    const group: SelectionGroup = { ...descriptor, entities: [entity], healthPct: averageHealthPct([entity]) };
+    const popover = document.createElement('div');
+    popover.dataset.upgradePopover = 'true';
+    popover.dataset.worldUpgradePopover = String(entity.id);
+    popover.style.cssText =
+      'position:fixed;width:min(330px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow-y:auto;display:grid;gap:7px;padding:9px;pointer-events:auto;' +
+      'background:linear-gradient(180deg,rgba(29,38,37,.98),rgba(8,14,13,.98));border:1px solid #7a826f;' +
+      'box-shadow:0 14px 34px rgba(0,0,0,.62),inset 0 0 0 1px rgba(210,177,95,.2);z-index:30;';
+    popover.onpointerdown = (event) => event.stopPropagation();
+    popover.oncontextmenu = (event) => event.preventDefault();
+    this.worldPopover = popover;
+    this.worldPopoverEntityId = entity.id;
+    this.populateUpgradePopover(popover, group, () => this.closeWorldPopover());
+    this.worldOverlay.appendChild(popover);
+    const anchor = this.projectUpgradeAnchor(entity);
+    this.positionWorldPopover(entity, anchor.x, anchor.y);
+  }
+
+  private projectUpgradeAnchor(entity: Entity): { x: number; y: number; visible: boolean } {
+    if (!this.camera || !this.hf) return { x: 0, y: 0, visible: false };
+    const terrainY = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
+    const baseY = entity.flight ? entity.transform.y ?? terrainY + 24 : terrainY;
+    const lift = entity.flight ? 5.5 : entity.selectable?.type === 'infantry' ? 3.25 : 5.2;
+    this.projectedAnchor.set(entity.transform.x, baseY + lift, entity.transform.z).project(this.camera);
+    const x = (this.projectedAnchor.x * 0.5 + 0.5) * window.innerWidth;
+    const y = (-this.projectedAnchor.y * 0.5 + 0.5) * window.innerHeight;
+    return {
+      x,
+      y,
+      visible: this.projectedAnchor.z >= -1 && this.projectedAnchor.z <= 1 && x > 10 && x < window.innerWidth - 10 && y > 10 && y < window.innerHeight - 10,
+    };
+  }
+
+  private positionWorldPopover(_entity: Entity, anchorX: number, anchorY: number): void {
+    if (!this.worldPopover) return;
+    const halfWidth = Math.min(165, Math.max(100, window.innerWidth / 2 - 12));
+    const x = Math.max(halfWidth + 8, Math.min(window.innerWidth - halfWidth - 8, anchorX));
+    const height = this.worldPopover.offsetHeight || 245;
+    let y = anchorY - height - 36;
+    if (y < 12) y = anchorY + 12;
+    y = Math.max(12, Math.min(window.innerHeight - height - 12, y));
+    this.worldPopover.style.left = `${x}px`;
+    this.worldPopover.style.top = `${y}px`;
+    this.worldPopover.style.bottom = 'auto';
+    this.worldPopover.style.transform = 'translateX(-50%)';
+  }
+
+  private closeAllUpgradePopovers(): void {
+    this.root.querySelector('[data-upgrade-popover]')?.remove();
+    this.closeWorldPopover();
+  }
+
+  private closeWorldPopover(): void {
+    this.worldPopover?.remove();
+    this.worldPopover = undefined;
+    this.worldPopoverEntityId = undefined;
   }
 }
 

@@ -15,14 +15,14 @@ describe('unit upgrades', () => {
     const baseSpeed = first.mover!.speed;
 
     const result = purchaseUnitUpgrade(sim, economy, [first.id, second.id], 'combat-bike');
-    expect(result).toMatchObject({ ok: true, upgraded: 2, cost: 340 });
-    expect(economy.credits).toBe(1660);
+    expect(result).toMatchObject({ ok: true, upgraded: 2, cost: 238 });
+    expect(economy.credits).toBe(1762);
     expect(first.mover!.speed).toBeCloseTo(baseSpeed * 2.65);
     expect(first.health!.max).toBeGreaterThan(first.health!.current - 1);
 
     const duplicate = purchaseUnitUpgrade(sim, economy, [first.id, second.id], 'combat-bike');
     expect(duplicate.ok).toBe(false);
-    expect(economy.credits).toBe(1660);
+    expect(economy.credits).toBe(1762);
     expect(first.mover!.speed).toBeCloseTo(baseSpeed * 2.65);
   });
 
@@ -41,6 +41,18 @@ describe('unit upgrades', () => {
     expect(hashSim(sim)).not.toBe(before);
   });
 
+  it('deploys deterministic escort-drone state with the Aegis Micro-Drone upgrade', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 2000);
+    const tank = spawnTankAt(sim, 20, 20, 'Escort Tank', 1);
+
+    expect(purchaseUnitUpgrade(sim, economy, [tank.id], 'reactive-plating').ok).toBe(true);
+    expect(tank.unitUpgrades?.escortDrone).toMatchObject({ cooldown: 0 });
+    expect(tank.unitUpgrades?.escortDrone?.orbitAngle).toBeGreaterThanOrEqual(0);
+    expect(tank.unitUpgrades?.escortDrone?.orbitAngle).toBeLessThan(Math.PI * 2);
+  });
+
   it('rejects enemy entities and unaffordable purchases', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -49,7 +61,7 @@ describe('unit upgrades', () => {
     expect(purchaseUnitUpgrade(sim, economy, [enemy.id], 'ion-spear', 1).ok).toBe(false);
     const friendly = spawnTankAt(sim, 28, 20, 'Friendly', 1);
     const result = purchaseUnitUpgrade(sim, economy, [friendly.id], 'ion-spear', 1);
-    expect(result).toMatchObject({ ok: false, cost: 560 });
+    expect(result).toMatchObject({ ok: false, cost: 392 });
     expect(economy.credits).toBe(100);
   });
 });

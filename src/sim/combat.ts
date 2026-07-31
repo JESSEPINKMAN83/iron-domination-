@@ -12,6 +12,10 @@ const AIM_TOLERANCE = 0.12;
 const BOMB_SPEED = 95; // meters per second of flight, drives travel time
 const DEFENSE_ALERT_RADIUS = 145;
 const DEFENSE_ALERT_TTL = 9;
+const PLAYER_PRIMARY_SPEED_SCALE = 2.35;
+const PLAYER_PRIMARY_DAMAGE_SCALE = 1.16;
+const PLAYER_PRIMARY_FORCE_SCALE = 1.42;
+const PLAYER_PRIMARY_IMPACT_SCALE = 1.42;
 
 interface HitSummary {
   targetId: number;
@@ -35,6 +39,7 @@ export function damageForArmor(kind: WeaponKind, armor: ArmorClass): number {
 export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions = {}): void {
   stepProjectiles(sim, dt);
   tickWeaponCooldowns(sim, dt);
+  stepEscortDrones(sim, dt, options.autoFire !== false);
   if (options.autoFire === false) {
     tickDestroyed(sim, dt);
     return;
@@ -102,6 +107,91 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     updateGuardBehavior(sim, attacker, dt);
   }
   tickDestroyed(sim, dt);
+}
+
+const ESCORT_DRONE_INFANTRY_DEFENSE_RANGE = 48;
+
+export function escortDroneLocalPosition(angle: number): { x: number; y: number; z: number } {
+  return {
+    x: Math.cos(angle) * 3.25,
+    y: 2.75 + Math.sin(angle * 2.15) * 0.28,
+    z: Math.sin(angle) * 2.45,
+  };
+}
+
+function stepEscortDrones(sim: GameSim, dt: number, canFire: boolean): void {
+  const def = WEAPONS.microLaser;
+  const weapon: Weapon = { kind: 'microLaser', range: def.range, cooldown: 0 };
+  for (const owner of sim.world.entities) {
+    if (!owner.unitUpgrades?.ids.includes('reactive-plating') || !owner.team || !owner.health || owner.destroyed) continue;
+    const state = owner.unitUpgrades.escortDrone ??= {
+      cooldown: 0,
+      orbitAngle: (owner.id * 2.399963229728653) % (Math.PI * 2),
+    };
+    state.orbitAngle = (state.orbitAngle + dt * 1.55) % (Math.PI * 2);
+    state.cooldown = Math.max(0, state.cooldown - dt);
+    if (!canFire || state.cooldown > 0) continue;
+
+    const target = nearbyInfantryThreat(sim, owner, weapon)
+      ?? escortOwnerTarget(sim, owner, weapon, def.range);
+    if (!target?.health || !target.armor) {
+      state.targetId = undefined;
+      continue;
+    }
+
+    const local = escortDroneLocalPosition(state.orbitAngle);
+    const sin = Math.sin(owner.transform.rot);
+    const cos = Math.cos(owner.transform.rot);
+    const fromX = owner.transform.x + local.x * cos + local.z * sin;
+    const fromZ = owner.transform.z - local.x * sin + local.z * cos;
+    const damage = applyDamage(sim, target, directDamageForTarget('microLaser', target));
+    state.cooldown = def.cooldown;
+    state.targetId = target.id;
+    const hit = damage > 0 ? summarizeHit(target, damage) : undefined;
+    sim.events.push({
+      kind: 'microLaser',
+      fromX,
+      fromZ,
+      toX: target.transform.x,
+      toY: targetYForEvent(target),
+      toZ: target.transform.z,
+      sourceTeamId: owner.team.id,
+      targetId: target.id,
+      damage,
+      killed: target.health.current <= 0,
+      impactScale: 0.28,
+      ...hit,
+    });
+  }
+}
+
+function nearbyInfantryThreat(sim: GameSim, owner: Entity, weapon: Weapon): Entity | undefined {
+  let best: Entity | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of sim.world.entities) {
+    if (candidate.armor?.kind !== 'infantry' || !isWeaponTargetable(sim, owner, weapon, candidate)) continue;
+    const d = distance(owner, candidate);
+    if (d > ESCORT_DRONE_INFANTRY_DEFENSE_RANGE) continue;
+    if (d < bestDistance || (d === bestDistance && candidate.id < (best?.id ?? Number.POSITIVE_INFINITY))) {
+      best = candidate;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
+function escortOwnerTarget(sim: GameSim, owner: Entity, weapon: Weapon, range: number): Entity | undefined {
+  const targetIds = [
+    ...weaponSlots(owner).map((slot) => slot.targetId),
+    owner.mover?.attackTargetId,
+  ];
+  for (const targetId of targetIds) {
+    if (targetId === undefined) continue;
+    const target = entityById(sim, targetId);
+    if (!target || !isWeaponTargetable(sim, owner, weapon, target) || distance(owner, target) > range) continue;
+    return target;
+  }
+  return undefined;
 }
 
 function tickWeaponCooldowns(sim: GameSim, dt: number): void {
@@ -192,6 +282,11 @@ export function manualFireAt(
   if (!weapon) return false;
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def || weapon.cooldown > 0) return false;
+  const boostedPrimary = slot === 'primary' && !!attacker.playerControlled;
+  const speedScale = boostedPrimary ? PLAYER_PRIMARY_SPEED_SCALE : 1;
+  const damageScale = boostedPrimary ? PLAYER_PRIMARY_DAMAGE_SCALE : 1;
+  const forceScale = boostedPrimary ? PLAYER_PRIMARY_FORCE_SCALE : 1;
+  const impactScale = boostedPrimary ? PLAYER_PRIMARY_IMPACT_SCALE : 1;
   const lockedTarget = slot === 'primary' ? validManualLockTarget(sim, attacker, weapon, lockedTargetId) : undefined;
   if (lockedTarget) {
     targetX = lockedTarget.transform.x;
@@ -232,14 +327,27 @@ export function manualFireAt(
   const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
   const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
   if (def.projectile || lockedTarget) {
-    launchWeaponProjectile(sim, attacker, weapon, target, hitX, targetYForEvent(target, targetY), hitZ, lockedTarget?.id === target?.id);
+    launchWeaponProjectile(
+      sim,
+      attacker,
+      weapon,
+      target,
+      hitX,
+      targetYForEvent(target, targetY),
+      hitZ,
+      lockedTarget?.id === target?.id,
+      speedScale,
+      damageScale,
+      forceScale,
+      impactScale,
+    );
     return true;
   }
   let damage = 0;
   let killed = false;
   let hit: HitSummary | undefined;
   if (target?.health && target.armor) {
-    const direct = applyDamage(sim, target, directDamageForTarget(def.kind, target), {
+    const direct = applyDamage(sim, target, directDamageForTarget(def.kind, target) * damageScale, {
       hitX,
       hitZ,
       hitY: structureHitY(target, attacker),
@@ -249,16 +357,17 @@ export function manualFireAt(
       splashRadius: 0,
       trajectory: attacker.flight ? 'flat' : 'flat',
       weaponKind: def.kind,
+      forceScale,
     });
     if (direct > 0) alertEconomyDefenders(sim, target, attacker);
     damage = direct;
     hit = direct > 0 ? summarizeHit(target, direct) : undefined;
-    const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, target, attacker);
+    const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, target, attacker, undefined, damageScale, forceScale);
     damage += area.damage;
     killed = target.health.current <= 0 || area.killed;
     weapon.targetId = target.id;
   } else {
-    const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, undefined, attacker);
+    const area = applyAreaDamage(sim, attacker.team.id, hitX, hitZ, def.splashRadius, def.kind, undefined, attacker, undefined, damageScale, forceScale);
     damage = area.damage;
     killed = area.killed;
     hit = area.hit;
@@ -276,9 +385,22 @@ export function manualFireAt(
     sourceTeamId: attacker.team.id,
     damage,
     killed,
+    impactScale,
     ...hit,
   });
   return true;
+}
+
+/** Fire each armed unit's primary weapon at a player-designated world point. */
+export function issueGroundAttack(sim: GameSim, attackers: Entity[], targetX: number, targetZ: number): boolean {
+  let fired = false;
+  for (const attacker of attackers) {
+    if (!attacker.weapons || !attacker.team || attacker.destroyed) continue;
+    const aimYaw = Math.atan2(targetX - attacker.transform.x, targetZ - attacker.transform.z);
+    if (attacker.turret) attacker.turret.yaw = aimYaw;
+    fired = manualFireAt(sim, attacker, targetX, targetZ, 'primary') || fired;
+  }
+  return fired;
 }
 
 /**
@@ -348,6 +470,10 @@ function launchWeaponProjectile(
   targetY: number | undefined,
   targetZ: number,
   forceHoming = false,
+  speedScale = 1,
+  damageScale = 1,
+  forceScale = 1,
+  impactScale = 1,
 ): void {
   if (!attacker.team) return;
   const def = WEAPONS[weapon.kind as WeaponKind];
@@ -360,8 +486,8 @@ function launchWeaponProjectile(
   const dx = targetX - attacker.transform.x;
   const dz = targetZ - attacker.transform.z;
   const distanceToAim = Math.max(0.001, Math.hypot(dx, dz));
-  const speed = projectileDef.speed;
-  const duration = Math.min(3.2, Math.max(0.08, distanceToAim / speed));
+  const speed = projectileDef.speed * speedScale;
+  const duration = Math.min(3.2, Math.max(0.045, distanceToAim / speed));
   const homing =
     (projectileDef.trajectory === 'homing' || forceHoming) && target?.id
       ? {
@@ -388,6 +514,9 @@ function launchWeaponProjectile(
     elapsed: 0,
     duration,
     speed,
+    damageScale,
+    forceScale,
+    impactScale,
     maxDistance: projectileDef.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
     directTargetId: target?.id,
     trajectory,
@@ -410,6 +539,7 @@ function launchWeaponProjectile(
     damage: 0,
     killed: false,
     duration,
+    impactScale,
     trajectory,
   });
 }
@@ -521,7 +651,7 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
     const dz = directTarget.transform.z - z;
     const radius = (directTarget.collider?.radius ?? directTarget.selectable?.radius ?? 1.4) + impactRadius;
     if (Math.hypot(dx, dz) <= radius) {
-      directDamage = applyDamage(sim, directTarget, directDamageForTarget(weaponKind, directTarget), {
+      directDamage = applyDamage(sim, directTarget, directDamageForTarget(weaponKind, directTarget) * (projectile.damageScale ?? 1), {
         hitX: x,
         hitZ: z,
         hitY: structureHitY(directTarget, attacker, impactTrajectory),
@@ -531,6 +661,7 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
         splashRadius: 0,
         trajectory: impactTrajectory,
         weaponKind,
+        forceScale: projectile.forceScale,
       });
       if (directDamage > 0) {
         alertEconomyDefenders(sim, directTarget, attacker);
@@ -538,7 +669,19 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
       }
     }
   }
-  const area = applyAreaDamage(sim, projectile.teamId, x, z, def.splashRadius, weaponKind, directTarget, attacker, impactTrajectory);
+  const area = applyAreaDamage(
+    sim,
+    projectile.teamId,
+    x,
+    z,
+    def.splashRadius,
+    weaponKind,
+    directTarget,
+    attacker,
+    impactTrajectory,
+    projectile.damageScale,
+    projectile.forceScale,
+  );
   if (!hit) hit = area.hit;
   sim.events.push({
     kind: `${projectile.kind}-impact`,
@@ -551,6 +694,7 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
     sourceTeamId: projectile.teamId,
     damage: directDamage + area.damage,
     killed: directTarget?.health?.current === 0 || area.killed,
+    impactScale: projectile.impactScale,
     ...hit,
   });
 }
@@ -768,6 +912,7 @@ interface DamageImpact {
   splashRadius: number;
   trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
   weaponKind: WeaponKind;
+  forceScale?: number;
 }
 
 function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: DamageImpact): number {
@@ -799,7 +944,7 @@ function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: Dama
 
 function applyImpactPhysics(sim: GameSim, target: Entity, dealt: number, impact: DamageImpact): void {
   if (!target.health || !target.velocity || !target.mover) return;
-  const force = normalizedImpactForce(target, dealt, impact.weaponKind);
+  const force = Math.min(1, normalizedImpactForce(target, dealt, impact.weaponKind) * (impact.forceScale ?? 1));
   if (force <= 0.012) return;
   const response = directionalImpactResponse({
     targetX: target.transform.x,
@@ -921,6 +1066,8 @@ function applyAreaDamage(
   primary?: Entity,
   attacker?: Entity,
   trajectory?: 'arc' | 'drop' | 'flat',
+  damageScale = 1,
+  forceScale = 1,
 ): { damage: number; killed: boolean; hit?: HitSummary } {
   if (radius <= 0) return { damage: 0, killed: false };
   let damage = 0;
@@ -933,7 +1080,7 @@ function applyAreaDamage(
     const d = Math.hypot(dx, dz);
     if (d > radius) continue;
     const falloff = 1 - d / radius;
-    const dealt = applyDamage(sim, target, splashDamageForTarget(kind, target, falloff), {
+    const dealt = applyDamage(sim, target, splashDamageForTarget(kind, target, falloff) * damageScale, {
       hitX: x,
       hitZ: z,
       hitY: trajectory ? structureHitY(target, attacker, trajectory) : structureHitY(target, attacker),
@@ -943,6 +1090,7 @@ function applyAreaDamage(
       splashRadius: radius,
       trajectory: trajectory ?? (attacker?.flight ? 'flat' : 'flat'),
       weaponKind: kind,
+      forceScale,
     });
     if (dealt > 0) alertEconomyDefenders(sim, target, attacker);
     damage += dealt;

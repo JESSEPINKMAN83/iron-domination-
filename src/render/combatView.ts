@@ -92,6 +92,7 @@ export class CombatView {
   private readonly cannonMaterial = new LineBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.92 });
   private readonly rifleMaterial = new LineBasicMaterial({ color: 0xff8f62, transparent: true, opacity: 0.8 });
   private readonly sniperMaterial = new LineBasicMaterial({ color: 0xd8ffd0, transparent: true, opacity: 0.96 });
+  private readonly microLaserMaterial = new LineBasicMaterial({ color: 0x67f4ff, transparent: true, opacity: 0.94 });
   private readonly tracers: Tracer[] = [];
   private readonly bursts: Burst[] = [];
   private readonly bombProjectiles: BombProjectile[] = [];
@@ -116,7 +117,7 @@ export class CombatView {
       const playerHiddenHit = event.sourceTeamId === 1 && event.damage > 0;
       // fights entirely inside the fog stay hidden, except brief player-fired hit confirmations
       if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
-      const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : 2.2;
+      const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : event.kind === 'microLaser' ? 2.75 : 2.2;
       const fromY = event.fromY ?? sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
       const toY = event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
       if (event.kind === 'aircraft-crash-smoke') {
@@ -139,10 +140,10 @@ export class CombatView {
             sampleHeight(this.hf, event.toX, event.toZ) + 0.4,
             event.toZ,
             event.killed,
-            impactBlastScale(event.kind),
+            impactBlastScale(event.kind) * (event.impactScale ?? 1),
           );
         } else {
-          this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed);
+          this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, event.impactScale ?? 1);
         }
         if (event.damage > 0 || event.killed) {
           this.spawnHitIndicator(event);
@@ -153,14 +154,23 @@ export class CombatView {
 
       const geometry = new BufferGeometry();
       geometry.setAttribute('position', new Float32BufferAttribute([event.fromX, fromY, event.fromZ, event.toX, toY, event.toZ], 3));
-      const line = new Line(geometry, event.kind === 'sniperRifle' || event.kind === 'railShot' ? this.sniperMaterial : event.kind === 'rifle' || event.kind === 'overchargeRifle' ? this.rifleMaterial : this.cannonMaterial);
+      const line = new Line(
+        geometry,
+        event.kind === 'microLaser'
+          ? this.microLaserMaterial
+          : event.kind === 'sniperRifle' || event.kind === 'railShot'
+            ? this.sniperMaterial
+            : event.kind === 'rifle' || event.kind === 'overchargeRifle'
+              ? this.rifleMaterial
+              : this.cannonMaterial,
+      );
       line.renderOrder = 50;
-      const tracerTtl = event.kind === 'sniperRifle' || event.kind === 'railShot' ? 0.34 : event.kind === 'rifle' || event.kind === 'overchargeRifle' ? 0.08 : 0.16;
+      const tracerTtl = event.kind === 'sniperRifle' || event.kind === 'railShot' ? 0.34 : event.kind === 'microLaser' ? 0.11 : event.kind === 'rifle' || event.kind === 'overchargeRifle' ? 0.08 : 0.16;
       this.tracers.push({ line, ttl: tracerTtl, total: tracerTtl });
       this.group.add(line);
 
-      this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed);
-      if (event.damage > 0 || event.killed) {
+      this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, event.impactScale ?? 1);
+      if (event.kind !== 'microLaser' && (event.damage > 0 || event.killed)) {
         this.spawnHitIndicator(event);
         this.spawnHitFragments(event, toY);
       }
@@ -458,7 +468,8 @@ export class CombatView {
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2,
     });
-    const mesh = new Mesh(new PlaneGeometry(profile.size, profile.size), material);
+    const impactScale = event.impactScale ?? 1;
+    const mesh = new Mesh(new PlaneGeometry(profile.size * impactScale, profile.size * impactScale), material);
     mesh.rotation.x = -Math.PI / 2;
     mesh.rotation.z = deterministicAngle(event.toX, event.toZ, event.kind);
     mesh.position.set(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.045, event.toZ);
@@ -521,9 +532,9 @@ export class CombatView {
     return group;
   }
 
-  private spawnSmallImpact(x: number, y: number, z: number, killed: boolean): void {
+  private spawnSmallImpact(x: number, y: number, z: number, killed: boolean, impactScale = 1): void {
     const material = new MeshBasicMaterial({ color: 0xffb449, transparent: true, opacity: 0.72, depthWrite: false });
-    const mesh = new Mesh(new SphereGeometry(killed ? 2.6 : 1.3, 10, 6), material);
+    const mesh = new Mesh(new SphereGeometry((killed ? 2.6 : 1.3) * impactScale, 10, 6), material);
     const group = new Group();
     group.add(mesh);
     group.position.set(x, y, z);

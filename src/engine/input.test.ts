@@ -21,6 +21,17 @@ describe('pointer camera ownership', () => {
     expect(eventTargetsGameSurface({ composedPath: () => [child, surface] } as Event, surface)).toBe(true);
     expect(eventTargetsGameSurface({ composedPath: () => [panel] } as Event, surface)).toBe(false);
   });
+
+  it('discards stale pointer motion without resetting other input state', () => {
+    const input = new Input(false);
+    input.keys.add('KeyW');
+    input.addLookDelta(480, -320);
+
+    input.discardMouseDelta();
+
+    expect(input.consumeMouseDelta()).toEqual({ dx: 0, dy: 0 });
+    expect(input.isDown('KeyW')).toBe(true);
+  });
 });
 
 describe('mobile input state', () => {

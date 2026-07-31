@@ -567,7 +567,15 @@
   }
   .mobile-touch-device .game-sidebar__mobile-status span:last-child { color:#e7cb77; }
   .mobile-touch-device .game-sidebar__mobile-status span.is-alert { border-color:rgba(255,112,92,.38); color:#ff8f7d; }
-  .mobile-touch-device .game-sidebar__radar { max-height:118px; object-fit:contain; border-radius:6px; }
+  .mobile-touch-device .game-sidebar__radar {
+    width:min(118px,100%) !important;
+    height:auto !important;
+    max-height:118px;
+    justify-self:center;
+    object-fit:contain;
+    border-radius:6px;
+    touch-action:none;
+  }
   .mobile-touch-device .game-sidebar__first-person-status { display:none !important; }
   .mobile-touch-device .game-sidebar__tabs,
   .mobile-touch-device .game-sidebar__body { display:none !important; }
