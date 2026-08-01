@@ -28,4 +28,12 @@ describe('tactical map', () => {
     expect(sparse.oreFields).toHaveLength(3);
     expect(abundant.oreFields).toHaveLength(10);
   });
+
+  it('renders the selected terrain relief in the tactical survey', () => {
+    const gentle = createTacticalMapRaster('crater-oasis', 'medium', 240771, 48, 100, 50);
+    const extreme = createTacticalMapRaster('crater-oasis', 'medium', 240771, 48, 100, 150);
+
+    expect(extreme.maxHeight).toBeGreaterThan(gentle.maxHeight * 2);
+    expect(Array.from(extreme.pixels)).not.toEqual(Array.from(gentle.pixels));
+  });
 });

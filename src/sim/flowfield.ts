@@ -20,6 +20,7 @@ export interface DynamicBlockerSnapshot extends BlockedFootprint {
 }
 
 export class NavigationGrid {
+  readonly heightfield: Heightfield;
   readonly cells: number;
   readonly cellSize: number;
   readonly size: number;
@@ -28,6 +29,7 @@ export class NavigationGrid {
   private readonly dynamicBlockers = new Map<number, DynamicBlocker>();
 
   constructor(hf: Heightfield, footprints: BlockedFootprint[] = []) {
+    this.heightfield = hf;
     this.cells = hf.cells;
     this.cellSize = hf.cellSize;
     this.size = hf.size;

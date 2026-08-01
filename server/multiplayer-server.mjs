@@ -28,6 +28,7 @@ const rooms = new Map();
  *   mapSize: 'small' | 'medium' | 'large';
  *   seed: number;
  *   oreAmount: number;
+ *   terrainRelief: number;
  *   ai: string;
  *   aiStyle: string;
  *   combatMode: 'assisted' | 'manual';
@@ -202,6 +203,7 @@ function handleSettings(socket, body) {
   room.mapSize = normalizeMapSize(next.mapSize ?? room.mapSize);
   room.seed = Math.max(1, Math.floor(Number(next.seed) || room.seed));
   room.oreAmount = normalizeOreAmount(next.oreAmount ?? room.oreAmount);
+  room.terrainRelief = normalizeTerrainRelief(next.terrainRelief ?? room.terrainRelief, room.mapId);
   room.ai = String(next.ai ?? room.ai);
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
@@ -314,6 +316,7 @@ function createRoom(body) {
     mapSize: normalizeMapSize(body?.mapSize),
     seed: Math.max(1, Math.floor(Number(body?.seed) || 1)),
     oreAmount: normalizeOreAmount(body?.oreAmount),
+    terrainRelief: normalizeTerrainRelief(body?.terrainRelief, normalizeMapId(body?.mapId)),
     ai: String(body?.ai ?? 'normal'),
     aiStyle: String(body?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(body?.combatMode),
@@ -339,6 +342,7 @@ function restoreRoom(snapshot) {
     mapSize: normalizeMapSize(snapshot?.mapSize),
     seed: Math.max(1, Math.floor(Number(snapshot?.seed) || 1)),
     oreAmount: normalizeOreAmount(snapshot?.oreAmount),
+    terrainRelief: normalizeTerrainRelief(snapshot?.terrainRelief, normalizeMapId(snapshot?.mapId)),
     ai: String(snapshot?.ai ?? 'normal'),
     aiStyle: String(snapshot?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(snapshot?.combatMode),
@@ -494,6 +498,7 @@ function publicRoom(room) {
     mapSize: room.mapSize,
     seed: room.seed,
     oreAmount: room.oreAmount,
+    terrainRelief: room.terrainRelief,
     ai: room.ai,
     aiStyle: room.aiStyle,
     combatMode: room.combatMode,
@@ -585,6 +590,13 @@ function normalizeOreAmount(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return 100;
   return Math.max(50, Math.min(200, Math.round(amount / 25) * 25));
+}
+
+function normalizeTerrainRelief(value, mapId = 'highlands') {
+  const relief = Number(value);
+  const fallback = mapId === 'crater-oasis' ? 125 : mapId === 'frostbite-pass' ? 100 : 75;
+  if (!Number.isFinite(relief)) return fallback;
+  return Math.max(50, Math.min(150, Math.round(relief / 25) * 25));
 }
 
 function normalizeMapId(value) {
