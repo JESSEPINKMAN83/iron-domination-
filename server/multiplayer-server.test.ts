@@ -72,18 +72,19 @@ describe('multiplayer relay', () => {
 
     const synchronizedSettings = nextMessage(
       guest,
-      (message) => message.type === 'room-state' && message.room.mapId === 'crater-oasis' && message.room.mapSize === 'large' && message.room.seed === 246810 && message.room.oreAmount === 175 && message.room.armyCount === 4,
+      (message) => message.type === 'room-state' && message.room.mapId === 'crater-oasis' && message.room.mapSize === 'large' && message.room.seed === 246810 && message.room.oreAmount === 175 && message.room.terrainRelief === 150 && message.room.armyCount === 4,
     );
     host.send(JSON.stringify({
       type: 'settings',
       roomCode,
       playerId: hostId,
-      settings: { mapId: 'crater-oasis', mapSize: 'large', seed: 246810, oreAmount: 175, combatMode: 'manual', armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
+      settings: { mapId: 'crater-oasis', mapSize: 'large', seed: 246810, oreAmount: 175, terrainRelief: 150, combatMode: 'manual', armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
     }));
     const synchronizedRoom = await synchronizedSettings;
     expect(synchronizedRoom.room.spawnSlots).toEqual([2, 1, 3, 4]);
     expect(synchronizedRoom.room.seed).toBe(246810);
     expect(synchronizedRoom.room.oreAmount).toBe(175);
+    expect(synchronizedRoom.room.terrainRelief).toBe(150);
     expect(synchronizedRoom.room.combatMode).toBe('manual');
 
     const resizedSettings = nextMessage(
@@ -125,6 +126,8 @@ describe('multiplayer relay', () => {
     expect(guestStart.room.seed).toBe(246810);
     expect(hostStart.room.oreAmount).toBe(175);
     expect(guestStart.room.oreAmount).toBe(175);
+    expect(hostStart.room.terrainRelief).toBe(150);
+    expect(guestStart.room.terrainRelief).toBe(150);
     expect(hostStart.room.combatMode).toBe('manual');
     expect(guestStart.room.combatMode).toBe('manual');
 

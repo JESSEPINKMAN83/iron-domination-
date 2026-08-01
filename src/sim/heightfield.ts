@@ -13,6 +13,8 @@ export interface MapConfig {
   cellSize: number;
   waterLevel: number;
   oreFieldCount: number;
+  /** Percentage multiplier for broad terrain elevation and canyon depth. */
+  terrainRelief?: number;
 }
 
 export interface OreField {
@@ -67,12 +69,36 @@ export function sampleHeight(hf: Heightfield, x: number, z: number): number {
   return sampleHeightData(hf.heights, hf.samples, hf.cellSize, x, z);
 }
 
+/** True when the terrain stays below a direct sight/fire segment. */
+export function hasTerrainLineOfSight(
+  hf: Heightfield,
+  fromX: number,
+  fromY: number,
+  fromZ: number,
+  toX: number,
+  toY: number,
+  toZ: number,
+  clearance = 0.55,
+): boolean {
+  const distance = Math.hypot(toX - fromX, toZ - fromZ);
+  const steps = Math.max(2, Math.min(32, Math.ceil(distance / Math.max(8, hf.cellSize * 5))));
+  for (let step = 1; step < steps; step++) {
+    const t = step / steps;
+    const x = fromX + (toX - fromX) * t;
+    const z = fromZ + (toZ - fromZ) * t;
+    const sightY = fromY + (toY - fromY) * t;
+    if (sampleHeight(hf, x, z) + clearance >= sightY) return false;
+  }
+  return true;
+}
+
 export function generateHeightfield(cfg: MapConfig): Heightfield {
   const { seed, cells, cellSize, waterLevel } = cfg;
   const kind = cfg.kind ?? 'highlands';
   const samples = cells + 1;
   const size = cells * cellSize;
   const half = size / 2;
+  const reliefScale = Math.max(0.5, Math.min(1.5, (cfg.terrainRelief ?? 100) / 100));
 
   // --- heights: rolling continent + terraced plateaus (cliffs) + detail, basins for lakes ---
   const heights = new Float32Array(samples * samples);
@@ -97,6 +123,7 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
         rolling -
         basin * 18.0 -
         lakePocket * 9.0;
+      h = waterLevel + (h - waterLevel) * reliefScale;
       if (kind === 'crater-oasis') {
         const r = Math.hypot(wx, wz);
         const angle = Math.atan2(wz, wx);
@@ -106,19 +133,41 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
         const diagonalGates = smoothstep(0.2, 0.035, Math.abs(Math.cos(angle * 2)));
         const brokenRim = innerRim * outerRim * (1 - diagonalGates * 0.72);
         const outerPlateau = smoothstep(size * 0.42, size * 0.22, r);
-        h += brokenRim * 23.0 - crater * 24.0 + outerPlateau * 4.0;
+        // Broad, terraced sandstone shelves split by two navigable washes. The
+        // relief slider changes the tactical height difference without adding
+        // extra geometry or runtime simulation cost.
+        const mesaNoise = fbm2(wx * 0.00145 + 12.7, wz * 0.00145 - 31.2, seed ^ 0xd35e, 4);
+        const mesaShelf = terrace(smoothstep(0.44, 0.67, mesaNoise), 4, 0.09);
+        const primaryWashDistance = Math.abs(wz - Math.sin(wx * 0.0062 + 0.6) * size * 0.075);
+        const crossingWashDistance = Math.abs(wx + Math.sin(wz * 0.0054 - 1.1) * size * 0.06);
+        const primaryWash = smoothstep(size * 0.12, size * 0.035, primaryWashDistance);
+        const crossingWash = smoothstep(size * 0.09, size * 0.028, crossingWashDistance);
+        const washCut = Math.max(primaryWash, crossingWash * 0.78) * smoothstep(size * 0.48, size * 0.1, r);
+        const rimRelief = brokenRim * 23.0 - crater * 24.0 + outerPlateau * 4.0;
+        const canyonRelief = mesaShelf * 34.0 - washCut * 22.0;
+        h += (rimRelief + canyonRelief) * reliefScale;
+        // The oasis remains the only intentional water pocket; canyon floors
+        // stay dry so vehicles can use them as concealed approach routes.
+        if (r > size * 0.12) h = Math.max(h, waterLevel + 1.15);
       } else if (kind === 'frostbite-pass') {
         const ridgeA = smoothstep(90, 10, Math.abs(wx + size * 0.23 + Math.sin(wz * 0.009) * 42));
         const ridgeB = smoothstep(82, 12, Math.abs(wx - size * 0.25 + Math.sin(wz * 0.008 + 1.7) * 38));
         const pass = smoothstep(size * 0.11, size * 0.028, Math.abs(wz + Math.sin(wx * 0.006) * 38));
         const frozenBasin = smoothstep(size * 0.19, size * 0.05, Math.hypot(wx, wz - size * 0.04));
         const northShelf = smoothstep(size * 0.46, size * 0.18, Math.abs(wz - size * 0.3));
-        h += ridgeA * 26.0 + ridgeB * 24.0 + northShelf * 6.0 - pass * 16.0 - frozenBasin * 18.0;
+        h += (ridgeA * 26.0 + ridgeB * 24.0 + northShelf * 6.0 - pass * 16.0 - frozenBasin * 18.0) * reliefScale;
       }
       heights[gy * samples + gx] = h;
       if (h > maxHeight) maxHeight = h;
     }
   }
+
+  // Every starting command yard receives a deterministic, broad construction
+  // shelf with a blended shoulder. Deep maps remain dramatic without spawning
+  // buildings inside a cliff or trapping the opening army.
+  flattenDeploymentShelves(heights, samples, cellSize, size);
+  maxHeight = 0;
+  for (let i = 0; i < heights.length; i++) maxHeight = Math.max(maxHeight, heights[i]);
 
   // --- ore fields: flat, dry, mutually spaced spots ---
   const rng = mulberry32(seed ^ 0x0be5);
@@ -239,6 +288,32 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
   }
 
   return { kind, cells, cellSize, size, samples, waterLevel, maxHeight, heights, walkable, splat, oreFields };
+}
+
+function flattenDeploymentShelves(heights: Float32Array, samples: number, cellSize: number, size: number): void {
+  const half = size / 2;
+  const innerRadius = Math.max(36, size * 0.045);
+  const outerRadius = Math.max(70, size * 0.085);
+  for (const [fx, fz] of [[-0.34, -0.34], [0.34, 0.34], [0.34, -0.34], [-0.34, 0.34]] as const) {
+    const centerX = size * fx;
+    const centerZ = size * fz;
+    const target = sampleHeightData(heights, samples, cellSize, centerX, centerZ);
+    const minX = Math.max(0, Math.floor((centerX - outerRadius + half) / cellSize));
+    const maxX = Math.min(samples - 1, Math.ceil((centerX + outerRadius + half) / cellSize));
+    const minZ = Math.max(0, Math.floor((centerZ - outerRadius + half) / cellSize));
+    const maxZ = Math.min(samples - 1, Math.ceil((centerZ + outerRadius + half) / cellSize));
+    for (let gz = minZ; gz <= maxZ; gz++) {
+      const wz = gz * cellSize - half;
+      for (let gx = minX; gx <= maxX; gx++) {
+        const wx = gx * cellSize - half;
+        const distance = Math.hypot(wx - centerX, wz - centerZ);
+        if (distance >= outerRadius) continue;
+        const blend = smoothstep(outerRadius, innerRadius, distance);
+        const index = gz * samples + gx;
+        heights[index] += (target - heights[index]) * blend;
+      }
+    }
+  }
 }
 
 function oreRadius(kind: MapConfig['kind'], rng: () => number): number {

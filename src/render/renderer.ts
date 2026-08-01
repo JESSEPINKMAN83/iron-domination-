@@ -93,6 +93,7 @@ export class RenderContext {
   readonly csm?: CSM;
   /** direction light travels (from sun toward ground), normalized */
   readonly sunDirection = new Vector3(-0.5, -0.85, -0.32).normalize();
+  private mobileSun?: DirectionalLight;
 
   private readonly composer?: EffectComposer;
   private readonly n8ao?: N8AOPostPass;
@@ -164,6 +165,7 @@ export class RenderContext {
 
     if (this.mobileSafeMode) {
       const sun = new DirectionalLight(0xfff3d2, 2.15);
+      this.mobileSun = sun;
       sun.position.copy(this.sunDirection).multiplyScalar(-420);
       sun.target.position.set(0, 0, 0);
       this.scene.add(sun, sun.target);
@@ -227,6 +229,33 @@ export class RenderContext {
   setupLitMaterial<T extends Material>(material: T): T {
     this.csm?.setupMaterial(material);
     return material;
+  }
+
+  setEnvironmentLight(
+    direction: readonly [number, number, number],
+    color: string,
+    strength: number,
+    exposure: number,
+  ): void {
+    this.sunDirection.set(direction[0], direction[1], direction[2]).normalize();
+    const intensity = Math.max(0.4, strength * 2.7);
+    this.renderer.toneMappingExposure = exposure;
+    if (this.csm) {
+      this.csm.lightDirection.copy(this.sunDirection);
+      this.csm.lightIntensity = intensity;
+      for (const light of this.csm.lights) {
+        light.color.set(color);
+        light.intensity = intensity;
+      }
+      this.csm.updateFrustums();
+      this.csm.update();
+    }
+    if (this.mobileSun) {
+      this.mobileSun.color.set(color);
+      this.mobileSun.intensity = intensity;
+      this.mobileSun.position.copy(this.sunDirection).multiplyScalar(-420);
+      this.mobileSun.target.position.set(0, 0, 0);
+    }
   }
 
   get maxAnisotropy(): number {

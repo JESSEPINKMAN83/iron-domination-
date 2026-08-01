@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MAP_PRESETS, mapConfig, sanitizeOreAmount } from '../content/maps';
-import { generateHeightfield, hashHeightfield, type MapConfig } from './heightfield';
+import { MAP_PRESETS, mapConfig, sanitizeOreAmount, sanitizeTerrainRelief } from '../content/maps';
+import { generateHeightfield, hasTerrainLineOfSight, hashHeightfield, sampleHeight, type Heightfield, type MapConfig } from './heightfield';
 
 const cfg: MapConfig = { seed: 1337, cells: 128, cellSize: 2, waterLevel: 2, oreFieldCount: 3 };
 const phase1MapCfg: MapConfig = { seed: 1337, cells: 512, cellSize: 2, waterLevel: 2, oreFieldCount: 5 };
@@ -24,6 +24,69 @@ describe('heightfield generation', () => {
     expect(sanitizeOreAmount(37)).toBe(50);
     expect(sanitizeOreAmount(164)).toBe(175);
     expect(sanitizeOreAmount(999)).toBe(200);
+  });
+
+  it('bounds terrain relief and gives the desert a deep tactical default', () => {
+    expect(sanitizeTerrainRelief(null)).toBeUndefined();
+    expect(sanitizeTerrainRelief(31)).toBe(50);
+    expect(sanitizeTerrainRelief(117)).toBe(125);
+    expect(sanitizeTerrainRelief(999)).toBe(150);
+    expect(mapConfig('highlands').terrainRelief).toBe(75);
+    expect(mapConfig('crater-oasis').terrainRelief).toBe(125);
+  });
+
+  it('scales deterministic canyon depth while keeping every deployment shelf flat', () => {
+    const seed = 240771;
+    const gentle = generateHeightfield({ ...mapConfig('crater-oasis', 'medium', 100, 50), seed });
+    const extreme = generateHeightfield({ ...mapConfig('crater-oasis', 'medium', 100, 150), seed });
+    const range = (hf: typeof gentle): number => {
+      let min = Number.POSITIVE_INFINITY;
+      let max = Number.NEGATIVE_INFINITY;
+      for (const height of hf.heights) {
+        min = Math.min(min, height);
+        max = Math.max(max, height);
+      }
+      return max - min;
+    };
+    expect(range(extreme)).toBeGreaterThan(range(gentle) * 2.4);
+    expect(hashHeightfield(extreme)).not.toBe(hashHeightfield(gentle));
+
+    for (const [fx, fz] of [[-0.34, -0.34], [0.34, 0.34], [0.34, -0.34], [-0.34, 0.34]] as const) {
+      const x = extreme.size * fx;
+      const z = extreme.size * fz;
+      const center = sampleHeight(extreme, x, z);
+      for (const [dx, dz] of [[24, 0], [-24, 0], [0, 24], [0, -24]] as const) {
+        expect(sampleHeight(extreme, x + dx, z + dz)).toBeCloseTo(center, 3);
+      }
+      expect(center).toBeGreaterThan(extreme.waterLevel + 0.5);
+    }
+  });
+
+  it('uses ridgelines as direct-fire cover while allowing fire over them', () => {
+    const samples = 9;
+    const cells = samples - 1;
+    const heights = new Float32Array(samples * samples);
+    for (let z = 0; z < samples; z++) {
+      for (let x = 0; x < samples; x++) {
+        if (x >= 3 && x <= 5) heights[z * samples + x] = 8;
+      }
+    }
+    const ridge: Heightfield = {
+      kind: 'highlands',
+      cells,
+      cellSize: 2,
+      size: cells * 2,
+      samples,
+      waterLevel: -2,
+      maxHeight: 8,
+      heights,
+      walkable: new Uint8Array(cells * cells).fill(1),
+      splat: new Uint8Array(cells * cells * 4),
+      oreFields: [],
+    };
+
+    expect(hasTerrainLineOfSight(ridge, -7, 2, 0, 7, 2, 0)).toBe(false);
+    expect(hasTerrainLineOfSight(ridge, -7, 12, 0, 7, 12, 0)).toBe(true);
   });
 
   it('generates every requested ore field at maximum abundance', () => {

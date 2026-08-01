@@ -10,6 +10,9 @@ export const ORE_AMOUNT_MIN = 50;
 export const ORE_AMOUNT_MAX = 200;
 export const ORE_AMOUNT_STEP = 25;
 export const DEFAULT_ORE_AMOUNT = 100;
+export const TERRAIN_RELIEF_MIN = 50;
+export const TERRAIN_RELIEF_MAX = 150;
+export const TERRAIN_RELIEF_STEP = 25;
 
 export interface MapSizePreset {
   id: MapSize;
@@ -38,6 +41,10 @@ export interface MapAtmosphere {
   skyHorizon: string;
   sunGlow: string;
   sunStrength: number;
+  sunColor: string;
+  /** Direction light travels, from the sun toward the battlefield. */
+  sunDirection: readonly [number, number, number];
+  exposure: number;
   fogNear: number;
   fogFar: number;
   hemisphereSky: number;
@@ -78,6 +85,9 @@ export const MAP_PRESETS = {
       skyHorizon: '#d7e9f4',
       sunGlow: '#fff1bd',
       sunStrength: 0.82,
+      sunColor: '#fff3d2',
+      sunDirection: [-0.5, -0.85, -0.32],
+      exposure: 1.08,
       fogNear: 650,
       fogFar: 1900,
       hemisphereSky: 0xcfe0f2,
@@ -120,6 +130,7 @@ export const MAP_PRESETS = {
       cellSize: 2,
       waterLevel: 2.0,
       oreFieldCount: 5,
+      terrainRelief: 75,
     },
   },
   'crater-oasis': {
@@ -129,16 +140,19 @@ export const MAP_PRESETS = {
     description: 'A sun-baked desert impact basin with a turquoise oasis, scarred sandstone rims, and exposed oil fields in the open.',
     biome: 'desert',
     atmosphere: {
-      sky: '#dcbf8b',
-      skyZenith: '#5c94b7',
-      skyHorizon: '#efd09f',
-      sunGlow: '#ffd58b',
-      sunStrength: 1.05,
-      fogNear: 520,
-      fogFar: 1500,
-      hemisphereSky: 0xffdfaa,
-      hemisphereGround: 0x9b7042,
-      hemisphereIntensity: 0.88,
+      sky: '#d18a55',
+      skyZenith: '#704f68',
+      skyHorizon: '#f2a35d',
+      sunGlow: '#ffd08a',
+      sunStrength: 1.12,
+      sunColor: '#ffbd73',
+      sunDirection: [-0.86, -0.34, -0.38],
+      exposure: 1.14,
+      fogNear: 560,
+      fogFar: 1650,
+      hemisphereSky: 0xffc98e,
+      hemisphereGround: 0x593528,
+      hemisphereIntensity: 0.68,
       cloudLight: '#fff0d1',
       cloudShade: '#caa77c',
       cloudSoftness: 0.32,
@@ -176,6 +190,7 @@ export const MAP_PRESETS = {
       cellSize: 2,
       waterLevel: 3.3,
       oreFieldCount: 8,
+      terrainRelief: 125,
     },
   },
   'frostbite-pass': {
@@ -190,6 +205,9 @@ export const MAP_PRESETS = {
       skyHorizon: '#e0e8ed',
       sunGlow: '#eef7fb',
       sunStrength: 0.42,
+      sunColor: '#eaf4ff',
+      sunDirection: [-0.42, -0.78, -0.46],
+      exposure: 1.03,
       fogNear: 360,
       fogFar: 1220,
       hemisphereSky: 0xeaf7ff,
@@ -232,6 +250,7 @@ export const MAP_PRESETS = {
       cellSize: 2,
       waterLevel: 5.0,
       oreFieldCount: 7,
+      terrainRelief: 100,
     },
   },
 } as const satisfies Record<MapId, MapPreset>;
@@ -281,6 +300,18 @@ export function sanitizeOreAmount(value: unknown): number | undefined {
   return Math.max(ORE_AMOUNT_MIN, Math.min(ORE_AMOUNT_MAX, stepped));
 }
 
+export function sanitizeTerrainRelief(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const relief = Number(value);
+  if (!Number.isFinite(relief)) return undefined;
+  const stepped = Math.round(relief / TERRAIN_RELIEF_STEP) * TERRAIN_RELIEF_STEP;
+  return Math.max(TERRAIN_RELIEF_MIN, Math.min(TERRAIN_RELIEF_MAX, stepped));
+}
+
+export function defaultTerrainRelief(id: MapId): number {
+  return sanitizeTerrainRelief(MAP_PRESETS[id]?.config.terrainRelief) ?? 100;
+}
+
 export function oreFieldCount(id: MapId, size: MapSize = DEFAULT_MAP_SIZE, oreAmount = DEFAULT_ORE_AMOUNT): number {
   const base = MAP_PRESETS[id]?.config ?? MAP_PRESETS[DEFAULT_MAP_ID].config;
   const selectedSize = MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
@@ -288,12 +319,18 @@ export function oreFieldCount(id: MapId, size: MapSize = DEFAULT_MAP_SIZE, oreAm
   return Math.max(2, Math.round(base.oreFieldCount * selectedSize.oreMultiplier * amount / 100));
 }
 
-export function mapConfig(id: MapId, size: MapSize = DEFAULT_MAP_SIZE, oreAmount = DEFAULT_ORE_AMOUNT): MapConfig {
+export function mapConfig(
+  id: MapId,
+  size: MapSize = DEFAULT_MAP_SIZE,
+  oreAmount = DEFAULT_ORE_AMOUNT,
+  terrainRelief = defaultTerrainRelief(id),
+): MapConfig {
   const base = MAP_PRESETS[id]?.config ?? MAP_PRESETS[DEFAULT_MAP_ID].config;
   const selectedSize = MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
   return {
     ...base,
     cells: selectedSize.cells,
     oreFieldCount: oreFieldCount(id, size, oreAmount),
+    terrainRelief: sanitizeTerrainRelief(terrainRelief) ?? defaultTerrainRelief(id),
   };
 }

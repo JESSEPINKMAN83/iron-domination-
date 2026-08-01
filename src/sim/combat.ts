@@ -3,6 +3,7 @@ import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { angleDelta, slewAngle } from './angles';
 import type { Entity, Weapon } from './components';
 import { hash2i, smoothstep } from './noise';
+import { hasTerrainLineOfSight, sampleHeight } from './heightfield';
 import { directionalImpactResponse } from './impactModel';
 import { applyStructureDamage } from './structureDamage';
 import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, stopEntities, type GameSim } from './world';
@@ -430,8 +431,10 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
       kind: projectileKind,
       weaponKind,
       fromX: attacker.transform.x,
+      fromY: absoluteBombMuzzleY(sim, attacker),
       fromZ: attacker.transform.z,
       toX: impact.x,
+      toY: sampleHeight(sim.nav.heightfield, impact.x, impact.z) + 0.35,
       toZ: impact.z,
       elapsed: 0,
       duration,
@@ -482,7 +485,8 @@ function launchWeaponProjectile(
     ? { kind: 'atRocket' as const, speed: 96, trajectory: 'flat' as const, impactRadius: 2.2 }
     : undefined);
   if (!projectileDef) return;
-  const fromY = directMuzzleY(attacker);
+  const fromY = absoluteDirectMuzzleY(sim, attacker);
+  const resolvedTargetY = absoluteProjectileTargetY(sim, target, targetX, targetZ, targetY);
   const dx = targetX - attacker.transform.x;
   const dz = targetZ - attacker.transform.z;
   const distanceToAim = Math.max(0.001, Math.hypot(dx, dz));
@@ -509,7 +513,7 @@ function launchWeaponProjectile(
     y: fromY,
     z: attacker.transform.z,
     toX: targetX,
-    toY: targetY,
+    toY: resolvedTargetY,
     toZ: targetZ,
     elapsed: 0,
     duration,
@@ -531,7 +535,7 @@ function launchWeaponProjectile(
     fromY,
     fromZ: attacker.transform.z,
     toX: targetX,
-    toY: targetY,
+    toY: resolvedTargetY,
     toZ: targetZ,
     targetId: target?.id,
     targetLabel: target?.name ?? target?.building?.label ?? target?.selectable?.type,
@@ -580,6 +584,25 @@ function directMuzzleY(attacker: Entity): number | undefined {
   return attacker.transform.y + (attacker.selectable?.type === 'infantry' ? 1.35 : 2.2);
 }
 
+function absoluteDirectMuzzleY(sim: GameSim, attacker: Entity): number {
+  return directMuzzleY(attacker)
+    ?? sampleHeight(sim.nav.heightfield, attacker.transform.x, attacker.transform.z)
+      + (attacker.selectable?.type === 'infantry' ? 1.35 : 2.2);
+}
+
+function absoluteBombMuzzleY(sim: GameSim, attacker: Entity): number {
+  return bombMuzzleY(attacker)
+    ?? sampleHeight(sim.nav.heightfield, attacker.transform.x, attacker.transform.z) + 3.1;
+}
+
+function absoluteProjectileTargetY(sim: GameSim, target: Entity | undefined, x: number, z: number, aimY?: number): number {
+  if (aimY !== undefined) return aimY;
+  const ground = sampleHeight(sim.nav.heightfield, x, z);
+  if (!target) return ground + 0.7;
+  if (target.flight) return target.transform.y ?? ground + 8;
+  return ground + (target.building ? 2.8 : target.selectable?.type === 'infantry' ? 1.15 : 1.7);
+}
+
 function stepProjectiles(sim: GameSim, dt: number): void {
   for (let i = sim.projectiles.length - 1; i >= 0; i--) {
     const projectile = sim.projectiles[i];
@@ -591,9 +614,10 @@ function stepProjectiles(sim: GameSim, dt: number): void {
         continue;
       }
       const px = projectile.x ?? projectile.fromX;
-      const py = projectile.y ?? projectile.fromY ?? 0;
+      const py = projectile.y ?? projectile.fromY
+        ?? sampleHeight(sim.nav.heightfield, projectile.fromX, projectile.fromZ) + 2;
       const pz = projectile.z ?? projectile.fromZ;
-      const ty = target.transform.y ?? 1.6;
+      const ty = absoluteProjectileTargetY(sim, target, target.transform.x, target.transform.z, target.transform.y);
       const vx = target.transform.x - px;
       const vy = ty - py;
       const vz = target.transform.z - pz;
@@ -602,6 +626,11 @@ function stepProjectiles(sim: GameSim, dt: number): void {
       projectile.x = px + (vx / d) * step;
       projectile.y = py + (vy / d) * step;
       projectile.z = pz + (vz / d) * step;
+      if ((projectile.y ?? py) <= sampleHeight(sim.nav.heightfield, projectile.x, projectile.z) + 0.35) {
+        impactProjectile(sim, projectile, projectile.x, projectile.y, projectile.z);
+        sim.projectiles.splice(i, 1);
+        continue;
+      }
       const traveled = Math.hypot((projectile.x ?? px) - projectile.fromX, (projectile.z ?? pz) - projectile.fromZ);
       if (traveled > projectile.homing.fizzleRange) {
         sim.projectiles.splice(i, 1);
@@ -629,6 +658,11 @@ function stepProjectiles(sim: GameSim, dt: number): void {
       projectile.y = fromY + (toY - fromY) * (t * t);
     } else {
       projectile.y = (projectile.fromY ?? 2) + ((projectile.toY ?? 1.4) - (projectile.fromY ?? 2)) * t;
+    }
+    if (t > 0.04 && t < 1 && (projectile.y ?? 0) <= sampleHeight(sim.nav.heightfield, projectile.x, projectile.z) + 0.35) {
+      impactProjectile(sim, projectile, projectile.x, projectile.y, projectile.z);
+      sim.projectiles.splice(i, 1);
+      continue;
     }
     if (projectile.elapsed < projectile.duration) continue;
     const directTarget = projectile.directTargetId ? entityById(sim, projectile.directTargetId) : undefined;
@@ -782,7 +816,11 @@ function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: numb
   if (!target || !isWeaponTargetable(sim, attacker, weapon, target)) return undefined;
   const visionCap = attacker.vision?.radius ?? range;
   const d = distance(attacker, target);
-  return d <= effectiveRangeForTarget(weapon.kind as WeaponKind, target, range, visionCap) && d >= minimumRangeForWeapon(weapon.kind as WeaponKind) ? target : undefined;
+  return d <= effectiveRangeForTarget(weapon.kind as WeaponKind, target, range, visionCap) &&
+    d >= minimumRangeForWeapon(weapon.kind as WeaponKind) &&
+    hasWeaponTerrainLineOfSight(sim, attacker, weapon, target)
+    ? target
+    : undefined;
 }
 
 function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
@@ -794,6 +832,7 @@ function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: nu
     const d = distance(attacker, candidate);
     if (d > effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range, visionCap)) continue;
     if (d < minimumRangeForWeapon(weapon.kind as WeaponKind)) continue;
+    if (!hasWeaponTerrainLineOfSight(sim, attacker, weapon, candidate)) continue;
     // the player's possessed unit reads as high-value — AI applies pressure to it
     const score = candidate.playerControlled ? d * (attacker.aiCombat?.possessedTargetPriority ?? 0.55) : d;
     if (score < bestScore) {
@@ -802,6 +841,27 @@ function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: nu
     }
   }
   return best;
+}
+
+function hasWeaponTerrainLineOfSight(sim: GameSim, attacker: Entity, weapon: Weapon, target: Entity): boolean {
+  const def = WEAPONS[weapon.kind as WeaponKind];
+  const trajectory = def?.projectile?.trajectory;
+  if (def?.kind === 'bomb' || def?.kind === 'tankBomb' || trajectory === 'arc' || trajectory === 'drop') return true;
+  const terrain = sim.nav.heightfield;
+  const fromY = directMuzzleY(attacker) ?? sampleHeight(terrain, attacker.transform.x, attacker.transform.z) + 1.6;
+  const targetBaseY = target.transform.y ?? sampleHeight(terrain, target.transform.x, target.transform.z);
+  const targetY = target.flight
+    ? targetBaseY
+    : targetBaseY + (target.building ? 2.8 : target.selectable?.type === 'infantry' ? 1.15 : 1.7);
+  return hasTerrainLineOfSight(
+    terrain,
+    attacker.transform.x,
+    fromY,
+    attacker.transform.z,
+    target.transform.x,
+    targetY,
+    target.transform.z,
+  );
 }
 
 interface ManualAimRay {

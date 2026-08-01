@@ -263,7 +263,7 @@ describe('phase 4 combat simulation', () => {
     expect(sim.projectiles[0]?.toY).toBe(40);
   });
 
-  it('lets manually aimed tank missiles travel to distant battlefield points', () => {
+  it('lets manually aimed tank missiles travel toward distant points until terrain intercepts them', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     sim.rules.autoCombat = false;
@@ -279,7 +279,10 @@ describe('phase 4 combat simulation', () => {
     expect(sim.projectiles[0]?.toX).toBe(280);
     expect(sim.projectiles[0]?.duration).toBeCloseTo(460 / (WEAPONS.tankMissile.projectile!.speed * 2.35), 8);
     settle(sim, (sim.projectiles[0]?.duration ?? 0) + 0.1);
-    expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.toX === 280)).toBe(true);
+    const impact = sim.events.find((event) => event.kind === 'tankMissile-impact');
+    expect(impact).toBeDefined();
+    expect(impact!.toX).toBeGreaterThan(attacker.transform.x);
+    expect(impact!.toX).toBeLessThanOrEqual(280);
   });
 
   it('fires ballistic bombs that damage on impact, with splash falloff', () => {
