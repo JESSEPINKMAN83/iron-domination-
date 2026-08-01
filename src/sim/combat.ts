@@ -17,6 +17,14 @@ const PLAYER_PRIMARY_SPEED_SCALE = 2.35;
 const PLAYER_PRIMARY_DAMAGE_SCALE = 1.16;
 const PLAYER_PRIMARY_FORCE_SCALE = 1.42;
 const PLAYER_PRIMARY_IMPACT_SCALE = 1.42;
+/** Locked ordnance trades raw velocity and impact for guidance that can be evaded. */
+const LOCKED_MISSILE_SPEED_SCALE = 0.58;
+const LOCKED_MISSILE_DAMAGE_SCALE = 0.96;
+const LOCKED_MISSILE_FORCE_SCALE = 0.72;
+const LOCKED_MISSILE_IMPACT_SCALE = 0.9;
+const LOCKED_MISSILE_LIFETIME = 6.5;
+const LOCKED_MISSILE_AIR_TURN_RATE = 0.9;
+const LOCKED_MISSILE_GROUND_TURN_RATE = 1.4;
 
 interface HitSummary {
   targetId: number;
@@ -498,16 +506,27 @@ function launchWeaponProjectile(
   const dx = targetX - attacker.transform.x;
   const dz = targetZ - attacker.transform.z;
   const distanceToAim = Math.max(0.001, Math.hypot(dx, dz));
-  const speed = projectileDef.speed * speedScale;
-  const duration = Math.min(3.2, Math.max(0.045, distanceToAim / speed));
+  const isLocked = (projectileDef.trajectory === 'homing' || forceHoming) && target?.id !== undefined;
+  const speed = projectileDef.speed * (isLocked ? LOCKED_MISSILE_SPEED_SCALE : speedScale);
+  const aimDy = resolvedTargetY - fromY;
+  const aimDistance = Math.max(0.001, Math.hypot(dx, aimDy, dz));
+  const duration = isLocked
+    ? LOCKED_MISSILE_LIFETIME
+    : Math.min(3.2, Math.max(0.045, distanceToAim / speed));
   const homing =
-    (projectileDef.trajectory === 'homing' || forceHoming) && target?.id
+    isLocked && target
       ? {
           targetId: target.id,
           speed,
           fizzleRange: forceHoming
             ? Math.max(projectileDef.fizzleRange ?? 0, sim.nav.size * Math.SQRT2 + 64)
             : projectileDef.fizzleRange ?? def.range * 1.15,
+          remainingLifetime: LOCKED_MISSILE_LIFETIME,
+          traveledDistance: 0,
+          directionX: dx / aimDistance,
+          directionY: aimDy / aimDistance,
+          directionZ: dz / aimDistance,
+          turnRate: target.flight ? LOCKED_MISSILE_AIR_TURN_RATE : LOCKED_MISSILE_GROUND_TURN_RATE,
         }
       : undefined;
   const trajectory = homing ? 'homing' : projectileDef.trajectory;
@@ -526,9 +545,9 @@ function launchWeaponProjectile(
     elapsed: 0,
     duration,
     speed,
-    damageScale,
-    forceScale,
-    impactScale,
+    damageScale: isLocked ? Math.min(1, damageScale) * LOCKED_MISSILE_DAMAGE_SCALE : damageScale,
+    forceScale: isLocked ? Math.min(1, forceScale) * LOCKED_MISSILE_FORCE_SCALE : forceScale,
+    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale,
     maxDistance: projectileDef.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
     directTargetId: target?.id,
     trajectory,
@@ -551,8 +570,10 @@ function launchWeaponProjectile(
     damage: 0,
     killed: false,
     duration,
-    impactScale,
+    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale,
     trajectory,
+    homingSpeed: homing?.speed,
+    homingTurnRate: homing?.turnRate,
   });
 }
 
@@ -616,6 +637,11 @@ function stepProjectiles(sim: GameSim, dt: number): void {
     const projectile = sim.projectiles[i];
     projectile.elapsed += dt;
     if (projectile.homing) {
+      projectile.homing.remainingLifetime -= dt;
+      if (projectile.homing.remainingLifetime <= 0) {
+        sim.projectiles.splice(i, 1);
+        continue;
+      }
       const target = entityById(sim, projectile.homing.targetId);
       if (!target || !target.health || target.health.current <= 0 || target.destroyed) {
         sim.projectiles.splice(i, 1);
@@ -630,23 +656,44 @@ function stepProjectiles(sim: GameSim, dt: number): void {
       const vy = ty - py;
       const vz = target.transform.z - pz;
       const d = Math.max(0.001, Math.hypot(vx, vy, vz));
-      const step = Math.min(d, projectile.homing.speed * dt);
-      projectile.x = px + (vx / d) * step;
-      projectile.y = py + (vy / d) * step;
-      projectile.z = pz + (vz / d) * step;
+      const desiredX = vx / d;
+      const desiredY = vy / d;
+      const desiredZ = vz / d;
+      const maxDirectionDelta = projectile.homing.turnRate * dt;
+      const deltaX = desiredX - projectile.homing.directionX;
+      const deltaY = desiredY - projectile.homing.directionY;
+      const deltaZ = desiredZ - projectile.homing.directionZ;
+      const directionDelta = Math.hypot(deltaX, deltaY, deltaZ);
+      const blend = directionDelta > maxDirectionDelta ? maxDirectionDelta / directionDelta : 1;
+      const steeredX = projectile.homing.directionX + deltaX * blend;
+      const steeredY = projectile.homing.directionY + deltaY * blend;
+      const steeredZ = projectile.homing.directionZ + deltaZ * blend;
+      const steeredLength = Math.max(0.001, Math.hypot(steeredX, steeredY, steeredZ));
+      projectile.homing.directionX = steeredX / steeredLength;
+      projectile.homing.directionY = steeredY / steeredLength;
+      projectile.homing.directionZ = steeredZ / steeredLength;
+      const step = projectile.homing.speed * dt;
+      projectile.homing.traveledDistance += step;
+      projectile.x = px + projectile.homing.directionX * step;
+      projectile.y = py + projectile.homing.directionY * step;
+      projectile.z = pz + projectile.homing.directionZ * step;
       if ((projectile.y ?? py) <= sampleHeight(sim.nav.heightfield, projectile.x, projectile.z) + 0.35) {
         impactProjectile(sim, projectile, projectile.x, projectile.y, projectile.z);
         sim.projectiles.splice(i, 1);
         continue;
       }
-      const traveled = Math.hypot((projectile.x ?? px) - projectile.fromX, (projectile.z ?? pz) - projectile.fromZ);
-      if (traveled > projectile.homing.fizzleRange) {
+      if (projectile.homing.traveledDistance > projectile.homing.fizzleRange) {
         sim.projectiles.splice(i, 1);
         continue;
       }
       const weaponKind = (projectile.weaponKind ?? projectile.kind) as WeaponKind;
       const impactRadius = WEAPONS[weaponKind]?.projectile?.impactRadius ?? 2.5;
-      if (d > impactRadius) continue;
+      const newDistance = Math.hypot(
+        target.transform.x - projectile.x,
+        ty - (projectile.y ?? py),
+        target.transform.z - projectile.z,
+      );
+      if (newDistance > impactRadius) continue;
       impactProjectile(sim, projectile, target.transform.x, ty, target.transform.z, target);
       sim.projectiles.splice(i, 1);
       continue;

@@ -49,6 +49,7 @@ interface BombProjectile {
   duration: number;
   event: CombatEvent;
   smokeTimer: number;
+  direction?: Vector3;
 }
 
 interface HitIndicator {
@@ -139,6 +140,7 @@ export class CombatView {
         continue;
       }
       if (isProjectileImpact(event.kind)) {
+        this.removeImpactedHomingProjectile(event);
         if (shouldPaintGroundScorch(this.hf, event)) this.spawnGroundScorch(event);
         if (isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
           this.spawnBombBlast(
@@ -278,6 +280,7 @@ export class CombatView {
       duration: event.duration ?? Math.min(8, Math.max(0.85, distance / 95)),
       event,
       smokeTimer: 0,
+      direction: event.trajectory === 'homing' ? to.clone().sub(from).normalize() : undefined,
     });
     const maxProjectiles = this.visualQuality === 0 ? 160 : this.visualQuality === 1 ? 105 : 72;
     while (this.bombProjectiles.length > maxProjectiles) this.disposeBombProjectile(this.bombProjectiles.shift());
@@ -287,16 +290,33 @@ export class CombatView {
     for (let i = this.bombProjectiles.length - 1; i >= 0; i--) {
       const projectile = this.bombProjectiles[i];
       projectile.elapsed += dt;
-      if (projectile.event.trajectory === 'homing' && projectile.event.targetId !== undefined) {
+      if (
+        projectile.event.trajectory === 'homing' &&
+        projectile.event.targetId !== undefined &&
+        projectile.direction &&
+        projectile.event.homingSpeed !== undefined &&
+        projectile.event.homingTurnRate !== undefined
+      ) {
         const target = this.resolveEntity(projectile.event.targetId);
         if (target && !target.destroyed) {
           projectile.to.set(target.transform.x, target.transform.y ?? projectile.to.y, target.transform.z);
-          projectile.control.set(
-            (projectile.from.x + projectile.to.x) * 0.5,
-            (projectile.from.y + projectile.to.y) * 0.5,
-            (projectile.from.z + projectile.to.z) * 0.5,
-          );
+          const desired = projectile.to.clone().sub(projectile.group.position).normalize();
+          const delta = desired.sub(projectile.direction);
+          const maxDirectionDelta = projectile.event.homingTurnRate * dt;
+          const blend = delta.length() > maxDirectionDelta ? maxDirectionDelta / delta.length() : 1;
+          projectile.direction.addScaledVector(delta, blend).normalize();
         }
+        projectile.group.position.addScaledVector(projectile.direction, projectile.event.homingSpeed * dt);
+        projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, projectile.direction));
+        projectile.trailPositions.push(projectile.group.position.clone());
+        if (projectile.trailPositions.length > 8) projectile.trailPositions.shift();
+        this.updateTrail(projectile);
+        this.emitProjectileSmoke(projectile, projectile.direction, dt);
+        if (projectile.elapsed >= projectile.duration) {
+          this.disposeBombProjectile(projectile);
+          this.bombProjectiles.splice(i, 1);
+        }
+        continue;
       }
       const t = Math.min(1, projectile.elapsed / projectile.duration);
       const position = bezier(projectile.from, projectile.control, projectile.to, t);
@@ -312,6 +332,22 @@ export class CombatView {
         // the blast is driven by the sim's 'bomb-impact' event, not the visual flight
         this.bombProjectiles.splice(i, 1);
       }
+    }
+  }
+
+  private removeImpactedHomingProjectile(event: CombatEvent): void {
+    const launchKind = event.kind.slice(0, -'-impact'.length);
+    for (let i = this.bombProjectiles.length - 1; i >= 0; i--) {
+      const projectile = this.bombProjectiles[i];
+      if (projectile.event.trajectory !== 'homing' || projectile.event.kind !== launchKind) continue;
+      if (
+        event.targetId !== undefined &&
+        projectile.event.targetId !== undefined &&
+        event.targetId !== projectile.event.targetId
+      ) continue;
+      this.disposeBombProjectile(projectile);
+      this.bombProjectiles.splice(i, 1);
+      return;
     }
   }
 
