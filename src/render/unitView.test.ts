@@ -1,5 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { groundVehicleImpactPose, impactReactionProfile, infantryImpactPose, unitDamageStage } from './unitView';
+import {
+  groundVehicleImpactPose,
+  impactReactionProfile,
+  infantryImpactPose,
+  shouldKeepDetailedUnitInPerformanceMode,
+  unitDamageStage,
+} from './unitView';
+
+describe('performance-mode unit detail', () => {
+  const base = {
+    distanceSquared: 900 * 900,
+    selected: false,
+    playerControlled: false,
+    priority: false,
+    resolvedByFortressOptics: false,
+    crashingAircraft: false,
+    destroyed: false,
+  };
+
+  it('keeps nearby, selected, controlled, and targeted units fully modeled', () => {
+    expect(shouldKeepDetailedUnitInPerformanceMode({ ...base, distanceSquared: 100 * 100 })).toBe(true);
+    expect(shouldKeepDetailedUnitInPerformanceMode({ ...base, selected: true })).toBe(true);
+    expect(shouldKeepDetailedUnitInPerformanceMode({ ...base, playerControlled: true })).toBe(true);
+    expect(shouldKeepDetailedUnitInPerformanceMode({ ...base, priority: true })).toBe(true);
+    expect(shouldKeepDetailedUnitInPerformanceMode({ ...base, resolvedByFortressOptics: true })).toBe(true);
+    expect(shouldKeepDetailedUnitInPerformanceMode({ ...base, crashingAircraft: true, destroyed: true })).toBe(true);
+  });
+
+  it('simplifies only distant background units and completed wrecks', () => {
+    expect(shouldKeepDetailedUnitInPerformanceMode(base)).toBe(false);
+    expect(shouldKeepDetailedUnitInPerformanceMode({ ...base, distanceSquared: 100, selected: true, destroyed: true })).toBe(false);
+  });
+});
 
 describe('unitDamageStage', () => {
   it('uses three stable visual thresholds at 75%, 50%, and 25% health', () => {

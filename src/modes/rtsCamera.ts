@@ -31,6 +31,11 @@ export interface EdgePanInput {
   forward: number;
 }
 
+/** The RTS camera sits behind the direction the possessed unit was aiming. */
+export function strategyCameraYawFromAim(aimYaw: number): number {
+  return normalizeAngle(aimYaw + Math.PI);
+}
+
 /**
  * Returns a graduated screen-edge pan input in the range -1..1.
  * The inner edge of the zone starts at zero and the outermost pixel reaches
@@ -169,6 +174,29 @@ export class RtsCameraRig {
         PITCH_OFFSET_MAX,
       );
     }
+    this.pitchOffsetGoal = this.pitchOffset;
+    return this.currentPose(50);
+  }
+
+  focusOnHeading(
+    x: number,
+    z: number,
+    aimYaw: number,
+    distance = CONTROL_RETURN_DISTANCE,
+    pitchOffsetDegrees = 0,
+  ): RtsCameraPose {
+    this.jumpTo(x, z);
+    // In RTS space yaw describes the camera's offset from its target. The
+    // offset must therefore be opposite the unit's forward/aim direction.
+    this.yaw = strategyCameraYawFromAim(aimYaw);
+    this.yawGoal = this.yaw;
+    this.dist = MathUtils.clamp(distance, ZOOM_MIN, ZOOM_MAX);
+    this.distGoal = this.dist;
+    this.pitchOffset = MathUtils.clamp(
+      MathUtils.degToRad(pitchOffsetDegrees),
+      PITCH_OFFSET_MIN,
+      PITCH_OFFSET_MAX,
+    );
     this.pitchOffsetGoal = this.pitchOffset;
     return this.currentPose(50);
   }

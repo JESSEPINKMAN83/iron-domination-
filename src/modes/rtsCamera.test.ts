@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { getEdgePanInput } from './rtsCamera';
+import { getEdgePanInput, strategyCameraYawFromAim } from './rtsCamera';
+
+describe('RTS camera direct-control return heading', () => {
+  it('places the strategy camera behind the unit aim direction', () => {
+    for (const aimYaw of [0, Math.PI / 3, Math.PI / 2, -Math.PI * 0.72]) {
+      const cameraYaw = strategyCameraYawFromAim(aimYaw);
+      expect(Math.sin(cameraYaw)).toBeCloseTo(-Math.sin(aimYaw), 10);
+      expect(Math.cos(cameraYaw)).toBeCloseTo(-Math.cos(aimYaw), 10);
+    }
+  });
+});
 
 describe('RTS camera screen-edge pan', () => {
   it('does not pan while the cursor is outside the edge zones', () => {

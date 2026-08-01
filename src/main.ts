@@ -68,7 +68,7 @@ import { FogView } from './render/fogView';
 import { InstancedMeshRegistry } from './render/instancing';
 import { OrderMarkerView } from './render/orderMarkerView';
 import { applyMultiplayerFactionColors } from './render/palette';
-import { RenderContext } from './render/renderer';
+import { isExplicitQualityTier, qualityTierFromQuery, RenderContext } from './render/renderer';
 import { buildScatter } from './render/scatter';
 import { TerrainView } from './render/terrainMesh';
 import { UnitView } from './render/unitView';
@@ -2213,14 +2213,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const params = new URLSearchParams(location.search);
   const mobileTouch = isMobileTouchDevice();
   const requestedQuality = params.get('quality');
-  const initialQualityTier = requestedQuality === 'performance' || requestedQuality === 'low'
-    ? 2 as const
-    : requestedQuality === 'balanced'
-      ? 1 as const
-      : mobileTouch
-        ? 0 as const
-        : undefined;
-  const ctx = new RenderContext(app, { multiplayer: multiplayerMode, initialQualityTier, mobileSafeMode: mobileTouch });
+  const initialQualityTier = qualityTierFromQuery(requestedQuality) ?? (mobileTouch ? 0 as const : undefined);
+  const ctx = new RenderContext(app, {
+    multiplayer: multiplayerMode,
+    initialQualityTier,
+    mobileSafeMode: mobileTouch,
+    // Explicit URL quality modes are visual test controls and must remain
+    // stable long enough to compare FULL/BALANCED/PERFORMANCE side by side.
+    lockQualityTier: isExplicitQualityTier(requestedQuality),
+  });
   applyMapAtmosphere(ctx, selectedMap);
   const atmosphere = new BattlefieldAtmosphere(
     hf,
@@ -2770,7 +2771,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.setVisible(false);
         hud.setFirstPerson(true, firstPerson.fortress);
       },
-      prepareExitPose: (entity) => rig.focusOn(entity.transform.x, entity.transform.z, ctx.camera.position),
+      prepareExitPose: (entity, aimYaw) => rig.focusOnHeading(entity.transform.x, entity.transform.z, aimYaw),
       onExit: () => {
         controller.setEnabled(true);
         unitView.setHiddenEntity(undefined);

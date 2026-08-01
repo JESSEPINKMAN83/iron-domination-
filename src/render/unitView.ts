@@ -11,6 +11,7 @@ import {
   InstancedMesh,
   Mesh,
   MeshBasicMaterial,
+  MeshLambertMaterial,
   MeshStandardMaterial,
   Object3D,
   PlaneGeometry,
@@ -346,6 +347,31 @@ export function groundVehicleImpactPose(force: number, progress: number): { angl
   };
 }
 
+export interface PerformanceDetailDecision {
+  distanceSquared: number;
+  selected: boolean;
+  playerControlled: boolean;
+  priority: boolean;
+  resolvedByFortressOptics: boolean;
+  crashingAircraft: boolean;
+  destroyed: boolean;
+}
+
+/**
+ * Performance mode is allowed to simplify only distant background units.
+ * Anything the player can currently inspect or interact with retains its real
+ * model, animations, damage state, turret direction, and upgrade visuals.
+ */
+export function shouldKeepDetailedUnitInPerformanceMode(decision: PerformanceDetailDecision): boolean {
+  if (decision.crashingAircraft) return true;
+  if (decision.destroyed) return false;
+  return decision.selected ||
+    decision.playerControlled ||
+    decision.priority ||
+    decision.resolvedByFortressOptics ||
+    decision.distanceSquared <= PERFORMANCE_DETAIL_RANGE_SQ;
+}
+
 // Unit and overlay geometries are shared by dimensions, so spawning visual variants
 // does not allocate fresh GPU shapes for every entity.
 const HEALTH_BACK_GEOM = new PlaneGeometry(4.1, 0.48);
@@ -361,6 +387,7 @@ const UNIT_DAMAGE_FIRE_GEOM = markShared(new SphereGeometry(1, 7, 5));
 const MAX_BIKE_DUST_PARTICLES = 256;
 const MAX_LOW_DETAIL_UNITS = 1024;
 const FORTRESS_OPTICS_DETAIL_RANGE_SQ = 500 * 500;
+const PERFORMANCE_DETAIL_RANGE_SQ = 520 * 520;
 const ORE_CHUNK_GEOM = markShared(new SphereGeometry(1, 6, 4));
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
@@ -463,10 +490,10 @@ export class UnitView {
       4: createTeamMaterials(ctx, 4, localTeam === 4),
     };
     this.lowDetailMeshes = {
-      1: createLowDetailMeshes(1),
-      2: createLowDetailMeshes(2),
-      3: createLowDetailMeshes(3),
-      4: createLowDetailMeshes(4),
+      1: createLowDetailMeshes(ctx, 1),
+      2: createLowDetailMeshes(ctx, 2),
+      3: createLowDetailMeshes(ctx, 3),
+      4: createLowDetailMeshes(ctx, 4),
     };
     for (const meshes of Object.values(this.lowDetailMeshes)) {
       for (const proxy of Object.values(meshes)) this.group.add(proxy.body, proxy.color, proxy.detail);
@@ -914,12 +941,16 @@ export class UnitView {
         entity.flight !== undefined &&
         entity.destroyed !== undefined &&
         entity.destroyed.aircraftCrash?.impacted !== true;
-      const keepDetailed =
-        crashingAircraft ||
-        ((Boolean(entity.playerControlled) ||
-          entity === this.priorityDetailedEntity ||
-          resolvedByFortressOptics) &&
-          !entity.destroyed);
+      const selected = entity.selectable?.selected ?? false;
+      const keepDetailed = shouldKeepDetailedUnitInPerformanceMode({
+        distanceSquared: dx * dx + dy * dy + dz * dz,
+        selected,
+        playerControlled: Boolean(entity.playerControlled),
+        priority: entity === this.priorityDetailedEntity,
+        resolvedByFortressOptics,
+        crashingAircraft,
+        destroyed: Boolean(entity.destroyed),
+      });
       if (keepDetailed) {
         obj.visible = true;
         this.updateUpgradeVisuals(entity);
@@ -934,8 +965,7 @@ export class UnitView {
         this.addLowDetailInstance(entity, x, y, z, rot);
       }
       ring.position.set(x, groundY + 0.08, z);
-      const selected = this.selectionOverlayVisible && !entity.destroyed && (entity.selectable?.selected ?? false);
-      ring.visible = selected;
+      ring.visible = this.selectionOverlayVisible && !entity.destroyed && selected;
       ring.scale.setScalar(1);
       this.updateHealthBar(entity, x, y, z, camera, true);
     }
@@ -1743,18 +1773,31 @@ function createFriendlyGlowMesh(id: FactionId): FriendlyGlowMesh {
   return { mesh, count: 0 };
 }
 
-function createLowDetailMeshes(id: FactionId): Record<LowDetailKind, LowDetailMesh> {
+function createLowDetailMeshes(ctx: RenderContext, id: FactionId): Record<LowDetailKind, LowDetailMesh> {
   const palette = FACTION[id];
   const make = (kind: LowDetailKind): LowDetailMesh => {
-    const body = new InstancedMesh(LOW_DETAIL_GEOMETRY[kind].body, new MeshBasicMaterial({ color: palette.hullDark, toneMapped: true }), MAX_LOW_DETAIL_UNITS);
-    const color = new InstancedMesh(LOW_DETAIL_GEOMETRY[kind].color, new MeshBasicMaterial({ color: palette.hull, toneMapped: true }), MAX_LOW_DETAIL_UNITS);
-    const detail = new InstancedMesh(LOW_DETAIL_GEOMETRY[kind].detail, new MeshBasicMaterial({ color: palette.lightBar, toneMapped: true }), MAX_LOW_DETAIL_UNITS);
+    // Emergency meshes still participate in battlefield lighting. Unlit white
+    // detail materials looked like corrupt surfaces on the desert sunset map;
+    // a restrained faction accent keeps teams readable without glowing.
+    const bodyMaterial = ctx.setupLitMaterial(new MeshLambertMaterial({ color: palette.hullDark, flatShading: true }));
+    const colorMaterial = ctx.setupLitMaterial(new MeshLambertMaterial({ color: palette.hull, flatShading: true }));
+    const detailMaterial = ctx.setupLitMaterial(new MeshLambertMaterial({
+      color: palette.accent,
+      emissive: palette.accentEmissive,
+      emissiveIntensity: 0.35,
+      flatShading: true,
+    }));
+    const body = new InstancedMesh(LOW_DETAIL_GEOMETRY[kind].body, bodyMaterial, MAX_LOW_DETAIL_UNITS);
+    const color = new InstancedMesh(LOW_DETAIL_GEOMETRY[kind].color, colorMaterial, MAX_LOW_DETAIL_UNITS);
+    const detail = new InstancedMesh(LOW_DETAIL_GEOMETRY[kind].detail, detailMaterial, MAX_LOW_DETAIL_UNITS);
     for (const mesh of [body, color, detail]) {
       mesh.count = 0;
       mesh.visible = false;
       mesh.instanceMatrix.setUsage(DynamicDrawUsage);
       mesh.frustumCulled = false;
       mesh.renderOrder = 20;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
     }
     color.renderOrder = 21;
     detail.renderOrder = 21;
