@@ -46,7 +46,7 @@ export class Hud {
     this.help.style.cssText = PANEL_CSS + 'bottom:12px;left:12px;display:none;';
     this.help.textContent = [
       'IRON DOMINION — Phase 6',
-      'Default: Command Yard + small escort · ?start=test all tech · ?start=armies stress battle',
+      'Default: Command Yard + small escort · ?start=test all tech · ?start=battle-test staged battle',
       'AI opts   ?ai=easy|normal|hard  ?ai-style=turtle|rusher|balanced',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  hold Space + drag mouse button',
@@ -57,7 +57,9 @@ export class Hud {
       'Cancel    right-click sidebar icon; Escape returns READY placement',
       'Factory   select producer, set PRIMARY, right-click map for rally',
       'Attack    A, then right-click destination',
-      'Face      right-click hold + drag: facing line, length sets spread',
+      'Stop      X stops selected units (S remains camera movement)',
+      'Ground    Cmd + right-click makes selected units fire at that point',
+      'Form      right-click hold + drag: column → wedge → battle line',
       'Possess   select unit, press V',
       'Chase     W/S drive, A/D turn, Shift boost, mouse aim',
       'V camera  wheel zoom, Cmd + left-drag orbit',

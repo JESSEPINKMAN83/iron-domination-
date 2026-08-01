@@ -43,6 +43,30 @@ describe('multiplayer lockstep commands', () => {
     expect(hostTank.mover?.target).toBeUndefined();
   });
 
+  it('applies multiplayer ground-fire commands for the issuing player only', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1);
+    const economy2 = createEconomy(2);
+    const guestTank = spawnTankAt(sim, -30, 0, 'Guest Tank', 2);
+    const hostTank = spawnTankAt(sim, -20, 12, 'Host Tank', 1);
+    const client = {
+      connect: () => undefined,
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session: sessionFor(2) });
+
+    expect(lockstep.issue({ type: 'ground-fire', ids: [guestTank.id, hostTank.id], x: 60, z: 20 })).toBe(true);
+    for (let i = 0; i < 8; i++) {
+      sim.tick++;
+      lockstep.tick();
+    }
+
+    expect(sim.events.some((event) => event.fromX === guestTank.transform.x && event.toX === 60 && event.toZ === 20)).toBe(true);
+    expect(sim.events.some((event) => event.fromX === hostTank.transform.x)).toBe(false);
+  });
+
   it('consumes a purchased structure once when placement commands are repeated', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -277,7 +301,7 @@ describe('multiplayer lockstep commands', () => {
     lockstep.tick();
     expect(guestTank.specialWeapon?.kind).toBe('annihilatorMissile');
     expect(hostTank.specialWeapon).toBeUndefined();
-    expect(economy2.credits).toBe(1440);
+    expect(economy2.credits).toBe(1608);
     expect(economy1.credits).toBe(2000);
   });
 

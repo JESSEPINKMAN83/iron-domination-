@@ -265,7 +265,6 @@ export class FirstPersonController {
       'font:700 10px ui-monospace,Menlo,monospace;letter-spacing:.13em;text-shadow:0 1px 3px #000;';
     this.targetScanHud.appendChild(this.targetScanStatus);
     document.body.appendChild(this.targetScanHud);
-
     dom.addEventListener(
       'pointerdown',
       (event) => {

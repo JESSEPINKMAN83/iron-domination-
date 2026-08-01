@@ -11,6 +11,7 @@ import {
 } from 'three';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
+import { rotateFormationOffset, tacticalFormationLayout } from '../sim/formations';
 
 export type OrderMarkerKind = 'move' | 'attack-move' | 'attack' | 'rally';
 
@@ -39,8 +40,6 @@ const MAX_FACING_ARROW_LENGTH = 72;
 const MAX_FORMATION_PREVIEW_SLOTS = 48;
 const FORMATION_SLOT_LIFT = 2.55;
 const FORMATION_BASE_SPACING = 5.2;
-const FORMATION_MIN_SPACING = FORMATION_BASE_SPACING * 0.75;
-const FORMATION_MAX_SPACING = FORMATION_BASE_SPACING * 3.5;
 const TARGET_HOVER_LIFT = 3.15;
 
 function orderMarkerColor(kind: OrderMarkerKind): number {
@@ -133,11 +132,19 @@ export class OrderMarkerView {
     while (this.markers.length > 16) this.removeMarker(0);
   }
 
-  pushFacing(x: number, z: number, yaw: number, kind: OrderMarkerKind, length?: number, count = 1): void {
-    this.pushFormationSlots(x, z, yaw, kind, length ?? (kind === 'rally' ? 11 : 15), count, 1.8);
+  pushFacing(x: number, z: number, yaw: number, kind: OrderMarkerKind, length?: number, count = 1, baseSpacing = FORMATION_BASE_SPACING): void {
+    this.pushFormationSlots(x, z, yaw, kind, length ?? (kind === 'rally' ? 11 : 15), count, baseSpacing, 1.8);
   }
 
-  showFacingPreview(fromX: number, fromZ: number, toX: number, toZ: number, kind: OrderMarkerKind, count = 1): void {
+  showFacingPreview(
+    fromX: number,
+    fromZ: number,
+    toX: number,
+    toZ: number,
+    kind: OrderMarkerKind,
+    count = 1,
+    baseSpacing = FORMATION_BASE_SPACING,
+  ): void {
     const dx = toX - fromX;
     const dz = toZ - fromZ;
     const distance = Math.hypot(dx, dz);
@@ -156,7 +163,7 @@ export class OrderMarkerView {
     this.preview.direction.rotation.y = yaw;
     const color = orderMarkerColor(kind);
     this.preview.materials.forEach((material) => material.color.setHex(color));
-    this.layoutFormationSlots(this.preview.slots, fromX, fromZ, yaw, distance, count, 1, true);
+    this.layoutFormationSlots(this.preview.slots, fromX, fromZ, yaw, distance, count, baseSpacing, 1, true);
   }
 
   clearFacingPreview(): void {
@@ -249,7 +256,16 @@ export class OrderMarkerView {
     while (this.markers.length > 16) this.removeMarker(0);
   }
 
-  private pushFormationSlots(x: number, z: number, yaw: number, kind: OrderMarkerKind, spread: number, count: number, ttl: number): void {
+  private pushFormationSlots(
+    x: number,
+    z: number,
+    yaw: number,
+    kind: OrderMarkerKind,
+    spread: number,
+    count: number,
+    baseSpacing: number,
+    ttl: number,
+  ): void {
     const color = orderMarkerColor(kind);
     const core = new MeshBasicMaterial({ color, transparent: true, opacity: 0.82, depthWrite: false, depthTest: false });
     const ringMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.54, depthWrite: false, depthTest: false, side: DoubleSide });
@@ -271,7 +287,7 @@ export class OrderMarkerView {
     root.add(direction);
 
     const slots = this.createFormationSlotMeshes(root, core, ringMaterial, dark, Math.max(1, Math.min(count, MAX_FORMATION_PREVIEW_SLOTS)));
-    this.layoutFormationSlots(slots, x, z, yaw, spread, count, ttl, false);
+    this.layoutFormationSlots(slots, x, z, yaw, spread, count, baseSpacing, ttl, false);
 
     this.group.add(root);
     const pin = new Group();
@@ -418,14 +434,13 @@ export class OrderMarkerView {
     yaw: number,
     spread: number,
     count: number,
+    baseSpacing: number,
     ttlOrAlpha: number,
     preview: boolean,
   ): void {
     const actualCount = Math.max(1, count);
     const visibleCount = Math.min(slots.length, actualCount, MAX_FORMATION_PREVIEW_SLOTS);
-    const spacing = formationSlotSpacing(spread, actualCount);
-    const rightX = Math.cos(yaw);
-    const rightZ = -Math.sin(yaw);
+    const layout = tacticalFormationLayout(actualCount, baseSpacing, spread);
     const pulse = preview ? 0.5 + 0.5 * Math.sin(performance.now() * 0.01) : 0.35;
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
@@ -433,11 +448,11 @@ export class OrderMarkerView {
       slot.root.visible = visible;
       if (!visible) continue;
       const sourceIndex = visibleCount <= 1 ? 0 : Math.round((i * (actualCount - 1)) / Math.max(1, visibleCount - 1));
-      const localX = (sourceIndex - (actualCount - 1) / 2) * spacing;
-      const worldX = originX + rightX * localX;
-      const worldZ = originZ + rightZ * localX;
+      const rotated = rotateFormationOffset(layout.offsets[sourceIndex], yaw);
+      const worldX = originX + rotated.x;
+      const worldZ = originZ + rotated.z;
       const groundDelta = sampleHeight(this.hf, worldX, worldZ) - sampleHeight(this.hf, originX, originZ);
-      slot.root.position.set(rightX * localX, groundDelta + FORMATION_SLOT_LIFT, rightZ * localX);
+      slot.root.position.set(rotated.x, groundDelta + FORMATION_SLOT_LIFT, rotated.z);
       slot.root.rotation.y = yaw;
       slot.root.scale.setScalar(1 + pulse * 0.1);
       slot.ring.rotation.z += preview ? 0.06 + i * 0.0008 : 0.02;
@@ -446,11 +461,6 @@ export class OrderMarkerView {
       slot.facing.scale.set(1, 1, 0.75 + pulse * 0.28 * fadeScale);
     }
   }
-}
-
-function formationSlotSpacing(spread: number, count: number): number {
-  if (count <= 1) return FORMATION_BASE_SPACING;
-  return Math.max(FORMATION_MIN_SPACING, Math.min(FORMATION_MAX_SPACING, spread / Math.max(1, count - 1)));
 }
 
 function disposeObject(object: Object3D): void {

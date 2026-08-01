@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
-import { damageForArmor, isManualTargetLockWeapon, issueAttackOrder, manualFireAt, stepCombat } from './combat';
+import { WEAPONS } from '../content/phase4';
+import { damageForArmor, isManualTargetLockWeapon, issueAttackOrder, issueGroundAttack, manualFireAt, stepCombat } from './combat';
 import { createEconomy, createInitialBase, placeStructure, spawnInfantryAt, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
+import { purchaseUnitUpgrade } from './upgrades';
 import { createGameSim, hashSim, issueMoveOrder, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
 
 const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
@@ -19,6 +21,70 @@ describe('phase 4 combat simulation', () => {
     expect(damageForArmor('bomb', 'building')).toBeCloseTo(7.8);
     expect(damageForArmor('tankBomb', 'heavy')).toBeCloseTo(34.44);
     expect(damageForArmor('tankBomb', 'building')).toBeCloseTo(23.1);
+  });
+
+  it('uses an Aegis escort drone to defend against nearby infantry before assisting the tank target', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 2000);
+    const tank = spawnTankAt(sim, 0, 0, 'Drone Tank', 1);
+    const tankTarget = spawnTankAt(sim, 40, 0, 'Tank Target', 2);
+    const infantryThreat = spawnInfantryAt(sim, 18, 0, 2, 'infantry');
+    tankTarget.weapon = undefined;
+    tankTarget.weapons = undefined;
+    infantryThreat.weapon = undefined;
+    infantryThreat.weapons = undefined;
+    expect(purchaseUnitUpgrade(sim, economy, [tank.id], 'reactive-plating').ok).toBe(true);
+    tank.weapons!.primary.targetId = tankTarget.id;
+    tank.weapons!.primary.cooldown = 99;
+    if (tank.weapons!.secondary) tank.weapons!.secondary.cooldown = 99;
+
+    stepCombat(sim, 1 / 30);
+    const defensiveShot = sim.events.find((event) => event.kind === 'microLaser');
+    expect(defensiveShot?.targetId).toBe(infantryThreat.id);
+    expect(defensiveShot?.damage).toBeCloseTo(damageForArmor('microLaser', 'infantry'));
+
+    infantryThreat.transform.x = 200;
+    infantryThreat.previousTransform.x = 200;
+    for (let i = 0; i < 18; i++) stepCombat(sim, 1 / 30);
+    const assistShot = sim.events.filter((event) => event.kind === 'microLaser').at(-1);
+    expect(assistShot?.targetId).toBe(tankTarget.id);
+    expect(assistShot?.damage).toBeLessThan(1);
+  });
+
+  it('fires selected armed units at a designated ground point', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, -20, 0, 'Ground Fire Tank', 1);
+
+    expect(issueGroundAttack(sim, [tank], 45, 18)).toBe(true);
+    expect(tank.turret?.yaw).toBeCloseTo(Math.atan2(65, 18), 8);
+    expect(sim.events.at(-1)?.toX).toBeCloseTo(45, 8);
+    expect(sim.events.at(-1)?.toZ).toBeCloseTo(18, 8);
+  });
+
+  it('gives possessed primary fire higher velocity, damage, force, and impact energy', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const attacker = spawnTankAt(sim, -20, 0, 'Player Tank', 1);
+    const target = spawnTankAt(sim, 52, 0, 'Target Tank', 2);
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    attacker.turret!.yaw = Math.PI / 2;
+    target.weapon = undefined;
+    target.weapons = undefined;
+
+    expect(manualFireAt(sim, attacker, target.transform.x, target.transform.z, 'primary')).toBe(true);
+    const projectile = sim.projectiles.at(-1);
+    expect(projectile?.speed).toBeCloseTo(WEAPONS.tankMissile.projectile!.speed * 2.35, 8);
+    expect(projectile?.damageScale).toBeGreaterThan(1);
+    expect(projectile?.forceScale).toBeGreaterThan(projectile?.damageScale ?? 0);
+    expect(projectile?.impactScale).toBeGreaterThan(1.25);
+
+    for (let i = 0; i < 30; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+    const impact = sim.events.find((event) => event.kind === 'tankMissile-impact');
+    expect(impact?.impactScale).toBe(projectile?.impactScale);
+    expect(impact?.damage).toBeGreaterThan(damageForArmor('tankMissile', 'heavy'));
+    expect(sim.events.some((event) => event.kind === 'impact-reaction' && (event.force ?? 0) > 0)).toBe(true);
   });
 
   it('lets a sniper manually pick infantry from long range', () => {
@@ -211,8 +277,8 @@ describe('phase 4 combat simulation', () => {
     expect(launch?.kind).toBe('tankMissile');
     expect(launch?.toX).toBe(280);
     expect(sim.projectiles[0]?.toX).toBe(280);
-    expect(sim.projectiles[0]?.duration).toBe(3.2);
-    settle(sim, 3.25);
+    expect(sim.projectiles[0]?.duration).toBeCloseTo(460 / (WEAPONS.tankMissile.projectile!.speed * 2.35), 8);
+    settle(sim, (sim.projectiles[0]?.duration ?? 0) + 0.1);
     expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.toX === 280)).toBe(true);
   });
 

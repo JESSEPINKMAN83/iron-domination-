@@ -16,7 +16,7 @@ import {
   type EconomyState,
 } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
-import { issueAttackOrder, manualFireAt } from '../sim/combat';
+import { issueAttackOrder, issueGroundAttack, manualFireAt } from '../sim/combat';
 import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
 import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from '../sim/serialize';
@@ -25,6 +25,7 @@ import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession, type
 export type NetCommand =
   | { type: 'move'; ids: number[]; x: number; z: number; attackMove: boolean; faceYaw?: number; formationSpread?: number }
   | { type: 'attack'; ids: number[]; targetId: number }
+  | { type: 'ground-fire'; ids: number[]; x: number; z: number }
   | { type: 'harvest'; ids: number[]; x: number; z: number }
   | { type: 'return-harvesters'; ids: number[]; x: number; z: number }
   | { type: 'stop'; ids: number[] }
@@ -338,6 +339,8 @@ export class LockstepRuntime {
     } else if (command.type === 'attack') {
       const target = entityById(this.options.sim, command.targetId);
       if (target) issueAttackOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), target);
+    } else if (command.type === 'ground-fire') {
+      issueGroundAttack(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), command.x, command.z);
     } else if (command.type === 'harvest') {
       issueHarvestOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), command.x, command.z);
     } else if (command.type === 'return-harvesters') {

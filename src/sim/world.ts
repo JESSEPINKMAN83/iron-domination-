@@ -9,6 +9,7 @@ import { FLIGHT_MODELS } from '../content/flightModels';
 import { startMusterPosition } from '../content/startPositions';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 import type { ImpactZone } from './impactModel';
+import { rotateFormationOffset, tacticalFormationLayout } from './formations';
 
 const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -42,6 +43,8 @@ export interface CombatEvent {
   killed: boolean;
   /** flight time in seconds for ballistic launches ('bomb') */
   duration?: number;
+  /** Visual energy multiplier for player-fired high-velocity primary impacts. */
+  impactScale?: number;
   trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
   /** Original weapon and normalized physical force for per-target hit reactions. */
   impactKind?: string;
@@ -69,6 +72,9 @@ export interface Projectile {
   elapsed: number;
   duration: number;
   speed?: number;
+  damageScale?: number;
+  forceScale?: number;
+  impactScale?: number;
   maxDistance?: number;
   weaponKind?: string;
   directTargetId?: number;
@@ -431,8 +437,11 @@ export function issueMoveOrder(
     ? formationSpreadForEntities(movers, formationSpread)
     : formationSpread;
   const baseSpacing = formationBaseSpacing(movers);
+  const tacticalLayout = faceYaw !== undefined && effectiveSpread !== undefined
+    ? tacticalFormationLayout(movers.length, baseSpacing, effectiveSpread)
+    : undefined;
   const spacing = formationSpacing(baseSpacing, movers.length, effectiveSpread);
-  const width = formationWidth(movers.length, faceYaw, effectiveSpread);
+  const width = formationWidth(movers.length, faceYaw);
   const groundReference = movers.find((entity) => !entity.flight);
   let targetPoint = groundReference ? walkableOrderPoint(sim, targetX, targetZ) : undefined;
   let flow = targetPoint ? new FlowField(sim.nav, targetPoint.x, targetPoint.z) : undefined;
@@ -450,9 +459,9 @@ export function issueMoveOrder(
   }
 
   movers.forEach((entity, i) => {
-    const col = i % width;
-    const row = Math.floor(i / width);
-    const offset = formationOffset(col, row, width, movers.length, spacing, faceYaw);
+    const offset = tacticalLayout && faceYaw !== undefined
+      ? rotateFormationOffset(tacticalLayout.offsets[i], faceYaw)
+      : formationOffset(i % width, Math.floor(i / width), width, movers.length, spacing, faceYaw);
     if (entity.flight) {
       entity.mover.target = {
         x: clamp(targetX + offset.x, -sim.nav.size / 2, sim.nav.size / 2),
@@ -502,7 +511,12 @@ export function issueMoveOrder(
 export function formationSpreadForEntities(entities: Entity[], requestedSpread: number): number {
   const movers = entities.filter((entity) => entity.mover && !entity.destroyed);
   if (movers.length <= 1) return Math.max(6, requestedSpread);
-  return Math.max(requestedSpread, formationBaseSpacing(movers) * (movers.length - 1));
+  return Math.max(requestedSpread, formationBaseSpacing(movers) * 1.25);
+}
+
+export function formationBaseSpacingForEntities(entities: Entity[]): number {
+  const movers = entities.filter((entity) => entity.mover && !entity.destroyed);
+  return formationBaseSpacing(movers);
 }
 
 export function attackStandoffPoint(sim: GameSim, attackers: Entity[], target: Entity): { x: number; z: number } {
@@ -1156,10 +1170,9 @@ function limitBodyFlightVelocity(velocity: { x: number; z: number }, yaw: number
   }
 }
 
-function formationWidth(count: number, faceYaw?: number, formationSpread?: number): number {
+function formationWidth(count: number, faceYaw?: number): number {
   if (count <= 1) return 1;
   if (faceYaw === undefined) return Math.max(1, Math.ceil(Math.sqrt(count)));
-  if (formationSpread !== undefined) return count;
   return Math.min(count, Math.max(2, Math.ceil(Math.sqrt(count) * 1.8)));
 }
 
@@ -1278,6 +1291,11 @@ export function hashSim(sim: GameSim): number {
     }
     if (entity.unitUpgrades) {
       for (const id of entity.unitUpgrades.ids) for (let i = 0; i < id.length; i++) mix(id.charCodeAt(i));
+      if (entity.unitUpgrades.escortDrone) {
+        mix(Math.round(entity.unitUpgrades.escortDrone.cooldown * 1000));
+        mix(entity.unitUpgrades.escortDrone.targetId ?? 0);
+        mix(Math.round(entity.unitUpgrades.escortDrone.orbitAngle * 10000));
+      }
     }
     if (entity.flight) {
       mix(Math.round(entity.flight.pitchAttitude * 1000));

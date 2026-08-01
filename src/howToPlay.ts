@@ -78,7 +78,7 @@ export function controlGuideSections(mobile: boolean): GuideSection[] {
         title: 'Command view',
         items: [
           { control: 'Tap', action: 'Select a friendly unit or issue a move/attack order.' },
-          { control: 'Drag', action: 'Draw a selection box; with units selected, drag to set a facing line.' },
+          { control: 'Drag', action: 'Draw a selection box; with units selected, drag to set a facing combat formation.' },
           { control: 'Two fingers', action: 'Drag to pan, pinch to zoom, and twist to rotate the battlefield.' },
           { control: 'BUILD', action: 'Open construction and production; tap CLOSE to return to the battlefield.' },
         ],
@@ -101,8 +101,9 @@ export function controlGuideSections(mobile: boolean): GuideSection[] {
       items: [
         { control: 'Left click / drag', action: 'Select one unit or draw a box around several units.' },
         { control: 'Right click', action: 'Move to ground or attack the enemy under the pointer.' },
-        { control: 'A + right click', action: 'Attack-move; S immediately stops selected units.' },
-        { control: 'Hold right + drag', action: 'Place units in a spread line facing the drag direction.' },
+        { control: 'Cmd + right click', action: 'Order selected armed units to fire at that exact point.' },
+        { control: 'A + right click', action: 'Attack-move; X immediately stops selected units.' },
+        { control: 'Hold right + drag', action: 'Set facing and shape a column, wedge, or wide battle line with drag length.' },
         { control: 'Ctrl/Cmd + 0–9', action: 'Save a control group; press its number to select it again.' },
       ],
     },

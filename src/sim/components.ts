@@ -97,6 +97,11 @@ export interface WeaponRack {
 
 export interface UnitUpgrades {
   ids: string[];
+  escortDrone?: {
+    cooldown: number;
+    targetId?: number;
+    orbitAngle: number;
+  };
 }
 
 export interface Turret {
