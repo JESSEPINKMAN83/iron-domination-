@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { degradedVisualQualityTier, mobileSafePixelRatio, resolvedRenderViewportSize, suggestedInitialVisualQuality, visualPixelRatioForTier } from './renderer';
+import {
+  degradedVisualQualityTierAfterPressure,
+  isExplicitQualityTier,
+  mobileSafePixelRatio,
+  performanceExposure,
+  qualityTierFromQuery,
+  recoveredVisualQualityTier,
+  resolvedRenderViewportSize,
+  shouldIgnoreAdaptiveQualityFrame,
+  suggestedInitialVisualQuality,
+  visualPixelRatioForTier,
+} from './renderer';
 
 describe('adaptive render quality', () => {
   it('starts multiplayer conservatively on limited hardware', () => {
@@ -9,15 +20,43 @@ describe('adaptive render quality', () => {
     expect(suggestedInitialVisualQuality(false, 2, 2)).toBe(0);
   });
 
-  it('drops directly to performance mode during severe frame stalls', () => {
-    expect(degradedVisualQualityTier(0, 0.12)).toBe(2);
-    expect(degradedVisualQualityTier(1, 0.08)).toBe(2);
+  it('does not downgrade after an isolated severe frame window', () => {
+    expect(degradedVisualQualityTierAfterPressure(0, 0.12, 1)).toBe(0);
+    expect(degradedVisualQualityTierAfterPressure(1, 0.08, 1)).toBe(1);
   });
 
-  it('steps down once for sustained moderate pressure', () => {
-    expect(degradedVisualQualityTier(0, 0.036)).toBe(1);
-    expect(degradedVisualQualityTier(1, 0.036)).toBe(2);
-    expect(degradedVisualQualityTier(0, 0.02)).toBe(0);
+  it('moves only one tier after sustained severe pressure', () => {
+    expect(degradedVisualQualityTierAfterPressure(0, 0.08, 1)).toBe(0);
+    expect(degradedVisualQualityTierAfterPressure(0, 0.08, 2)).toBe(1);
+    expect(degradedVisualQualityTierAfterPressure(1, 0.08, 2)).toBe(1);
+    expect(degradedVisualQualityTierAfterPressure(1, 0.08, 3)).toBe(2);
+  });
+
+  it('requires several consecutive windows for moderate pressure', () => {
+    expect(degradedVisualQualityTierAfterPressure(0, 0.045, 3)).toBe(0);
+    expect(degradedVisualQualityTierAfterPressure(0, 0.045, 4)).toBe(1);
+    expect(degradedVisualQualityTierAfterPressure(1, 0.045, 4)).toBe(1);
+    expect(degradedVisualQualityTierAfterPressure(1, 0.045, 5)).toBe(2);
+    expect(degradedVisualQualityTierAfterPressure(0, 0.03, 20)).toBe(0);
+  });
+
+  it('ignores tab-switch frames and recovers promptly after performance returns', () => {
+    expect(shouldIgnoreAdaptiveQualityFrame(0.25, false)).toBe(true);
+    expect(shouldIgnoreAdaptiveQualityFrame(1 / 60, true)).toBe(true);
+    expect(shouldIgnoreAdaptiveQualityFrame(1 / 60, false)).toBe(false);
+    expect(recoveredVisualQualityTier(2, 1 / 60, 3)).toBe(2);
+    expect(recoveredVisualQualityTier(2, 1 / 60, 4)).toBe(1);
+  });
+
+  it('locks explicit visual test modes and preserves direct-render exposure', () => {
+    expect(qualityTierFromQuery('performance')).toBe(2);
+    expect(qualityTierFromQuery('balanced')).toBe(1);
+    expect(qualityTierFromQuery('full')).toBe(0);
+    expect(qualityTierFromQuery(null)).toBeUndefined();
+    expect(isExplicitQualityTier('low')).toBe(true);
+    expect(isExplicitQualityTier(null)).toBe(false);
+    expect(performanceExposure(1.1, false)).toBeCloseTo(1.1);
+    expect(performanceExposure(1.1, true)).toBeCloseTo(1.177);
   });
 
   it('keeps low-end multiplayer readable while respecting the device cap', () => {

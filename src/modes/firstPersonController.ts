@@ -40,6 +40,7 @@ const FORTRESS_ZOOM_MAX = 1;
 const FORTRESS_ZOOM_WIDE_FOV = 68;
 const FORTRESS_ZOOM_DEFAULT_FOV = 54;
 const FORTRESS_ZOOM_TIGHT_FOV = 18;
+const EXIT_TRANSITION_SECONDS = 0.72;
 
 export interface CameraPose {
   position: Vector3;
@@ -189,7 +190,7 @@ export class FirstPersonController {
     private readonly sim: GameSim,
     private readonly callbacks: {
       onEnter?: () => void;
-      prepareExitPose?: (entity: Entity) => CameraPose;
+      prepareExitPose?: (entity: Entity, aimYaw: number) => CameraPose;
       onExit?: (entity?: Entity) => void;
       onHitFeedback?: (force: number) => void;
     } = {},
@@ -544,7 +545,7 @@ export class FirstPersonController {
 
     if (this.mode === 'exiting') {
       this.updateScopeOverlay(false);
-      this.transitionT = Math.min(1, this.transitionT + dt / 0.58);
+      this.transitionT = Math.min(1, this.transitionT + dt / EXIT_TRANSITION_SECONDS);
       this.applyPose(lerpPose(this.fromPose, this.toPose, easeOutCubic(this.transitionT)), dt);
       if (this.transitionT >= 1) this.finishExit();
       return;
@@ -560,7 +561,7 @@ export class FirstPersonController {
   private beginExit(): void {
     if (!this.possessed || this.mode === 'exiting') return;
     this.fromPose = this.captureCameraPose();
-    const preparedPose = this.callbacks.prepareExitPose?.(this.possessed);
+    const preparedPose = this.callbacks.prepareExitPose?.(this.possessed, this.currentAimYaw());
     this.toPose = resolveExitCameraPose(preparedPose, () => this.rtsPoseNear(this.possessed!));
     this.transitionT = 0;
     this.mode = 'exiting';
@@ -1102,13 +1103,12 @@ export class FirstPersonController {
     const groundY = sampleHeight(this.hf, center.x, center.z);
     const targetY = entity.flight ? center.y : groundY + 1.6;
     const target = new Vector3(center.x, targetY, center.z);
-    const currentPosition = this.camera.position.clone();
-    const away = currentPosition.clone().sub(target);
-    if (away.lengthSq() < 0.001) away.set(-Math.sin(this.lookYaw), 0.5, -Math.cos(this.lookYaw));
-    away.normalize();
-    const horizontal = new Vector3(away.x, 0, away.z);
-    if (horizontal.lengthSq() < 0.001) horizontal.set(-Math.sin(this.lookYaw), 0, -Math.cos(this.lookYaw));
-    horizontal.normalize();
+    // Never infer the RTS heading from the physical V-mode camera position:
+    // scoped infantry and fortress cameras sit in front of the unit, while an
+    // aircraft chase camera can follow velocity rather than aim. Always rise
+    // behind the direction the player was actually aiming.
+    const aimYaw = this.currentAimYaw();
+    const horizontal = new Vector3(-Math.sin(aimYaw), 0, -Math.cos(aimYaw));
     const distance = entity.flight ? 78 : 64;
     const height = entity.flight ? 46 : 40;
     const position = target.clone().addScaledVector(horizontal, distance);

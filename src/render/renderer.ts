@@ -43,10 +43,107 @@ export function suggestedInitialVisualQuality(
   return limitedCpu || limitedMemory ? 1 : 0;
 }
 
-export function degradedVisualQualityTier(current: VisualQualityTier, averageFrameSeconds: number): VisualQualityTier {
-  if (averageFrameSeconds > 0.055) return 2;
-  if (averageFrameSeconds > 0.03) return Math.min(2, current + 1) as VisualQualityTier;
-  return current;
+/**
+ * A quality transition must describe a genuinely slow stretch of play, not a
+ * shader compile, GC pause, browser resize, or tab switch. Even severe pressure
+ * only moves one tier at a time so the renderer never jumps from full quality
+ * to emergency proxies after one noisy sample window.
+ */
+export function degradedVisualQualityTierAfterPressure(
+  current: VisualQualityTier,
+  averageFrameSeconds: number,
+  consecutivePressureWindows: number,
+): VisualQualityTier {
+  if (current >= 2 || averageFrameSeconds <= 0.038) return current;
+  const severePressure = averageFrameSeconds > 0.07;
+  const requiredWindows = current === 0
+    ? severePressure ? 2 : 4
+    : severePressure ? 3 : 5;
+  if (consecutivePressureWindows < requiredWindows) return current;
+  return Math.min(2, current + 1) as VisualQualityTier;
+}
+
+export function isAdaptiveQualityPressure(averageFrameSeconds: number): boolean {
+  return Number.isFinite(averageFrameSeconds) && averageFrameSeconds > 0.038;
+}
+
+export function performanceExposure(baseExposure: number, directRender: boolean): number {
+  if (!Number.isFinite(baseExposure)) return 1;
+  // The full composer has a gently brightening LUT. Preserve approximately the
+  // same mid-tone level when the emergency direct-render path drops that LUT.
+  return baseExposure * (directRender ? 1.07 : 1);
+}
+
+export function shouldIgnoreAdaptiveQualityFrame(frameSeconds: number, pageHidden: boolean): boolean {
+  // requestAnimationFrame resumes with a 250ms frame after a background tab.
+  // Treat that as an interruption, not evidence that the GPU is too slow.
+  return pageHidden || !Number.isFinite(frameSeconds) || frameSeconds <= 0 || frameSeconds >= 0.2;
+}
+
+export function recoveredVisualQualityTier(
+  current: VisualQualityTier,
+  averageFrameSeconds: number,
+  consecutiveRecoveryWindows: number,
+): VisualQualityTier {
+  if (current <= 0 || averageFrameSeconds >= 0.022 || consecutiveRecoveryWindows < 4) return current;
+  return Math.max(0, current - 1) as VisualQualityTier;
+}
+
+export function nextPressureWindowCount(current: number, averageFrameSeconds: number): number {
+  if (!isAdaptiveQualityPressure(averageFrameSeconds)) return 0;
+  return Math.min(12, Math.max(0, current) + 1);
+}
+
+export function nextRecoveryWindowCount(current: number, averageFrameSeconds: number): number {
+  if (!Number.isFinite(averageFrameSeconds) || averageFrameSeconds >= 0.022) return 0;
+  return Math.min(12, Math.max(0, current) + 1);
+}
+
+export function initialQualityCooldownSeconds(mobileSafeMode: boolean): number {
+  // Unit creation and shader compilation continue for several frames after the
+  // loading overlay disappears. Do not benchmark that warm-up work.
+  return mobileSafeMode ? 5 : 8;
+}
+
+export function resumedQualityCooldownSeconds(): number {
+  return 2;
+}
+
+export function qualityTransitionCooldownSeconds(): number {
+  return 3;
+}
+
+export function qualityRecoveryCooldownSeconds(): number {
+  return 4;
+}
+
+export function fastMotionQualityCooldownSeconds(active: boolean): number {
+  return active ? 2 : 4;
+}
+
+export function safeAdaptiveSampleSeconds(frameSeconds: number): number {
+  if (!Number.isFinite(frameSeconds) || frameSeconds <= 0) return 0;
+  return Math.min(frameSeconds, 0.1);
+}
+
+export function qualityWindowReady(sampleSeconds: number): boolean {
+  return sampleSeconds >= 1;
+}
+
+export function averageQualityFrameSeconds(sampleSeconds: number, frameCount: number): number {
+  if (frameCount <= 0) return 0;
+  return sampleSeconds / frameCount;
+}
+
+export function isExplicitQualityTier(value: string | null): boolean {
+  return value === 'performance' || value === 'low' || value === 'balanced' || value === 'full' || value === 'high';
+}
+
+export function qualityTierFromQuery(value: string | null): VisualQualityTier | undefined {
+  if (value === 'performance' || value === 'low') return 2;
+  if (value === 'balanced') return 1;
+  if (value === 'full' || value === 'high') return 0;
+  return undefined;
 }
 
 export function visualPixelRatioForTier(
@@ -109,18 +206,22 @@ export class RenderContext {
   private adaptiveQualityTier: VisualQualityTier;
   private appliedQualityTier: VisualQualityTier | -1 = -1;
   private recoveryWindows = 0;
+  private pressureWindows = 0;
   private directRender = false;
   private fastMotionMode = false;
+  private environmentExposure = 1.08;
+  private readonly adaptiveQualityLocked: boolean;
   private viewportWidth = 1;
   private viewportHeight = 1;
   private viewportCheckFrame = 0;
   private readonly container: HTMLElement;
   private readonly resizeObserver?: ResizeObserver;
 
-  constructor(container: HTMLElement, options: { multiplayer?: boolean; initialQualityTier?: VisualQualityTier; mobileSafeMode?: boolean } = {}) {
+  constructor(container: HTMLElement, options: { multiplayer?: boolean; initialQualityTier?: VisualQualityTier; mobileSafeMode?: boolean; lockQualityTier?: boolean } = {}) {
     this.container = container;
     this.multiplayerMode = options.multiplayer === true;
     this.mobileSafeMode = options.mobileSafeMode === true;
+    this.adaptiveQualityLocked = options.lockQualityTier === true;
     const browserNavigator = typeof navigator === 'undefined'
       ? undefined
       : navigator as Navigator & { deviceMemory?: number };
@@ -144,7 +245,7 @@ export class RenderContext {
     // browser. Start slightly leaner there, then let adaptive quality recover.
     this.maxPixelRatio = Math.min(window.devicePixelRatio, this.mobileSafeMode ? 1.25 : this.multiplayerMode ? 0.9 : 1.25);
     this.pixelRatio = this.targetPixelRatio(this.adaptiveQualityTier);
-    this.qualityCooldownSeconds = options.multiplayer ? 1.25 : 3;
+    this.qualityCooldownSeconds = initialQualityCooldownSeconds(this.mobileSafeMode);
     this.renderer.setPixelRatio(this.pixelRatio);
     const initialViewport = this.readViewportSize();
     this.viewportWidth = initialViewport.width;
@@ -239,7 +340,8 @@ export class RenderContext {
   ): void {
     this.sunDirection.set(direction[0], direction[1], direction[2]).normalize();
     const intensity = Math.max(0.4, strength * 2.7);
-    this.renderer.toneMappingExposure = exposure;
+    this.environmentExposure = exposure;
+    this.renderer.toneMappingExposure = performanceExposure(this.environmentExposure, this.directRender && !this.mobileSafeMode);
     if (this.csm) {
       this.csm.lightDirection.copy(this.sunDirection);
       this.csm.lightIntensity = intensity;
@@ -284,7 +386,8 @@ export class RenderContext {
     this.qualitySampleSeconds = 0;
     this.qualityFrameCount = 0;
     this.recoveryWindows = 0;
-    this.qualityCooldownSeconds = active ? 0.5 : 2;
+    this.pressureWindows = 0;
+    this.qualityCooldownSeconds = fastMotionQualityCooldownSeconds(active);
     this.applyQualityTier();
   }
 
@@ -322,10 +425,17 @@ export class RenderContext {
 
   /** Keep the full visual stack while it fits, then shed GPU and animation cost under sustained pressure. */
   private updateAdaptiveQuality(dt: number): void {
-    if (!Number.isFinite(dt) || dt <= 0) return;
-    // Slow machines regularly exceed 100ms. Ignoring those frames prevents the
-    // quality system from ever responding on the computers that need it most.
-    const sampleDt = Math.min(dt, 0.25);
+    if (this.adaptiveQualityLocked) return;
+    const pageHidden = typeof document !== 'undefined' && document.hidden;
+    if (shouldIgnoreAdaptiveQualityFrame(dt, pageHidden)) {
+      this.qualitySampleSeconds = 0;
+      this.qualityFrameCount = 0;
+      this.pressureWindows = 0;
+      this.recoveryWindows = 0;
+      this.qualityCooldownSeconds = Math.max(this.qualityCooldownSeconds, resumedQualityCooldownSeconds());
+      return;
+    }
+    const sampleDt = safeAdaptiveSampleSeconds(dt);
     if (this.qualityCooldownSeconds > 0) {
       this.qualityCooldownSeconds = Math.max(0, this.qualityCooldownSeconds - sampleDt);
       this.qualitySampleSeconds = 0;
@@ -334,29 +444,31 @@ export class RenderContext {
     }
     this.qualitySampleSeconds += sampleDt;
     this.qualityFrameCount++;
-    if (this.qualitySampleSeconds < 0.75) return;
+    if (!qualityWindowReady(this.qualitySampleSeconds)) return;
 
-    const averageFrameSeconds = this.qualitySampleSeconds / Math.max(1, this.qualityFrameCount);
+    const averageFrameSeconds = averageQualityFrameSeconds(this.qualitySampleSeconds, this.qualityFrameCount);
     this.qualitySampleSeconds = 0;
     this.qualityFrameCount = 0;
-    const degraded = degradedVisualQualityTier(this.adaptiveQualityTier, averageFrameSeconds);
+    this.pressureWindows = nextPressureWindowCount(this.pressureWindows, averageFrameSeconds);
+    const degraded = degradedVisualQualityTierAfterPressure(this.adaptiveQualityTier, averageFrameSeconds, this.pressureWindows);
     if (degraded !== this.adaptiveQualityTier) {
       this.adaptiveQualityTier = degraded;
       this.recoveryWindows = 0;
+      this.pressureWindows = 0;
       this.applyQualityTier();
-      this.qualityCooldownSeconds = 1;
+      this.qualityCooldownSeconds = qualityTransitionCooldownSeconds();
       return;
     }
-    if (averageFrameSeconds < 0.018 && this.adaptiveQualityTier > 0 && !this.fastMotionMode) {
-      this.recoveryWindows++;
-      if (this.recoveryWindows >= 6) {
-        this.adaptiveQualityTier = Math.max(0, this.adaptiveQualityTier - 1) as VisualQualityTier;
-        this.recoveryWindows = 0;
-        this.applyQualityTier();
-        this.qualityCooldownSeconds = 5;
-      }
-    } else {
+    this.recoveryWindows = nextRecoveryWindowCount(this.recoveryWindows, averageFrameSeconds);
+    const recovered = this.fastMotionMode
+      ? this.adaptiveQualityTier
+      : recoveredVisualQualityTier(this.adaptiveQualityTier, averageFrameSeconds, this.recoveryWindows);
+    if (recovered !== this.adaptiveQualityTier) {
+      this.adaptiveQualityTier = recovered;
       this.recoveryWindows = 0;
+      this.pressureWindows = 0;
+      this.applyQualityTier();
+      this.qualityCooldownSeconds = qualityRecoveryCooldownSeconds();
     }
   }
 
@@ -365,6 +477,7 @@ export class RenderContext {
     if (this.appliedQualityTier === tier) return;
     this.appliedQualityTier = tier;
     this.directRender = this.mobileSafeMode || tier >= 2;
+    this.renderer.toneMappingExposure = performanceExposure(this.environmentExposure, this.directRender && !this.mobileSafeMode);
     const shadows = !this.mobileSafeMode && tier < 2;
     this.renderer.shadowMap.enabled = shadows;
     if (shadows) this.renderer.shadowMap.needsUpdate = true;
