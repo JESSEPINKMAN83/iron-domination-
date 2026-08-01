@@ -10,6 +10,7 @@ import { startMusterPosition } from '../content/startPositions';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 import type { ImpactZone } from './impactModel';
 import { rotateFormationOffset, tacticalFormationLayout } from './formations';
+import { SpatialHash } from './spatialHash';
 
 const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -109,6 +110,8 @@ export interface GameSim {
   nextEntityId: number;
   /** id → entity index, kept in sync with world add/remove for O(1) lookups */
   byId: Map<number, Entity>;
+  /** Rebuilt broad-phase index shared by movement and combat hot paths. */
+  spatial: SpatialHash<Entity>;
   rules: {
     autoCombat: boolean;
     autoDefense: boolean;
@@ -149,6 +152,7 @@ export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = 
     tick: 0,
     nextEntityId: 1,
     byId,
+    spatial: new SpatialHash<Entity>(48),
     rules: {
       autoCombat: true,
       autoDefense: true,
@@ -626,6 +630,9 @@ export function setSelected(sim: GameSim, entities: Entity[], add = false, team 
 
 export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
   const movers = Array.from(sim.movers);
+  sim.spatial.rebuild(movers);
+  let maxMoverRadius = 0;
+  for (const entity of movers) maxMoverRadius = Math.max(maxMoverRadius, entity.mover.radius);
   for (const entity of movers) entity.previousTransform = copyTransform(entity.transform);
 
   for (let i = 0; i < movers.length; i++) {
@@ -642,7 +649,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     let orientToMovement = false;
 
     if (entity.flight) {
-      stepFlightEntity(sim, hf, movers, entity, i, dt);
+      stepFlightEntity(sim, hf, entity, maxMoverRadius, dt);
       continue;
     }
 
@@ -720,20 +727,24 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, mover.faceYaw, entity.turret.turnRate, dt);
     }
 
-    for (let j = 0; j < movers.length && !mover.holdPosition; j++) {
-      if (i === j) continue;
-      const other = movers[j];
-      if (!!entity.flight !== !!other.flight) continue;
-      const dx = transform.x - other.transform.x;
-      const dz = transform.z - other.transform.z;
-      const minD = mover.radius + other.mover.radius + 1.2;
-      const d2 = dx * dx + dz * dz;
-      if (d2 <= 0.0001 || d2 > minD * minD) continue;
-      const d = Math.sqrt(d2);
-      const push = (minD - d) / minD;
-      desiredX += (dx / d) * push * 1.35;
-      desiredZ += (dz / d) * push * 1.35;
-    }
+    if (!mover.holdPosition) sim.spatial.visitNearby(
+      transform.x,
+      transform.z,
+      mover.radius + maxMoverRadius + 8,
+      (other) => {
+        if (entity === other || !other.mover) return;
+        if (!!entity.flight !== !!other.flight) return;
+        const dx = transform.x - other.transform.x;
+        const dz = transform.z - other.transform.z;
+        const minD = mover.radius + other.mover.radius + 1.2;
+        const d2 = dx * dx + dz * dz;
+        if (d2 <= 0.0001 || d2 > minD * minD) return;
+        const d = Math.sqrt(d2);
+        const push = (minD - d) / minD;
+        desiredX += (dx / d) * push * 1.35;
+        desiredZ += (dz / d) * push * 1.35;
+      },
+    );
 
     const desiredLen = Math.hypot(desiredX, desiredZ);
     if (desiredLen > 0 && !entity.playerControlled) {
@@ -937,7 +948,7 @@ interface FlightCommand {
   aimYaw?: number;
 }
 
-function stepFlightEntity(sim: GameSim, hf: Heightfield, movers: MovingEntity[], entity: MovingEntity, index: number, dt: number): void {
+function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, maxMoverRadius: number, dt: number): void {
   const { transform, velocity, mover } = entity;
   const flight = entity.flight;
   if (!flight) return;
@@ -1020,20 +1031,23 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, movers: MovingEntity[],
 
   limitBodyFlightVelocity(velocity, transform.rot, maxSpeed, maxReverse, maxStrafe);
 
-  for (let j = 0; j < movers.length && !mover.holdPosition; j++) {
-    if (j === index) continue;
-    const other = movers[j];
-    if (!other.flight) continue;
-    const dx = transform.x - other.transform.x;
-    const dz = transform.z - other.transform.z;
-    const minD = mover.radius + other.mover.radius + 2.2;
-    const d2 = dx * dx + dz * dz;
-    if (d2 <= 0.0001 || d2 > minD * minD) continue;
-    const d = Math.sqrt(d2);
-    const push = ((minD - d) / minD) * 8.5 * dt;
-    velocity.x += (dx / d) * push;
-    velocity.z += (dz / d) * push;
-  }
+  if (!mover.holdPosition) sim.spatial.visitNearby(
+    transform.x,
+    transform.z,
+    mover.radius + maxMoverRadius + 8,
+    (other) => {
+      if (entity === other || !other.mover || !other.flight) return;
+      const dx = transform.x - other.transform.x;
+      const dz = transform.z - other.transform.z;
+      const minD = mover.radius + other.mover.radius + 2.2;
+      const d2 = dx * dx + dz * dz;
+      if (d2 <= 0.0001 || d2 > minD * minD) return;
+      const d = Math.sqrt(d2);
+      const push = ((minD - d) / minD) * 8.5 * dt;
+      velocity.x += (dx / d) * push;
+      velocity.z += (dz / d) * push;
+    },
+  );
 
   transform.x = clamp(transform.x + velocity.x * dt, -sim.nav.size / 2, sim.nav.size / 2);
   transform.z = clamp(transform.z + velocity.z * dt, -sim.nav.size / 2, sim.nav.size / 2);

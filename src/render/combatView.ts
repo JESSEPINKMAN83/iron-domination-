@@ -101,12 +101,18 @@ export class CombatView {
   private readonly hitFragments: HitFragment[] = [];
   private readonly groundScorches: GroundScorch[] = [];
   private readonly up = new Vector3(0, 1, 0);
+  private visualQuality: 0 | 1 | 2 = 0;
 
   constructor(
     private readonly hf: Heightfield,
     private readonly isVisible: (x: number, z: number) => boolean = () => true,
     private readonly resolveEntity: (id: number) => Entity | undefined = () => undefined,
+    private readonly localTeam = 1,
   ) {}
+
+  setVisualQuality(tier: 0 | 1 | 2): void {
+    this.visualQuality = tier;
+  }
 
   push(events: CombatEvent[]): void {
     for (const event of events) {
@@ -114,7 +120,7 @@ export class CombatView {
       if (event.kind === 'impact-reaction') continue;
       const sourceVisible = this.isVisible(event.fromX, event.fromZ);
       const impactVisible = this.isVisible(event.toX, event.toZ);
-      const playerHiddenHit = event.sourceTeamId === 1 && event.damage > 0;
+      const playerHiddenHit = event.sourceTeamId === this.localTeam && event.damage > 0;
       // fights entirely inside the fog stay hidden, except brief player-fired hit confirmations
       if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
       const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : event.kind === 'microLaser' ? 2.75 : 2.2;
@@ -273,6 +279,8 @@ export class CombatView {
       event,
       smokeTimer: 0,
     });
+    const maxProjectiles = this.visualQuality === 0 ? 160 : this.visualQuality === 1 ? 105 : 72;
+    while (this.bombProjectiles.length > maxProjectiles) this.disposeBombProjectile(this.bombProjectiles.shift());
   }
 
   private updateBombProjectiles(dt: number): void {
@@ -300,20 +308,25 @@ export class CombatView {
       this.updateTrail(projectile);
       this.emitProjectileSmoke(projectile, tangent, dt);
       if (t >= 1) {
-        this.group.remove(projectile.group);
-        projectile.group.traverse((object) => {
-          if (object instanceof Mesh) {
-            object.geometry.dispose();
-            if (object.material instanceof MeshBasicMaterial) object.material.dispose();
-          }
-        });
-        this.group.remove(projectile.trail);
-        projectile.trail.geometry.dispose();
-        (projectile.trail.material as LineBasicMaterial).dispose();
+        this.disposeBombProjectile(projectile);
         // the blast is driven by the sim's 'bomb-impact' event, not the visual flight
         this.bombProjectiles.splice(i, 1);
       }
     }
+  }
+
+  private disposeBombProjectile(projectile?: BombProjectile): void {
+    if (!projectile) return;
+    this.group.remove(projectile.group);
+    projectile.group.traverse((object) => {
+      if (object instanceof Mesh) {
+        object.geometry.dispose();
+        if (object.material instanceof MeshBasicMaterial) object.material.dispose();
+      }
+    });
+    this.group.remove(projectile.trail);
+    projectile.trail.geometry.dispose();
+    (projectile.trail.material as LineBasicMaterial).dispose();
   }
 
   private updateTrail(projectile: BombProjectile): void {
@@ -330,7 +343,8 @@ export class CombatView {
 
   private emitProjectileSmoke(projectile: BombProjectile, tangent: Vector3, dt: number): void {
     projectile.smokeTimer -= dt;
-    const cadence = isBombKind(projectile.event.kind) ? 0.075 : projectile.event.kind === 'grenade' ? 0.12 : 0.045;
+    const baseCadence = isBombKind(projectile.event.kind) ? 0.075 : projectile.event.kind === 'grenade' ? 0.12 : 0.045;
+    const cadence = baseCadence * (this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 1.7 : 2.8);
     if (projectile.smokeTimer > 0) return;
     projectile.smokeTimer = cadence;
     const pos = projectile.group.position.clone();
@@ -357,7 +371,8 @@ export class CombatView {
       total: isBombKind(projectile.event.kind) ? 0.9 : 0.68,
       spin: Math.sin(projectile.elapsed * 11 + projectile.event.toX) * 0.6,
     });
-    while (this.smokePuffs.length > 90) this.disposeSmokePuff(this.smokePuffs.shift());
+    const maxSmoke = this.visualQuality === 0 ? 90 : this.visualQuality === 1 ? 58 : 36;
+    while (this.smokePuffs.length > maxSmoke) this.disposeSmokePuff(this.smokePuffs.shift());
   }
 
   private updateSmokePuffs(dt: number): void {
@@ -386,7 +401,9 @@ export class CombatView {
 
   private spawnHitFragments(event: CombatEvent, y: number): void {
     const heavy = isBombImpact(event.kind);
-    const count = heavy ? 18 : isTankMissileImpact(event.kind) || event.killed ? 11 : 6;
+    const fullCount = heavy ? 18 : isTankMissileImpact(event.kind) || event.killed ? 11 : 6;
+    const density = this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 0.65 : 0.38;
+    const count = Math.max(2, Math.round(fullCount * density));
     const force = heavy ? 8.5 : isTankMissileImpact(event.kind) ? 6.4 : 4.2;
     const awayX = event.toX - event.fromX;
     const awayZ = event.toZ - event.fromZ;
@@ -427,7 +444,8 @@ export class CombatView {
         spin: new Vector3(2.5 + (i % 3), 3.2 + (i % 4), 2.1 + (i % 5)),
       });
     }
-    while (this.hitFragments.length > 140) this.disposeHitFragment(this.hitFragments.shift());
+    const maxFragments = this.visualQuality === 0 ? 140 : this.visualQuality === 1 ? 88 : 52;
+    while (this.hitFragments.length > maxFragments) this.disposeHitFragment(this.hitFragments.shift());
   }
 
   private updateHitFragments(dt: number): void {
@@ -476,7 +494,8 @@ export class CombatView {
     mesh.renderOrder = 24;
     this.group.add(mesh);
     this.groundScorches.push({ mesh, texture, material, ttl: profile.ttl, total: profile.ttl, baseOpacity: profile.opacity });
-    while (this.groundScorches.length > 90) this.disposeGroundScorch(this.groundScorches.shift());
+    const maxScorches = this.visualQuality === 0 ? 90 : this.visualQuality === 1 ? 60 : 38;
+    while (this.groundScorches.length > maxScorches) this.disposeGroundScorch(this.groundScorches.shift());
   }
 
   private updateGroundScorches(dt: number): void {
@@ -542,6 +561,7 @@ export class CombatView {
     const ttl = killed ? 0.55 : 0.28;
     this.bursts.push({ group, ttl, total: ttl, kind: 'small', materials: [material], baseScale: 1 });
     this.group.add(group);
+    this.trimBursts();
   }
 
   private spawnBombBlast(x: number, y: number, z: number, killed: boolean, baseScale = 1): void {
@@ -581,6 +601,21 @@ export class CombatView {
     group.scale.setScalar(baseScale);
     this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial], baseScale });
     this.group.add(group);
+    this.trimBursts();
+  }
+
+  private trimBursts(): void {
+    const maxBursts = this.visualQuality === 0 ? 90 : this.visualQuality === 1 ? 58 : 36;
+    while (this.bursts.length > maxBursts) this.disposeBurst(this.bursts.shift());
+  }
+
+  private disposeBurst(burst?: Burst): void {
+    if (!burst) return;
+    this.group.remove(burst.group);
+    burst.group.traverse((object) => {
+      if (object instanceof Mesh) object.geometry.dispose();
+    });
+    for (const material of burst.materials) material.dispose();
   }
 
   private spawnCrashBlast(x: number, y: number, z: number): void {
@@ -637,10 +672,18 @@ export class CombatView {
       total: ttl,
       spin: variant === 1 ? -0.55 : 0.48,
     });
-    while (this.smokePuffs.length > 110) this.disposeSmokePuff(this.smokePuffs.shift());
+    const maxSmoke = this.visualQuality === 0 ? 110 : this.visualQuality === 1 ? 68 : 42;
+    while (this.smokePuffs.length > maxSmoke) this.disposeSmokePuff(this.smokePuffs.shift());
   }
 
   private spawnHitIndicator(event: CombatEvent): void {
+    const localOrCritical = event.sourceTeamId === this.localTeam || event.killed;
+    if (!localOrCritical && this.visualQuality >= 2) return;
+    if (
+      !localOrCritical &&
+      this.visualQuality === 1 &&
+      (Math.abs(Math.floor(event.toX * 7) + Math.floor(event.toZ * 11)) & 1) === 1
+    ) return;
     const texture = makeHitTexture(event);
     const material = new SpriteMaterial({ map: texture, transparent: true, opacity: 1, depthWrite: false, depthTest: false });
     const sprite = new Sprite(material);
@@ -649,9 +692,10 @@ export class CombatView {
     sprite.scale.set(10.6, 3.9, 1);
     sprite.renderOrder = 95;
     this.group.add(sprite);
-    const ttl = event.sourceTeamId === 1 && !this.isVisible(event.toX, event.toZ) ? 3.1 : 1.65;
+    const ttl = event.sourceTeamId === this.localTeam && !this.isVisible(event.toX, event.toZ) ? 3.1 : 1.65;
     this.hitIndicators.push({ sprite, material, texture, ttl, total: ttl, rise: 0.45 });
-    while (this.hitIndicators.length > 28) {
+    const maxIndicators = this.visualQuality === 0 ? 28 : this.visualQuality === 1 ? 20 : 14;
+    while (this.hitIndicators.length > maxIndicators) {
       const old = this.hitIndicators.shift();
       if (!old) continue;
       this.group.remove(old.sprite);
