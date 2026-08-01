@@ -8,6 +8,9 @@ import type { VisibilityGrid } from '../sim/visibility';
 import { stepSim, type CombatEvent, type GameSim } from '../sim/world';
 import type { Entity } from '../sim/components';
 
+/** Fog/AI visibility is perceptually smooth at 10 Hz and need not rasterize at 30 Hz. */
+export const VISIBILITY_UPDATE_INTERVAL_TICKS = 3;
+
 export interface MatchTickRuntime {
   sim: GameSim;
   hf: Heightfield;
@@ -37,7 +40,9 @@ export function advanceTick(match: MatchTickRuntime): MatchTickResult {
   const spawned = match.economies.flatMap((economy) => stepEconomy(match.sim, match.hf, economy, SIM_DT));
   stepSim(match.sim, match.hf, SIM_DT);
   stepCombat(match.sim, SIM_DT, { autoFire: match.autoFire });
-  for (const vision of match.visions) vision.update(match.sim);
+  if (match.sim.tick % VISIBILITY_UPDATE_INTERVAL_TICKS === 0) {
+    for (const vision of match.visions) vision.update(match.sim);
+  }
 
   return {
     spawned,

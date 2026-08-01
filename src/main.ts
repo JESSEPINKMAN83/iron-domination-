@@ -2441,7 +2441,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   unitView.attach(ctx.scene);
   const buildingView = new BuildingView(sim, hf, ctx, isVisibleToPlayer);
   ctx.scene.add(buildingView.group);
-  const combatView = new CombatView(hf, isVisibleToPlayer, (id) => sim.byId.get(id));
+  const combatView = new CombatView(hf, isVisibleToPlayer, (id) => sim.byId.get(id), localTeam);
   ctx.scene.add(combatView.group);
   const economyFx = new EconomyFxView(sim, hf, isVisibleToPlayer);
   ctx.scene.add(economyFx.group);
@@ -3075,6 +3075,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       renderFrame++;
       ctx.setFastMotionMode((multiplayerMode || mobileTouch) && firstPerson.flying);
       unitView.setVisualQuality(ctx.visualQuality);
+      combatView.setVisualQuality(ctx.visualQuality);
       if (firstPerson.active) firstPerson.update(dt, alpha);
       else {
         rig.setGrabSuppressed(controller.isRightOrderGestureActive());
@@ -3106,7 +3107,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       // update at the adaptive cadence without making aircraft controls feel
       // sticky on older CPUs/GPUs.
       deferredEffectDt += dt;
-      const effectDivisor = multiplayerMode && firstPerson.flying ? ctx.visualUpdateDivisor : 1;
+      const effectDivisor = ctx.visualUpdateDivisor;
       if (renderFrame % effectDivisor === 0) {
         combatView.update(deferredEffectDt);
         economyFx.update(deferredEffectDt);

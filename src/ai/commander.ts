@@ -52,10 +52,13 @@ export class EnemyCommander {
   step(dt: number): void {
     this.elapsed += dt;
     this.timer -= dt;
-    this.applyCombatProfile();
     if (this.timer > 0) return;
     this.timer = this.difficulty.reactionDelay;
     if (this.aliveBuildings().length === 0) return; // commander eliminated
+    // Difficulty values are static. Refresh on the commander's reaction pulse
+    // so newly produced units are picked up without allocating a replacement
+    // aiCombat object for every armed unit on all 30 simulation ticks/second.
+    this.applyCombatProfile();
     this.maintainBase();
     this.maintainProduction();
     this.commandSquads();
@@ -210,14 +213,22 @@ export class EnemyCommander {
   private applyCombatProfile(): void {
     for (const entity of this.sim.world.entities) {
       if (entity.team?.id !== this.economy.team || entity.destroyed || (!entity.weapon && !entity.weapons)) continue;
-      entity.aiCombat = {
-        accuracy: this.difficulty.combatAccuracy,
-        cooldownMultiplier: this.difficulty.combatCooldownMultiplier,
-        projectileScatter: this.difficulty.projectileScatter,
-        targetAcquireDelayTicks: this.difficulty.targetAcquireDelayTicks,
-        possessedTargetPriority: this.difficulty.possessedTargetPriority,
-        nextAcquireTick: entity.aiCombat?.nextAcquireTick,
-      };
+      const profile = entity.aiCombat;
+      if (profile) {
+        profile.accuracy = this.difficulty.combatAccuracy;
+        profile.cooldownMultiplier = this.difficulty.combatCooldownMultiplier;
+        profile.projectileScatter = this.difficulty.projectileScatter;
+        profile.targetAcquireDelayTicks = this.difficulty.targetAcquireDelayTicks;
+        profile.possessedTargetPriority = this.difficulty.possessedTargetPriority;
+      } else {
+        entity.aiCombat = {
+          accuracy: this.difficulty.combatAccuracy,
+          cooldownMultiplier: this.difficulty.combatCooldownMultiplier,
+          projectileScatter: this.difficulty.projectileScatter,
+          targetAcquireDelayTicks: this.difficulty.targetAcquireDelayTicks,
+          possessedTargetPriority: this.difficulty.possessedTargetPriority,
+        };
+      }
     }
   }
 
