@@ -3,6 +3,7 @@ import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, 
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
 import { sendTelemetryEvent, trackMatchTelemetry, type MatchTelemetry } from './telemetry';
+import { installActiveMatchExitGuard, type ActiveMatchExitGuard } from './activeMatchExitGuard';
 import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHowToPlayWidget } from './howToPlay';
 import { showMissionBriefing } from './missionBriefing';
 import './setup.css';
@@ -127,6 +128,7 @@ const MULTIPLAYER_SERVER_STORAGE_KEY = 'iron-dominion.multiplayer.server.v1';
 const MULTIPLAYER_PLAYER_STORAGE_KEY = 'iron-dominion.multiplayer.players.v1';
 const MULTIPLAYER_REMATCH_STORAGE_KEY = 'iron-dominion.multiplayer.rematch.v1';
 const MATCH_HISTORY_STORAGE_KEY = 'iron-dominion.match-history.v1';
+let activeMatchExitGuard: ActiveMatchExitGuard | undefined;
 
 interface SkirmishSettings {
   mapId: MapId;
@@ -473,12 +475,14 @@ function reloadWithSettings(settings: SkirmishSettings, autostart: boolean): voi
   saveSkirmishSettings(settings);
   if (autostart) window.sessionStorage.setItem(AUTOSTART_STORAGE_KEY, '1');
   else window.sessionStorage.removeItem(AUTOSTART_STORAGE_KEY);
+  activeMatchExitGuard?.allowNextUnload();
   window.location.reload();
 }
 
 function restartMultiplayerMatch(client: MultiplayerClient, session: MultiplayerSession): void {
   const state: StoredMultiplayerRematch = { server: client.baseUrl, roomCode: session.room.code, playerId: session.player.id };
   window.sessionStorage.setItem(MULTIPLAYER_REMATCH_STORAGE_KEY, JSON.stringify(state));
+  activeMatchExitGuard?.allowNextUnload();
   window.location.reload();
 }
 
@@ -533,6 +537,7 @@ function requestLoadStoredMatch(): boolean {
   saveSkirmishSettings(save.settings);
   window.sessionStorage.setItem(AUTOSTART_STORAGE_KEY, '1');
   window.sessionStorage.setItem(LOAD_SAVE_STORAGE_KEY, '1');
+  activeMatchExitGuard?.allowNextUnload();
   window.location.reload();
   return true;
 }
@@ -2455,6 +2460,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastFogTextureTick = -2;
   let lastResourceVisualTick = -1;
   const hud = new Hud(document.body);
+  activeMatchExitGuard?.dispose();
+  activeMatchExitGuard = installActiveMatchExitGuard();
   const impactDemoPanel = impactDemoScene ? createImpactMovementDemoPanel() : undefined;
   let sidebar!: Sidebar;
   let tacticalPingKind: TacticalPingKind | undefined;
@@ -2749,6 +2756,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     load: multiplayerMode ? undefined : requestLoadStoredMatch,
     forfeit: multiplayerMode
       ? () => {
+          activeMatchExitGuard?.complete();
           multiplayer.client.forfeit(multiplayer.session.room.code, multiplayer.session.player.id);
           setNetworkStatus('You forfeited the match', true);
         }
@@ -2846,6 +2854,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (isVictoryFromHostileBuildingCounts(hostileTeams.map(alive))) outcome = 'victory';
     else if (alive(localTeam) === 0) outcome = 'defeat';
     if (outcome) {
+      activeMatchExitGuard?.complete();
       matchTelemetry?.end();
       const snapshot = matchSnapshot();
       recordMatchHistory({
