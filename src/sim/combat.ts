@@ -18,7 +18,7 @@ const PLAYER_PRIMARY_DAMAGE_SCALE = 1.16;
 const PLAYER_PRIMARY_FORCE_SCALE = 1.42;
 const PLAYER_PRIMARY_IMPACT_SCALE = 1.42;
 /** Locked ordnance trades raw velocity and impact for guidance that can be evaded. */
-const LOCKED_MISSILE_SPEED_SCALE = 0.58;
+const LOCKED_MISSILE_SPEED_SCALE = 0.68;
 const LOCKED_MISSILE_DAMAGE_SCALE = 0.96;
 const LOCKED_MISSILE_FORCE_SCALE = 0.72;
 const LOCKED_MISSILE_IMPACT_SCALE = 0.9;
@@ -338,19 +338,27 @@ export function manualFireAt(
   if (attacker.turret && Math.abs(angleDelta(attacker.turret.yaw, Math.atan2(ux, uz))) > AIM_TOLERANCE) return false;
   // Player-issued tank missiles follow the full aim ray. Automatic combat still
   // uses each tank's normal acquisition range before it reaches this path.
-  const range = isTankDirectMissile(def.kind) ? len : Math.min(weapon.range || def.range, len);
+  const playerAircraftDirectFire = Boolean(attacker.playerControlled && attacker.flight);
+  const range = isTankDirectMissile(def.kind) || playerAircraftDirectFire
+    ? len
+    : Math.min(weapon.range || def.range, len);
   if (def.minRange !== undefined && len < def.minRange) return false;
   const target = lockedTarget ?? acquireLineTarget(sim, attacker, weapon, ux, uz, range, aimRay, isTankDirectMissile(def.kind) && !!attacker.playerControlled);
   const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
   const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
   if (def.projectile || lockedTarget) {
+    // A terrain reticle can be far behind a unit caught by the ray. Once an
+    // entity is acquired, use its own center height; otherwise ground vehicles
+    // can inherit the distant terrain height and make the projectile dive into
+    // the ground before reaching them.
+    const projectileTargetY = target ? targetYForEvent(target) : targetY;
     launchWeaponProjectile(
       sim,
       attacker,
       weapon,
       target,
       hitX,
-      targetYForEvent(target, targetY),
+      projectileTargetY,
       hitZ,
       lockedTarget?.id === target?.id,
       speedScale,
@@ -397,7 +405,7 @@ export function manualFireAt(
     fromY: directMuzzleY(attacker),
     fromZ: attacker.transform.z,
     toX: hitX,
-    toY: targetYForEvent(target, targetY),
+    toY: target ? targetYForEvent(target) : targetY,
     toZ: hitZ,
     sourceTeamId: attacker.team.id,
     damage,

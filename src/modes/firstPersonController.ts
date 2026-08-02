@@ -1015,7 +1015,11 @@ export class FirstPersonController {
     if (slot === 'secondary') {
       return this.flightBombTarget(entity);
     }
-    const ground = this.lookPitch < MathUtils.degToRad(-28) ? this.flightTerrainPoint(entity, 720) : undefined;
+    // Even a shallow downward look can place the reticle on distant terrain.
+    // Waiting until a -28° dive created a short floating aim point near the
+    // aircraft, so rocket fire appeared to bury itself well before the visible
+    // ground-horizon reticle.
+    const ground = this.lookPitch < MathUtils.degToRad(-2) ? this.flightTerrainPoint(entity, 720) : undefined;
     if (ground) return ground;
     const origin = new Vector3(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 28, entity.transform.z);
     const range = 112;
