@@ -47,6 +47,9 @@ export interface CombatEvent {
   /** Visual energy multiplier for player-fired high-velocity primary impacts. */
   impactScale?: number;
   trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
+  /** Guidance profile used by the renderer to mirror dodgeable homing flight. */
+  homingSpeed?: number;
+  homingTurnRate?: number;
   /** Original weapon and normalized physical force for per-target hit reactions. */
   impactKind?: string;
   force?: number;
@@ -80,7 +83,17 @@ export interface Projectile {
   weaponKind?: string;
   directTargetId?: number;
   trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
-  homing?: { targetId: number; speed: number; fizzleRange: number };
+  homing?: {
+    targetId: number;
+    speed: number;
+    fizzleRange: number;
+    remainingLifetime: number;
+    traveledDistance: number;
+    directionX: number;
+    directionY: number;
+    directionZ: number;
+    turnRate: number;
+  };
   teamId: number;
   attackerId: number;
 }

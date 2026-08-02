@@ -49,6 +49,8 @@ interface BombProjectile {
   duration: number;
   event: CombatEvent;
   smokeTimer: number;
+  direction?: Vector3;
+  trailCapacity: number;
 }
 
 interface HitIndicator {
@@ -139,6 +141,7 @@ export class CombatView {
         continue;
       }
       if (isProjectileImpact(event.kind)) {
+        this.removeImpactedHomingProjectile(event);
         if (shouldPaintGroundScorch(this.hf, event)) this.spawnGroundScorch(event);
         if (isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
           this.spawnBombBlast(
@@ -260,9 +263,16 @@ export class CombatView {
     group.renderOrder = 60;
     this.group.add(group);
 
+    const homing = event.trajectory === 'homing';
+    const trailCapacity = homing ? 20 : 8;
     const trailGeometry = new BufferGeometry();
-    trailGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(8 * 3), 3));
-    const trail = new Line(trailGeometry, new LineBasicMaterial({ color: trailColor(event.kind), transparent: true, opacity: 0.5 }));
+    trailGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(trailCapacity * 3), 3));
+    const trail = new Line(trailGeometry, new LineBasicMaterial({
+      color: trailColor(event.kind),
+      transparent: true,
+      opacity: homing ? 0.88 : 0.5,
+      depthWrite: false,
+    }));
     trail.renderOrder = 58;
     this.group.add(trail);
 
@@ -278,6 +288,8 @@ export class CombatView {
       duration: event.duration ?? Math.min(8, Math.max(0.85, distance / 95)),
       event,
       smokeTimer: 0,
+      direction: homing ? to.clone().sub(from).normalize() : undefined,
+      trailCapacity,
     });
     const maxProjectiles = this.visualQuality === 0 ? 160 : this.visualQuality === 1 ? 105 : 72;
     while (this.bombProjectiles.length > maxProjectiles) this.disposeBombProjectile(this.bombProjectiles.shift());
@@ -287,16 +299,33 @@ export class CombatView {
     for (let i = this.bombProjectiles.length - 1; i >= 0; i--) {
       const projectile = this.bombProjectiles[i];
       projectile.elapsed += dt;
-      if (projectile.event.trajectory === 'homing' && projectile.event.targetId !== undefined) {
+      if (
+        projectile.event.trajectory === 'homing' &&
+        projectile.event.targetId !== undefined &&
+        projectile.direction &&
+        projectile.event.homingSpeed !== undefined &&
+        projectile.event.homingTurnRate !== undefined
+      ) {
         const target = this.resolveEntity(projectile.event.targetId);
         if (target && !target.destroyed) {
           projectile.to.set(target.transform.x, target.transform.y ?? projectile.to.y, target.transform.z);
-          projectile.control.set(
-            (projectile.from.x + projectile.to.x) * 0.5,
-            (projectile.from.y + projectile.to.y) * 0.5,
-            (projectile.from.z + projectile.to.z) * 0.5,
-          );
+          const desired = projectile.to.clone().sub(projectile.group.position).normalize();
+          const delta = desired.sub(projectile.direction);
+          const maxDirectionDelta = projectile.event.homingTurnRate * dt;
+          const blend = delta.length() > maxDirectionDelta ? maxDirectionDelta / delta.length() : 1;
+          projectile.direction.addScaledVector(delta, blend).normalize();
         }
+        projectile.group.position.addScaledVector(projectile.direction, projectile.event.homingSpeed * dt);
+        projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, projectile.direction));
+        projectile.trailPositions.push(projectile.group.position.clone());
+        if (projectile.trailPositions.length > projectile.trailCapacity) projectile.trailPositions.shift();
+        this.updateTrail(projectile);
+        this.emitProjectileSmoke(projectile, projectile.direction, dt);
+        if (projectile.elapsed >= projectile.duration) {
+          this.disposeBombProjectile(projectile);
+          this.bombProjectiles.splice(i, 1);
+        }
+        continue;
       }
       const t = Math.min(1, projectile.elapsed / projectile.duration);
       const position = bezier(projectile.from, projectile.control, projectile.to, t);
@@ -304,7 +333,7 @@ export class CombatView {
       projectile.group.position.copy(position);
       projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, tangent));
       projectile.trailPositions.push(position.clone());
-      if (projectile.trailPositions.length > 8) projectile.trailPositions.shift();
+      if (projectile.trailPositions.length > projectile.trailCapacity) projectile.trailPositions.shift();
       this.updateTrail(projectile);
       this.emitProjectileSmoke(projectile, tangent, dt);
       if (t >= 1) {
@@ -312,6 +341,22 @@ export class CombatView {
         // the blast is driven by the sim's 'bomb-impact' event, not the visual flight
         this.bombProjectiles.splice(i, 1);
       }
+    }
+  }
+
+  private removeImpactedHomingProjectile(event: CombatEvent): void {
+    const launchKind = event.kind.slice(0, -'-impact'.length);
+    for (let i = this.bombProjectiles.length - 1; i >= 0; i--) {
+      const projectile = this.bombProjectiles[i];
+      if (projectile.event.trajectory !== 'homing' || projectile.event.kind !== launchKind) continue;
+      if (
+        event.targetId !== undefined &&
+        projectile.event.targetId !== undefined &&
+        event.targetId !== projectile.event.targetId
+      ) continue;
+      this.disposeBombProjectile(projectile);
+      this.bombProjectiles.splice(i, 1);
+      return;
     }
   }
 
@@ -332,18 +377,20 @@ export class CombatView {
   private updateTrail(projectile: BombProjectile): void {
     const attribute = projectile.trail.geometry.getAttribute('position') as Float32BufferAttribute;
     const first = projectile.trailPositions[0];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < projectile.trailCapacity; i++) {
       const p = projectile.trailPositions[i] ?? first;
       attribute.setXYZ(i, p.x, p.y, p.z);
     }
     attribute.needsUpdate = true;
     const material = projectile.trail.material as LineBasicMaterial;
-    material.opacity = Math.min(0.55, projectile.elapsed / 0.18);
+    const maxOpacity = projectile.event.trajectory === 'homing' ? 0.88 : 0.55;
+    material.opacity = Math.min(maxOpacity, projectile.elapsed / 0.18);
   }
 
   private emitProjectileSmoke(projectile: BombProjectile, tangent: Vector3, dt: number): void {
     projectile.smokeTimer -= dt;
-    const baseCadence = isBombKind(projectile.event.kind) ? 0.075 : projectile.event.kind === 'grenade' ? 0.12 : 0.045;
+    const homing = projectile.event.trajectory === 'homing';
+    const baseCadence = isBombKind(projectile.event.kind) ? 0.075 : projectile.event.kind === 'grenade' ? 0.12 : homing ? 0.035 : 0.045;
     const cadence = baseCadence * (this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 1.7 : 2.8);
     if (projectile.smokeTimer > 0) return;
     projectile.smokeTimer = cadence;
@@ -353,13 +400,13 @@ export class CombatView {
     pos.x += Math.sin(projectile.elapsed * 19 + projectile.event.fromX) * 0.12;
     pos.z += Math.cos(projectile.elapsed * 17 + projectile.event.fromZ) * 0.12;
     const smokeMaterial = new MeshBasicMaterial({
-      color: isBombKind(projectile.event.kind) ? 0x3a3026 : 0xb7b0a1,
+      color: isBombKind(projectile.event.kind) ? 0x3a3026 : homing ? 0xd8d3c7 : 0xb7b0a1,
       transparent: true,
-      opacity: projectile.event.kind === 'grenade' ? 0.22 : 0.34,
+      opacity: projectile.event.kind === 'grenade' ? 0.22 : homing ? 0.5 : 0.34,
       depthWrite: false,
     });
     smokeMaterial.userData.baseOpacity = smokeMaterial.opacity;
-    const puff = new Mesh(new SphereGeometry(isBombKind(projectile.event.kind) ? 0.42 : 0.28, 8, 5), smokeMaterial);
+    const puff = new Mesh(new SphereGeometry(isBombKind(projectile.event.kind) ? 0.42 : homing ? 0.38 : 0.28, 8, 5), smokeMaterial);
     puff.position.copy(pos);
     puff.renderOrder = 57;
     this.group.add(puff);
@@ -367,8 +414,8 @@ export class CombatView {
       mesh: puff,
       material: smokeMaterial,
       velocity: new Vector3(-tangent.x * 0.9, 0.5 + Math.abs(tangent.y) * 0.2, -tangent.z * 0.9),
-      ttl: isBombKind(projectile.event.kind) ? 0.9 : 0.68,
-      total: isBombKind(projectile.event.kind) ? 0.9 : 0.68,
+      ttl: isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
+      total: isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
       spin: Math.sin(projectile.elapsed * 11 + projectile.event.toX) * 0.6,
     });
     const maxSmoke = this.visualQuality === 0 ? 90 : this.visualQuality === 1 ? 58 : 36;

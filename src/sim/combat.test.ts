@@ -6,7 +6,7 @@ import { createEconomy, createInitialBase, placeStructure, spawnInfantryAt, star
 import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
 import { purchaseUnitUpgrade } from './upgrades';
-import { createGameSim, hashSim, issueMoveOrder, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
+import { createGameSim, hashSim, issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
 
 const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
   for (let i = 0; i < Math.round(seconds * 30); i++) stepCombat(sim, 1 / 30);
@@ -244,6 +244,54 @@ describe('phase 4 combat simulation', () => {
     expect(event?.kind).toBe('tankMissile');
     expect(event?.toY).toBe(aimY);
     expect(event?.toY).toBeGreaterThan(sampleHeight(hf, event!.toX, event!.toZ) + 8);
+  });
+
+  it('lets player-controlled aircraft rockets follow the full terrain reticle ray', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const attacker = spawnHammerheadAt(sim, hf, -120, -20, 'V-mode Hammerhead');
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    attacker.turret!.yaw = Math.PI / 2;
+    const targetX = 180;
+    const targetZ = -20;
+    const targetY = sampleHeight(hf, targetX, targetZ) + 0.4;
+
+    expect(manualFireAt(sim, attacker, targetX, targetZ, 'primary', targetY)).toBe(true);
+
+    const projectile = sim.projectiles[0];
+    expect(projectile?.kind).toBe('agMissile');
+    expect(projectile?.toX).toBe(targetX);
+    expect(projectile?.toZ).toBe(targetZ);
+    expect(projectile?.toY).toBe(targetY);
+    expect(projectile?.duration).toBeGreaterThan(0.9);
+    expect(projectile?.duration).toBeCloseTo(
+      300 / (WEAPONS.agMissile.projectile!.speed * 2.35),
+      8,
+    );
+  });
+
+  it('does not stop V-mode Vulture rocket pods at the AI acquisition range', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const attacker = spawnVultureAt(sim, hf, -120, -20, 'V-mode Vulture');
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    attacker.turret!.yaw = Math.PI / 2;
+    const targetX = 180;
+    const targetZ = -20;
+    const targetY = sampleHeight(hf, targetX, targetZ) + 0.4;
+
+    expect(manualFireAt(sim, attacker, targetX, targetZ, 'primary', targetY)).toBe(true);
+
+    const shot = sim.events.at(-1);
+    expect(shot?.kind).toBe('rocketPod');
+    expect(shot?.toX).toBe(targetX);
+    expect(shot?.toZ).toBe(targetZ);
+    expect(shot?.toY).toBe(targetY);
+    expect(Math.hypot(shot!.toX - shot!.fromX, shot!.toZ - shot!.fromZ)).toBeGreaterThan(
+      attacker.weapons!.primary.range,
+    );
   });
 
   it('does not let a unit below the center aim ray steal a manual shot', () => {
@@ -582,12 +630,47 @@ describe('phase 4 combat simulation', () => {
     expect(projectile?.trajectory).toBe('homing');
     expect(projectile?.homing?.targetId).toBe(target.id);
     expect(projectile?.homing?.fizzleRange).toBeGreaterThan(sim.nav.size);
+    expect(projectile?.speed).toBeCloseTo(WEAPONS.tankMissile.projectile!.speed * 0.68, 8);
+    expect(projectile?.damageScale).toBeCloseTo(0.96, 8);
+    expect(projectile?.forceScale).toBeCloseTo(0.72, 8);
+    expect(projectile?.impactScale).toBeCloseTo(0.9, 8);
     target.transform.x += 18;
     target.previousTransform.x = target.transform.x;
     for (let i = 0; i < 30 * 3; i++) stepCombat(sim, 1 / 30, { autoFire: false });
 
     expect(target.health?.current).toBeLessThan(target.health?.max ?? 0);
     expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.targetId === target.id)).toBe(true);
+  });
+
+  it('limits locked missile steering so a fast aircraft can break pursuit', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, -20, -20, 'Player Tank');
+    const wasp = spawnWaspAt(sim, hf, -20, 70, 'Evading Wasp', 2);
+    tank.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    tank.turret!.yaw = 0;
+    wasp.weapon = undefined;
+    wasp.weapons = undefined;
+
+    expect(manualFireAt(sim, tank, wasp.transform.x, wasp.transform.z, 'primary', wasp.transform.y, wasp.id)).toBe(true);
+    const missile = sim.projectiles.at(-1)!;
+    const initialDirectionX = missile.homing!.directionX;
+    wasp.transform.x += 40;
+    wasp.previousTransform.x = wasp.transform.x;
+    stepCombat(sim, 1 / 30, { autoFire: false });
+
+    expect(missile.homing!.directionX).toBeGreaterThan(initialDirectionX);
+    expect(missile.homing!.directionX).toBeLessThan(0.1);
+
+    const maxHealth = wasp.health!.max;
+    for (let i = 0; i < 30 * 7; i++) {
+      wasp.transform.x += 60 / 30;
+      wasp.previousTransform.x = wasp.transform.x;
+      stepCombat(sim, 1 / 30, { autoFire: false });
+    }
+
+    expect(wasp.health?.current).toBe(maxHealth);
+    expect(sim.projectiles).toHaveLength(0);
   });
 
   it('lets missile infantry lock a moving vehicle with its primary rocket', () => {
