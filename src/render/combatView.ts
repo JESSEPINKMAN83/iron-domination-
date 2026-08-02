@@ -89,6 +89,78 @@ interface GroundScorch {
   baseOpacity: number;
 }
 
+type VisualQualityTier = 0 | 1 | 2;
+
+interface IndexedCombatEvent {
+  event: CombatEvent;
+  index: number;
+}
+
+const COMBAT_EVENT_BUDGETS = [
+  { total: 48, critical: 12, local: 24 },
+  { total: 34, critical: 10, local: 17 },
+  { total: 22, critical: 8, local: 10 },
+] as const;
+
+/**
+ * Keep a simultaneous multi-army firefight from allocating hundreds of GPU
+ * resources in one simulation tick. Gameplay still processes every event;
+ * this only samples the cosmetic representation and favours destruction plus
+ * the local commander's fire.
+ */
+export function selectCombatVisualEvents(
+  events: CombatEvent[],
+  localTeam: number,
+  quality: VisualQualityTier,
+  totalLimit: number = COMBAT_EVENT_BUDGETS[quality].total,
+): CombatEvent[] {
+  const visualEvents = events.filter((event) => event.kind !== 'ore-delivery' && event.kind !== 'impact-reaction');
+  const budget = COMBAT_EVENT_BUDGETS[quality];
+  const total = Math.min(budget.total, Math.max(0, Math.floor(totalLimit)));
+  if (total === 0) return [];
+  if (visualEvents.length <= total) return visualEvents;
+
+  const indexed = visualEvents.map((event, index) => ({ event, index }));
+  const critical = indexed.filter(({ event }) => isCriticalVisualEvent(event));
+  const local = indexed.filter(({ event }) => !isCriticalVisualEvent(event) && event.sourceTeamId === localTeam);
+  const remote = indexed.filter(({ event }) => !isCriticalVisualEvent(event) && event.sourceTeamId !== localTeam);
+  const selected = new Set<number>();
+
+  const criticalReservation = Math.min(budget.critical, Math.ceil((total * budget.critical) / budget.total));
+  const localReservation = Math.min(budget.local, Math.ceil((total * budget.local) / budget.total));
+  addSpreadSelection(selected, critical, Math.min(criticalReservation, total));
+  addSpreadSelection(selected, local, Math.min(localReservation, total - selected.size));
+  addSpreadSelection(selected, remote, total - selected.size);
+
+  // A bucket can be smaller than its reservation. Fill any unused capacity
+  // from the complete stream, still spread across the whole battlefield.
+  if (selected.size < total) {
+    addSpreadSelection(selected, indexed.filter(({ index }) => !selected.has(index)), total - selected.size);
+  }
+
+  return indexed
+    .filter(({ index }) => selected.has(index))
+    .sort((a, b) => a.index - b.index)
+    .map(({ event }) => event);
+}
+
+function isCriticalVisualEvent(event: CombatEvent): boolean {
+  return event.killed || event.kind === 'crash' || event.kind === 'aircraft-crash-smoke';
+}
+
+function addSpreadSelection(selected: Set<number>, candidates: IndexedCombatEvent[], count: number): void {
+  const take = Math.min(Math.max(0, count), candidates.length);
+  if (take === 0) return;
+  if (take === candidates.length) {
+    for (const candidate of candidates) selected.add(candidate.index);
+    return;
+  }
+  for (let i = 0; i < take; i++) {
+    const candidateIndex = Math.min(candidates.length - 1, Math.floor(((i + 0.5) * candidates.length) / take));
+    selected.add(candidates[candidateIndex].index);
+  }
+}
+
 export class CombatView {
   readonly group = new Group();
   private readonly cannonMaterial = new LineBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.92 });
@@ -103,7 +175,8 @@ export class CombatView {
   private readonly hitFragments: HitFragment[] = [];
   private readonly groundScorches: GroundScorch[] = [];
   private readonly up = new Vector3(0, 1, 0);
-  private visualQuality: 0 | 1 | 2 = 0;
+  private visualQuality: VisualQualityTier = 0;
+  private visualEventsThisFrame = 0;
 
   constructor(
     private readonly hf: Heightfield,
@@ -112,14 +185,22 @@ export class CombatView {
     private readonly localTeam = 1,
   ) {}
 
-  setVisualQuality(tier: 0 | 1 | 2): void {
+  setVisualQuality(tier: VisualQualityTier): void {
     this.visualQuality = tier;
   }
 
+  /** Called once after a browser frame so catch-up ticks share one FX budget. */
+  completeFrame(): void {
+    this.visualEventsThisFrame = 0;
+  }
+
   push(events: CombatEvent[]): void {
-    for (const event of events) {
-      if (event.kind === 'ore-delivery') continue;
-      if (event.kind === 'impact-reaction') continue;
+    const frameBudget = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 30;
+    const remaining = frameBudget - this.visualEventsThisFrame;
+    if (remaining <= 0) return;
+    const selectedEvents = selectCombatVisualEvents(events, this.localTeam, this.visualQuality, remaining);
+    this.visualEventsThisFrame += selectedEvents.length;
+    for (const event of selectedEvents) {
       const sourceVisible = this.isVisible(event.fromX, event.fromZ);
       const impactVisible = this.isVisible(event.toX, event.toZ);
       const playerHiddenHit = event.sourceTeamId === this.localTeam && event.damage > 0;
@@ -177,6 +258,7 @@ export class CombatView {
       const tracerTtl = event.kind === 'sniperRifle' || event.kind === 'railShot' ? 0.34 : event.kind === 'microLaser' ? 0.11 : event.kind === 'rifle' || event.kind === 'overchargeRifle' ? 0.08 : 0.16;
       this.tracers.push({ line, ttl: tracerTtl, total: tracerTtl });
       this.group.add(line);
+      this.trimTracers();
 
       this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, event.impactScale ?? 1);
       if (event.kind !== 'microLaser' && (event.damage > 0 || event.killed)) {
@@ -197,8 +279,7 @@ export class CombatView {
       const material = tracer.line.material as LineBasicMaterial;
       material.opacity = Math.max(0, tracer.ttl / tracer.total);
       if (tracer.ttl <= 0) {
-        this.group.remove(tracer.line);
-        tracer.line.geometry.dispose();
+        this.disposeTracer(tracer);
         this.tracers.splice(i, 1);
       }
     }
@@ -246,6 +327,17 @@ export class CombatView {
     }
   }
 
+  private trimTracers(): void {
+    const maxTracers = this.visualQuality === 0 ? 96 : this.visualQuality === 1 ? 64 : 40;
+    while (this.tracers.length > maxTracers) this.disposeTracer(this.tracers.shift());
+  }
+
+  private disposeTracer(tracer?: Tracer): void {
+    if (!tracer) return;
+    this.group.remove(tracer.line);
+    tracer.line.geometry.dispose();
+  }
+
   private spawnBombProjectile(event: CombatEvent, fromY: number, toY: number): void {
     const from = new Vector3(event.fromX, fromY, event.fromZ);
     const to = new Vector3(event.toX, toY, event.toZ);
@@ -291,7 +383,7 @@ export class CombatView {
       direction: homing ? to.clone().sub(from).normalize() : undefined,
       trailCapacity,
     });
-    const maxProjectiles = this.visualQuality === 0 ? 160 : this.visualQuality === 1 ? 105 : 72;
+    const maxProjectiles = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 28;
     while (this.bombProjectiles.length > maxProjectiles) this.disposeBombProjectile(this.bombProjectiles.shift());
   }
 
@@ -541,7 +633,7 @@ export class CombatView {
     mesh.renderOrder = 24;
     this.group.add(mesh);
     this.groundScorches.push({ mesh, texture, material, ttl: profile.ttl, total: profile.ttl, baseOpacity: profile.opacity });
-    const maxScorches = this.visualQuality === 0 ? 90 : this.visualQuality === 1 ? 60 : 38;
+    const maxScorches = this.visualQuality === 0 ? 64 : this.visualQuality === 1 ? 44 : 28;
     while (this.groundScorches.length > maxScorches) this.disposeGroundScorch(this.groundScorches.shift());
   }
 
@@ -652,7 +744,7 @@ export class CombatView {
   }
 
   private trimBursts(): void {
-    const maxBursts = this.visualQuality === 0 ? 90 : this.visualQuality === 1 ? 58 : 36;
+    const maxBursts = this.visualQuality === 0 ? 56 : this.visualQuality === 1 ? 38 : 24;
     while (this.bursts.length > maxBursts) this.disposeBurst(this.bursts.shift());
   }
 
@@ -693,6 +785,8 @@ export class CombatView {
         spin: i % 2 ? 0.5 : -0.5,
       });
     }
+    const maxSmoke = this.visualQuality === 0 ? 90 : this.visualQuality === 1 ? 58 : 36;
+    while (this.smokePuffs.length > maxSmoke) this.disposeSmokePuff(this.smokePuffs.shift());
   }
 
   private spawnAircraftCrashSmoke(event: CombatEvent, y: number): void {

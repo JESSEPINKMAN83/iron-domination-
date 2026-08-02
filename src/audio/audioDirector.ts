@@ -450,6 +450,15 @@ export class AudioDirector {
       for (const [candidate, at] of this.lastByBucket) {
         if (now - at > 2.5) this.lastByBucket.delete(candidate);
       }
+      // A single three-army salvo can touch hundreds of fresh spatial buckets,
+      // so age-based cleanup alone is not a hard bound. Evict the oldest
+      // remaining throttle records rather than letting an FX storm grow this
+      // map until the browser is under memory pressure.
+      while (this.lastByBucket.size > 220) {
+        const oldest = this.lastByBucket.keys().next().value;
+        if (oldest === undefined) break;
+        this.lastByBucket.delete(oldest);
+      }
     }
     return true;
   }

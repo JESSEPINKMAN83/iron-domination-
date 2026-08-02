@@ -49,4 +49,45 @@ describe('large battle performance safeguards', () => {
     // restoration of all-vs-all hot loops without making ordinary variance fail.
     expect(elapsed).toBeLessThan(4_000);
   }, 15_000);
+
+  it('drains sustained three-way crossfire without accumulating ordnance or events', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.allianceSides = { 1: 1, 2: 2, 3: 3 };
+    const origins = [
+      { x: -42, z: 22 },
+      { x: 42, z: 22 },
+      { x: 0, z: -46 },
+    ];
+    for (let teamIndex = 0; teamIndex < origins.length; teamIndex++) {
+      const origin = origins[teamIndex];
+      for (let i = 0; i < 24; i++) {
+        const tank = spawnTankAt(
+          sim,
+          origin.x + (i % 6) * 4,
+          origin.z + Math.floor(i / 6) * 4,
+          `Crossfire ${teamIndex + 1}-${i + 1}`,
+          teamIndex + 1,
+        );
+        tank.health!.current = tank.health!.max = 50_000;
+      }
+    }
+
+    let maxEventsPerTick = 0;
+    let maxProjectiles = 0;
+    const started = performance.now();
+    for (let tick = 0; tick < 600; tick++) {
+      stepSim(sim, hf, 1 / 30);
+      stepCombat(sim, 1 / 30);
+      maxEventsPerTick = Math.max(maxEventsPerTick, sim.events.length);
+      maxProjectiles = Math.max(maxProjectiles, sim.projectiles.length);
+      sim.events.splice(0);
+    }
+    const elapsed = performance.now() - started;
+
+    expect(sim.events).toHaveLength(0);
+    expect(maxEventsPerTick).toBeGreaterThan(0);
+    expect(maxProjectiles).toBeLessThan(220);
+    expect(elapsed).toBeLessThan(4_000);
+  }, 15_000);
 });

@@ -3121,6 +3121,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       }
       water.update(time, ctx.scene.fog as Fog);
       ctx.render(dt);
+      combatView.completeFrame();
 
       fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
       const now = performance.now();
