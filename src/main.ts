@@ -2512,6 +2512,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (multiplayerMode) setNetworkStatus(`Room ${multiplayer.session.room.code} · army ${localTeam} · online`);
 
   const rig = new RtsCameraRig(ctx.camera, input, hf);
+  const openingThreat = armies
+    .filter((army) => areTeamsHostile(sim, localTeam, army.team) && !army.base.destroyed)
+    .sort((a, b) => {
+      const distanceA = Math.hypot(a.base.transform.x - localBase.transform.x, a.base.transform.z - localBase.transform.z);
+      const distanceB = Math.hypot(b.base.transform.x - localBase.transform.x, b.base.transform.z - localBase.transform.z);
+      return distanceA - distanceB;
+    })[0]?.base;
   if (collectorPreviewEntity) {
     rig.focusOn(
       collectorPreviewEntity.transform.x,
@@ -2544,7 +2551,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       -6,
     );
   } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
-  else rig.jumpToOpeningView(localBase.transform.x, localBase.transform.z, localTeam);
+  else {
+    rig.jumpToOpeningView(
+      localBase.transform.x,
+      localBase.transform.z,
+      openingThreat ? { x: openingThreat.transform.x, z: openingThreat.transform.z } : undefined,
+      localTeam,
+    );
+  }
   const tacticalPing = {
     isActive: () => tacticalPingKind !== undefined,
     confirm: (x: number, z: number) => {
