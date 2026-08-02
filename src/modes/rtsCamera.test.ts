@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getEdgePanInput, strategyCameraYawFromAim } from './rtsCamera';
+import { getEdgePanInput, openingViewDirection, strategyCameraYawFromAim } from './rtsCamera';
 
 describe('RTS camera direct-control return heading', () => {
   it('places the strategy camera behind the unit aim direction', () => {
@@ -8,6 +8,20 @@ describe('RTS camera direct-control return heading', () => {
       expect(Math.sin(cameraYaw)).toBeCloseTo(-Math.sin(aimYaw), 10);
       expect(Math.cos(cameraYaw)).toBeCloseTo(-Math.cos(aimYaw), 10);
     }
+  });
+});
+
+describe('RTS opening camera', () => {
+  it('faces from the player base toward the actual nearest threat', () => {
+    const direction = openingViewDirection(20, -10, { x: -40, z: 70 }, 1);
+    expect(direction.x).toBeCloseTo(-0.6, 5);
+    expect(direction.z).toBeCloseTo(0.8, 5);
+  });
+
+  it('falls back to the deployment inward direction when no threat is available', () => {
+    const direction = openingViewDirection(0, 0, undefined, 3);
+    expect(direction.x).toBeCloseTo(-Math.SQRT1_2, 5);
+    expect(direction.z).toBeCloseTo(Math.SQRT1_2, 5);
   });
 });
 

@@ -31,9 +31,33 @@ export interface EdgePanInput {
   forward: number;
 }
 
+export interface OpeningViewDirection {
+  x: number;
+  z: number;
+}
+
 /** The RTS camera sits behind the direction the possessed unit was aiming. */
 export function strategyCameraYawFromAim(aimYaw: number): number {
   return normalizeAngle(aimYaw + Math.PI);
+}
+
+/** Points the opening camera from the player's base toward the actual threat. */
+export function openingViewDirection(
+  baseX: number,
+  baseZ: number,
+  threat: { x: number; z: number } | undefined,
+  fallbackTeam: number,
+): OpeningViewDirection {
+  if (threat) {
+    const dx = threat.x - baseX;
+    const dz = threat.z - baseZ;
+    const length = Math.hypot(dx, dz);
+    if (length > 1) return { x: dx / length, z: dz / length };
+  }
+  const sx = fallbackTeam === 2 || fallbackTeam === 3 ? -1 : 1;
+  const sz = fallbackTeam === 2 || fallbackTeam === 4 ? -1 : 1;
+  const length = Math.hypot(sx, sz);
+  return { x: sx / length, z: sz / length };
 }
 
 /**
@@ -201,15 +225,24 @@ export class RtsCameraRig {
     return this.currentPose(50);
   }
 
-  jumpToOpeningView(baseX: number, baseZ: number, team: number): void {
-    const inward = this.openingInwardDirection(team);
-    const focusX = baseX + inward.x * 52;
-    const focusZ = baseZ + inward.z * 52;
-    this.yawGoal = Math.atan2(-inward.x, -inward.z);
+  jumpToOpeningView(
+    baseX: number,
+    baseZ: number,
+    threat: { x: number; z: number } | undefined,
+    team: number,
+  ): void {
+    const forward = openingViewDirection(baseX, baseZ, threat, team);
+    // Aim well beyond the Command Yard so the base anchors the foreground and
+    // the hostile approach route fills the centre of the opening composition.
+    const focusX = baseX + forward.x * 60;
+    const focusZ = baseZ + forward.z * 60;
+    this.yawGoal = Math.atan2(-forward.x, -forward.z);
     this.yaw = this.yawGoal;
-    this.distGoal = MathUtils.clamp(172, ZOOM_MIN, ZOOM_MAX);
+    this.distGoal = MathUtils.clamp(166, ZOOM_MIN, ZOOM_MAX);
     this.dist = this.distGoal;
-    this.pitchOffsetGoal = MathUtils.degToRad(-7);
+    // A ~25° view keeps the horizon and terrain layers visible, matching the
+    // low command-post composition rather than a near-vertical tactical view.
+    this.pitchOffsetGoal = MathUtils.degToRad(-30);
     this.pitchOffset = this.pitchOffsetGoal;
     this.jumpTo(focusX, focusZ);
   }
@@ -334,12 +367,6 @@ export class RtsCameraRig {
     return MathUtils.clamp(value, -bound, bound);
   }
 
-  private openingInwardDirection(team: number): { x: number; z: number } {
-    const sx = team === 2 || team === 3 ? -1 : 1;
-    const sz = team === 2 || team === 4 ? -1 : 1;
-    const len = Math.hypot(sx, sz);
-    return { x: sx / len, z: sz / len };
-  }
 }
 
 function readSavedPitchOffset(): number {
