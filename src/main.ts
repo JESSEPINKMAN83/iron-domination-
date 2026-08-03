@@ -37,6 +37,7 @@ import {
 } from './content/maps';
 import { STRUCTURES, type StructureKind, type UnitKind } from './content/phase3';
 import { WEAPONS, type WeaponKind } from './content/phase4';
+import { arsenalForUnit } from './content/unitArsenal';
 import { isFortressTower } from './content/fortress';
 import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phase6';
 import { COMBAT_MODE_DESCRIPTIONS, COMBAT_MODES, type CombatMode } from './content/rules';
@@ -94,7 +95,7 @@ import {
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
 import { damageForArmor } from './sim/combat';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from './sim/serialize';
-import { purchaseUnitUpgrade } from './sim/upgrades';
+import { purchaseUnitUpgrade, unitKindForUpgrade } from './sim/upgrades';
 import { VisibilityGrid } from './sim/visibility';
 import {
   createGameSim,
@@ -2262,7 +2263,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (snowfall) ctx.scene.add(snowfall.points);
 
   const startMode = params.get('start');
-  const lineupStart = startMode === 'lineup';
+  const weaponsLab = startMode === 'weapons-lab' && !multiplayerMode && !isPublicHost(location.hostname);
+  const lineupStart = startMode === 'lineup' || weaponsLab;
   const impactMovementDemo =
     startMode === 'impact-demo' && !multiplayerMode && !isPublicHost(location.hostname);
   const cinematicWar =
@@ -2791,8 +2793,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         unitView.setSelectionOverlayVisible(false);
         sidebar.setFirstPerson(true);
         selectionBar.setVisible(false);
-        hud.setFirstPerson(true, firstPerson.fortress);
+        hud.setFirstPerson(true, firstPerson.fortress, firstPerson.possessedEntity);
       },
+      onPossessedChange: (entity) => hud.setFirstPerson(true, isFortressTower(entity), entity),
       prepareExitPose: (entity, aimYaw) => rig.focusOnHeading(entity.transform.x, entity.transform.z, aimYaw),
       onExit: () => {
         controller.setEnabled(true);
@@ -2816,6 +2819,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       : undefined,
     isVisibleToPlayer,
   );
+  if (weaponsLab) createWeaponsLabPanel(lineupUnits, sim, localTeam, rig);
   if (mobileTouch) {
     mobileControls = new MobileGameControls(input, sidebar, {
       enterFirstPerson: () => firstPerson.enter(selectedEntities(sim, localTeam)),
@@ -3730,6 +3734,90 @@ function spawnLineupUnits(
     }
   }
   return units;
+}
+
+function createWeaponsLabPanel(
+  lineupUnits: Entity[],
+  sim: ReturnType<typeof createGameSim>,
+  localTeam: number,
+  rig: RtsCameraRig,
+): void {
+  const platforms = lineupUnits
+    .filter((entity) => entity.team?.id === localTeam && !entity.harvester)
+    .map((entity) => ({ entity, kind: unitKindForUpgrade(entity) }))
+    .filter((entry): entry is { entity: Entity; kind: UnitKind } => entry.kind !== undefined);
+  if (platforms.length === 0) return;
+
+  const panel = document.createElement('section');
+  panel.setAttribute('aria-label', 'Weapons lab platform selector');
+  Object.assign(panel.style, {
+    position: 'fixed',
+    left: '12px',
+    top: '270px',
+    zIndex: '46',
+    width: '250px',
+    padding: '12px',
+    color: '#e9e7dc',
+    background: 'linear-gradient(145deg, rgba(6, 12, 12, .96), rgba(14, 24, 22, .92))',
+    border: '1px solid rgba(235, 198, 88, .72)',
+    boxShadow: '0 12px 36px rgba(0, 0, 0, .48)',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    pointerEvents: 'auto',
+  });
+  panel.innerHTML = `
+    <div style="color:#f0cb58;font-size:10px;letter-spacing:.18em">COMBAT DEVELOPMENT RANGE</div>
+    <div style="font-size:20px;font-weight:900;letter-spacing:.08em;margin:3px 0 5px">WEAPONS LAB</div>
+    <div data-lab-status style="font-size:10px;line-height:1.45;color:#b9c2bd;margin-bottom:9px">
+      Select a platform, then press <b style="color:#fff">V</b>. LMB fires primary; RMB fires secondary.
+    </div>
+    <div data-lab-buttons style="display:grid;grid-template-columns:1fr 1fr;gap:5px"></div>
+  `;
+  const status = panel.querySelector<HTMLElement>('[data-lab-status]')!;
+  const buttonGrid = panel.querySelector<HTMLElement>('[data-lab-buttons]')!;
+
+  for (const { entity, kind } of platforms) {
+    const arsenal = arsenalForUnit(kind);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = unitDisplayName(entity);
+    Object.assign(button.style, {
+      minHeight: '34px',
+      padding: '5px 7px',
+      color: '#dce6df',
+      background: 'rgba(25, 37, 34, .92)',
+      border: '1px solid rgba(156, 177, 166, .34)',
+      font: '700 9px ui-monospace, SFMono-Regular, Menlo, monospace',
+      letterSpacing: '.04em',
+      cursor: 'pointer',
+      textAlign: 'left',
+    });
+    button.title = `${WEAPONS[arsenal.primary].label}${arsenal.secondary ? ` + ${WEAPONS[arsenal.secondary].label}` : ''}`;
+    button.addEventListener('click', () => {
+      setSelected(sim, [entity], false, localTeam);
+      const forwardX = Math.sin(entity.transform.rot);
+      const forwardZ = Math.cos(entity.transform.rot);
+      rig.focusOn(
+        entity.transform.x,
+        entity.transform.z,
+        { x: entity.transform.x - forwardX * 24 + 15, z: entity.transform.z - forwardZ * 24 + 15 },
+        38,
+        -3,
+      );
+      status.innerHTML = `<b style="color:#f0cb58">${arsenal.designation}</b><br>${WEAPONS[arsenal.primary].label}${arsenal.secondary ? ` / ${WEAPONS[arsenal.secondary].label}` : ''} · press <b style="color:#fff">V</b>`;
+      for (const other of Array.from(buttonGrid.querySelectorAll<HTMLButtonElement>('button'))) {
+        other.style.borderColor = 'rgba(156, 177, 166, .34)';
+        other.style.background = 'rgba(25, 37, 34, .92)';
+      }
+      button.style.borderColor = '#f0cb58';
+      button.style.background = 'rgba(78, 66, 25, .92)';
+    });
+    buttonGrid.append(button);
+  }
+  panel.addEventListener('pointerdown', (event) => event.stopPropagation());
+  panel.addEventListener('contextmenu', (event) => event.preventDefault());
+  panel.addEventListener('wheel', (event) => event.stopPropagation(), { passive: true });
+  document.body.append(panel);
+  buttonGrid.querySelector<HTMLButtonElement>('button')?.click();
 }
 
 function spawnLineupKind(

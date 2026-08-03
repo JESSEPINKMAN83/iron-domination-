@@ -2,7 +2,7 @@ import { MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
-import { isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
+import { canManualWeaponLockTarget, isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
 import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
@@ -190,6 +190,7 @@ export class FirstPersonController {
     private readonly sim: GameSim,
     private readonly callbacks: {
       onEnter?: () => void;
+      onPossessedChange?: (entity: Entity) => void;
       prepareExitPose?: (entity: Entity, aimYaw: number) => CameraPose;
       onExit?: (entity?: Entity) => void;
       onHitFeedback?: (force: number) => void;
@@ -400,6 +401,7 @@ export class FirstPersonController {
     this.nextSquadFollowTick = this.sim.tick;
     this.toPose = this.poseFor(next, this.lookYaw, this.lookPitch, this.zoomedFov(62), 1, 1 / 60);
     setSelected(this.sim, this.squad, false, this.localTeam);
+    this.callbacks.onPossessedChange?.(next);
     return true;
   }
 
@@ -708,15 +710,18 @@ export class FirstPersonController {
       if (this.possessed.playerControlled) this.possessed.playerControlled.aimYaw = this.lookYaw;
       if (this.possessed.turret) this.possessed.turret.yaw = this.lookYaw;
     }
-    const lockedTarget = this.lockedTarget();
-    const reticleAircraft = this.tankReticleAircraft(this.possessed);
+    const selectedWeapon = slot === 'special'
+      ? this.possessed.specialWeapon
+      : this.possessed.weapons?.[slot] ?? (slot === 'primary' ? this.possessed.weapon : undefined);
+    if (selectedWeapon && selectedWeapon.cooldown > 0) {
+      this.flashAbilityStatus(`${slot === 'primary' ? 'PRIMARY' : slot === 'secondary' ? 'SECONDARY' : 'SPECIAL'} RELOADING ${selectedWeapon.cooldown.toFixed(1)}S`);
+      return false;
+    }
+    const lockedTarget = isManualTargetLockWeapon(selectedWeapon?.kind) ? this.lockedTarget() : undefined;
     const sharedGroundTarget = lockedTarget
       ? new Vector3(lockedTarget.transform.x, lockedTarget.transform.y, lockedTarget.transform.z)
-      : reticleAircraft
-        ? new Vector3(reticleAircraft.transform.x, reticleAircraft.transform.y, reticleAircraft.transform.z)
-        : this.tmpAimTarget;
+      : this.tmpAimTarget;
     const target = lockedTarget
-      && slot === 'primary'
       ? sharedGroundTarget
       : this.possessed.flight
         ? this.flightTarget(this.possessed, slot === 'secondary' ? 'secondary' : 'primary')
@@ -754,14 +759,8 @@ export class FirstPersonController {
     return fired;
   }
 
-  private tankReticleAircraft(entity: Entity): Entity | undefined {
-    const weaponKind = entity.weapons?.primary.kind ?? entity.weapon?.kind;
-    if (entity.flight || !entity.playerControlled || !isTankDirectMissile(weaponKind) || !entity.team) return undefined;
-    return this.reticleTarget(entity, true);
-  }
-
   private updateTargetLock(dt: number): void {
-    if (!this.possessed || !isManualTargetLockWeapon(this.possessed.weapons?.primary.kind ?? this.possessed.weapon?.kind)) {
+    if (!this.possessed || !this.hasLockWeapon(this.possessed)) {
       this.resetTargetLock();
       return;
     }
@@ -798,6 +797,11 @@ export class FirstPersonController {
     if (this.lockProgress >= TARGET_LOCK_SECONDS) this.lockedTargetId = candidate.id;
     const locked = this.lockedTargetId === candidate.id;
     this.renderTargetLock(candidate, locked);
+  }
+
+  private hasLockWeapon(entity: Entity): boolean {
+    return [entity.weapons?.primary ?? entity.weapon, entity.weapons?.secondary]
+      .some((weapon) => isManualTargetLockWeapon(weapon?.kind));
   }
 
   private updateTargetScan(dt: number): void {
@@ -902,6 +906,8 @@ export class FirstPersonController {
       const tankTarget = candidate.selectable?.type === 'tank' && !!candidate.mover;
       const fortressTarget = isFortressTower(entity) && Boolean(candidate.armor);
       if ((!candidate.flight && (aircraftOnly || (!tankTarget && !fortressTarget))) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
+      if (![entity.weapons?.primary ?? entity.weapon, entity.weapons?.secondary]
+        .some((weapon) => canManualWeaponLockTarget(weapon?.kind, candidate))) continue;
       if (isFortressTower(entity) && entity.weapons?.primary.kind === 'aaMissile' && candidate.armor?.kind !== 'air') continue;
       if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
       if (!this.isVisible(candidate.transform.x, candidate.transform.z)) continue;
@@ -1311,10 +1317,6 @@ export class FirstPersonController {
       this.lowHpVignetteOpacity = 0;
     }
   }
-}
-
-function isTankDirectMissile(kind: string | undefined): boolean {
-  return kind === 'scoutMissile' || kind === 'tankMissile' || kind === 'siegeMissile';
 }
 
 function lerpPose(from: CameraPose | undefined, to: CameraPose | undefined, t: number): CameraPose {

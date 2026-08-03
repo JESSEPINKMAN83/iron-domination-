@@ -165,6 +165,8 @@ export class CombatView {
   readonly group = new Group();
   private readonly cannonMaterial = new LineBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.92 });
   private readonly rifleMaterial = new LineBasicMaterial({ color: 0xff8f62, transparent: true, opacity: 0.8 });
+  private readonly autocannonMaterial = new LineBasicMaterial({ color: 0xffc14f, transparent: true, opacity: 0.9 });
+  private readonly aviationCannonMaterial = new LineBasicMaterial({ color: 0x77dfff, transparent: true, opacity: 0.88 });
   private readonly sniperMaterial = new LineBasicMaterial({ color: 0xd8ffd0, transparent: true, opacity: 0.96 });
   private readonly microLaserMaterial = new LineBasicMaterial({ color: 0x67f4ff, transparent: true, opacity: 0.94 });
   private readonly tracers: Tracer[] = [];
@@ -224,16 +226,19 @@ export class CombatView {
       if (isProjectileImpact(event.kind)) {
         this.removeImpactedHomingProjectile(event);
         if (shouldPaintGroundScorch(this.hf, event)) this.spawnGroundScorch(event);
-        if (isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
+        if (isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
+          const impactY = event.targetType === 'aircraft'
+            ? toY
+            : sampleHeight(this.hf, event.toX, event.toZ) + 0.4;
           this.spawnBombBlast(
             event.toX,
-            sampleHeight(this.hf, event.toX, event.toZ) + 0.4,
+            impactY,
             event.toZ,
             event.killed,
-            impactBlastScale(event.kind) * (event.impactScale ?? 1),
+            impactBlastScale(event.kind, event.weaponKind) * (event.impactScale ?? 1),
           );
         } else {
-          this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, event.impactScale ?? 1);
+          this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, (event.impactScale ?? 1) * smallImpactScale(event.weaponKind ?? event.kind));
         }
         if (event.damage > 0 || event.killed) {
           this.spawnHitIndicator(event);
@@ -248,6 +253,10 @@ export class CombatView {
         geometry,
         event.kind === 'microLaser'
           ? this.microLaserMaterial
+          : event.kind === 'waspAutocannon'
+            ? this.aviationCannonMaterial
+          : event.kind === 'autocannon'
+            ? this.autocannonMaterial
           : event.kind === 'sniperRifle' || event.kind === 'railShot'
             ? this.sniperMaterial
             : event.kind === 'rifle' || event.kind === 'overchargeRifle'
@@ -255,12 +264,19 @@ export class CombatView {
               : this.cannonMaterial,
       );
       line.renderOrder = 50;
-      const tracerTtl = event.kind === 'sniperRifle' || event.kind === 'railShot' ? 0.34 : event.kind === 'microLaser' ? 0.11 : event.kind === 'rifle' || event.kind === 'overchargeRifle' ? 0.08 : 0.16;
+      const tracerTtl = event.kind === 'sniperRifle' || event.kind === 'railShot' ? 0.34
+        : event.kind === 'microLaser' ? 0.11
+          : event.kind === 'waspAutocannon' ? 0.055
+            : event.kind === 'autocannon' ? 0.075
+              : event.kind === 'rifle' || event.kind === 'overchargeRifle' ? 0.08 : 0.16;
       this.tracers.push({ line, ttl: tracerTtl, total: tracerTtl });
       this.group.add(line);
+      if (event.kind === 'sniperRifle' || event.kind === 'railShot') {
+        this.spawnSniperShotFeedback(event, fromY, toY);
+      }
       this.trimTracers();
 
-      this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, event.impactScale ?? 1);
+      this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, (event.impactScale ?? 1) * smallImpactScale(event.weaponKind ?? event.kind));
       if (event.kind !== 'microLaser' && (event.damage > 0 || event.killed)) {
         this.spawnHitIndicator(event);
         this.spawnHitFragments(event, toY);
@@ -332,6 +348,40 @@ export class CombatView {
     while (this.tracers.length > maxTracers) this.disposeTracer(this.tracers.shift());
   }
 
+  private spawnSniperShotFeedback(event: CombatEvent, fromY: number, toY: number): void {
+    const dx = event.toX - event.fromX;
+    const dz = event.toZ - event.fromZ;
+    const length = Math.max(0.001, Math.hypot(dx, dz));
+    const offsetX = (-dz / length) * 0.085;
+    const offsetZ = (dx / length) * 0.085;
+    for (const side of [-1, 1]) {
+      const geometry = new BufferGeometry();
+      geometry.setAttribute('position', new Float32BufferAttribute([
+        event.fromX + offsetX * side, fromY, event.fromZ + offsetZ * side,
+        event.toX + offsetX * side, toY, event.toZ + offsetZ * side,
+      ], 3));
+      const echo = new Line(geometry, this.sniperMaterial);
+      echo.renderOrder = 51;
+      this.tracers.push({ line: echo, ttl: 0.22, total: 0.22 });
+      this.group.add(echo);
+    }
+
+    const flashMaterial = new MeshBasicMaterial({
+      color: 0xe7ffd9,
+      transparent: true,
+      opacity: 0.94,
+      depthWrite: false,
+    });
+    const flash = new Mesh(new SphereGeometry(0.46, 10, 6), flashMaterial);
+    const group = new Group();
+    group.add(flash);
+    group.position.set(event.fromX, fromY, event.fromZ);
+    group.renderOrder = 54;
+    this.group.add(group);
+    this.bursts.push({ group, ttl: 0.16, total: 0.16, kind: 'small', materials: [flashMaterial], baseScale: 1 });
+    this.trimBursts();
+  }
+
   private disposeTracer(tracer?: Tracer): void {
     if (!tracer) return;
     this.group.remove(tracer.line);
@@ -350,7 +400,7 @@ export class CombatView {
         ? (fromY + toY) * 0.5
         : Math.max(fromY, toY) + Math.min(190, distance * 0.24);
     const control = new Vector3((event.fromX + event.toX) / 2, controlY, (event.fromZ + event.toZ) / 2);
-    const group = this.makeProjectileMesh(event.kind);
+    const group = this.makeProjectileMesh(event);
     group.position.copy(from);
     group.renderOrder = 60;
     this.group.add(group);
@@ -360,7 +410,7 @@ export class CombatView {
     const trailGeometry = new BufferGeometry();
     trailGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(trailCapacity * 3), 3));
     const trail = new Line(trailGeometry, new LineBasicMaterial({
-      color: trailColor(event.kind),
+      color: trailColor(event.weaponKind ?? event.kind),
       transparent: true,
       opacity: homing ? 0.88 : 0.5,
       depthWrite: false,
@@ -400,7 +450,11 @@ export class CombatView {
       ) {
         const target = this.resolveEntity(projectile.event.targetId);
         if (target && !target.destroyed) {
-          projectile.to.set(target.transform.x, target.transform.y ?? projectile.to.y, target.transform.z);
+          const targetY = target.flight
+            ? target.transform.y ?? projectile.to.y
+            : sampleHeight(this.hf, target.transform.x, target.transform.z)
+              + (target.building ? 2.8 : target.selectable?.type === 'infantry' ? 1.15 : 1.7);
+          projectile.to.set(target.transform.x, targetY, target.transform.z);
           const desired = projectile.to.clone().sub(projectile.group.position).normalize();
           const delta = desired.sub(projectile.direction);
           const maxDirectionDelta = projectile.event.homingTurnRate * dt;
@@ -408,6 +462,14 @@ export class CombatView {
           projectile.direction.addScaledVector(delta, blend).normalize();
         }
         projectile.group.position.addScaledVector(projectile.direction, projectile.event.homingSpeed * dt);
+        if (target?.flight) {
+          const terrainY = sampleHeight(this.hf, projectile.group.position.x, projectile.group.position.z);
+          if (projectile.group.position.y <= terrainY + 0.35) {
+            projectile.group.position.y = terrainY + 0.65;
+            projectile.direction.y = Math.max(0.04, projectile.direction.y);
+            projectile.direction.normalize();
+          }
+        }
         projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, projectile.direction));
         projectile.trailPositions.push(projectile.group.position.clone());
         if (projectile.trailPositions.length > projectile.trailCapacity) projectile.trailPositions.shift();
@@ -482,23 +544,24 @@ export class CombatView {
   private emitProjectileSmoke(projectile: BombProjectile, tangent: Vector3, dt: number): void {
     projectile.smokeTimer -= dt;
     const homing = projectile.event.trajectory === 'homing';
-    const baseCadence = isBombKind(projectile.event.kind) ? 0.075 : projectile.event.kind === 'grenade' ? 0.12 : homing ? 0.035 : 0.045;
+    const visualKind = projectile.event.weaponKind ?? projectile.event.kind;
+    const baseCadence = projectileSmokeCadence(visualKind, projectile.event.kind, homing);
     const cadence = baseCadence * (this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 1.7 : 2.8);
     if (projectile.smokeTimer > 0) return;
     projectile.smokeTimer = cadence;
     const pos = projectile.group.position.clone();
-    const back = tangent.clone().multiplyScalar(isLargeMissile(projectile.event.kind) ? -1.35 : -0.65);
+    const back = tangent.clone().multiplyScalar(projectileSmokeOffset(visualKind, projectile.event.kind));
     pos.add(back);
     pos.x += Math.sin(projectile.elapsed * 19 + projectile.event.fromX) * 0.12;
     pos.z += Math.cos(projectile.elapsed * 17 + projectile.event.fromZ) * 0.12;
     const smokeMaterial = new MeshBasicMaterial({
-      color: isBombKind(projectile.event.kind) ? 0x3a3026 : homing ? 0xd8d3c7 : 0xb7b0a1,
+      color: projectileSmokeColor(visualKind, projectile.event.kind, homing),
       transparent: true,
-      opacity: projectile.event.kind === 'grenade' ? 0.22 : homing ? 0.5 : 0.34,
+      opacity: projectileSmokeOpacity(visualKind, projectile.event.kind, homing),
       depthWrite: false,
     });
     smokeMaterial.userData.baseOpacity = smokeMaterial.opacity;
-    const puff = new Mesh(new SphereGeometry(isBombKind(projectile.event.kind) ? 0.42 : homing ? 0.38 : 0.28, 8, 5), smokeMaterial);
+    const puff = new Mesh(new SphereGeometry(projectileSmokeSize(visualKind, projectile.event.kind, homing), 8, 5), smokeMaterial);
     puff.position.copy(pos);
     puff.renderOrder = 57;
     this.group.add(puff);
@@ -659,34 +722,34 @@ export class CombatView {
     scorch.material.dispose();
   }
 
-  private makeProjectileMesh(kind: string): Group {
+  private makeProjectileMesh(event: CombatEvent): Group {
+    const kind = event.kind;
+    const visualKind = event.weaponKind ?? kind;
+    const profile = projectileProfile(visualKind, kind);
     const group = new Group();
-    const missile = isMissile(kind);
-    const grenade = kind === 'grenade';
-    const shellMaterial = new MeshBasicMaterial({ color: missile ? 0x20262a : grenade ? 0x1c2218 : 0x181814 });
-    const noseMaterial = new MeshBasicMaterial({ color: kind === 'aaMissile' ? 0x70d8ff : kind === 'agMissile' ? 0xf2d66c : 0xd07a2a });
-    const bandMaterial = new MeshBasicMaterial({ color: trailColor(kind) });
-    const glowMaterial = new MeshBasicMaterial({ color: trailColor(kind), transparent: true, opacity: missile ? 0.36 : 0.28, depthWrite: false });
-    const body = new Mesh(new CylinderGeometry(missile ? 0.2 : grenade ? 0.3 : 0.34, missile ? 0.24 : grenade ? 0.3 : 0.42, missile ? 1.65 : grenade ? 0.9 : 2.25, 12), shellMaterial);
-    const nose = new Mesh(new ConeGeometry(missile ? 0.22 : grenade ? 0.3 : 0.34, missile ? 0.44 : grenade ? 0.26 : 0.72, 12), noseMaterial);
-    const band = new Mesh(new CylinderGeometry(missile ? 0.25 : 0.43, missile ? 0.25 : 0.43, 0.1, 12), bandMaterial);
-    const glow = new Mesh(new SphereGeometry(missile ? 0.5 : grenade ? 0.45 : 0.78, 12, 8), glowMaterial);
+    const shellMaterial = new MeshBasicMaterial({ color: profile.bodyColor });
+    const noseMaterial = new MeshBasicMaterial({ color: profile.noseColor });
+    const bandMaterial = new MeshBasicMaterial({ color: profile.bandColor });
+    const glowMaterial = new MeshBasicMaterial({ color: profile.glowColor, transparent: true, opacity: profile.glowOpacity, depthWrite: false });
+    const body = new Mesh(new CylinderGeometry(profile.tipRadius, profile.bodyRadius, profile.bodyLength, profile.segments), shellMaterial);
+    const nose = new Mesh(new ConeGeometry(profile.tipRadius, profile.noseLength, profile.segments), noseMaterial);
+    const band = new Mesh(new CylinderGeometry(profile.bodyRadius * 1.05, profile.bodyRadius * 1.05, profile.bandWidth, profile.segments), bandMaterial);
+    const glow = new Mesh(new SphereGeometry(profile.glowRadius, 10, 6), glowMaterial);
     body.position.y = 0;
-    nose.position.y = missile ? 1.04 : grenade ? 0.58 : 1.48;
-    band.position.y = missile ? -0.58 : grenade ? -0.32 : -0.75;
-    glow.position.y = 0.22;
+    nose.position.y = profile.bodyLength * 0.5 + profile.noseLength * 0.5;
+    band.position.y = -profile.bodyLength * 0.26;
+    glow.position.y = -profile.bodyLength * 0.54;
     group.add(glow, body, nose, band);
-    const finCount = missile ? 3 : grenade ? 0 : 4;
-    for (let i = 0; i < finCount; i++) {
-      const fin = new Mesh(new BoxGeometry(0.08, 0.54, 0.5), shellMaterial.clone());
-      fin.position.y = missile ? -0.86 : -1.05;
-      const angle = (i / Math.max(1, finCount)) * Math.PI * 2;
-      fin.position.x = Math.cos(angle) * (missile ? 0.24 : 0.38);
-      fin.position.z = Math.sin(angle) * (missile ? 0.24 : 0.38);
+    for (let i = 0; i < profile.fins; i++) {
+      const fin = new Mesh(new BoxGeometry(profile.finThickness, profile.finLength, profile.finWidth), shellMaterial.clone());
+      fin.position.y = -profile.bodyLength * 0.42;
+      const angle = (i / Math.max(1, profile.fins)) * Math.PI * 2;
+      fin.position.x = Math.cos(angle) * profile.bodyRadius;
+      fin.position.z = Math.sin(angle) * profile.bodyRadius;
       fin.rotation.y = angle;
       group.add(fin);
     }
-    group.scale.setScalar(projectileVisualScale(kind));
+    group.scale.setScalar(profile.scale);
     return group;
   }
 
@@ -915,11 +978,11 @@ function bezierTangent(from: Vector3, control: Vector3, to: Vector3, t: number):
 }
 
 function isProjectileLaunch(kind: string): boolean {
-  return isBombKind(kind) || kind === 'grenade' || kind === 'atRocket' || kind === 'scoutMissile' || kind === 'tankMissile' || kind === 'siegeMissile' || kind === 'agMissile' || kind === 'aaMissile';
+  return isBombKind(kind) || kind === 'grenade' || kind === 'kineticShell' || kind === 'artilleryShell' || kind === 'atRocket' || kind === 'scoutMissile' || kind === 'tankMissile' || kind === 'siegeMissile' || kind === 'agMissile' || kind === 'aaMissile';
 }
 
 function isProjectileImpact(kind: string): boolean {
-  return isBombImpact(kind) || kind === 'grenade-impact' || kind === 'atRocket-impact' || isTankMissileImpact(kind) || kind === 'agMissile-impact' || kind === 'aaMissile-impact';
+  return isBombImpact(kind) || kind === 'grenade-impact' || kind === 'kineticShell-impact' || kind === 'artilleryShell-impact' || kind === 'atRocket-impact' || isTankMissileImpact(kind) || kind === 'agMissile-impact' || kind === 'aaMissile-impact';
 }
 
 function isBombKind(kind: string): boolean {
@@ -935,29 +998,167 @@ function isMissile(kind: string): boolean {
 }
 
 function isLargeMissile(kind: string): boolean {
-  return kind === 'agMissile' || kind === 'aaMissile' || kind === 'tankMissile' || kind === 'siegeMissile';
+  return kind === 'artilleryShell' || kind === 'agMissile' || kind === 'aaMissile' || kind === 'tankMissile' || kind === 'siegeMissile';
 }
 
 function isTankMissileImpact(kind: string): boolean {
   return kind === 'scoutMissile-impact' || kind === 'tankMissile-impact' || kind === 'siegeMissile-impact';
 }
 
-function projectileVisualScale(kind: string): number {
-  if (kind === 'tankBomb') return 2.25;
-  if (kind === 'scoutMissile') return 1.25;
-  if (kind === 'tankMissile') return 1.7;
-  if (kind === 'siegeMissile') return 2.25;
-  if (isMissile(kind)) return 1.6;
-  return kind === 'grenade' ? 1.1 : 1.75;
+interface ProjectileVisualProfile {
+  bodyColor: number;
+  noseColor: number;
+  bandColor: number;
+  glowColor: number;
+  glowOpacity: number;
+  bodyRadius: number;
+  tipRadius: number;
+  bodyLength: number;
+  noseLength: number;
+  bandWidth: number;
+  glowRadius: number;
+  fins: number;
+  finThickness: number;
+  finLength: number;
+  finWidth: number;
+  segments: number;
+  scale: number;
 }
 
-function impactBlastScale(kind: string): number {
+function projectileProfile(weaponKind: string, projectileKind: string): ProjectileVisualProfile {
+  const base: ProjectileVisualProfile = {
+    bodyColor: 0x23292b,
+    noseColor: 0xd07a2a,
+    bandColor: trailColor(weaponKind),
+    glowColor: trailColor(weaponKind),
+    glowOpacity: 0.34,
+    bodyRadius: 0.22,
+    tipRadius: 0.18,
+    bodyLength: 1.7,
+    noseLength: 0.46,
+    bandWidth: 0.1,
+    glowRadius: 0.46,
+    fins: 3,
+    finThickness: 0.07,
+    finLength: 0.5,
+    finWidth: 0.44,
+    segments: 10,
+    scale: 1.4,
+  };
+  if (projectileKind === 'kineticShell') return {
+    ...base, bodyColor: 0x2d2a24, noseColor: 0xffe6a1, bandColor: 0xfff1b0, glowColor: 0xfff1b0,
+    glowOpacity: 0.72, bodyRadius: 0.075, tipRadius: 0.045, bodyLength: 1.7, noseLength: 0.32,
+    bandWidth: 0.06, glowRadius: 0.24, fins: 0, segments: 8, scale: 0.8,
+  };
+  if (projectileKind === 'artilleryShell') return {
+    ...base, bodyColor: 0x2d302e, noseColor: 0x222321, bandColor: 0xd99a3b, glowColor: 0xff9a45,
+    glowOpacity: 0.16, bodyRadius: 0.31, tipRadius: 0.22, bodyLength: 2.05, noseLength: 0.82,
+    bandWidth: 0.16, glowRadius: 0.38, fins: 0, segments: 12, scale: 1.35,
+  };
+  if (projectileKind === 'grenade') {
+    const rifle = weaponKind === 'rifleGrenade';
+    return {
+      ...base, bodyColor: rifle ? 0x4f5638 : 0x252b1d, noseColor: rifle ? 0xb3aa6a : 0x434b2d,
+      bandColor: rifle ? 0xe1cc68 : 0xf2a44f, glowColor: rifle ? 0xe1cc68 : 0xf2a44f,
+      glowOpacity: 0.2, bodyRadius: rifle ? 0.19 : 0.3, tipRadius: rifle ? 0.16 : 0.28,
+      bodyLength: rifle ? 0.62 : 0.86, noseLength: rifle ? 0.2 : 0.28, bandWidth: 0.08,
+      glowRadius: rifle ? 0.24 : 0.4, fins: 0, segments: 10, scale: rifle ? 0.9 : 1.15,
+    };
+  }
+  if (weaponKind === 'rocketPod') return {
+    ...base, bodyColor: 0x3d413d, noseColor: 0xdb7132, bandColor: 0xffa04a, glowColor: 0xff8b32,
+    bodyRadius: 0.1, tipRadius: 0.075, bodyLength: 0.82, noseLength: 0.24, bandWidth: 0.05,
+    glowRadius: 0.24, fins: 2, finThickness: 0.035, finLength: 0.22, finWidth: 0.2, segments: 8, scale: 0.95,
+  };
+  if (weaponKind === 'rocketLauncher') return {
+    ...base, bodyColor: 0x4b5139, noseColor: 0xddd0a0, bandColor: 0xd37835, glowColor: 0xff9e52,
+    bodyRadius: 0.19, tipRadius: 0.14, bodyLength: 1.5, noseLength: 0.56, bandWidth: 0.13,
+    glowRadius: 0.46, fins: 4, finThickness: 0.06, finLength: 0.44, finWidth: 0.38, scale: 1.42,
+  };
+  if (weaponKind === 'scoutMissile') return {
+    ...base, bodyColor: 0x343b38, noseColor: 0xb9c6a7, bandColor: 0x74c98f, glowColor: 0xc6f2bd,
+    bodyRadius: 0.13, tipRadius: 0.09, bodyLength: 1.35, noseLength: 0.42, bandWidth: 0.08,
+    glowRadius: 0.34, fins: 4, finThickness: 0.045, finLength: 0.35, finWidth: 0.3, scale: 1.18,
+  };
+  if (weaponKind === 'tankMissile') return {
+    ...base, bodyColor: 0x292e31, noseColor: 0xe0d2ad, bandColor: 0xd9a844, glowColor: 0xffbd58,
+    bodyRadius: 0.22, tipRadius: 0.15, bodyLength: 2.05, noseLength: 0.58, bandWidth: 0.15,
+    glowRadius: 0.52, fins: 4, finThickness: 0.07, finLength: 0.56, finWidth: 0.5, scale: 1.48,
+  };
+  if (weaponKind === 'agMissile') return {
+    ...base, bodyColor: 0x252a2e, noseColor: 0xf2d66c, bandColor: 0xe2bc4f, glowColor: 0xffd76a,
+    bodyRadius: 0.2, tipRadius: 0.12, bodyLength: 2.5, noseLength: 0.72, bandWidth: 0.14,
+    glowRadius: 0.56, fins: 4, finThickness: 0.06, finLength: 0.72, finWidth: 0.58, scale: 1.65,
+  };
+  if (weaponKind === 'aaMissile') return {
+    ...base, bodyColor: 0xd8dde0, noseColor: 0x70d8ff, bandColor: 0x4ea4d8, glowColor: 0x9eeaff,
+    bodyRadius: 0.12, tipRadius: 0.07, bodyLength: 2.15, noseLength: 0.62, bandWidth: 0.12,
+    glowRadius: 0.38, fins: 4, finThickness: 0.045, finLength: 0.52, finWidth: 0.38, scale: 1.3,
+  };
+  return projectileKind === 'tankBomb' ? { ...base, bodyRadius: 0.4, bodyLength: 2.3, scale: 2.2 } : base;
+}
+
+function projectileSmokeCadence(weaponKind: string, projectileKind: string, homing: boolean): number {
+  if (isBombKind(projectileKind)) return 0.075;
+  if (projectileKind === 'grenade') return weaponKind === 'rifleGrenade' ? 0.18 : 0.12;
+  if (projectileKind === 'kineticShell' || projectileKind === 'artilleryShell') return 0.2;
+  if (weaponKind === 'rocketPod') return 0.075;
+  if (weaponKind === 'rocketLauncher' || weaponKind === 'tankMissile') return 0.032;
+  return homing ? 0.042 : 0.052;
+}
+
+function projectileSmokeOffset(weaponKind: string, projectileKind: string): number {
+  if (projectileKind === 'kineticShell') return -0.35;
+  if (projectileKind === 'artilleryShell') return -0.75;
+  if (weaponKind === 'rocketPod') return -0.48;
+  return isLargeMissile(projectileKind) || weaponKind === 'rocketLauncher' ? -1.35 : -0.65;
+}
+
+function projectileSmokeColor(weaponKind: string, projectileKind: string, homing: boolean): number {
+  if (isBombKind(projectileKind)) return 0x3a3026;
+  if (projectileKind === 'kineticShell') return 0xffd875;
+  if (projectileKind === 'artilleryShell') return 0x71675a;
+  if (weaponKind === 'aaMissile') return 0xdbeeff;
+  if (weaponKind === 'rocketPod') return 0xaaa397;
+  return homing ? 0xd8d3c7 : 0xb7b0a1;
+}
+
+function projectileSmokeOpacity(weaponKind: string, projectileKind: string, homing: boolean): number {
+  if (projectileKind === 'kineticShell') return 0.12;
+  if (projectileKind === 'artilleryShell') return 0.18;
+  if (projectileKind === 'grenade') return weaponKind === 'rifleGrenade' ? 0.13 : 0.22;
+  if (weaponKind === 'rocketPod') return 0.26;
+  return homing ? 0.5 : 0.34;
+}
+
+function projectileSmokeSize(weaponKind: string, projectileKind: string, homing: boolean): number {
+  if (isBombKind(projectileKind)) return 0.42;
+  if (projectileKind === 'kineticShell') return 0.12;
+  if (projectileKind === 'artilleryShell') return 0.2;
+  if (weaponKind === 'rocketPod') return 0.2;
+  if (weaponKind === 'tankMissile' || weaponKind === 'rocketLauncher') return 0.42;
+  return homing ? 0.34 : 0.27;
+}
+
+function impactBlastScale(kind: string, weaponKind?: string): number {
+  if (kind === 'kineticShell-impact') return 0.34;
+  if (kind === 'artilleryShell-impact') return 1.16;
   if (kind === 'tankBomb-impact') return 1.42;
   if (kind === 'bomb-impact') return 1;
   if (kind === 'grenade-impact') return 0.58;
+  if (kind === 'atRocket-impact') return weaponKind === 'rocketPod' ? 0.46 : 0.7;
   if (kind === 'scoutMissile-impact') return 0.52;
   if (kind === 'tankMissile-impact') return 0.72;
   if (kind === 'siegeMissile-impact') return 1;
+  return 1;
+}
+
+function smallImpactScale(weaponKind: string): number {
+  if (weaponKind === 'rifle' || weaponKind === 'microLaser') return 0.42;
+  if (weaponKind === 'autocannon') return 0.62;
+  if (weaponKind === 'waspAutocannon') return 0.54;
+  if (weaponKind === 'sniperRifle' || weaponKind === 'railShot') return 0.76;
+  if (weaponKind === 'kineticShell' || weaponKind === 'cannon') return 0.88;
   return 1;
 }
 
@@ -969,6 +1170,8 @@ function shouldPaintGroundScorch(hf: Heightfield, event: CombatEvent): boolean {
 }
 
 function scorchProfile(kind: string, killed: boolean): { size: number; opacity: number; ttl: number } {
+  if (kind === 'artilleryShell-impact') return { size: killed ? 15.5 : 12.8, opacity: 0.68, ttl: killed ? 58 : 48 };
+  if (kind === 'kineticShell-impact') return { size: killed ? 5.4 : 3.6, opacity: 0.4, ttl: 24 };
   if (kind === 'tankBomb-impact') return { size: killed ? 18.5 : 15.2, opacity: 0.7, ttl: killed ? 66 : 54 };
   if (kind === 'bomb-impact') return { size: killed ? 13.5 : 10.5, opacity: 0.62, ttl: killed ? 54 : 42 };
   if (kind === 'agMissile-impact') return { size: killed ? 11.5 : 8.6, opacity: 0.58, ttl: killed ? 48 : 38 };
@@ -1077,8 +1280,15 @@ function mulberry32(seed: number): () => number {
 }
 
 function trailColor(kind: string): number {
+  if (kind === 'kineticShell') return 0xfff1b0;
+  if (kind === 'artilleryShell') return 0xff9a45;
   if (kind === 'aaMissile') return 0x70d8ff;
   if (kind === 'agMissile') return 0xffd76a;
+  if (kind === 'rocketPod') return 0xff8b32;
+  if (kind === 'rocketLauncher') return 0xffb06a;
+  if (kind === 'scoutMissile') return 0x9de2a9;
+  if (kind === 'tankMissile') return 0xffbd58;
+  if (kind === 'rifleGrenade') return 0xe1cc68;
   if (kind === 'atRocket') return 0xff9e52;
   if (kind === 'grenade') return 0xf2b35e;
   return 0xff8f36;

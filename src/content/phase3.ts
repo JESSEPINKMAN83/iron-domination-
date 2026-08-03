@@ -152,7 +152,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   infantry: {
     kind: 'infantry',
     label: 'Rifle Team',
-    role: 'Cheap anti-infantry screen',
+    role: 'Carbine screen with 40mm auxiliary grenade',
     tab: 'infantry',
     cost: 100,
     buildTime: 4,
@@ -182,7 +182,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   'rocket-infantry': {
     kind: 'rocket-infantry',
     label: 'Rocket Team',
-    role: 'Anti-armor rockets plus AA lock',
+    role: 'Guided anti-armor top attack plus AA seeker',
     tab: 'infantry',
     cost: 240,
     buildTime: 6,
@@ -192,7 +192,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   'scout-tank': {
     kind: 'scout-tank',
     label: 'Jackal Scout',
-    role: 'Fast light missile tank with single bomb',
+    role: 'Fast 25mm reconnaissance vehicle with light ATGM',
     tab: 'vehicles',
     cost: 360,
     buildTime: 7,
@@ -202,7 +202,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   tank: {
     kind: 'tank',
     label: 'M-17 Tank',
-    role: 'Balanced direct missiles with twin bombs',
+    role: '120mm kinetic main gun with guided anti-armor missile',
     tab: 'vehicles',
     cost: 550,
     buildTime: 9,
@@ -212,7 +212,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   'siege-tank': {
     kind: 'siege-tank',
     label: 'Mauler Siege',
-    role: 'Heavy siege missiles with four-bomb salvo',
+    role: 'Long-range 155mm indirect fire with close-defense cannon',
     tab: 'vehicles',
     cost: 820,
     buildTime: 12,
@@ -222,7 +222,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   wasp: {
     kind: 'wasp',
     label: 'Wasp Scout',
-    role: 'Fast interceptor with single bomb',
+    role: 'Fast 20mm interceptor with air-to-air missile',
     tab: 'aircraft',
     cost: 650,
     buildTime: 9,
@@ -232,7 +232,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   vulture: {
     kind: 'vulture',
     label: 'Vulture',
-    role: 'Rocket gunship with twin bombs',
+    role: 'Unguided rocket gunship with 25mm close fire',
     tab: 'aircraft',
     cost: 950,
     buildTime: 12,
@@ -242,7 +242,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   hammerhead: {
     kind: 'hammerhead',
     label: 'Hammerhead',
-    role: 'Heavy aircraft with four-bomb salvo',
+    role: 'Multi-role guided missile carrier with heavy bomb salvo',
     tab: 'aircraft',
     cost: 1250,
     buildTime: 15,

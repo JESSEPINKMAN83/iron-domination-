@@ -13,10 +13,36 @@ const AIM_TOLERANCE = 0.12;
 const BOMB_SPEED = 95; // meters per second of flight, drives travel time
 const DEFENSE_ALERT_RADIUS = 145;
 const DEFENSE_ALERT_TTL = 9;
-const PLAYER_PRIMARY_SPEED_SCALE = 2.35;
-const PLAYER_PRIMARY_DAMAGE_SCALE = 1.16;
-const PLAYER_PRIMARY_FORCE_SCALE = 1.42;
-const PLAYER_PRIMARY_IMPACT_SCALE = 1.42;
+interface PlayerFireScales {
+  speed: number;
+  damage: number;
+  force: number;
+  impact: number;
+}
+
+/**
+ * V-mode no longer turns every primary into the same hyper-fast rocket.
+ * Each weapon keeps the timing and physical character of its platform.
+ */
+function playerPrimaryScales(kind: WeaponKind): PlayerFireScales {
+  switch (kind) {
+    case 'cannon':
+      return { speed: 1.18, damage: 1, force: 1.42, impact: 1.28 };
+    case 'heavyCannon':
+      return { speed: 1, damage: 1, force: 1.62, impact: 1.55 };
+    case 'rocketPod':
+      return { speed: 1.18, damage: 1.08, force: 1.18, impact: 1.2 };
+    case 'agMissile':
+      return { speed: 1.12, damage: 1.1, force: 1.3, impact: 1.32 };
+    case 'autocannon':
+    case 'waspAutocannon':
+      return { speed: 1, damage: 1.06, force: 1.08, impact: 1.08 };
+    case 'grenade':
+      return { speed: 1, damage: 1.08, force: 1.22, impact: 1.2 };
+    default:
+      return { speed: 1, damage: 1.08, force: 1.12, impact: 1.1 };
+  }
+}
 /** Locked ordnance trades raw velocity and impact for guidance that can be evaded. */
 const LOCKED_MISSILE_SPEED_SCALE = 0.68;
 const LOCKED_MISSILE_DAMAGE_SCALE = 0.96;
@@ -300,11 +326,14 @@ export function manualFireAt(
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def || weapon.cooldown > 0) return false;
   const boostedPrimary = slot === 'primary' && !!attacker.playerControlled;
-  const speedScale = boostedPrimary ? PLAYER_PRIMARY_SPEED_SCALE : 1;
-  const damageScale = boostedPrimary ? PLAYER_PRIMARY_DAMAGE_SCALE : 1;
-  const forceScale = boostedPrimary ? PLAYER_PRIMARY_FORCE_SCALE : 1;
-  const impactScale = boostedPrimary ? PLAYER_PRIMARY_IMPACT_SCALE : 1;
-  const lockedTarget = slot === 'primary' ? validManualLockTarget(sim, attacker, weapon, lockedTargetId) : undefined;
+  const primaryScales = boostedPrimary
+    ? playerPrimaryScales(def.kind)
+    : { speed: 1, damage: 1, force: 1, impact: 1 };
+  const speedScale = primaryScales.speed;
+  const damageScale = primaryScales.damage;
+  const forceScale = primaryScales.force;
+  const impactScale = primaryScales.impact;
+  const lockedTarget = validManualLockTarget(sim, attacker, weapon, lockedTargetId);
   if (lockedTarget) {
     targetX = lockedTarget.transform.x;
     targetZ = lockedTarget.transform.z;
@@ -343,7 +372,17 @@ export function manualFireAt(
     ? len
     : Math.min(weapon.range || def.range, len);
   if (def.minRange !== undefined && len < def.minRange) return false;
-  const target = lockedTarget ?? acquireLineTarget(sim, attacker, weapon, ux, uz, range, aimRay, isTankDirectMissile(def.kind) && !!attacker.playerControlled);
+  const target = lockedTarget ?? acquireLineTarget(
+    sim,
+    attacker,
+    weapon,
+    ux,
+    uz,
+    range,
+    aimRay,
+    isTankDirectMissile(def.kind) && !!attacker.playerControlled,
+    Boolean(attacker.playerControlled),
+  );
   const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
   const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
   if (def.projectile || lockedTarget) {
@@ -351,7 +390,19 @@ export function manualFireAt(
     // entity is acquired, use its own center height; otherwise ground vehicles
     // can inherit the distant terrain height and make the projectile dive into
     // the ground before reaching them.
-    const projectileTargetY = target ? targetYForEvent(target) : targetY;
+    const clampedRayTargetY = targetY === undefined
+      ? undefined
+      : muzzleY + (targetY - muzzleY) * Math.min(1, range / len);
+    const manualGroundArc = Boolean(
+      attacker.playerControlled
+      && !target
+      && def.projectile?.trajectory === 'arc',
+    );
+    const projectileTargetY = target
+      ? targetYForEvent(target)
+      : manualGroundArc
+        ? sampleHeight(sim.nav.heightfield, hitX, hitZ) + 0.4
+        : clampedRayTargetY;
     launchWeaponProjectile(
       sim,
       attacker,
@@ -401,6 +452,7 @@ export function manualFireAt(
   weapon.cooldown = def.cooldown;
   sim.events.push({
     kind: def.kind,
+    weaponKind: def.kind,
     fromX: attacker.transform.x,
     fromY: directMuzzleY(attacker),
     fromZ: attacker.transform.z,
@@ -468,6 +520,7 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
     });
     sim.events.push({
       kind: projectileKind,
+      weaponKind,
       fromX: attacker.transform.x,
       fromY: bombMuzzleY(attacker),
       fromZ: attacker.transform.z,
@@ -485,7 +538,11 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
 
 function launchWeaponProjectileAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, target: Entity): void {
   const aim = autoAimPoint(sim, attacker, weapon, target, target.transform.x, target.transform.z, 'projectile');
-  launchWeaponProjectile(sim, attacker, weapon, aim.directTarget, aim.x, targetYForEvent(aim.directTarget, target.transform.y), aim.z);
+  // Ground entities store terrain height in transform.y. Passing that raw
+  // value as an explicit aim height made shells dive into the soil beneath a
+  // tank or building. Let the projectile resolver add the correct hull/facade
+  // height whenever the accuracy model retained a direct target.
+  launchWeaponProjectile(sim, attacker, weapon, aim.directTarget, aim.x, targetYForEvent(aim.directTarget), aim.z);
 }
 
 function launchWeaponProjectile(
@@ -514,7 +571,12 @@ function launchWeaponProjectile(
   const dx = targetX - attacker.transform.x;
   const dz = targetZ - attacker.transform.z;
   const distanceToAim = Math.max(0.001, Math.hypot(dx, dz));
-  const isLocked = (projectileDef.trajectory === 'homing' || forceHoming) && target?.id !== undefined;
+  // In V-mode a target crossing the raw aim ray is not the same as a completed
+  // lock. Unlocked shots retain full speed and fly straight; AI fire and an
+  // explicit player lock use the guided flight model.
+  const isLocked = target?.id !== undefined && (
+    forceHoming || (!attacker.playerControlled && projectileDef.trajectory === 'homing')
+  );
   const speed = projectileDef.speed * (isLocked ? LOCKED_MISSILE_SPEED_SCALE : speedScale);
   const aimDy = resolvedTargetY - fromY;
   const aimDistance = Math.max(0.001, Math.hypot(dx, aimDy, dz));
@@ -537,7 +599,7 @@ function launchWeaponProjectile(
           turnRate: target.flight ? LOCKED_MISSILE_AIR_TURN_RATE : LOCKED_MISSILE_GROUND_TURN_RATE,
         }
       : undefined;
-  const trajectory = homing ? 'homing' : projectileDef.trajectory;
+  const trajectory = homing ? 'homing' : projectileDef.trajectory === 'homing' ? 'flat' : projectileDef.trajectory;
   sim.projectiles.push({
     kind: projectileDef.kind,
     weaponKind: def.kind,
@@ -556,6 +618,7 @@ function launchWeaponProjectile(
     damageScale: isLocked ? Math.min(1, damageScale) * LOCKED_MISSILE_DAMAGE_SCALE : damageScale,
     forceScale: isLocked ? Math.min(1, forceScale) * LOCKED_MISSILE_FORCE_SCALE : forceScale,
     impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale,
+    manualAim: Boolean(attacker.playerControlled),
     maxDistance: projectileDef.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
     directTargetId: target?.id,
     trajectory,
@@ -566,6 +629,7 @@ function launchWeaponProjectile(
   weapon.cooldown = weaponCooldown(def.cooldown, attacker);
   sim.events.push({
     kind: projectileDef.kind,
+    weaponKind: def.kind,
     fromX: attacker.transform.x,
     fromY,
     fromZ: attacker.transform.z,
@@ -589,6 +653,7 @@ function validManualLockTarget(sim: GameSim, attacker: Entity, weapon: Weapon, t
   if (targetId === undefined || !attacker.playerControlled || !isManualTargetLockWeapon(weapon.kind) || !attacker.team) return undefined;
   const target = entityById(sim, targetId);
   if (!target || (!isFortressTower(attacker) && !target.flight && target.selectable?.type !== 'tank')) return undefined;
+  if (!canManualWeaponLockTarget(weapon.kind, target)) return undefined;
   if (!targetableByTeam(sim, attacker.team.id, target)) return undefined;
   return target;
 }
@@ -598,9 +663,17 @@ export function isManualTargetLockWeapon(kind: string | undefined): boolean {
     || kind === 'tankMissile'
     || kind === 'siegeMissile'
     || kind === 'rocketLauncher'
-    || kind === 'rocketPod'
     || kind === 'agMissile'
     || kind === 'aaMissile';
+}
+
+export function canManualWeaponLockTarget(kind: string | undefined, target: Entity): boolean {
+  if (!kind || !isManualTargetLockWeapon(kind) || !target.armor) return false;
+  const def = WEAPONS[kind as WeaponKind];
+  // Manual locks may use a weapon's reduced off-role damage (for example an
+  // M-17 missile against aircraft), but never promise a lock for a zero-damage
+  // pairing such as an anti-air seeker against a ground structure.
+  return Boolean(def && def.vs[target.armor.kind] > 0);
 }
 
 function isTankDirectMissile(kind: WeaponKind): boolean {
@@ -659,7 +732,9 @@ function stepProjectiles(sim: GameSim, dt: number): void {
       const py = projectile.y ?? projectile.fromY
         ?? sampleHeight(sim.nav.heightfield, projectile.fromX, projectile.fromZ) + 2;
       const pz = projectile.z ?? projectile.fromZ;
-      const ty = absoluteProjectileTargetY(sim, target, target.transform.x, target.transform.z, target.transform.y);
+      // Ground transforms contain terrain elevation, not the center of the
+      // vehicle hull. Resolve the live target center from its entity type.
+      const ty = absoluteProjectileTargetY(sim, target, target.transform.x, target.transform.z);
       const vx = target.transform.x - px;
       const vy = ty - py;
       const vz = target.transform.z - pz;
@@ -685,7 +760,51 @@ function stepProjectiles(sim: GameSim, dt: number): void {
       projectile.x = px + projectile.homing.directionX * step;
       projectile.y = py + projectile.homing.directionY * step;
       projectile.z = pz + projectile.homing.directionZ * step;
-      if ((projectile.y ?? py) <= sampleHeight(sim.nav.heightfield, projectile.x, projectile.z) + 0.35) {
+      const weaponKind = (projectile.weaponKind ?? projectile.kind) as WeaponKind;
+      const impactRadius = WEAPONS[weaponKind]?.projectile?.impactRadius ?? 2.5;
+      const targetRadius = target.collider?.radius ?? target.selectable?.radius ?? 1.4;
+      const segmentX = projectile.x - px;
+      const segmentY = (projectile.y ?? py) - py;
+      const segmentZ = projectile.z - pz;
+      const segmentLengthSq = Math.max(0.0001, segmentX * segmentX + segmentY * segmentY + segmentZ * segmentZ);
+      const closestT = Math.max(0, Math.min(1, (
+        (target.transform.x - px) * segmentX
+        + (ty - py) * segmentY
+        + (target.transform.z - pz) * segmentZ
+      ) / segmentLengthSq));
+      const closestX = px + segmentX * closestT;
+      const closestY = py + segmentY * closestT;
+      const closestZ = pz + segmentZ * closestT;
+      const targetDistance = Math.hypot(
+        target.transform.x - closestX,
+        ty - closestY,
+        target.transform.z - closestZ,
+      );
+      // Continuous collision prevents a fast missile from tunnelling through
+      // a large aircraft or tank between two fixed simulation ticks.
+      if (targetDistance <= targetRadius + impactRadius) {
+        impactProjectile(sim, projectile, target.transform.x, ty, target.transform.z, target);
+        sim.projectiles.splice(i, 1);
+        continue;
+      }
+      // A locked air-to-air missile must stay in pursuit until it hits, is
+      // evaded, or exhausts its range. Treating its flight path like a ground
+      // shot allowed terrain beneath a low aircraft to detonate the missile
+      // before it reached the target. Keep it visibly above the surface while
+      // preserving terrain collision for missiles locked to ground targets.
+      const terrainY = sampleHeight(sim.nav.heightfield, projectile.x, projectile.z);
+      if (target.flight && (projectile.y ?? py) <= terrainY + 0.35) {
+        projectile.y = terrainY + 0.65;
+        projectile.homing.directionY = Math.max(0.04, projectile.homing.directionY);
+        const correctedLength = Math.max(0.001, Math.hypot(
+          projectile.homing.directionX,
+          projectile.homing.directionY,
+          projectile.homing.directionZ,
+        ));
+        projectile.homing.directionX /= correctedLength;
+        projectile.homing.directionY /= correctedLength;
+        projectile.homing.directionZ /= correctedLength;
+      } else if (!target.flight && (projectile.y ?? py) <= terrainY + 0.35) {
         impactProjectile(sim, projectile, projectile.x, projectile.y, projectile.z);
         sim.projectiles.splice(i, 1);
         continue;
@@ -694,16 +813,6 @@ function stepProjectiles(sim: GameSim, dt: number): void {
         sim.projectiles.splice(i, 1);
         continue;
       }
-      const weaponKind = (projectile.weaponKind ?? projectile.kind) as WeaponKind;
-      const impactRadius = WEAPONS[weaponKind]?.projectile?.impactRadius ?? 2.5;
-      const newDistance = Math.hypot(
-        target.transform.x - projectile.x,
-        ty - (projectile.y ?? py),
-        target.transform.z - projectile.z,
-      );
-      if (newDistance > impactRadius) continue;
-      impactProjectile(sim, projectile, target.transform.x, ty, target.transform.z, target);
-      sim.projectiles.splice(i, 1);
       continue;
     }
 
@@ -722,7 +831,18 @@ function stepProjectiles(sim: GameSim, dt: number): void {
     } else {
       projectile.y = (projectile.fromY ?? 2) + ((projectile.toY ?? 1.4) - (projectile.fromY ?? 2)) * t;
     }
-    if (t > 0.04 && t < 1 && (projectile.y ?? 0) <= sampleHeight(sim.nav.heightfield, projectile.x, projectile.z) + 0.35) {
+    // Indirect rounds must first clear the launcher and crest the arc. Testing
+    // terrain during ascent made high-angle shells detonate near their apex on
+    // noisy terrain samples, visibly before they began the attack descent.
+    // A V-mode shot is already resolved against the reticle or a real entity.
+    // Let it reach that terminal point; late terrain sampling used to pull
+    // otherwise accurate shots into the ground just before their target.
+    const mayStrikeTerrain = projectile.manualAim
+      ? false
+      : projectile.trajectory === 'arc'
+        ? t >= 0.58
+        : true;
+    if (mayStrikeTerrain && t > 0.04 && t < 1 && (projectile.y ?? 0) <= sampleHeight(sim.nav.heightfield, projectile.x, projectile.z) + 0.35) {
       impactProjectile(sim, projectile, projectile.x, projectile.y, projectile.z);
       sim.projectiles.splice(i, 1);
       continue;
@@ -782,6 +902,7 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
   if (!hit) hit = area.hit;
   sim.events.push({
     kind: `${projectile.kind}-impact`,
+    weaponKind: weaponKind as WeaponKind,
     fromX: x,
     fromY: y,
     fromZ: z,
@@ -822,6 +943,7 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
   weapon.cooldown = weaponCooldown(def.cooldown, attacker);
   sim.events.push({
     kind: def.kind,
+    weaponKind: def.kind,
     fromX: attacker.transform.x,
     fromY: directMuzzleY(attacker),
     fromZ: attacker.transform.z,
@@ -944,6 +1066,7 @@ function acquireLineTarget(
   range: number,
   aimRay?: ManualAimRay,
   allowManualTankAir = false,
+  strictManualAim = false,
 ): Entity | undefined {
   let best: Entity | undefined;
   let bestAlong = Number.POSITIVE_INFINITY;
@@ -964,7 +1087,7 @@ function acquireLineTarget(
     const radius = candidate.collider?.radius ?? candidate.selectable?.radius ?? 2.4;
     let along = horizontalAlong;
     let perp = Math.abs(dx * uz - dz * ux);
-    let tolerance = radius + 2.2;
+    let tolerance = strictManualAim ? radius * 0.82 : radius + 2.2;
     if (aimRay) {
       const baseY = candidate.transform.y;
       const centerOffset = candidate.flight ? 0 : candidate.building ? 2.4 : candidate.selectable?.type === 'infantry' ? 1 : 1.4;
@@ -973,7 +1096,7 @@ function acquireLineTarget(
       along = dx * aimRay.x + dy * aimRay.y + dz * aimRay.z;
       if (along < 0) continue;
       perp = Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along));
-      tolerance = radius + (candidate.flight ? 1.35 : 0.8);
+      tolerance = strictManualAim ? radius * (candidate.flight ? 0.9 : 0.82) : radius + (candidate.flight ? 1.35 : 0.8);
     }
     if (along > bestAlong || perp > tolerance) continue;
     best = candidate;
@@ -1230,7 +1353,7 @@ function summarizeHit(target: Entity, damage: number): HitSummary | undefined {
   return {
     targetId: target.id,
     targetLabel: target.name ?? target.building?.label ?? target.selectable?.type ?? 'target',
-    targetType: target.building ? 'building' : target.selectable?.type ?? 'unit',
+    targetType: target.flight ? 'aircraft' : target.building ? 'building' : target.selectable?.type ?? 'unit',
     targetHealth: target.health.current,
     targetMaxHealth: target.health.max,
     damage,

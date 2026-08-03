@@ -15,6 +15,7 @@ import {
   worldToRadarPoint,
 } from './radarTransform';
 import { unitDisplayName } from './unitDisplayName';
+import { UNIT_ARSENALS } from '../content/unitArsenal';
 
 type Tab = 'buildings' | 'defense' | 'infantry' | 'vehicles' | 'aircraft';
 
@@ -1397,30 +1398,15 @@ function unitCardDetail(kind: string): { role: string; pips: number[] } | undefi
 }
 
 function primaryWeaponForUnit(kind: UnitKind): WeaponKind {
-  if (kind === 'infantry') return 'rifle';
-  if (kind === 'sniper') return 'sniperRifle';
-  if (kind === 'grenadier') return 'grenade';
-  if (kind === 'rocket-infantry') return 'rocketLauncher';
-  if (kind === 'scout-tank') return 'scoutMissile';
-  if (kind === 'tank') return 'tankMissile';
-  if (kind === 'siege-tank') return 'siegeMissile';
-  if (kind === 'wasp') return 'waspAutocannon';
-  if (kind === 'vulture') return 'rocketPod';
-  return 'agMissile';
+  return UNIT_ARSENALS[kind].primary;
 }
 
 function secondaryWeaponForUnit(kind: UnitKind): WeaponKind | undefined {
-  if (kind === 'rocket-infantry') return 'aaMissile';
-  if (kind === 'scout-tank' || kind === 'tank' || kind === 'siege-tank') return 'tankBomb';
-  if (kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead') return 'bomb';
-  return undefined;
+  return UNIT_ARSENALS[kind].secondary;
 }
 
 function bombSalvoForUnit(kind: UnitKind): number {
-  if (kind === 'siege-tank' || kind === 'hammerhead') return 4;
-  if (kind === 'tank' || kind === 'vulture') return 2;
-  if (kind === 'scout-tank' || kind === 'wasp') return 1;
-  return 0;
+  return UNIT_ARSENALS[kind].secondarySalvoCount ?? 0;
 }
 
 function speedScoreForUnit(kind: UnitKind): number {
