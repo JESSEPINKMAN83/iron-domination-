@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isModifiedCameraPointer,
   isStopCommandKey,
+  shouldUseFastMoveDoubleClick,
   shouldDeselectWithTwoFingerTap,
   shouldGroundAttackFromPointer,
   shouldUseTouchCommand,
@@ -30,6 +31,14 @@ describe('mobile RTS gesture intent', () => {
 });
 
 describe('desktop RTS camera and command separation', () => {
+  it('recognizes only a quick nearby desktop double-click as a rapid move', () => {
+    expect(shouldUseFastMoveDoubleClick(210, 8, false, 'mouse')).toBe(true);
+    expect(shouldUseFastMoveDoubleClick(340, 8, false, 'mouse')).toBe(false);
+    expect(shouldUseFastMoveDoubleClick(210, 24, false, 'mouse')).toBe(false);
+    expect(shouldUseFastMoveDoubleClick(210, 8, true, 'mouse')).toBe(false);
+    expect(shouldUseFastMoveDoubleClick(210, 8, false, 'touch')).toBe(false);
+  });
+
   it('keeps WASD camera movement separate from the unit stop command', () => {
     expect(isStopCommandKey('KeyS')).toBe(false);
     expect(isStopCommandKey('KeyW')).toBe(false);

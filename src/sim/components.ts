@@ -43,6 +43,8 @@ export interface Selectable {
 export interface Mover {
   speed: number;
   radius: number;
+  /** player-issued rapid transit order; cleared on arrival, stop, possession, or the next normal order */
+  sprint?: boolean;
   target?: { x: number; z: number };
   formationOffset?: { x: number; z: number };
   /** assigned formation destination retained after arrival so separation cannot drift the unit away */

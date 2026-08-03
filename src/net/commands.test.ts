@@ -32,7 +32,7 @@ describe('multiplayer lockstep commands', () => {
     };
     const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
     lockstep.connect();
-    expect(lockstep.issue({ type: 'move', ids: [guestTank.id, hostTank.id], x: 80, z: 76, attackMove: false })).toBe(true);
+    expect(lockstep.issue({ type: 'move', ids: [guestTank.id, hostTank.id], x: 80, z: 76, attackMove: false, sprint: true })).toBe(true);
     expect(sent).toHaveLength(1);
     expect(guestTank.mover?.target).toBeUndefined();
     for (let i = 0; i < 8; i++) {
@@ -40,6 +40,7 @@ describe('multiplayer lockstep commands', () => {
       lockstep.tick();
     }
     expect(guestTank.mover?.target).toEqual({ x: 80, z: 76 });
+    expect(guestTank.mover?.sprint).toBe(true);
     expect(hostTank.mover?.target).toBeUndefined();
   });
 

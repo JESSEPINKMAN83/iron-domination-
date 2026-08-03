@@ -48,7 +48,7 @@ export interface OrderFeedback {
 }
 
 export interface RtsCommandSink {
-  move?(entityIds: number[], x: number, z: number, attackMove: boolean, faceYaw?: number, formationSpread?: number): boolean;
+  move?(entityIds: number[], x: number, z: number, attackMove: boolean, faceYaw?: number, formationSpread?: number, sprint?: boolean): boolean;
   attack?(entityIds: number[], targetId: number): boolean;
   attackGround?(entityIds: number[], x: number, z: number): boolean;
   harvest?(entityIds: number[], x: number, z: number): boolean;
@@ -87,6 +87,16 @@ const RIGHT_ORDER_DRAG_THRESHOLD = 18;
 const CAMERA_LOOK_DRAG_THRESHOLD = 4;
 const TWO_FINGER_TAP_MOVE_THRESHOLD = 12;
 const TWO_FINGER_TAP_MAX_DURATION_MS = 300;
+const FAST_MOVE_DOUBLE_CLICK_MS = 330;
+const FAST_MOVE_DOUBLE_CLICK_DISTANCE = 22;
+
+export function shouldUseFastMoveDoubleClick(elapsedMs: number, screenDistance: number, dragged: boolean, pointerType: string): boolean {
+  return pointerType !== 'touch'
+    && !dragged
+    && elapsedMs > 0
+    && elapsedMs <= FAST_MOVE_DOUBLE_CLICK_MS
+    && screenDistance <= FAST_MOVE_DOUBLE_CLICK_DISTANCE;
+}
 
 export function shouldUseTouchCommand(selectedCount: number, touchedTeam: number | undefined, localTeam: number): boolean {
   return selectedCount > 0 && touchedTeam !== localTeam;
@@ -120,6 +130,7 @@ export class RtsController {
   private rightCameraLookCandidate = false;
   private rightCameraLookActive = false;
   private lastClick = { time: 0, entity: undefined as Entity | undefined };
+  private lastMoveOrderClick?: { time: number; x: number; y: number };
   private attackMoveQueued = false;
   private enabled = true;
   private readonly activeTouchPointers = new Set<number>();
@@ -211,6 +222,7 @@ export class RtsController {
     if (!enabled) {
       this.resetTouchGesture();
       this.attackMoveQueued = false;
+      this.lastMoveOrderClick = undefined;
     }
   }
 
@@ -445,12 +457,14 @@ export class RtsController {
       this.rightOrderStart = undefined;
       if (destinationPoint) {
         if (commandGroundAttack) {
+          this.lastMoveOrderClick = undefined;
           this.attackGroundAt(destinationPoint.x, destinationPoint.z);
           return;
         }
         const commandAttackMove = this.isAttackMoveQueued();
         const rallyProducer = !dragged ? this.singleSelectedProducer() : undefined;
         if (!commandAttackMove && rallyProducer && (this.commandSink?.rally?.(rallyProducer.id, destinationPoint.x, destinationPoint.z) ?? this.orderFeedback?.tryRally?.(destinationPoint.x, destinationPoint.z))) {
+          this.lastMoveOrderClick = undefined;
           this.attackMoveQueued = false;
           return;
         }
@@ -470,6 +484,7 @@ export class RtsController {
         }
         if (selected.length > 0) {
           if (attackTarget) {
+            this.lastMoveOrderClick = undefined;
             const attackers = this.selectedAttackers();
             const attackerIds = attackers.map((entity) => entity.id);
             const attackIssued = this.commandSink?.attack?.(attackerIds, attackTarget.id) ?? issueAttackOrder(this.sim, attackers, attackTarget);
@@ -490,12 +505,24 @@ export class RtsController {
           const movers = specialIssued ? selected.filter((entity) => !entity.harvester) : selected;
           if (specialIssued) this.orderFeedback?.showOrder(destination.x, destination.z, 'move');
           const moverIds = movers.map((entity) => entity.id).filter((id): id is number => id !== undefined);
+          const now = performance.now();
+          const previousMoveClick = this.lastMoveOrderClick;
+          const fastMoveEligible = !specialIssued && !attackMove && !dragged;
+          const fastMove = fastMoveEligible
+            && previousMoveClick !== undefined
+            && shouldUseFastMoveDoubleClick(
+              now - previousMoveClick.time,
+              Math.hypot(e.clientX - previousMoveClick.x, e.clientY - previousMoveClick.y),
+              dragged,
+              e.pointerType,
+            );
+          this.lastMoveOrderClick = !fastMoveEligible || fastMove ? undefined : { time: now, x: e.clientX, y: e.clientY };
           if (
             movers.length > 0 &&
-            (this.commandSink?.move?.(moverIds, destination.x, destination.z, attackMove, faceYaw, formationSpread) ??
-              issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, faceYaw, formationSpread))
+            (this.commandSink?.move?.(moverIds, destination.x, destination.z, attackMove, faceYaw, formationSpread, fastMove) ??
+              issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, faceYaw, formationSpread, fastMove))
           ) {
-            this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack-move' : 'move');
+            this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack-move' : fastMove ? 'fast-move' : 'move');
             if (faceYaw !== undefined) {
               this.orderFeedback?.showFacingOrder?.(
                 destination.x,

@@ -16,7 +16,7 @@ describe('match state serialization', () => {
     const tanks = [spawnTankAt(sim, -70, -62, 'A'), spawnTankAt(sim, -66, -62, 'B')];
     const aircraft = spawnVultureAt(sim, hf, -74, -70, 'Vulture');
     aircraft.playerControlled = { throttle: 0.5, turn: 0.1, aimYaw: aircraft.transform.rot, climb: 0.2, strafe: 0 };
-    expect(issueMoveOrder(sim, tanks, 95, 88, true, Math.PI * 0.35, 18)).toBe(true);
+    expect(issueMoveOrder(sim, tanks, 95, 88, false, Math.PI * 0.35, 18, true)).toBe(true);
     expect(queueUnit(sim, economy, 'infantry')).toBe(false);
     sim.resourceNodes[0].remaining -= 123.45;
 
@@ -39,6 +39,7 @@ describe('match state serialization', () => {
     expect(loadedEconomy.ledger).toEqual(economy.ledger);
     expect(Array.from(loaded.world.entities).length).toBe(Array.from(sim.world.entities).length);
     expect(Array.from(loaded.world.entities).some((entity) => entity.mover?.target && entity.mover.flow)).toBe(true);
+    expect(Array.from(loaded.world.entities).filter((entity) => entity.mover?.target).every((entity) => entity.mover?.sprint)).toBe(true);
 
     for (let i = 0; i < 100; i++) {
       stepEconomy(sim, hf, economy, SIM_DT);

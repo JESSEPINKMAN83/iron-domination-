@@ -224,10 +224,11 @@ export class Hud {
     this.reticle.style.borderColor = profile.color;
     this.reticle.style.color = profile.color;
     this.reticle.style.borderStyle = profile.border;
-    this.reticle.innerHTML = profile.markup;
+    this.reticle.innerHTML = profile.markup + reticleReloadMarkup();
     this.reticle.style.boxShadow = this.fortressMode
       ? '0 0 0 1px rgba(0,0,0,.7),0 0 20px rgba(255,183,48,.3),inset 0 0 12px rgba(255,199,62,.1)'
       : `0 0 0 1px rgba(0,0,0,.55),0 0 16px ${profile.glow}`;
+    this.updateReticleWeaponReadiness();
   }
 
   setMultiplayerStatus(message: string, bad = false, paused = false): void {
@@ -293,12 +294,23 @@ export class Hud {
   }
 
   private updateWeaponReadiness(nowMs: number): void {
-    if (!this.firstPersonEntity || this.fortressMode || nowMs - this.lastWeaponUpdate < 50) return;
+    if (!this.firstPersonEntity || nowMs - this.lastWeaponUpdate < 50) return;
     this.lastWeaponUpdate = nowMs;
     const primary = this.firstPersonEntity.weapons?.primary ?? this.firstPersonEntity.weapon;
     const secondary = this.firstPersonEntity.weapons?.secondary;
-    updateReloadNode(this.weaponFrame, 'primary', primary?.kind, primary?.cooldown ?? 0);
-    updateReloadNode(this.weaponFrame, 'secondary', secondary?.kind, secondary?.cooldown ?? 0);
+    if (!this.fortressMode) {
+      updateReloadNode(this.weaponFrame, 'primary', primary?.kind, primary?.cooldown ?? 0);
+      updateReloadNode(this.weaponFrame, 'secondary', secondary?.kind, secondary?.cooldown ?? 0);
+    }
+    updateReticleReloadNode(this.reticle, 'primary', primary?.kind, primary?.cooldown ?? 0);
+    updateReticleReloadNode(this.reticle, 'secondary', secondary?.kind, secondary?.cooldown ?? 0);
+  }
+
+  private updateReticleWeaponReadiness(): void {
+    const primary = this.firstPersonEntity?.weapons?.primary ?? this.firstPersonEntity?.weapon;
+    const secondary = this.firstPersonEntity?.weapons?.secondary;
+    updateReticleReloadNode(this.reticle, 'primary', primary?.kind, primary?.cooldown ?? 0);
+    updateReticleReloadNode(this.reticle, 'secondary', secondary?.kind, secondary?.cooldown ?? 0);
   }
 }
 
@@ -333,14 +345,53 @@ function updateReloadNode(frame: HTMLDivElement, slot: 'primary' | 'secondary', 
     bar.style.width = '0%';
     return;
   }
-  const total = Math.max(0.01, WEAPONS[kind as WeaponKind].cooldown);
-  const ready = cooldown <= 0.01;
-  const progress = ready ? 1 : Math.max(0, Math.min(1, 1 - cooldown / total));
+  const { progress, ready } = reticleReloadState(kind, cooldown);
   label.textContent = ready ? 'READY' : `RELOAD ${cooldown.toFixed(1)}S`;
   label.style.color = ready ? '#8ee6a5' : '#f2c15b';
   bar.style.width = `${Math.round(progress * 100)}%`;
   bar.style.background = ready ? '#8ee6a5' : '#f2c15b';
   bar.style.boxShadow = ready ? '0 0 7px rgba(105,235,151,.55)' : 'none';
+}
+
+function reticleReloadMarkup(): string {
+  const track =
+    'position:absolute;top:50%;width:3px;height:20px;transform:translateY(-50%);' +
+    'overflow:hidden;border-radius:2px;background:rgba(4,9,9,.68);' +
+    'box-shadow:0 0 0 1px rgba(0,0,0,.48);transition:opacity 100ms ease;';
+  const fill =
+    'position:absolute;left:0;right:0;bottom:0;height:100%;border-radius:2px;' +
+    'background:currentColor;opacity:.94;transition:height 50ms linear,opacity 100ms ease,box-shadow 100ms ease;';
+  return `
+    <span data-reticle-reload="primary" aria-hidden="true" style="${track}right:calc(100% + 9px)">
+      <i data-reticle-reload-fill="primary" style="${fill}"></i>
+    </span>
+    <span data-reticle-reload="secondary" aria-hidden="true" style="${track}left:calc(100% + 9px)">
+      <i data-reticle-reload-fill="secondary" style="${fill}"></i>
+    </span>`;
+}
+
+function updateReticleReloadNode(reticle: HTMLDivElement, slot: 'primary' | 'secondary', kind: string | undefined, cooldown: number): void {
+  const track = reticle.querySelector<HTMLElement>(`[data-reticle-reload="${slot}"]`);
+  const fill = reticle.querySelector<HTMLElement>(`[data-reticle-reload-fill="${slot}"]`);
+  if (!track || !fill) return;
+  const state = reticleReloadState(kind, cooldown);
+  track.style.display = state.available ? 'block' : 'none';
+  if (!state.available) return;
+  fill.style.height = `${Math.round(state.progress * 100)}%`;
+  fill.style.opacity = state.ready ? '.98' : '.72';
+  fill.style.boxShadow = state.ready ? '0 0 7px currentColor' : 'none';
+  track.style.opacity = state.ready ? '.9' : '.62';
+}
+
+export function reticleReloadState(kind: string | undefined, cooldown: number): { available: boolean; ready: boolean; progress: number } {
+  if (!kind || !(kind in WEAPONS)) return { available: false, ready: false, progress: 0 };
+  const total = Math.max(0.01, WEAPONS[kind as WeaponKind].cooldown);
+  const ready = cooldown <= 0.01;
+  return {
+    available: true,
+    ready,
+    progress: ready ? 1 : Math.max(0, Math.min(1, 1 - cooldown / total)),
+  };
 }
 
 function reticleVisual(family: WeaponHudFamily | 'fortress'): { size: number; radius: string; color: string; glow: string; border: string; markup: string } {

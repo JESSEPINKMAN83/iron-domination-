@@ -23,7 +23,7 @@ import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type Se
 import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession, type TacticalPing, type TacticalPingKind } from './multiplayer';
 
 export type NetCommand =
-  | { type: 'move'; ids: number[]; x: number; z: number; attackMove: boolean; faceYaw?: number; formationSpread?: number }
+  | { type: 'move'; ids: number[]; x: number; z: number; attackMove: boolean; faceYaw?: number; formationSpread?: number; sprint?: boolean }
   | { type: 'attack'; ids: number[]; targetId: number }
   | { type: 'ground-fire'; ids: number[]; x: number; z: number }
   | { type: 'harvest'; ids: number[]; x: number; z: number }
@@ -335,7 +335,16 @@ export class LockstepRuntime {
       return;
     }
     if (command.type === 'move') {
-      issueMoveOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), command.x, command.z, command.attackMove, command.faceYaw, command.formationSpread);
+      issueMoveOrder(
+        this.options.sim,
+        ownedEntities(this.options.sim, command.ids, playerIndex),
+        command.x,
+        command.z,
+        command.attackMove,
+        command.faceYaw,
+        command.formationSpread,
+        command.sprint,
+      );
     } else if (command.type === 'attack') {
       const target = entityById(this.options.sim, command.targetId);
       if (target) issueAttackOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), target);

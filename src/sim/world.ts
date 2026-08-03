@@ -19,6 +19,7 @@ const damp = (lambda: number, dt: number): number => 1 - Math.exp(-lambda * dt);
 const ARRIVAL_EPSILON = 0.35;
 const ORE_CAPACITY_PER_RADIUS_SQUARED = 15;
 const POSSESSION_BOOST_MULTIPLIER = 2;
+export const RTS_SPRINT_MULTIPLIER = 1.65;
 const BOOSTED_BUMP_MAX_HEIGHT_RANGE = 7.5;
 const BOOSTED_BUMP_MAX_STEP = 5.8;
 const approach = (current: number, target: number, maxDelta: number): number => {
@@ -446,6 +447,7 @@ export function issueMoveOrder(
   attackMove = false,
   faceYaw?: number,
   formationSpread?: number,
+  sprint = false,
 ): boolean {
   let issued = false;
   const movers = entities.filter((entity): entity is Entity & { mover: NonNullable<Entity['mover']> } => !!entity.mover && !entity.destroyed);
@@ -516,6 +518,7 @@ export function issueMoveOrder(
     }
     entity.mover.holdPosition = undefined;
     entity.mover.attackMove = attackMove;
+    entity.mover.sprint = sprint && !attackMove ? true : undefined;
     entity.mover.attackTargetId = undefined;
     entity.mover.faceYaw = faceYaw;
     entity.mover.defenseAlert = undefined;
@@ -576,6 +579,7 @@ export function stopEntities(entities: Entity[]): void {
     entity.mover.holdPosition = { x: entity.transform.x, z: entity.transform.z };
     entity.mover.flow = undefined;
     entity.mover.attackMove = false;
+    entity.mover.sprint = undefined;
     entity.mover.attackTargetId = undefined;
     entity.mover.faceYaw = undefined;
     entity.mover.defenseAlert = undefined;
@@ -658,7 +662,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     transform.y ??= sampleHeight(hf, transform.x, transform.z);
     let desiredX = 0;
     let desiredZ = 0;
-    let desiredSpeed = mover.speed;
+    let desiredSpeed = mover.speed * (mover.sprint ? RTS_SPRINT_MULTIPLIER : 1);
     let orientToMovement = false;
 
     if (entity.flight) {
@@ -672,6 +676,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       mover.holdPosition = undefined;
       mover.flow = undefined;
       mover.attackMove = false;
+      mover.sprint = undefined;
       mover.attackTargetId = undefined;
       const throttle = Math.max(-1, Math.min(1, entity.playerControlled.throttle));
       const turn = Math.max(-1, Math.min(1, entity.playerControlled.turn));
@@ -694,6 +699,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         mover.target = undefined;
         mover.formationOffset = undefined;
         mover.flow = undefined;
+        mover.sprint = undefined;
         velocity.x = 0;
         velocity.z = 0;
       } else if (finalDist < 18) {
@@ -970,7 +976,11 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
   flight.previousRollAttitude = flight.rollAttitude;
 
   const model = FLIGHT_MODELS[flight.model];
-  const boost = entity.playerControlled?.boost ? POSSESSION_BOOST_MULTIPLIER : 1;
+  const boost = entity.playerControlled?.boost
+    ? POSSESSION_BOOST_MULTIPLIER
+    : mover.sprint
+      ? RTS_SPRINT_MULTIPLIER
+      : 1;
   const maxSpeed = model.maxSpeed * boost;
   const maxReverse = model.maxReverse * boost;
   const maxStrafe = model.maxStrafe * boost;
@@ -1023,13 +1033,13 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
   const powerScale = Math.abs(command.climb) > 0.5 ? 0.75 : 1;
   const pitchDenom = Math.max(0.001, Math.sin(model.maxTiltPitch));
   const rollDenom = Math.max(0.001, Math.sin(model.maxTiltRoll));
-  const accelBoost = entity.playerControlled?.boost ? POSSESSION_BOOST_MULTIPLIER : 1;
+  const accelBoost = boost;
   const accelFwd = (-Math.sin(flight.pitchAttitude) / pitchDenom) * model.tiltAccel * powerScale * accelBoost;
   const accelSide = (Math.sin(flight.rollAttitude) / rollDenom) * model.strafeAccel * powerScale * accelBoost;
   let accelX = accelFwd * forwardX + accelSide * rightX;
   let accelZ = accelFwd * forwardZ + accelSide * rightZ;
   const currentSpeed = Math.hypot(velocity.x, velocity.z);
-  const dragK = entity.playerControlled?.boost ? model.dragK / (POSSESSION_BOOST_MULTIPLIER * POSSESSION_BOOST_MULTIPLIER) : model.dragK;
+  const dragK = boost > 1 ? model.dragK / (boost * boost) : model.dragK;
   accelX -= velocity.x * dragK * currentSpeed;
   accelZ -= velocity.z * dragK * currentSpeed;
 
@@ -1122,6 +1132,7 @@ function possessedFlightCommand(entity: MovingEntity): FlightCommand {
   mover.holdPosition = undefined;
   mover.flow = undefined;
   mover.attackMove = false;
+  mover.sprint = undefined;
   mover.attackTargetId = undefined;
   mover.defenseAlert = undefined;
   return {
@@ -1146,6 +1157,7 @@ function aiFlightCommand(entity: MovingEntity): FlightCommand {
       if (mover.target) {
         mover.holdPosition = { x: mover.target.x, z: mover.target.z };
         mover.target = undefined;
+        mover.sprint = undefined;
       }
       velocity.x *= 0.9;
       velocity.z *= 0.9;
@@ -1305,6 +1317,7 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.holdPosition ? Math.round(entity.mover.holdPosition.x * 10) : 0);
       mix(entity.mover.holdPosition ? Math.round(entity.mover.holdPosition.z * 10) : 0);
       mix(entity.mover.attackTargetId ?? 0);
+      mix(entity.mover.sprint ? 1 : 0);
     }
     if (entity.weapon) {
       mix(Math.round(entity.weapon.cooldown * 1000));
