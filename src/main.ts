@@ -2300,7 +2300,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const fortressPreview =
     !multiplayerMode &&
     !isPublicHost(location.hostname) &&
-    (fortressPreviewParam === '1' || fortressPreviewParam === 'guard' || fortressPreviewParam === 'aa');
+    (fortressPreviewParam === '1' ||
+      fortressPreviewParam === 'guard' ||
+      fortressPreviewParam === 'aa' ||
+      fortressPreviewParam === 'lead');
   let nextHitJuicePreviewTick = 0;
   let impactPreviewSequence = 0;
   let impactPreviewSalvoRemaining = 0;
@@ -2638,7 +2641,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     localTeam,
     lockstep
       ? {
-          move: (ids, x, z, attackMove, faceYaw, formationSpread) => lockstep.issue({ type: 'move', ids, x, z, attackMove, faceYaw, formationSpread }),
+          move: (ids, x, z, attackMove, faceYaw, formationSpread, sprint) =>
+            lockstep.issue({ type: 'move', ids, x, z, attackMove, faceYaw, formationSpread, sprint }),
           attack: (ids, targetId) => lockstep.issue({ type: 'attack', ids, targetId }),
           attackGround: (ids, x, z) => lockstep.issue({ type: 'ground-fire', ids, x, z }),
           harvest: (ids, x, z) => {
@@ -3239,6 +3243,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   if (fortressPreview) {
     window.setTimeout(() => {
+      const predictiveLeadPreview = fortressPreviewParam === 'lead';
       const previewKind = fortressPreviewParam === 'aa' ? 'aa-tower' : 'guard-tower';
       const tower = Array.from(sim.world.entities).find(
         (entity) =>
@@ -3257,8 +3262,55 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       const cell = sim.nav.nearestWalkableCell(targetX, targetZ, 20);
       if (cell) {
         const p = sim.nav.cellCenter(cell.x, cell.y);
-        const armor = spawnTankAt(sim, p.x, p.z, 'Lock Target — Armor', 2);
-        const aircraft = spawnWaspAt(sim, hf, p.x + 12, p.z + 8, 'Lock Target — Aircraft', 2);
+        const tangentX = Math.cos(outwardYaw);
+        const tangentZ = -Math.sin(outwardYaw);
+        const convoyStart = predictiveLeadPreview
+          ? sim.nav.nearestWalkableCell(p.x - tangentX * 42, p.z - tangentZ * 42, 18)
+          : undefined;
+        const convoyPoint = convoyStart ? sim.nav.cellCenter(convoyStart.x, convoyStart.y) : p;
+        const armor = spawnTankAt(
+          sim,
+          convoyPoint.x,
+          convoyPoint.z,
+          predictiveLeadPreview ? 'Predictive Fire — Moving Armor' : 'Lock Target — Armor',
+          predictiveLeadPreview ? 99 : 2,
+        );
+        const aircraft = predictiveLeadPreview
+          ? undefined
+          : spawnWaspAt(sim, hf, p.x + 12, p.z + 8, 'Lock Target — Aircraft', 2);
+        if (predictiveLeadPreview) {
+          const escort = spawnScoutTankAt(
+            sim,
+            convoyPoint.x - Math.sin(outwardYaw) * 9,
+            convoyPoint.z - Math.cos(outwardYaw) * 9,
+            'Predictive Fire — Fast Escort',
+            99,
+          );
+          armor.health!.max = 900;
+          armor.health!.current = 900;
+          escort.health!.max = 620;
+          escort.health!.current = 620;
+          issueMoveOrder(
+            sim,
+            [armor, escort],
+            p.x + tangentX * 92,
+            p.z + tangentZ * 92,
+            false,
+            Math.atan2(tangentX, tangentZ),
+            20,
+          );
+          unitView.addEntity(armor);
+          unitView.addEntity(escort);
+          rig.focusOn(
+            p.x,
+            p.z,
+            { x: tower.transform.x - tangentX * 52, z: tower.transform.z - tangentZ * 52 },
+            118,
+            -5,
+          );
+          return;
+        }
+        if (!aircraft) return;
         const lowPreviewAltitude =
           sampleHeight(hf, aircraft.transform.x, aircraft.transform.z) + (aircraftCrashPreview ? 32 : 8);
         aircraft.transform.y = lowPreviewAltitude;

@@ -60,6 +60,35 @@ describe('phase 2 movement simulation', () => {
     expect(tank.mover?.flow).toBeUndefined();
   });
 
+  it('moves strategy units faster for a sprint order and clears sprint on the next normal order', () => {
+    const run = (sprint: boolean) => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const [tank] = spawnDebugTanks(sim, hf, 1);
+      const start = { x: tank.transform.x, z: tank.transform.z };
+      const cell = sim.nav.nearestWalkableCell(tank.transform.x + 100, tank.transform.z + 35, 96);
+      expect(cell).toBeDefined();
+      const target = sim.nav.cellCenter(cell!.x, cell!.y);
+      expect(issueMoveOrder(sim, [tank], target.x, target.z, false, undefined, undefined, sprint)).toBe(true);
+      for (let i = 0; i < 45; i++) stepSim(sim, hf, 1 / 30);
+      return {
+        distance: Math.hypot(tank.transform.x - start.x, tank.transform.z - start.z),
+        hf,
+        sim,
+        tank,
+        target,
+      };
+    };
+
+    const normal = run(false);
+    const rapid = run(true);
+    expect(rapid.distance).toBeGreaterThan(normal.distance * 1.35);
+    expect(rapid.tank.mover?.sprint).toBe(true);
+
+    expect(issueMoveOrder(rapid.sim, [rapid.tank], rapid.target.x, rapid.target.z)).toBe(true);
+    expect(rapid.tank.mover?.sprint).toBeUndefined();
+  });
+
   it('briefly holds knocked-down infantry, then restores its move order', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

@@ -51,6 +51,11 @@ const LOCKED_MISSILE_IMPACT_SCALE = 0.9;
 const LOCKED_MISSILE_LIFETIME = 6.5;
 const LOCKED_MISSILE_AIR_TURN_RATE = 0.9;
 const LOCKED_MISSILE_GROUND_TURN_RATE = 1.4;
+const DEFENSE_TOWER_MIN_LEAD_SPEED = 0.55;
+const DEFENSE_TOWER_MAX_GROUND_LEAD_SECONDS = 1.9;
+const DEFENSE_TOWER_MAX_AIR_LEAD_SECONDS = 2.35;
+const DEFENSE_TOWER_MAX_GROUND_LEAD_DISTANCE = 30;
+const DEFENSE_TOWER_MAX_AIR_LEAD_DISTANCE = 48;
 
 interface HitSummary {
   targetId: number;
@@ -126,7 +131,8 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
       weapon.targetId = target?.id;
       if (!target?.health || !target.armor) continue;
       engagementTarget ??= target;
-      const bearing = Math.atan2(target.transform.x - attacker.transform.x, target.transform.z - attacker.transform.z);
+      const defenseAim = predictiveDefenseTowerAimPoint(sim, attacker, weapon, target);
+      const bearing = Math.atan2(defenseAim.x - attacker.transform.x, defenseAim.z - attacker.transform.z);
       // direct-fire weapons wait for the turret; bombs are lobbed from the hull
       if (def.kind !== 'bomb' && attacker.turret) {
         turretGoalYaw ??= bearing;
@@ -134,10 +140,10 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
       }
       if (weapon.cooldown > 0) continue;
       if (def.kind === 'bomb' || def.kind === 'tankBomb') {
-        const aim = autoAimPoint(sim, attacker, weapon, target, target.transform.x, target.transform.z, 'bomb');
+        const aim = autoAimPoint(sim, attacker, weapon, target, defenseAim.x, defenseAim.z, 'bomb');
         launchBomb(sim, attacker, weapon, aim.x, aim.z, def.range);
       } else if (def.projectile) {
-        launchWeaponProjectileAtEntity(sim, attacker, weapon, target);
+        launchWeaponProjectileAtEntity(sim, attacker, weapon, target, defenseAim.x, defenseAim.z);
       } else {
         fireHitscanAtEntity(sim, attacker, weapon, target);
       }
@@ -148,6 +154,93 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     updateGuardBehavior(sim, attacker, dt, engagementTarget);
   }
   tickDestroyed(sim, dt);
+}
+
+export interface PredictiveDefenseAimPoint {
+  x: number;
+  z: number;
+  /** Seconds of target travel applied after the intentionally imperfect confidence factor. */
+  leadSeconds: number;
+}
+
+/**
+ * Static defense towers cannot chase a target, so unguided ordnance leads a
+ * target that is already moving. The solution deliberately under-leads: a
+ * steady convoy is threatened, while a pilot or driver can still dodge by
+ * changing velocity after launch. Player-controlled tower fire remains fully
+ * manual and homing AA missiles keep their own in-flight guidance.
+ */
+export function predictiveDefenseTowerAimPoint(
+  sim: GameSim,
+  attacker: Entity,
+  weapon: Weapon,
+  target: Entity,
+): PredictiveDefenseAimPoint {
+  const current = { x: target.transform.x, z: target.transform.z, leadSeconds: 0 };
+  if (!isFortressTower(attacker) || attacker.playerControlled || !target.velocity) return current;
+
+  const def = WEAPONS[weapon.kind as WeaponKind];
+  if (!def) return current;
+  // AA seekers continually steer toward their target. Pre-leading their launch
+  // point would double-correct and make those missiles feel unfair.
+  if (def.projectile?.trajectory === 'homing') return current;
+
+  const velocityX = target.velocity.x;
+  const velocityZ = target.velocity.z;
+  const targetSpeed = Math.hypot(velocityX, velocityZ);
+  if (targetSpeed < DEFENSE_TOWER_MIN_LEAD_SPEED) return current;
+
+  const projectileSpeed = def.kind === 'bomb' || def.kind === 'tankBomb'
+    ? BOMB_SPEED
+    : def.projectile?.speed;
+  if (!projectileSpeed || projectileSpeed <= targetSpeed * 0.35) return current;
+
+  const relativeX = target.transform.x - attacker.transform.x;
+  const relativeZ = target.transform.z - attacker.transform.z;
+  const intercept = interceptTime2d(relativeX, relativeZ, velocityX, velocityZ, projectileSpeed);
+  if (intercept <= 0 || !Number.isFinite(intercept)) return current;
+
+  // Stable per tower/target/weapon variation prevents every battery from using
+  // an identical perfect solution without introducing nondeterministic multiplayer state.
+  const confidenceSeed = Math.round(def.range * 31 + projectileSpeed * 7);
+  const confidence = 0.68 + hash2i(attacker.id, target.id, confidenceSeed) * 0.22;
+  const maxSeconds = target.flight
+    ? DEFENSE_TOWER_MAX_AIR_LEAD_SECONDS
+    : DEFENSE_TOWER_MAX_GROUND_LEAD_SECONDS;
+  let leadSeconds = Math.min(intercept, maxSeconds) * confidence;
+  const maxDistance = target.flight
+    ? DEFENSE_TOWER_MAX_AIR_LEAD_DISTANCE
+    : DEFENSE_TOWER_MAX_GROUND_LEAD_DISTANCE;
+  const requestedDistance = targetSpeed * leadSeconds;
+  if (requestedDistance > maxDistance) leadSeconds *= maxDistance / requestedDistance;
+
+  const mapLimit = sim.nav.size / 2 - 2;
+  return {
+    x: Math.max(-mapLimit, Math.min(mapLimit, target.transform.x + velocityX * leadSeconds)),
+    z: Math.max(-mapLimit, Math.min(mapLimit, target.transform.z + velocityZ * leadSeconds)),
+    leadSeconds,
+  };
+}
+
+function interceptTime2d(
+  relativeX: number,
+  relativeZ: number,
+  velocityX: number,
+  velocityZ: number,
+  projectileSpeed: number,
+): number {
+  const a = velocityX * velocityX + velocityZ * velocityZ - projectileSpeed * projectileSpeed;
+  const b = 2 * (relativeX * velocityX + relativeZ * velocityZ);
+  const c = relativeX * relativeX + relativeZ * relativeZ;
+  if (c <= 0.0001) return 0;
+  if (Math.abs(a) < 0.000001) return b < -0.000001 ? -c / b : 0;
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant < 0) return 0;
+  const root = Math.sqrt(discriminant);
+  const first = (-b - root) / (2 * a);
+  const second = (-b + root) / (2 * a);
+  if (first > 0 && second > 0) return Math.min(first, second);
+  return Math.max(first, second, 0);
 }
 
 const ESCORT_DRONE_INFANTRY_DEFENSE_RANGE = 48;
@@ -536,8 +629,15 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
   weapon.cooldown = weaponCooldown(def.cooldown, attacker);
 }
 
-function launchWeaponProjectileAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, target: Entity): void {
-  const aim = autoAimPoint(sim, attacker, weapon, target, target.transform.x, target.transform.z, 'projectile');
+function launchWeaponProjectileAtEntity(
+  sim: GameSim,
+  attacker: Entity,
+  weapon: Weapon,
+  target: Entity,
+  intendedX = target.transform.x,
+  intendedZ = target.transform.z,
+): void {
+  const aim = autoAimPoint(sim, attacker, weapon, target, intendedX, intendedZ, 'projectile');
   // Ground entities store terrain height in transform.y. Passing that raw
   // value as an explicit aim height made shells dive into the soil beneath a
   // tank or building. Let the projectile resolver add the correct hull/facade

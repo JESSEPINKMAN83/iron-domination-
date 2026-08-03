@@ -13,7 +13,7 @@ import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
 import { rotateFormationOffset, tacticalFormationLayout } from '../sim/formations';
 
-export type OrderMarkerKind = 'move' | 'attack-move' | 'attack' | 'rally';
+export type OrderMarkerKind = 'move' | 'fast-move' | 'attack-move' | 'attack' | 'rally';
 
 interface Marker {
   root: Group;
@@ -45,6 +45,7 @@ const TARGET_HOVER_LIFT = 3.15;
 function orderMarkerColor(kind: OrderMarkerKind): number {
   if (kind === 'attack') return 0xff543e;
   if (kind === 'attack-move' || kind === 'rally') return 0xf0d56a;
+  if (kind === 'fast-move') return 0x72e6d0;
   return 0x7df27d;
 }
 

@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
-import { canManualWeaponLockTarget, damageForArmor, isManualTargetLockWeapon, issueAttackOrder, issueGroundAttack, manualFireAt, stepCombat } from './combat';
+import {
+  canManualWeaponLockTarget,
+  damageForArmor,
+  isManualTargetLockWeapon,
+  issueAttackOrder,
+  issueGroundAttack,
+  manualFireAt,
+  predictiveDefenseTowerAimPoint,
+  stepCombat,
+} from './combat';
 import { createEconomy, createInitialBase, placeStructure, spawnInfantryAt, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
@@ -1042,6 +1051,60 @@ describe('phase 4 combat simulation', () => {
 
     expect(enemy.health?.current).toBeLessThan(100);
     expect(sim.events.some((event) => event.kind === 'siegeMissile')).toBe(true);
+  });
+
+  it('gives autonomous unguided defense towers a bounded lead on moving targets', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+    economy.readyStructure = 'guard-tower';
+    const tower = placeStructure(
+      sim,
+      hf,
+      economy,
+      updatePlacement(sim, hf, 'guard-tower', base.transform.x + 26, base.transform.z, 1, economy),
+    )!;
+    const target = spawnTankAt(sim, tower.transform.x + 86, tower.transform.z, 'Moving Raider', 2);
+    target.velocity = { x: 0, z: 10 };
+
+    const aim = predictiveDefenseTowerAimPoint(sim, tower, tower.weapons!.primary, target);
+
+    expect(aim.x).toBeCloseTo(target.transform.x);
+    expect(aim.z).toBeGreaterThan(target.transform.z + 4);
+    expect(aim.leadSeconds).toBeGreaterThan(0.4);
+    expect(aim.leadSeconds).toBeLessThanOrEqual(1.9);
+    expect(predictiveDefenseTowerAimPoint(sim, tower, tower.weapons!.primary, target)).toEqual(aim);
+
+    tower.turret!.yaw = Math.atan2(aim.x - tower.transform.x, aim.z - tower.transform.z);
+    tower.weapons!.secondary!.cooldown = 99;
+    stepCombat(sim, 1 / 30);
+    const fired = sim.projectiles.find((projectile) => projectile.weaponKind === 'siegeMissile');
+    expect(fired?.directTargetId).toBe(target.id);
+    expect(fired?.toZ).toBeCloseTo(aim.z);
+  });
+
+  it('does not pre-lead player-controlled towers or autonomous homing missiles', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+    economy.readyStructure = 'aa-tower';
+    const tower = placeStructure(
+      sim,
+      hf,
+      economy,
+      updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy),
+    )!;
+    const target = spawnWaspAt(sim, hf, tower.transform.x + 90, tower.transform.z, 'Crossing Wasp', 2);
+    target.velocity = { x: 0, z: 18 };
+
+    const homingAim = predictiveDefenseTowerAimPoint(sim, tower, tower.weapons!.primary, target);
+    expect(homingAim).toEqual({ x: target.transform.x, z: target.transform.z, leadSeconds: 0 });
+
+    tower.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    const manualAim = predictiveDefenseTowerAimPoint(sim, tower, tower.weapons!.secondary!, target);
+    expect(manualAim).toEqual({ x: target.transform.x, z: target.transform.z, leadSeconds: 0 });
   });
 
   it('AA towers expose fortress control with lock-guided air defense and ground missiles', () => {
