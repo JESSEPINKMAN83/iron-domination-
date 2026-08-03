@@ -7,7 +7,8 @@ import { sampleHeight, type Heightfield } from './heightfield';
 import { mulberry32 } from './noise';
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { startMusterPosition } from '../content/startPositions';
-import { WEAPONS, type WeaponKind } from '../content/phase4';
+import { WEAPONS, type ProjectileKind, type WeaponKind } from '../content/phase4';
+import { UNIT_ARSENALS } from '../content/unitArsenal';
 import type { ImpactZone } from './impactModel';
 import { rotateFormationOffset, tacticalFormationLayout } from './formations';
 import { SpatialHash } from './spatialHash';
@@ -28,6 +29,8 @@ const approach = (current: number, target: number, maxDelta: number): number => 
 
 export interface CombatEvent {
   kind: string;
+  /** Exact weapon that produced this event. Projectile kinds are intentionally shared. */
+  weaponKind?: WeaponKind;
   fromX: number;
   fromY?: number;
   fromZ: number;
@@ -63,7 +66,7 @@ export interface CombatEvent {
 
 /** In-flight ballistic ordnance. Damage happens on impact, at the aimed location. */
 export interface Projectile {
-  kind: 'bomb' | 'tankBomb' | 'grenade' | 'atRocket' | 'scoutMissile' | 'tankMissile' | 'siegeMissile' | 'agMissile' | 'aaMissile';
+  kind: 'bomb' | 'tankBomb' | ProjectileKind;
   fromX: number;
   fromY?: number;
   fromZ: number;
@@ -79,6 +82,8 @@ export interface Projectile {
   damageScale?: number;
   forceScale?: number;
   impactScale?: number;
+  /** V-mode shot: preserve the commanded reticle point across minor terrain noise. */
+  manualAim?: boolean;
   maxDistance?: number;
   weaponKind?: string;
   directTargetId?: number;
@@ -252,11 +257,10 @@ interface TankVariant {
 }
 
 const STANDARD_TANK: TankVariant = {
-  primary: 'tankMissile',
-  secondary: 'tankBomb',
-  primaryRange: 92,
-  secondaryRange: 152,
-  secondarySalvoCount: 2,
+  primary: UNIT_ARSENALS.tank.primary,
+  secondary: UNIT_ARSENALS.tank.secondary,
+  primaryRange: WEAPONS[UNIT_ARSENALS.tank.primary].range,
+  secondaryRange: WEAPONS[UNIT_ARSENALS.tank.secondary!].range,
   health: 100,
   speed: 18,
   radius: 2.2,
@@ -270,11 +274,10 @@ export function spawnTankAt(sim: GameSim, x: number, z: number, name: string, te
 
 export function spawnScoutTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
   return spawnTankVariantAt(sim, x, z, name, team, {
-    primary: 'scoutMissile',
-    secondary: 'tankBomb',
-    primaryRange: 72,
-    secondaryRange: 132,
-    secondarySalvoCount: 1,
+    primary: UNIT_ARSENALS['scout-tank'].primary,
+    secondary: UNIT_ARSENALS['scout-tank'].secondary,
+    primaryRange: WEAPONS[UNIT_ARSENALS['scout-tank'].primary].range,
+    secondaryRange: WEAPONS[UNIT_ARSENALS['scout-tank'].secondary!].range,
     health: 72,
     speed: 24,
     radius: 1.9,
@@ -285,11 +288,10 @@ export function spawnScoutTankAt(sim: GameSim, x: number, z: number, name: strin
 
 export function spawnSiegeTankAt(sim: GameSim, x: number, z: number, name: string, team = 1): Entity {
   return spawnTankVariantAt(sim, x, z, name, team, {
-    primary: 'siegeMissile',
-    secondary: 'tankBomb',
-    primaryRange: 118,
-    secondaryRange: 176,
-    secondarySalvoCount: 4,
+    primary: UNIT_ARSENALS['siege-tank'].primary,
+    secondary: UNIT_ARSENALS['siege-tank'].secondary,
+    primaryRange: WEAPONS[UNIT_ARSENALS['siege-tank'].primary].range,
+    secondaryRange: WEAPONS[UNIT_ARSENALS['siege-tank'].secondary!].range,
     health: 138,
     speed: 13,
     radius: 2.7,
@@ -327,17 +329,16 @@ function spawnTankVariantAt(sim: GameSim, x: number, z: number, name: string, te
 
 export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team = 1): Entity {
   return spawnAircraftAt(sim, hf, x, z, name, team, {
-    primary: 'rocketPod',
-    secondary: 'bomb',
+    primary: UNIT_ARSENALS.vulture.primary,
+    secondary: UNIT_ARSENALS.vulture.secondary,
     health: 160,
     speed: 46,
     cruiseAltitude: 28,
     minAGL: 6,
     maxAltitude: 90,
     climbRate: 14,
-    primaryRange: 92,
-    secondaryRange: 152,
-    secondarySalvoCount: 2,
+    primaryRange: WEAPONS[UNIT_ARSENALS.vulture.primary].range,
+    secondaryRange: WEAPONS[UNIT_ARSENALS.vulture.secondary!].range,
     radius: 3.0,
     vision: 150,
   });
@@ -345,17 +346,16 @@ export function spawnVultureAt(sim: GameSim, hf: Heightfield, x: number, z: numb
 
 export function spawnWaspAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team = 1): Entity {
   return spawnAircraftAt(sim, hf, x, z, name, team, {
-    primary: 'waspAutocannon',
-    secondary: 'bomb',
+    primary: UNIT_ARSENALS.wasp.primary,
+    secondary: UNIT_ARSENALS.wasp.secondary,
     health: 90,
     speed: 60,
     cruiseAltitude: 24,
     minAGL: 6,
     maxAltitude: 82,
     climbRate: 18,
-    primaryRange: 72,
-    secondaryRange: 132,
-    secondarySalvoCount: 1,
+    primaryRange: WEAPONS[UNIT_ARSENALS.wasp.primary].range,
+    secondaryRange: WEAPONS[UNIT_ARSENALS.wasp.secondary!].range,
     radius: 2.5,
     vision: 172,
   });
@@ -363,17 +363,17 @@ export function spawnWaspAt(sim: GameSim, hf: Heightfield, x: number, z: number,
 
 export function spawnHammerheadAt(sim: GameSim, hf: Heightfield, x: number, z: number, name: string, team = 1): Entity {
   return spawnAircraftAt(sim, hf, x, z, name, team, {
-    primary: 'agMissile',
-    secondary: 'bomb',
+    primary: UNIT_ARSENALS.hammerhead.primary,
+    secondary: UNIT_ARSENALS.hammerhead.secondary,
     health: 230,
     speed: 34,
     cruiseAltitude: 34,
     minAGL: 8,
     maxAltitude: 96,
     climbRate: 10,
-    primaryRange: 150,
+    primaryRange: WEAPONS[UNIT_ARSENALS.hammerhead.primary].range,
     secondaryRange: 188,
-    secondarySalvoCount: 4,
+    secondarySalvoCount: UNIT_ARSENALS.hammerhead.secondarySalvoCount,
     radius: 3.8,
     vision: 138,
   });
@@ -1269,6 +1269,8 @@ const PROJECTILE_KIND_CODE: Record<string, number> = {
   tankMissile: 7,
   siegeMissile: 8,
   tankBomb: 9,
+  kineticShell: 10,
+  artilleryShell: 11,
 };
 
 export function hashSim(sim: GameSim): number {
@@ -1367,6 +1369,7 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round(projectile.toX * 100));
     mix(Math.round(projectile.toZ * 100));
     mix(Math.round(projectile.elapsed * 1000));
+    mix(projectile.manualAim ? 1 : 0);
     mix(projectile.attackerId);
   }
   for (const node of sim.resourceNodes) {

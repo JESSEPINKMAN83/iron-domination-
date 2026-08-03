@@ -152,7 +152,7 @@ export class AudioDirector {
       this.playMetalCrash(event);
       return;
     }
-    if (event.kind === 'bomb' || event.kind === 'tankBomb' || event.kind === 'grenade' || event.kind === 'agMissile' || event.kind === 'aaMissile' || event.kind === 'scoutMissile' || event.kind === 'tankMissile' || event.kind === 'siegeMissile') {
+    if (event.kind === 'bomb' || event.kind === 'tankBomb' || event.kind === 'grenade' || event.kind === 'kineticShell' || event.kind === 'artilleryShell' || event.kind === 'atRocket' || event.kind === 'agMissile' || event.kind === 'aaMissile' || event.kind === 'scoutMissile' || event.kind === 'tankMissile' || event.kind === 'siegeMissile') {
       this.playLaunch(event);
       return;
     }
@@ -263,9 +263,10 @@ export class AudioDirector {
 
   private playLaunch(event: CombatEvent): void {
     const kind = event.kind;
-    const heavyArc = kind === 'tankBomb';
+    const heavyArc = kind === 'tankBomb' || kind === 'artilleryShell';
+    const kinetic = kind === 'kineticShell';
     const profile: SoundProfile = {
-      gain: heavyArc ? 0.28 : kind === 'bomb' ? 0.2 : kind === 'grenade' ? 0.12 : 0.16,
+      gain: kinetic ? 0.3 : heavyArc ? 0.28 : kind === 'bomb' ? 0.2 : kind === 'grenade' ? 0.12 : 0.16,
       near: 22,
       far: heavyArc ? 340 : kind === 'bomb' ? 260 : 210,
     };
@@ -275,8 +276,8 @@ export class AudioDirector {
     const now = this.ctx!.currentTime;
     const whistle = this.ctx!.createOscillator();
     whistle.type = kind === 'grenade' ? 'triangle' : 'sawtooth';
-    whistle.frequency.setValueAtTime(heavyArc ? 92 : kind === 'bomb' ? 120 : kind === 'grenade' ? 270 : 390, now);
-    whistle.frequency.exponentialRampToValueAtTime(heavyArc ? 54 : kind === 'bomb' ? 72 : kind === 'grenade' ? 210 : 850, now + 0.22);
+    whistle.frequency.setValueAtTime(kinetic ? 72 : heavyArc ? 92 : kind === 'bomb' ? 120 : kind === 'grenade' ? 270 : 390, now);
+    whistle.frequency.exponentialRampToValueAtTime(kinetic ? 42 : heavyArc ? 54 : kind === 'bomb' ? 72 : kind === 'grenade' ? 210 : 850, now + 0.22);
     const gain = this.ctx!.createGain();
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(kind === 'bomb' ? 0.08 : 0.04, now + 0.014);
@@ -291,8 +292,8 @@ export class AudioDirector {
 
   private playRifle(event: CombatEvent): void {
     const sniper = event.kind === 'sniperRifle';
-    const profile: SoundProfile = { gain: sniper ? 0.22 : 0.07, near: 16, far: sniper ? 280 : 145 };
-    if (!this.allowSoundAt(event.kind, event.fromX, event.fromZ, profile, sniper ? 0.18 : 0.026)) return;
+    const profile: SoundProfile = { gain: sniper ? 0.31 : 0.07, near: 16, far: sniper ? 360 : 145 };
+    if (!this.allowSoundAt(event.kind, event.fromX, event.fromZ, profile, sniper ? 0.14 : 0.026)) return;
     const bus = this.spatialBus(event.fromX, event.fromZ, profile);
     if (!bus) return;
     const now = this.ctx!.currentTime;
@@ -301,13 +302,13 @@ export class AudioDirector {
     osc.frequency.setValueAtTime(sniper ? 155 : 260, now);
     osc.frequency.exponentialRampToValueAtTime(sniper ? 72 : 120, now + (sniper ? 0.16 : 0.055));
     const gain = this.ctx!.createGain();
-    gain.gain.setValueAtTime(sniper ? 0.12 : 0.035, now);
+    gain.gain.setValueAtTime(sniper ? 0.2 : 0.035, now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + (sniper ? 0.24 : 0.075));
     osc.connect(gain);
     gain.connect(bus.input);
     osc.start(now);
     osc.stop(now + (sniper ? 0.26 : 0.09));
-    this.noiseBurst(bus.input, sniper ? 0.12 : 0.045, sniper ? 0.04 : 0.018, { type: 'highpass', frequency: sniper ? 850 : 1200, q: 0.7 });
+    this.noiseBurst(bus.input, sniper ? 0.2 : 0.045, sniper ? 0.065 : 0.018, { type: 'highpass', frequency: sniper ? 850 : 1200, q: 0.7 });
     this.releaseBus(bus, sniper ? 0.34 : 0.12);
   }
 
@@ -484,6 +485,8 @@ export class AudioDirector {
 }
 
 function explosionProfile(kind: string, killed: boolean): SoundProfile {
+  if (kind === 'artilleryShell-impact') return { gain: killed ? 0.72 : 0.58, near: 32, far: killed ? 590 : 510 };
+  if (kind === 'kineticShell-impact') return { gain: killed ? 0.38 : 0.29, near: 20, far: 310 };
   if (kind === 'tankBomb-impact') return { gain: killed ? 0.76 : 0.62, near: 34, far: killed ? 620 : 540 };
   if (kind === 'bomb-impact') return { gain: killed ? 0.62 : 0.48, near: 28, far: killed ? 520 : 430 };
   if (kind === 'agMissile-impact') return { gain: killed ? 0.5 : 0.38, near: 24, far: 390 };

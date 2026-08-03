@@ -1,3 +1,8 @@
+import type { Entity } from '../sim/components';
+import { unitKindForUpgrade } from '../sim/upgrades';
+import { UNIT_ARSENALS, type WeaponHudFamily } from '../content/unitArsenal';
+import { WEAPONS, type WeaponKind } from '../content/phase4';
+
 // Debug HUD: performance stats (top-left) and controls help (bottom-left).
 // pointer-events: none so it never blocks edge panning.
 export interface HudStats {
@@ -28,6 +33,7 @@ export class Hud {
   private readonly reticle: HTMLDivElement;
   private readonly modeBanner: HTMLDivElement;
   private readonly fortressFrame: HTMLDivElement;
+  private readonly weaponFrame: HTMLDivElement;
   private readonly multiplayer: HTMLDivElement;
   private readonly multiplayerDetail: HTMLDivElement;
   private readonly tacticalCallout: HTMLDivElement;
@@ -36,6 +42,9 @@ export class Hud {
   private tacticalTimer?: number;
   private reticleFlashTimer?: number;
   private fortressMode = false;
+  private reticleFamily: WeaponHudFamily = 'rifle';
+  private firstPersonEntity?: Entity;
+  private lastWeaponUpdate = 0;
 
   constructor(container: HTMLElement) {
     this.stats = document.createElement('div');
@@ -69,7 +78,7 @@ export class Hud {
       'Fire      left-click primary, right-click secondary',
       'Audio     M mute/unmute',
       'Counters  Rifles infantry · Grenades buildings · Rockets armor/air',
-      'Air       Wasp intercepts · Vulture/Hammerhead hit ground',
+      'Air       Wasp intercepts · Vulture suppresses · Hammerhead hunts air/ground',
       'Exit      V again or Escape',
       'Overlay   F3 walkability · F4 fog debug',
       'Help      F1 show/hide',
@@ -117,6 +126,12 @@ export class Hud {
       '<div style="position:absolute;right:15px;bottom:12px;color:#9d8d64">TACTICAL WARHEAD INTERLOCK // ARMED</div>';
     container.appendChild(this.fortressFrame);
 
+    this.weaponFrame = document.createElement('div');
+    this.weaponFrame.style.cssText =
+      'position:fixed;inset:26px;display:none;pointer-events:none;z-index:10;color:#bfe8c9;' +
+      'font:700 9px/1.45 ui-monospace,Menlo,monospace;letter-spacing:.13em;text-shadow:0 1px 2px #000;';
+    container.appendChild(this.weaponFrame);
+
     this.multiplayer = document.createElement('div');
     this.multiplayer.style.cssText =
       'position:fixed;left:50%;top:62px;transform:translateX(-50%);z-index:14;display:none;pointer-events:none;' +
@@ -151,17 +166,27 @@ export class Hud {
     return this.infoVisible;
   }
 
-  setFirstPerson(active: boolean, fortress = false): void {
+  setFirstPerson(active: boolean, fortress = false, entity?: Entity): void {
     this.fortressMode = active && fortress;
+    this.firstPersonEntity = active ? entity : undefined;
     const mobileTouch = typeof document !== 'undefined' && document.documentElement.classList.contains('mobile-touch-device');
+    const unitKind = entity ? unitKindForUpgrade(entity) : undefined;
+    const arsenal = unitKind ? UNIT_ARSENALS[unitKind] : undefined;
+    this.reticleFamily = arsenal?.hud ?? 'rifle';
+    const primary = weaponLabel(entity?.weapons?.primary.kind ?? entity?.weapon?.kind);
+    const secondary = weaponLabel(entity?.weapons?.secondary?.kind);
     this.modeBanner.innerHTML = this.fortressMode
       ? '<div style="font-size:14px;color:#ffd96a;letter-spacing:.14em;">FORTRESS V-MODE</div>' +
         `<div style="margin-top:4px;font-size:10px;color:#d7c897;letter-spacing:.04em;">${mobileTouch ? 'Drag to aim · Hold SCAN, release to lock · FIRE interceptor · MISSILE barrage' : 'MOUSE AIM · WHEEL OPTICAL ZOOM · HOLD T SCAN · RELEASE TO LOCK · LMB/RMB FIRE · V EXIT'}</div>`
-      : '<div style="font-size:13px;color:#f0d56a;letter-spacing:.08em;">FIRST-PERSON VIEW</div>' +
-        `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${mobileTouch ? 'Use the left arrows to move and drag the right side to aim' : 'Press V or Escape to return to command view'}</div>`;
+      : `<div style="font-size:13px;color:#f0d56a;letter-spacing:.1em;">${arsenal?.designation ?? 'DIRECT CONTROL'}</div>` +
+        `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${arsenal?.fireControl ?? 'MANUAL FIRE CONTROL'} · ${mobileTouch ? 'DRAG TO AIM' : 'V / ESC EXIT'}</div>`;
     this.modeBanner.style.minWidth = this.fortressMode ? '520px' : '260px';
     this.modeBanner.style.borderColor = this.fortressMode ? 'rgba(255,199,69,.88)' : 'rgba(240,213,106,.58)';
     this.fortressFrame.style.display = this.fortressMode ? 'block' : 'none';
+    this.weaponFrame.style.display = active && !this.fortressMode ? 'block' : 'none';
+    this.weaponFrame.innerHTML = active && !this.fortressMode
+      ? weaponFrameMarkup(arsenal?.designation ?? 'DIRECT CONTROL', arsenal?.fireControl ?? 'MANUAL FCS', primary, secondary)
+      : '';
     this.applyReticleTheme();
     this.reticle.style.display = active ? 'block' : 'none';
     if (!active) this.clearReticleFlash();
@@ -192,13 +217,17 @@ export class Hud {
   }
 
   private applyReticleTheme(): void {
-    this.reticle.style.width = this.fortressMode ? '34px' : '22px';
-    this.reticle.style.height = this.fortressMode ? '34px' : '22px';
-    this.reticle.style.borderRadius = this.fortressMode ? '2px' : '50%';
-    this.reticle.style.borderColor = this.fortressMode ? 'rgba(255,213,91,.9)' : 'rgba(210,230,210,.58)';
+    const profile = reticleVisual(this.fortressMode ? 'fortress' : this.reticleFamily);
+    this.reticle.style.width = `${profile.size}px`;
+    this.reticle.style.height = `${profile.size}px`;
+    this.reticle.style.borderRadius = profile.radius;
+    this.reticle.style.borderColor = profile.color;
+    this.reticle.style.color = profile.color;
+    this.reticle.style.borderStyle = profile.border;
+    this.reticle.innerHTML = profile.markup;
     this.reticle.style.boxShadow = this.fortressMode
       ? '0 0 0 1px rgba(0,0,0,.7),0 0 20px rgba(255,183,48,.3),inset 0 0 12px rgba(255,199,62,.1)'
-      : '0 0 0 1px rgba(0,0,0,.45),0 0 12px rgba(125,242,125,.16)';
+      : `0 0 0 1px rgba(0,0,0,.55),0 0 16px ${profile.glow}`;
   }
 
   setMultiplayerStatus(message: string, bad = false, paused = false): void {
@@ -248,6 +277,7 @@ export class Hud {
   }
 
   update(nowMs: number, s: HudStats): void {
+    this.updateWeaponReadiness(nowMs);
     if (nowMs - this.lastUpdate < 250) return;
     this.lastUpdate = nowMs;
     const tris = s.triangles >= 1e6 ? `${(s.triangles / 1e6).toFixed(2)}M` : `${(s.triangles / 1e3).toFixed(0)}k`;
@@ -261,4 +291,70 @@ export class Hud {
       `zoom ${s.zoom.toFixed(1)} · yaw ${Math.round(s.yawDeg)}° · pitch ${Math.round(s.pitchDeg)}°`,
     ].join('\n');
   }
+
+  private updateWeaponReadiness(nowMs: number): void {
+    if (!this.firstPersonEntity || this.fortressMode || nowMs - this.lastWeaponUpdate < 50) return;
+    this.lastWeaponUpdate = nowMs;
+    const primary = this.firstPersonEntity.weapons?.primary ?? this.firstPersonEntity.weapon;
+    const secondary = this.firstPersonEntity.weapons?.secondary;
+    updateReloadNode(this.weaponFrame, 'primary', primary?.kind, primary?.cooldown ?? 0);
+    updateReloadNode(this.weaponFrame, 'secondary', secondary?.kind, secondary?.cooldown ?? 0);
+  }
+}
+
+function weaponLabel(kind: string | undefined): string {
+  return kind && kind in WEAPONS ? WEAPONS[kind as WeaponKind].label.toUpperCase() : 'NONE';
+}
+
+function weaponFrameMarkup(designation: string, fireControl: string, primary: string, secondary: string): string {
+  return `
+    <div style="position:absolute;left:0;top:0;width:66px;height:18px;border-left:2px solid currentColor;border-top:2px solid currentColor"></div>
+    <div style="position:absolute;right:0;top:0;width:66px;height:18px;border-right:2px solid currentColor;border-top:2px solid currentColor"></div>
+    <div style="position:absolute;left:0;bottom:0;width:66px;height:18px;border-left:2px solid currentColor;border-bottom:2px solid currentColor"></div>
+    <div style="position:absolute;right:0;bottom:0;width:66px;height:18px;border-right:2px solid currentColor;border-bottom:2px solid currentColor"></div>
+    <div style="position:absolute;left:10px;top:8px"><span style="color:#f4dda0">${designation}</span><br><span style="color:#78968a">${fireControl}</span></div>
+    <div style="position:absolute;right:10px;top:8px;text-align:right">
+      <span style="color:#f4dda0">LMB // ${primary}</span> <b data-reload-label="primary" style="color:#8ee6a5">READY</b>
+      <span style="display:inline-block;width:74px;height:3px;margin-left:7px;background:rgba(80,105,91,.38);vertical-align:middle"><i data-reload-bar="primary" style="display:block;width:100%;height:100%;background:#8ee6a5"></i></span><br>
+      <span style="color:#78968a">RMB // ${secondary}</span> <b data-reload-label="secondary" style="color:#8ee6a5">READY</b>
+      <span style="display:inline-block;width:74px;height:3px;margin-left:7px;background:rgba(80,105,91,.38);vertical-align:middle"><i data-reload-bar="secondary" style="display:block;width:100%;height:100%;background:#8ee6a5"></i></span>
+    </div>
+    <div style="position:absolute;left:10px;bottom:7px;color:#78968a">STABILIZATION // ACTIVE</div>
+    <div style="position:absolute;right:10px;bottom:7px;color:#78968a">CENTER RETICLE // BORE AXIS</div>`;
+}
+
+function updateReloadNode(frame: HTMLDivElement, slot: 'primary' | 'secondary', kind: string | undefined, cooldown: number): void {
+  const label = frame.querySelector<HTMLElement>(`[data-reload-label="${slot}"]`);
+  const bar = frame.querySelector<HTMLElement>(`[data-reload-bar="${slot}"]`);
+  if (!label || !bar) return;
+  if (!kind || !(kind in WEAPONS)) {
+    label.textContent = '—';
+    label.style.color = '#60756b';
+    bar.style.width = '0%';
+    return;
+  }
+  const total = Math.max(0.01, WEAPONS[kind as WeaponKind].cooldown);
+  const ready = cooldown <= 0.01;
+  const progress = ready ? 1 : Math.max(0, Math.min(1, 1 - cooldown / total));
+  label.textContent = ready ? 'READY' : `RELOAD ${cooldown.toFixed(1)}S`;
+  label.style.color = ready ? '#8ee6a5' : '#f2c15b';
+  bar.style.width = `${Math.round(progress * 100)}%`;
+  bar.style.background = ready ? '#8ee6a5' : '#f2c15b';
+  bar.style.boxShadow = ready ? '0 0 7px rgba(105,235,151,.55)' : 'none';
+}
+
+function reticleVisual(family: WeaponHudFamily | 'fortress'): { size: number; radius: string; color: string; glow: string; border: string; markup: string } {
+  const color = family === 'aviation' || family === 'strike' ? 'rgba(110,224,255,.88)'
+    : family === 'artillery' || family === 'ballistic' ? 'rgba(255,205,91,.88)'
+      : family === 'seeker' || family === 'fortress' ? 'rgba(255,218,98,.9)'
+        : 'rgba(190,238,202,.8)';
+  const cross = '<i style="position:absolute;left:50%;top:-12px;width:1px;height:9px;background:currentColor"></i><i style="position:absolute;left:50%;bottom:-12px;width:1px;height:9px;background:currentColor"></i><i style="position:absolute;top:50%;left:-12px;width:9px;height:1px;background:currentColor"></i><i style="position:absolute;top:50%;right:-12px;width:9px;height:1px;background:currentColor"></i>';
+  if (family === 'aviation') return { size: 42, radius: '50%', color, glow: 'rgba(72,205,255,.25)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:50%;width:72px;height:18px;border:1px solid currentColor;border-top:0;border-radius:0 0 50% 50%;transform:translate(-50%,-22%)"></b>` };
+  if (family === 'strike') return { size: 46, radius: '2px', color, glow: 'rgba(72,205,255,.28)', border: 'dashed', markup: `${cross}<b style="position:absolute;inset:9px;border:1px solid currentColor;transform:rotate(45deg)"></b>` };
+  if (family === 'artillery') return { size: 50, radius: '50% 50% 4px 4px', color, glow: 'rgba(255,181,48,.28)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:7px;bottom:7px;border-left:1px dashed currentColor"></b><em style="position:absolute;left:calc(50% + 5px);top:5px;font:7px monospace">8<br>6<br>4<br>2</em>` };
+  if (family === 'ballistic') return { size: 34, radius: '50%', color, glow: 'rgba(255,181,48,.22)', border: 'dashed', markup: `${cross}<b style="position:absolute;left:5px;right:5px;bottom:-18px;height:14px;border:1px solid currentColor;border-top:0;border-radius:0 0 50% 50%"></b>` };
+  if (family === 'seeker' || family === 'fortress') return { size: family === 'fortress' ? 34 : 48, radius: '2px', color, glow: 'rgba(255,183,48,.3)', border: 'dashed', markup: `${cross}<b style="position:absolute;inset:7px;border:1px solid currentColor"></b>` };
+  if (family === 'armor') return { size: 38, radius: '50%', color, glow: 'rgba(125,242,125,.2)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:50%;width:7px;height:7px;border:1px solid currentColor;transform:translate(-50%,-50%) rotate(45deg)"></b>` };
+  if (family === 'precision') return { size: 26, radius: '50%', color, glow: 'rgba(125,242,125,.2)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:50%;width:3px;height:3px;background:currentColor;border-radius:50%;transform:translate(-50%,-50%)"></b>` };
+  return { size: 24, radius: '50%', color, glow: 'rgba(125,242,125,.16)', border: 'solid', markup: cross };
 }

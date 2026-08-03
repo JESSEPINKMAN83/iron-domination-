@@ -1,12 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
-import { WEAPONS } from '../content/phase4';
-import { damageForArmor, isManualTargetLockWeapon, issueAttackOrder, issueGroundAttack, manualFireAt, stepCombat } from './combat';
+import { WEAPONS, type WeaponKind } from '../content/phase4';
+import { canManualWeaponLockTarget, damageForArmor, isManualTargetLockWeapon, issueAttackOrder, issueGroundAttack, manualFireAt, stepCombat } from './combat';
 import { createEconomy, createInitialBase, placeStructure, spawnInfantryAt, startStructureBuild, stepEconomy, updatePlacement } from './economy';
 import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
 import { purchaseUnitUpgrade } from './upgrades';
-import { createGameSim, hashSim, issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
+import type { Entity } from './components';
+import {
+  createGameSim,
+  hashSim,
+  issueMoveOrder,
+  spawnHammerheadAt as spawnCurrentHammerheadAt,
+  spawnScoutTankAt as spawnCurrentScoutTankAt,
+  spawnSiegeTankAt as spawnCurrentSiegeTankAt,
+  spawnTankAt as spawnCurrentTankAt,
+  spawnVultureAt as spawnCurrentVultureAt,
+  spawnWaspAt as spawnCurrentWaspAt,
+  stepSim,
+} from './world';
+
+/**
+ * Most tests below isolate long-standing projectile and bomb mechanics. Give
+ * those fixtures their historical weapons explicitly; current roster identity
+ * is asserted separately in unitArsenal.test.ts.
+ */
+function legacyLoadout(entity: Entity, primary: WeaponKind, secondary?: WeaponKind, salvoCount?: number): Entity {
+  const primaryWeapon = { kind: primary, range: WEAPONS[primary].range, cooldown: 0 };
+  entity.weapon = primaryWeapon;
+  entity.weapons = {
+    primary: primaryWeapon,
+    secondary: secondary ? { kind: secondary, range: WEAPONS[secondary].range, cooldown: 0, salvoCount } : undefined,
+  };
+  return entity;
+}
+
+const spawnTankAt = (...args: Parameters<typeof spawnCurrentTankAt>) =>
+  legacyLoadout(spawnCurrentTankAt(...args), 'tankMissile', 'tankBomb', 2);
+const spawnScoutTankAt = (...args: Parameters<typeof spawnCurrentScoutTankAt>) =>
+  legacyLoadout(spawnCurrentScoutTankAt(...args), 'scoutMissile', 'tankBomb', 1);
+const spawnSiegeTankAt = (...args: Parameters<typeof spawnCurrentSiegeTankAt>) =>
+  legacyLoadout(spawnCurrentSiegeTankAt(...args), 'siegeMissile', 'tankBomb', 4);
+const spawnWaspAt = (...args: Parameters<typeof spawnCurrentWaspAt>) =>
+  legacyLoadout(spawnCurrentWaspAt(...args), 'waspAutocannon', 'bomb', 1);
+const spawnVultureAt = (...args: Parameters<typeof spawnCurrentVultureAt>) =>
+  legacyLoadout(spawnCurrentVultureAt(...args), 'rocketPod', 'bomb', 2);
+const spawnHammerheadAt = (...args: Parameters<typeof spawnCurrentHammerheadAt>) =>
+  legacyLoadout(spawnCurrentHammerheadAt(...args), 'agMissile', 'bomb', 4);
 
 const settle = (sim: ReturnType<typeof createGameSim>, seconds: number) => {
   for (let i = 0; i < Math.round(seconds * 30); i++) stepCombat(sim, 1 / 30);
@@ -16,11 +56,52 @@ describe('phase 4 combat simulation', () => {
   it('applies weapon damage matrix values', () => {
     expect(damageForArmor('rifle', 'heavy')).toBeCloseTo(2.2);
     expect(damageForArmor('sniperRifle', 'infantry')).toBeCloseTo(86.4);
-    expect(damageForArmor('cannon', 'heavy')).toBeCloseTo(5.76);
+    expect(damageForArmor('cannon', 'heavy')).toBeCloseTo(26.32);
+    expect(damageForArmor('autocannon', 'heavy')).toBeCloseTo(0.4);
+    expect(damageForArmor('heavyCannon', 'building')).toBeCloseTo(47.56);
     expect(damageForArmor('bomb', 'heavy')).toBeCloseTo(15.08);
     expect(damageForArmor('bomb', 'building')).toBeCloseTo(7.8);
     expect(damageForArmor('tankBomb', 'heavy')).toBeCloseTo(34.44);
     expect(damageForArmor('tankBomb', 'building')).toBeCloseTo(23.1);
+  });
+
+  it('keeps a Mauler artillery shell alive through the ascending half of its arc', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const mauler = spawnCurrentSiegeTankAt(sim, -90, -20, 'V-mode Mauler');
+    mauler.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    mauler.turret!.yaw = Math.PI / 2;
+    const targetX = 90;
+    const targetZ = -20;
+
+    expect(manualFireAt(sim, mauler, targetX, targetZ, 'primary', sampleHeight(hf, targetX, targetZ) + 1)).toBe(true);
+    const duration = sim.projectiles[0]?.duration ?? 0;
+    for (let i = 0; i < Math.floor(duration * 0.55 * 30); i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    expect(sim.projectiles.some((projectile) => projectile.weaponKind === 'heavyCannon')).toBe(true);
+    expect(sim.events.some((event) => event.kind === 'artilleryShell-impact')).toBe(false);
+  });
+
+  it('does not magnetize a possessed Jackal shot toward a near-miss enemy', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const jackal = spawnCurrentScoutTankAt(sim, 0, 0, 'V-mode Jackal');
+    const enemy = spawnCurrentSiegeTankAt(sim, 40, 0, 'Off-reticle Mauler', 2);
+    const targetX = 60;
+    const targetZ = 5.4;
+    const aimYaw = Math.atan2(targetX - jackal.transform.x, targetZ - jackal.transform.z);
+    jackal.playerControlled = { throttle: 0, turn: 0, aimYaw };
+    jackal.turret!.yaw = aimYaw;
+
+    expect(manualFireAt(sim, jackal, targetX, targetZ, 'primary', sampleHeight(hf, targetX, targetZ) + 1.2)).toBe(true);
+
+    const event = sim.events.at(-1);
+    expect(event?.kind).toBe('autocannon');
+    expect(event?.targetId).toBeUndefined();
+    expect(event?.damage).toBe(0);
+    expect(enemy.health?.current).toBe(enemy.health?.max);
   });
 
   it('uses an Aegis escort drone to defend against nearby infantry before assisting the tank target', () => {
@@ -63,7 +144,7 @@ describe('phase 4 combat simulation', () => {
     expect(sim.events.at(-1)?.toZ).toBeCloseTo(18, 8);
   });
 
-  it('gives possessed primary fire higher velocity, damage, force, and impact energy', () => {
+  it('gives possessed primary fire platform-specific damage, force, and impact energy', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const attacker = spawnTankAt(sim, -20, 0, 'Player Tank', 1);
@@ -75,10 +156,10 @@ describe('phase 4 combat simulation', () => {
 
     expect(manualFireAt(sim, attacker, target.transform.x, target.transform.z, 'primary')).toBe(true);
     const projectile = sim.projectiles.at(-1);
-    expect(projectile?.speed).toBeCloseTo(WEAPONS.tankMissile.projectile!.speed * 2.35, 8);
+    expect(projectile?.speed).toBeCloseTo(WEAPONS.tankMissile.projectile!.speed, 8);
     expect(projectile?.damageScale).toBeGreaterThan(1);
     expect(projectile?.forceScale).toBeGreaterThan(projectile?.damageScale ?? 0);
-    expect(projectile?.impactScale).toBeGreaterThan(1.25);
+    expect(projectile?.impactScale).toBeGreaterThan(1);
 
     for (let i = 0; i < 30; i++) stepCombat(sim, 1 / 30, { autoFire: false });
     const impact = sim.events.find((event) => event.kind === 'tankMissile-impact');
@@ -186,7 +267,7 @@ describe('phase 4 combat simulation', () => {
     expect(event?.kind).toBe('tankMissile');
     expect(event?.damage).toBe(0);
     expect(target.health?.current).toBe(100);
-    expect(attacker.weapons?.primary.cooldown).toBeCloseTo(1.8);
+    expect(attacker.weapons?.primary.cooldown).toBeCloseTo(WEAPONS.tankMissile.cooldown * 2);
     expect(Math.hypot((event?.toX ?? 0) - target.transform.x, (event?.toZ ?? 0) - target.transform.z)).toBeGreaterThan(1.5);
   });
 
@@ -244,6 +325,36 @@ describe('phase 4 combat simulation', () => {
     expect(event?.kind).toBe('tankMissile');
     expect(event?.toY).toBe(aimY);
     expect(event?.toY).toBeGreaterThan(sampleHeight(hf, event!.toX, event!.toZ) + 8);
+    expect(sim.projectiles[0]?.manualAim).toBe(true);
+  });
+
+  it('keeps an upward rifle-grenade aim on a playable ground arc instead of launching it into the sky', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const rifleTeam = spawnInfantryAt(sim, 0, 0, 1, 'infantry');
+    rifleTeam.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    rifleTeam.turret!.yaw = 0;
+
+    expect(manualFireAt(sim, rifleTeam, 0, 1_000, 'secondary', 500)).toBe(true);
+
+    const grenade = sim.projectiles.at(-1)!;
+    expect(grenade.weaponKind).toBe('rifleGrenade');
+    expect(grenade.toZ).toBeCloseTo(WEAPONS.rifleGrenade.range, 5);
+    expect(grenade.toY).toBeCloseTo(sampleHeight(hf, grenade.toX, grenade.toZ) + 0.4, 5);
+    expect(grenade.toY).toBeLessThan(50);
+
+    let maxHeight = grenade.y ?? grenade.fromY ?? 0;
+    const duration = grenade.duration;
+    for (let i = 0; i < Math.ceil((duration + 0.1) * 30); i++) {
+      stepCombat(sim, 1 / 30, { autoFire: false });
+      maxHeight = Math.max(maxHeight, ...sim.projectiles.map((projectile) => projectile.y ?? 0));
+    }
+
+    expect(maxHeight).toBeLessThan((grenade.toY ?? 0) + 25);
+    const impact = sim.events.find((event) => event.kind === 'grenade-impact');
+    expect(impact?.toZ).toBeCloseTo(WEAPONS.rifleGrenade.range, 5);
+    expect(impact?.toY).toBeCloseTo(grenade.toY ?? 0, 5);
   });
 
   it('lets player-controlled aircraft rockets follow the full terrain reticle ray', () => {
@@ -266,7 +377,7 @@ describe('phase 4 combat simulation', () => {
     expect(projectile?.toY).toBe(targetY);
     expect(projectile?.duration).toBeGreaterThan(0.9);
     expect(projectile?.duration).toBeCloseTo(
-      300 / (WEAPONS.agMissile.projectile!.speed * 2.35),
+      300 / (WEAPONS.agMissile.projectile!.speed * 1.12),
       8,
     );
   });
@@ -285,13 +396,20 @@ describe('phase 4 combat simulation', () => {
     expect(manualFireAt(sim, attacker, targetX, targetZ, 'primary', targetY)).toBe(true);
 
     const shot = sim.events.at(-1);
-    expect(shot?.kind).toBe('rocketPod');
+    expect(shot?.kind).toBe('atRocket');
     expect(shot?.toX).toBe(targetX);
     expect(shot?.toZ).toBe(targetZ);
     expect(shot?.toY).toBe(targetY);
     expect(Math.hypot(shot!.toX - shot!.fromX, shot!.toZ - shot!.fromZ)).toBeGreaterThan(
       attacker.weapons!.primary.range,
     );
+
+    const duration = sim.projectiles.at(-1)?.duration ?? 0;
+    settle(sim, duration + 0.1);
+    const impact = sim.events.find((event) => event.kind === 'atRocket-impact');
+    expect(impact?.toX).toBeCloseTo(targetX, 5);
+    expect(impact?.toZ).toBeCloseTo(targetZ, 5);
+    expect(impact?.toY).toBeCloseTo(targetY, 5);
   });
 
   it('does not let a unit below the center aim ray steal a manual shot', () => {
@@ -311,7 +429,7 @@ describe('phase 4 combat simulation', () => {
     expect(sim.projectiles[0]?.toY).toBe(40);
   });
 
-  it('lets manually aimed tank missiles travel toward distant points until terrain intercepts them', () => {
+  it('lets manually aimed tank missiles reach their distant terminal point without a late terrain dive', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     sim.rules.autoCombat = false;
@@ -325,12 +443,12 @@ describe('phase 4 combat simulation', () => {
     expect(launch?.kind).toBe('tankMissile');
     expect(launch?.toX).toBe(280);
     expect(sim.projectiles[0]?.toX).toBe(280);
-    expect(sim.projectiles[0]?.duration).toBeCloseTo(460 / (WEAPONS.tankMissile.projectile!.speed * 2.35), 8);
+    expect(sim.projectiles[0]?.duration).toBeCloseTo(3.2, 8);
     settle(sim, (sim.projectiles[0]?.duration ?? 0) + 0.1);
     const impact = sim.events.find((event) => event.kind === 'tankMissile-impact');
     expect(impact).toBeDefined();
-    expect(impact!.toX).toBeGreaterThan(attacker.transform.x);
-    expect(impact!.toX).toBeLessThanOrEqual(280);
+    expect(impact!.toX).toBeCloseTo(280, 5);
+    expect(impact!.toZ).toBeCloseTo(-20, 5);
   });
 
   it('fires ballistic bombs that damage on impact, with splash falloff', () => {
@@ -497,8 +615,9 @@ describe('phase 4 combat simulation', () => {
     const fired = manualFireAt(sim, vulture, enemy.transform.x, enemy.transform.z, 'primary');
 
     expect(fired).toBe(true);
-    expect(enemy.health?.current).toBeLessThan(100);
     expect(vulture.weapons?.primary.cooldown).toBeGreaterThan(0);
+    settle(sim, 1);
+    expect(enemy.health?.current).toBeLessThan(100);
   });
 
   it('lets a player-controlled Vulture launch a twin bomb salvo', () => {
@@ -568,7 +687,11 @@ describe('phase 4 combat simulation', () => {
       expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'primary')).toBe(false);
       expect(manualFireAt(sim, vehicle, enemy.transform.x, enemy.transform.z, 'secondary')).toBe(false);
 
-      for (let i = 0; i < Math.round(5.3 * 30); i++) stepCombat(sim, 1 / 30, { autoFire: false });
+      const reload = Math.max(
+        WEAPONS[vehicle.weapons!.primary.kind as WeaponKind].cooldown,
+        WEAPONS[vehicle.weapons!.secondary!.kind as WeaponKind].cooldown,
+      );
+      for (let i = 0; i < Math.round((reload + 0.2) * 30); i++) stepCombat(sim, 1 / 30, { autoFire: false });
       if (vehicle.turret) vehicle.turret.yaw = aimYaw;
 
       expect(vehicle.weapons?.primary.cooldown).toBe(0);
@@ -642,6 +765,41 @@ describe('phase 4 combat simulation', () => {
     expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.targetId === target.id)).toBe(true);
   });
 
+  it('lands the current M-17 secondary lock on the enemy tank hull instead of the terrain beneath it', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const tank = spawnCurrentTankAt(sim, -50, 0, 'Player M-17');
+    const target = spawnCurrentTankAt(sim, 50, 0, 'Enemy M-17', 2);
+    tank.transform.y = sampleHeight(hf, tank.transform.x, tank.transform.z);
+    tank.previousTransform.y = tank.transform.y;
+    target.transform.y = sampleHeight(hf, target.transform.x, target.transform.z);
+    target.previousTransform.y = target.transform.y;
+    tank.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    tank.turret!.yaw = Math.PI / 2;
+    target.weapon = undefined;
+    target.weapons = undefined;
+
+    expect(manualFireAt(
+      sim,
+      tank,
+      target.transform.x,
+      target.transform.z,
+      'secondary',
+      target.transform.y,
+      target.id,
+    )).toBe(true);
+    expect(sim.projectiles.at(-1)?.weaponKind).toBe('tankMissile');
+    expect(sim.projectiles.at(-1)?.homing?.targetId).toBe(target.id);
+    const maxHealth = target.health!.max;
+    for (let i = 0; i < 30 * 4; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    expect(target.health?.current).toBeLessThan(maxHealth);
+    const impact = sim.events.find((event) => event.kind === 'tankMissile-impact' && event.targetId === target.id);
+    expect(impact?.targetType).toBe('tank');
+    expect(impact?.toY).toBeGreaterThan((target.transform.y ?? 0) + 1);
+  });
+
   it('limits locked missile steering so a fast aircraft can break pursuit', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -673,6 +831,82 @@ describe('phase 4 combat simulation', () => {
     expect(sim.projectiles).toHaveLength(0);
   });
 
+  it('keeps a locked air-to-air missile in pursuit instead of detonating on terrain', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const wasp = spawnCurrentWaspAt(sim, hf, -50, 0, 'Player Wasp', 1);
+    const hammerhead = spawnCurrentHammerheadAt(sim, hf, 50, 0, 'Enemy Hammerhead', 2);
+    wasp.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2, climb: 0 };
+    wasp.turret!.yaw = Math.PI / 2;
+    hammerhead.weapon = undefined;
+    hammerhead.weapons = undefined;
+
+    expect(manualFireAt(
+      sim,
+      wasp,
+      hammerhead.transform.x,
+      hammerhead.transform.z,
+      'secondary',
+      hammerhead.transform.y,
+      hammerhead.id,
+    )).toBe(true);
+    const missile = sim.projectiles.at(-1)!;
+    expect(missile.weaponKind).toBe('aaMissile');
+    expect(missile.homing?.targetId).toBe(hammerhead.id);
+
+    // Reproduce the low-flight condition that previously converted a valid
+    // aircraft lock into a premature ground explosion.
+    missile.y = sampleHeight(hf, missile.x ?? missile.fromX, missile.z ?? missile.fromZ) + 0.1;
+    const maxHealth = hammerhead.health!.max;
+    stepCombat(sim, 1 / 30, { autoFire: false });
+    expect(sim.projectiles).toContain(missile);
+    expect(missile.y).toBeGreaterThan(
+      sampleHeight(hf, missile.x ?? missile.fromX, missile.z ?? missile.fromZ) + 0.35,
+    );
+    for (let i = 0; i < 30 * 4; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    expect(hammerhead.health?.current).toBeLessThan(maxHealth);
+    const impact = sim.events.find((event) => event.kind === 'aaMissile-impact' && event.targetId === hammerhead.id);
+    expect(impact?.targetType).toBe('aircraft');
+    expect(impact?.toY).toBeCloseTo(hammerhead.transform.y ?? 0, 5);
+  });
+
+  it('gives the premium Hammerhead a working air-to-air lock and terminal hit', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const hammerhead = spawnCurrentHammerheadAt(sim, hf, -55, 0, 'Player Hammerhead', 1);
+    const enemyWasp = spawnCurrentWaspAt(sim, hf, 55, 0, 'Enemy Wasp', 2);
+    hammerhead.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2, climb: 0 };
+    hammerhead.turret!.yaw = Math.PI / 2;
+    enemyWasp.weapon = undefined;
+    enemyWasp.weapons = undefined;
+
+    expect(hammerhead.weapons?.primary.kind).toBe('agMissile');
+    expect(canManualWeaponLockTarget(hammerhead.weapons?.primary.kind, enemyWasp)).toBe(true);
+    expect(manualFireAt(
+      sim,
+      hammerhead,
+      enemyWasp.transform.x,
+      enemyWasp.transform.z,
+      'primary',
+      enemyWasp.transform.y,
+      enemyWasp.id,
+    )).toBe(true);
+
+    const missile = sim.projectiles.at(-1)!;
+    expect(missile.weaponKind).toBe('agMissile');
+    expect(missile.homing?.targetId).toBe(enemyWasp.id);
+    const maxHealth = enemyWasp.health!.max;
+    for (let i = 0; i < 30 * 5; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    expect(enemyWasp.health?.current).toBeLessThan(maxHealth);
+    const impact = sim.events.find((event) => event.kind === 'agMissile-impact' && event.targetId === enemyWasp.id);
+    expect(impact?.targetType).toBe('aircraft');
+    expect(impact?.toY).toBeCloseTo(enemyWasp.transform.y ?? 0, 5);
+  });
+
   it('lets missile infantry lock a moving vehicle with its primary rocket', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -693,7 +927,7 @@ describe('phase 4 combat simulation', () => {
     expect(target.health?.current).toBeLessThan(target.health?.max ?? 0);
   });
 
-  it('lets aircraft rocket pods create a guided primary shot after target lock', () => {
+  it('keeps Vulture rocket pods unguided even when a target id is supplied', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const vulture = spawnVultureAt(sim, hf, -20, -20, 'Vulture');
@@ -703,17 +937,12 @@ describe('phase 4 combat simulation', () => {
     target.weapon = undefined;
     target.weapons = undefined;
 
-    expect(isManualTargetLockWeapon(vulture.weapons?.primary.kind)).toBe(true);
+    expect(isManualTargetLockWeapon(vulture.weapons?.primary.kind)).toBe(false);
     expect(manualFireAt(sim, vulture, target.transform.x, target.transform.z, 'primary', target.transform.y, target.id)).toBe(true);
     const projectile = sim.projectiles.at(-1);
     expect(projectile?.weaponKind).toBe('rocketPod');
-    expect(projectile?.trajectory).toBe('homing');
-    expect(projectile?.homing?.targetId).toBe(target.id);
-    target.transform.x += 14;
-    target.previousTransform.x = target.transform.x;
-    for (let i = 0; i < 30 * 3; i++) stepCombat(sim, 1 / 30, { autoFire: false });
-
-    expect(target.health?.current).toBeLessThan(target.health?.max ?? 0);
+    expect(projectile?.trajectory).toBe('flat');
+    expect(projectile?.homing).toBeUndefined();
   });
 
   it('lets ground bomb splash only graze aircraft', () => {
@@ -1025,15 +1254,14 @@ describe('phase 4 combat simulation', () => {
     expect(damage.cells[cellIndex(damage, facadeCol, rz, 1)]).toBeGreaterThan(facadeUpperBefore);
   });
 
-  it('does not auto-engage aircraft beyond the shooter vision, even within airRange', () => {
+  it('does not auto-engage aircraft beyond the shooter vision', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
-    // rocket-infantry: vision 94, aaMissile airRange 145
+    // Rocket teams can see across their entire missile envelope.
     const rockets = spawnInfantryAt(sim, 0, 0, 1, 'rocket-infantry');
     const visionRadius = rockets.vision?.radius ?? 0;
-    expect(visionRadius).toBeLessThan(145);
-    // enemy vulture parked beyond vision but well inside aaMissile airRange
-    const distance = (visionRadius + 145) / 2;
+    expect(visionRadius).toBeGreaterThanOrEqual(WEAPONS.aaMissile.airRange ?? WEAPONS.aaMissile.range);
+    const distance = visionRadius + 20;
     spawnVultureAt(sim, hf, distance, 0, 'Vulture 1', 2);
 
     for (let i = 0; i < 30 * 3; i++) stepCombat(sim, 1 / 30);

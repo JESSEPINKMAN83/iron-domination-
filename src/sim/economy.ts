@@ -1,6 +1,8 @@
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, type FortressTowerKind } from '../content/fortress';
 import { startPosition } from '../content/startPositions';
+import { UNIT_ARSENALS } from '../content/unitArsenal';
+import { WEAPONS } from '../content/phase4';
 import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
@@ -683,16 +685,19 @@ function sendHarvesterToRefinery(sim: GameSim, entity: Entity, refinery: Entity)
 }
 
 export function spawnInfantryAt(sim: GameSim, x: number, z: number, team: number, kind: UnitKind): Entity {
+  const arsenal = UNIT_ARSENALS[kind];
   const config =
     kind === 'grenadier'
-      ? { label: 'Grenadier', enemyLabel: 'Ash Grenadier', weapon: 'grenade', range: 48, health: 52, speed: 11, vision: 82 }
+      ? { label: 'Grenadier', enemyLabel: 'Ash Grenadier', health: 52, speed: 11, vision: 82 }
       : kind === 'sniper'
-        ? { label: 'Sniper', enemyLabel: 'Ash Sniper', weapon: 'sniperRifle', range: 320, health: 38, speed: 10.5, vision: 360 }
+        ? { label: 'Sniper', enemyLabel: 'Ash Sniper', health: 38, speed: 10.5, vision: 360 }
       : kind === 'rocket-infantry'
-        ? { label: 'Rocket Team', enemyLabel: 'Ash Rockets', weapon: 'rocketLauncher', range: 72, health: 50, speed: 10, vision: 94 }
-        : { label: 'Rifle Team', enemyLabel: 'Ash Rifles', weapon: 'rifle', range: 42, health: 45, speed: 12, vision: 78 };
-  const primaryWeapon = { kind: config.weapon, range: config.range, cooldown: 0 };
-  const secondaryWeapon = kind === 'rocket-infantry' ? { kind: 'aaMissile', range: 145, cooldown: 0 } : undefined;
+        ? { label: 'Rocket Team', enemyLabel: 'Ash Rockets', health: 50, speed: 10, vision: 148 }
+        : { label: 'Rifle Team', enemyLabel: 'Ash Rifles', health: 45, speed: 12, vision: 78 };
+  const primaryWeapon = { kind: arsenal.primary, range: WEAPONS[arsenal.primary].range, cooldown: 0 };
+  const secondaryWeapon = arsenal.secondary
+    ? { kind: arsenal.secondary, range: WEAPONS[arsenal.secondary].range, cooldown: 0, salvoCount: arsenal.secondarySalvoCount }
+    : undefined;
   const entity = sim.world.add({
     id: sim.nextEntityId++,
     name: team === 2 ? config.enemyLabel : config.label,
