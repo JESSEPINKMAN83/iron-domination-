@@ -1,0 +1,201 @@
+.battle-debrief {
+  --debrief-accent: #efd06b;
+  position: fixed;
+  inset: 0;
+  z-index: 5500;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: clamp(12px, 2.8vw, 42px);
+  color: #eef2eb;
+  background:
+    radial-gradient(circle at 50% -15%, rgba(220, 171, 53, .22), transparent 44%),
+    linear-gradient(115deg, rgba(3, 7, 8, .94), rgba(8, 12, 12, .88) 50%, rgba(2, 5, 6, .96));
+  backdrop-filter: blur(12px) saturate(.72);
+  font: 13px/1.45 "Avenir Next", Inter, ui-sans-serif, system-ui, sans-serif;
+  pointer-events: auto;
+}
+.battle-debrief.is-defeat { --debrief-accent: #ec715b; }
+.battle-debrief::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: .32;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 79px, rgba(225, 195, 99, .045) 80px),
+    repeating-linear-gradient(0deg, transparent 0 79px, rgba(225, 195, 99, .045) 80px);
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+.battle-debrief *, .battle-debrief *::before, .battle-debrief *::after { box-sizing: border-box; }
+.battle-debrief__shell {
+  position: relative;
+  width: min(1320px, 100%);
+  min-height: min(820px, calc(100vh - clamp(24px, 5.6vw, 84px)));
+  margin: 0 auto;
+  overflow: hidden;
+  background: linear-gradient(145deg, rgba(18, 24, 23, .985), rgba(5, 9, 10, .99) 64%);
+  border: 1px solid rgba(226, 195, 101, .42);
+  box-shadow: 0 35px 110px rgba(0, 0, 0, .74), inset 0 1px rgba(255,255,255,.04);
+}
+.battle-debrief__shell::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 38%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--debrief-accent), transparent);
+  box-shadow: 0 0 25px var(--debrief-accent);
+}
+.battle-debrief__header {
+  min-height: 174px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 29px 34px 27px;
+  border-bottom: 1px solid rgba(200, 215, 206, .15);
+  background:
+    linear-gradient(90deg, rgba(226, 195, 101, .08), transparent 43%),
+    repeating-linear-gradient(135deg, transparent 0 12px, rgba(255,255,255,.012) 13px 14px);
+}
+.battle-debrief__result-mark {
+  width: 94px;
+  height: 94px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--debrief-accent) 72%, transparent);
+  transform: rotate(45deg);
+  background: color-mix(in srgb, var(--debrief-accent) 10%, transparent);
+  box-shadow: inset 0 0 28px color-mix(in srgb, var(--debrief-accent) 12%, transparent), 0 0 30px rgba(0,0,0,.35);
+}
+.battle-debrief__result-mark span {
+  transform: rotate(-45deg);
+  color: var(--debrief-accent);
+  font: 56px/1 Impact, Haettenschweiler, sans-serif;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--debrief-accent) 55%, transparent);
+}
+.battle-debrief__result-copy small, .battle-debrief__operation span, .battle-debrief__section-title small, .battle-debrief__metric span, .battle-debrief__army-header small, .battle-debrief__doctrine span {
+  color: #a7b0aa;
+  font: 700 9px/1.2 ui-monospace, Menlo, monospace;
+  letter-spacing: .17em;
+}
+.battle-debrief__result-copy > small { color: var(--debrief-accent); }
+.battle-debrief__result-copy { min-width: 0; }
+.battle-debrief__result-copy h1 {
+  margin: 5px 0 4px;
+  color: #f8f3df;
+  font: 400 clamp(45px, 6vw, 78px)/.95 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  letter-spacing: .055em;
+  text-shadow: 0 5px 28px rgba(0,0,0,.65);
+}
+.battle-debrief__result-copy p { max-width: 700px; margin: 0; color: #b9c3bc; font-size: 14px; }
+.battle-debrief__operation {
+  min-width: 190px;
+  padding: 13px 15px;
+  display: grid;
+  gap: 4px;
+  text-align: right;
+  border-right: 3px solid var(--debrief-accent);
+  background: linear-gradient(270deg, color-mix(in srgb, var(--debrief-accent) 10%, transparent), transparent);
+}
+.battle-debrief__operation strong { color: #f2dd91; font: 24px/.95 Impact, sans-serif; letter-spacing: .08em; }
+.battle-debrief__operation small { color: #7f8984; font: 9px ui-monospace, monospace; letter-spacing: .1em; }
+.battle-debrief__highlights {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border-bottom: 1px solid rgba(200, 215, 206, .14);
+  background: rgba(0,0,0,.22);
+}
+.battle-debrief__metric { min-width: 0; padding: 16px 17px 15px; display: grid; gap: 3px; border-right: 1px solid rgba(200, 215, 206, .12); }
+.battle-debrief__metric:last-child { border-right: 0; }
+.battle-debrief__metric strong { color: #eef2eb; font: 400 22px/1 Impact, Haettenschweiler, sans-serif; letter-spacing: .055em; }
+.battle-debrief__metric small { overflow: hidden; color: #7f8a84; font-size: 10px; white-space: nowrap; text-overflow: ellipsis; }
+.battle-debrief__body { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(280px, .72fr); }
+.battle-debrief__comparison { min-width: 0; padding: 25px 28px 28px; border-right: 1px solid rgba(200, 215, 206, .14); }
+.battle-debrief__intelligence { padding: 25px 24px 28px; background: rgba(0,0,0,.18); }
+.battle-debrief__section-title { display: flex; align-items: center; gap: 11px; margin-bottom: 16px; }
+.battle-debrief__section-title > span { width: 30px; height: 30px; display: grid; place-items: center; color: var(--debrief-accent); border: 1px solid color-mix(in srgb, var(--debrief-accent) 55%, transparent); font: 700 10px ui-monospace, monospace; }
+.battle-debrief__section-title > div { display: grid; gap: 2px; }
+.battle-debrief__section-title strong { font: 400 20px/1 Impact, sans-serif; letter-spacing: .085em; }
+.battle-debrief__armies { display: grid; gap: 9px; }
+.battle-debrief__army {
+  --army-accent: #dfbd64;
+  position: relative;
+  padding: 12px 13px 10px;
+  border: 1px solid rgba(168, 183, 174, .18);
+  border-left: 3px solid var(--army-accent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--army-accent) 8%, transparent), rgba(255,255,255,.018) 50%, transparent);
+}
+.battle-debrief__army.is-local { border-color: color-mix(in srgb, var(--army-accent) 52%, transparent); box-shadow: inset 0 0 28px color-mix(in srgb, var(--army-accent) 4%, transparent); }
+.battle-debrief__army.is-eliminated { filter: saturate(.6); opacity: .78; }
+.battle-debrief__army-header { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; }
+.battle-debrief__army-index { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 50%; color: #07100e; background: var(--army-accent); font: 800 12px ui-monospace, monospace; box-shadow: 0 0 15px color-mix(in srgb, var(--army-accent) 32%, transparent); }
+.battle-debrief__army-header > div { min-width: 0; display: grid; gap: 1px; }
+.battle-debrief__army-header strong { color: #edf2eb; font-size: 12px; letter-spacing: .09em; }
+.battle-debrief__army-header b { color: var(--army-accent); font: 700 9px ui-monospace, monospace; letter-spacing: .12em; }
+.battle-debrief__army-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin-top: 9px; border-top: 1px solid rgba(200, 215, 206, .1); }
+.battle-debrief__army-stats .battle-debrief__metric { padding: 10px 10px 8px 0; border: 0; }
+.battle-debrief__army-stats .battle-debrief__metric strong { font-size: 17px; }
+.battle-debrief__army-stats .battle-debrief__metric span { font-size: 8px; }
+.battle-debrief__army-stats .battle-debrief__metric small { font-size: 8px; }
+.battle-debrief__damage-bar { height: 2px; margin-top: 7px; overflow: hidden; background: rgba(255,255,255,.05); }
+.battle-debrief__damage-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--army-accent), transparent); box-shadow: 0 0 8px var(--army-accent); }
+.battle-debrief__assessments { display: grid; gap: 8px; }
+.battle-debrief__assessment { display: grid; grid-template-columns: 3px 1fr; gap: 12px; padding: 13px 12px; border: 1px solid rgba(168,183,174,.14); background: rgba(255,255,255,.025); }
+.battle-debrief__assessment i { background: #8da09a; }
+.battle-debrief__assessment.is-positive i { background: #72d391; box-shadow: 0 0 10px rgba(114,211,145,.45); }
+.battle-debrief__assessment.is-warning i { background: #e29c5e; box-shadow: 0 0 10px rgba(226,156,94,.4); }
+.battle-debrief__assessment strong { font-size: 12px; letter-spacing: .05em; }
+.battle-debrief__assessment p { margin: 4px 0 0; color: #909d96; font-size: 11px; line-height: 1.5; }
+.battle-debrief__doctrine { margin-top: 11px; padding: 13px; display: grid; gap: 3px; border: 1px solid rgba(226,195,101,.2); background: rgba(226,195,101,.05); }
+.battle-debrief__doctrine strong { color: #ead17d; font-size: 12px; letter-spacing: .08em; }
+.battle-debrief__doctrine small { color: #737f79; font: 9px ui-monospace, monospace; letter-spacing: .1em; }
+.battle-debrief__footer { min-height: 78px; display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 17px 28px; border-top: 1px solid rgba(200,215,206,.15); background: rgba(0,0,0,.3); }
+.battle-debrief__footer p { margin: 0; display: grid; gap: 3px; }
+.battle-debrief__footer p strong { color: var(--debrief-accent); font: 700 9px ui-monospace, monospace; letter-spacing: .15em; }
+.battle-debrief__footer p span { color: #7f8a84; font-size: 11px; }
+.battle-debrief__actions { display: flex; gap: 9px; }
+.battle-debrief__button { min-height: 42px; padding: 0 18px; border: 1px solid #4e5b57; color: #cfd8d2; background: linear-gradient(#222b29,#111716); font: 700 10px ui-monospace, monospace; letter-spacing: .1em; cursor: pointer; }
+.battle-debrief__button:hover { border-color: #83918b; color: #fff; }
+.battle-debrief__button.is-primary { min-width: 154px; border-color: var(--debrief-accent); color: #111511; background: linear-gradient(180deg, #f2d674, #a68131); box-shadow: 0 7px 22px rgba(0,0,0,.3); }
+.battle-debrief__button:disabled { opacity: .55; cursor: wait; }
+
+@media (max-width: 1050px) {
+  .battle-debrief__highlights { grid-template-columns: repeat(3, 1fr); }
+  .battle-debrief__highlights .battle-debrief__metric:nth-child(3) { border-right: 0; }
+  .battle-debrief__highlights .battle-debrief__metric:nth-child(-n+3) { border-bottom: 1px solid rgba(200,215,206,.12); }
+  .battle-debrief__body { grid-template-columns: 1fr; }
+  .battle-debrief__comparison { border-right: 0; border-bottom: 1px solid rgba(200,215,206,.14); }
+  .battle-debrief__army-stats { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 680px) {
+  .battle-debrief { padding: 0; }
+  .battle-debrief__shell { min-height: 100%; border: 0; }
+  .battle-debrief__header { grid-template-columns: auto 1fr; gap: 15px; padding: 22px 18px; }
+  .battle-debrief__result-mark { width: 58px; height: 58px; }
+  .battle-debrief__result-mark span { font-size: 36px; }
+  .battle-debrief__result-copy h1 { font-size: 31px; letter-spacing: .035em; white-space: nowrap; }
+  .battle-debrief__result-copy p { display: none; }
+  .battle-debrief__operation { grid-column: 1 / -1; min-width: 0; text-align: left; border-right: 0; border-left: 3px solid var(--debrief-accent); background: linear-gradient(90deg, color-mix(in srgb, var(--debrief-accent) 10%, transparent), transparent); }
+  .battle-debrief__highlights { grid-template-columns: repeat(2, 1fr); }
+  .battle-debrief__highlights .battle-debrief__metric { border-bottom: 1px solid rgba(200,215,206,.12); }
+  .battle-debrief__highlights .battle-debrief__metric:nth-child(2n) { border-right: 0; }
+  .battle-debrief__comparison, .battle-debrief__intelligence { padding: 20px 14px; }
+  .battle-debrief__army-stats { grid-template-columns: repeat(2, 1fr); }
+  .battle-debrief__army-header b { display: none; }
+  .battle-debrief__footer { align-items: stretch; flex-direction: column; padding: 17px 14px calc(17px + env(safe-area-inset-bottom)); }
+  .battle-debrief__actions { display: grid; grid-template-columns: 1fr 1.2fr; }
+  .battle-debrief__button { padding: 0 10px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .battle-debrief__result-mark { animation: debrief-arrive 650ms cubic-bezier(.2,.8,.2,1) both; }
+  .battle-debrief__result-copy { animation: debrief-copy 560ms 120ms ease-out both; }
+  .battle-debrief__army { animation: debrief-row 420ms ease-out both; }
+  .battle-debrief__army:nth-child(2) { animation-delay: 70ms; }
+  .battle-debrief__army:nth-child(3) { animation-delay: 140ms; }
+  .battle-debrief__army:nth-child(4) { animation-delay: 210ms; }
+}
+@keyframes debrief-arrive { from { opacity: 0; transform: rotate(45deg) scale(.55); } to { opacity: 1; transform: rotate(45deg) scale(1); } }
+@keyframes debrief-copy { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
+@keyframes debrief-row { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
