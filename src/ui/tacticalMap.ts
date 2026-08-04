@@ -231,6 +231,14 @@ export function worldToMapPercent(worldSize: number, x: number, z: number): { x:
   };
 }
 
+export function mapPercentToWorld(worldSize: number, percentX: number, percentY: number): { x: number; z: number } {
+  const half = Math.max(1, worldSize) / 2;
+  return {
+    x: clamp((percentX / 100) * half * 2 - half, -half, half),
+    z: clamp((percentY / 100) * half * 2 - half, -half, half),
+  };
+}
+
 function cachedRaster(mapId: MapId, mapSize: MapSize, seed: number, oreAmount: number, terrainRelief?: number): TacticalMapRaster {
   const safeSeed = Math.max(1, Math.floor(seed) || 1);
   const key = `${mapId}:${mapSize}:${safeSeed}:${oreAmount}:${terrainRelief ?? 'default'}`;

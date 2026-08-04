@@ -81,6 +81,50 @@ describe('multiplayer lockstep commands', () => {
     expect(lockstep.canPossess(sharedTank.id)).toBe(false);
   });
 
+  it('applies delayed tactic commands to the issuing player only', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1);
+    const economy2 = createEconomy(2);
+    createInitialBase(sim, hf, economy1);
+    createInitialBase(sim, hf, economy2);
+    const guestTank = spawnTankAt(sim, 42, 42, 'Guest Tank', 2);
+    const hostTank = spawnTankAt(sim, 30, 30, 'Host Tank', 1);
+    const client = {
+      connect: () => undefined,
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({
+      sim,
+      hf,
+      economies: { 1: economy1, 2: economy2 },
+      client,
+      session: sessionFor(2),
+    });
+
+    expect(
+      lockstep.issue({
+        type: 'tactic',
+        ids: [guestTank.id, hostTank.id],
+        waypoints: [
+          { x: 70, z: 42 },
+          { x: 90, z: 42 },
+        ],
+        endAction: 'hold',
+      }),
+    ).toBe(true);
+
+    for (let i = 0; i < 8; i++) {
+      sim.tick++;
+      lockstep.tick();
+    }
+
+    expect(guestTank.mover?.target).toEqual({ x: 70, z: 42 });
+    expect(guestTank.mover?.tactic?.remaining).toEqual([{ x: 90, z: 42 }]);
+    expect(hostTank.mover?.tactic).toBeUndefined();
+  });
+
   it('applies delayed team-2 move commands to team-2 units', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

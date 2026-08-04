@@ -5,6 +5,10 @@ same Worker endpoint as forms: `session-start` on every page load, `match-start`
 when a match begins, `heartbeat` every 2 minutes during play (and on tab close),
 and `match-end` on victory/defeat.
 
+Tactic planner usage also emits feature events: `tactic-open`, `tactic-cancel`,
+and `tactic-execute` (plus reserved `tactic-complete` / `tactic-interrupted` for
+follow-up dashboards). Those include a `feature` object with unit/path stats.
+
 The Worker forwards them to the existing Velo HTTP function
 (`ironDominionSubmission`) with `kind: "telemetry"`. Complete the Wix side by
 pasting the prompts below into the Wix AI chat, in order.
@@ -14,7 +18,7 @@ pasting the prompts below into the Wix AI chat, in order.
 ```json
 {
   "kind": "telemetry",
-  "event": "session-start | match-start | match-end | heartbeat",
+  "event": "session-start | match-start | match-end | heartbeat | tactic-open | tactic-cancel | tactic-execute | tactic-complete | tactic-interrupted",
   "playerId": "anonymous uuid, stable per browser",
   "page": "https://…",
   "buildVersion": "0.1.0",
@@ -25,18 +29,30 @@ pasting the prompts below into the Wix AI chat, in order.
     "elapsedSeconds": 523.3, "fps": 58.8, "pingMs": 72,
     "quality": "balanced", "renderScale": 0.85, "engine": "chrome",
     "buildVersion": "0.1.0"
+  },
+  "feature": {
+    "unitCount": 3,
+    "selectionCount": 4,
+    "unitKinds": "tank:2,soldier:1",
+    "waypointCount": 3,
+    "pathLengthApprox": 120.5,
+    "endAction": "hold | attack-move | attack",
+    "plannerDurationMs": 8500,
+    "subsetOfSelection": true
   }
 }
 ```
 
-`match` is absent on `session-start`. `playerId` + `_createdDate` answer
-"players today"; distinct `matchId` on `match-start` answers "matches today".
+`match` is absent on `session-start`. `feature` is present on tactic events.
+`playerId` + `_createdDate` answer "players today"; distinct `matchId` on
+`match-start` answers "matches today". Tactic open vs execute rates answer
+"how many players opened / used Define Tactic".
 
 ## Prompt 1 — collection + backend (paste into Wix AI chat)
 
-> Create a new CMS collection named **IronDominionEvents** (permissions: no one
+> Create or update the CMS collection named **IronDominionEvents** (permissions: no one
 > can read/write from the site; backend code only). Add these fields with these
-> exact field IDs:
+> exact field IDs (skip any that already exist):
 >
 > - Event name — `eventName` — Text
 > - Player ID — `playerId` — Text
@@ -58,15 +74,24 @@ pasting the prompts below into the Wix AI chat, in order.
 > - Visual quality — `visualQuality` — Text
 > - Render scale — `renderScale` — Number
 > - Browser engine — `browserEngine` — Text
+> - Feature unit count — `featureUnitCount` — Number
+> - Feature selection count — `featureSelectionCount` — Number
+> - Feature unit kinds — `featureUnitKinds` — Text
+> - Feature waypoint count — `featureWaypointCount` — Number
+> - Feature path length — `featurePathLengthApprox` — Number
+> - Feature end action — `featureEndAction` — Text
+> - Feature planner duration ms — `featurePlannerDurationMs` — Number
+> - Feature subset of selection — `featureSubsetOfSelection` — Boolean
 >
 > Then update the existing `post_ironDominionSubmission` function in
 > `backend/http-functions.js`. Keep the `x-iron-dominion-secret` header check
-> exactly as it is. After the secret check passes, add a new branch BEFORE the
-> existing signup/feedback handling:
+> exactly as it is. After the secret check passes, ensure the telemetry branch
+> looks like this BEFORE the existing signup/feedback handling:
 >
 > ```js
 > if (body.kind === 'telemetry') {
 >   const match = body.match && typeof body.match === 'object' ? body.match : null;
+>   const feature = body.feature && typeof body.feature === 'object' ? body.feature : null;
 >   const item = {
 >     eventName: String(body.event || ''),
 >     playerId: String(body.playerId || ''),
@@ -94,6 +119,18 @@ pasting the prompts below into the Wix AI chat, in order.
 >       buildVersion: String(match.buildVersion || item.buildVersion),
 >     });
 >   }
+>   if (feature) {
+>     Object.assign(item, {
+>       featureUnitCount: Number(feature.unitCount) || 0,
+>       featureSelectionCount: Number(feature.selectionCount) || 0,
+>       featureUnitKinds: String(feature.unitKinds || ''),
+>       featureWaypointCount: Number(feature.waypointCount) || 0,
+>       featurePathLengthApprox: Number(feature.pathLengthApprox) || 0,
+>       featureEndAction: String(feature.endAction || ''),
+>       featurePlannerDurationMs: Number(feature.plannerDurationMs) || 0,
+>       featureSubsetOfSelection: feature.subsetOfSelection === true,
+>     });
+>   }
 >   await wixData.insert('IronDominionEvents', item, { suppressAuth: true });
 >   return the same success response shape the function already returns for
 >   other kinds (200, { ok: true });
@@ -118,6 +155,14 @@ pasting the prompts below into the Wix AI chat, in order.
 >    (show as minutes:seconds).
 > 5. A line chart of daily unique players (`session-start`, distinct
 >    `playerId` per day) over the last 14 days.
+> 6. **Tactic opens today** — count of `eventName === "tactic-open"` today.
+> 7. **Tactic executes today** — count of `eventName === "tactic-execute"` today.
+> 8. **Tactic cancel rate** — cancels / opens for today (`tactic-cancel` /
+>    `tactic-open`).
+> 9. **Avg waypoints on execute** — average `featureWaypointCount` for
+>    `tactic-execute` today.
+> 10. **End-action mix** — counts of `featureEndAction` (`hold`,
+>     `attack-move`, `attack`) for `tactic-execute` today.
 >
 > Note: `heartbeat` events exist for abandoned-match analysis — exclude them
 > from the counts above.
@@ -127,7 +172,8 @@ pasting the prompts below into the Wix AI chat, in order.
 1. Run both prompts in Wix AI chat and publish the site **first**.
 2. Then deploy the game: `npm run deploy:cloudflare`.
 3. Verify: open the game (a `session-start` row should appear in
-   IronDominionEvents), start a skirmish (`match-start`), finish or lose it
+   IronDominionEvents), start a skirmish (`match-start`), open Define Tactic
+   (`tactic-open`), execute a path (`tactic-execute`), finish or lose the match
    (`match-end` with `matchStatus` victory/defeat).
 
 No new secrets or env vars are needed — telemetry reuses `WIX_CMS_ENDPOINT` and

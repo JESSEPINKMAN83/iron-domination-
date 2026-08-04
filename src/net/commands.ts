@@ -19,6 +19,8 @@ import type { Heightfield } from '../sim/heightfield';
 import { issueAttackOrder, issueGroundAttack, manualFireAt } from '../sim/combat';
 import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
 import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
+import { issueTacticOrder } from '../sim/tactics';
+import type { TacticEndAction } from '../sim/components';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from '../sim/serialize';
 import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession, type TacticalPing, type TacticalPingKind } from './multiplayer';
 
@@ -26,6 +28,13 @@ export type NetCommand =
   | { type: 'move'; ids: number[]; x: number; z: number; attackMove: boolean; faceYaw?: number; formationSpread?: number; sprint?: boolean }
   | { type: 'attack'; ids: number[]; targetId: number }
   | { type: 'ground-fire'; ids: number[]; x: number; z: number }
+  | {
+      type: 'tactic';
+      ids: number[];
+      waypoints: Array<{ x: number; z: number }>;
+      endAction: 'hold' | 'attack-move' | 'attack';
+      endTargetId?: number;
+    }
   | { type: 'harvest'; ids: number[]; x: number; z: number }
   | { type: 'return-harvesters'; ids: number[]; x: number; z: number }
   | { type: 'stop'; ids: number[] }
@@ -398,6 +407,16 @@ export class LockstepRuntime {
         command.formationSpread,
         command.sprint,
       );
+    } else if (command.type === 'tactic') {
+      const endAction = tacticEndActionFromCommand(command);
+      if (endAction) {
+        issueTacticOrder(
+          this.options.sim,
+          ownedEntities(this.options.sim, command.ids, team),
+          command.waypoints,
+          endAction,
+        );
+      }
     } else if (command.type === 'attack') {
       const target = entityById(this.options.sim, command.targetId);
       if (target) issueAttackOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, team), target);
@@ -584,6 +603,17 @@ function ownedEntities(sim: GameSim, ids: number[], team: number): Entity[] {
   return ids
     .map((id) => entityById(sim, id))
     .filter((entity): entity is Entity => !!entity && !entity.destroyed && entity.team?.id === team);
+}
+
+function tacticEndActionFromCommand(
+  command: Extract<NetCommand, { type: 'tactic' }>,
+): TacticEndAction | undefined {
+  if (command.endAction === 'hold') return { kind: 'hold' };
+  if (command.endAction === 'attack-move') return { kind: 'attack-move' };
+  if (command.endAction === 'attack' && Number.isInteger(command.endTargetId) && (command.endTargetId ?? 0) > 0) {
+    return { kind: 'attack', targetId: command.endTargetId! };
+  }
+  return undefined;
 }
 
 function sortCommandQueue(queue: QueuedCommand[]): void {

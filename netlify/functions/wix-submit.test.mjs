@@ -223,6 +223,58 @@ describe('wix-submit Netlify function', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).event).toBe('session-start');
   });
 
+  it('accepts tactic telemetry with feature fields', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(wixResponse({ ok: true }, 201));
+
+    const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'telemetry',
+        event: 'tactic-execute',
+        playerId: '01234567-89ab-cdef-0123-456789abcdef',
+        page: 'https://game.test/',
+        buildVersion: '0.1.0',
+        match: {
+          matchId: 'match-tactic',
+          status: 'ongoing',
+          multiplayer: false,
+          mapId: 'highlands',
+          mapSize: 'medium',
+          seed: 12,
+          playerTeam: 1,
+          playerSide: 1,
+          elapsedSeconds: 42,
+          fps: 60,
+          quality: 'balanced',
+          renderScale: 1,
+          buildVersion: '0.1.0',
+        },
+        feature: {
+          unitCount: 3,
+          selectionCount: 4,
+          unitKinds: 'tank:2,soldier:1',
+          waypointCount: 3,
+          pathLengthApprox: 120.5,
+          endAction: 'attack-move',
+          plannerDurationMs: 8500,
+          subsetOfSelection: true,
+        },
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    const cmsBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(cmsBody.event).toBe('tactic-execute');
+    expect(cmsBody.feature).toMatchObject({
+      unitCount: 3,
+      endAction: 'attack-move',
+      subsetOfSelection: true,
+      pathLengthApprox: 120.5,
+    });
+  });
+
   it('rejects telemetry with an unknown event name', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {

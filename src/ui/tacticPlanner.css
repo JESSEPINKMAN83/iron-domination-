@@ -1,0 +1,272 @@
+.iron-tactic__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  box-sizing: border-box;
+  pointer-events: auto;
+  background: rgba(2, 4, 5, 0.55);
+  backdrop-filter: blur(4px);
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.iron-tactic__dialog {
+  width: min(980px, 100%);
+  max-height: min(92vh, 820px);
+  overflow: auto;
+  padding: 16px 16px 14px;
+  box-sizing: border-box;
+  border: 2px solid #1b1f20;
+  border-top-color: #596260;
+  border-left-color: #596260;
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(24, 31, 31, 0.97), rgba(8, 12, 12, 0.96));
+  color: #e0e7dd;
+  box-shadow: inset 0 0 0 1px rgba(210, 177, 95, 0.22), 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+
+.iron-tactic__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.iron-tactic__header p {
+  margin: 0 0 4px;
+  color: #d2b15f;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+
+.iron-tactic__header h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f0f3e8;
+}
+
+.iron-tactic__close {
+  border: 0;
+  background: transparent;
+  color: #b8c3bf;
+  cursor: pointer;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.iron-tactic__intro {
+  margin: 10px 0 14px;
+  color: #aebbc4;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.iron-tactic__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.75fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.iron-tactic__map-wrap {
+  position: relative;
+  aspect-ratio: 1;
+  border: 1px solid #4b5552;
+  background: #0b1110;
+  overflow: hidden;
+}
+
+.iron-tactic__terrain,
+.iron-tactic__overlay-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.iron-tactic__overlay-canvas {
+  cursor: crosshair;
+}
+
+.iron-tactic__edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  pointer-events: none;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  padding: 6px 0;
+}
+
+.iron-tactic__edge--enemy {
+  top: 0;
+  color: #ff8f7d;
+  background: linear-gradient(180deg, rgba(80, 18, 12, 0.55), rgba(80, 18, 12, 0));
+}
+
+.iron-tactic__edge--you {
+  bottom: 0;
+  color: #f0d56a;
+  background: linear-gradient(0deg, rgba(40, 36, 12, 0.6), rgba(40, 36, 12, 0));
+}
+
+.iron-tactic__legend {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  color: #b8c3bf;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.iron-tactic__legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  vertical-align: middle;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.iron-tactic__legend i.is-you {
+  background: #f0d56a;
+}
+
+.iron-tactic__legend i.is-friendly {
+  background: #56d184;
+}
+
+.iron-tactic__legend i.is-enemy {
+  background: #df5742;
+}
+
+.iron-tactic__legend i.is-hq {
+  background: transparent;
+  border-color: #f0d56a;
+  transform: rotate(45deg);
+}
+
+.iron-tactic__map-hint {
+  margin-top: 8px;
+  color: #d2b15f;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.iron-tactic__side {
+  display: grid;
+  grid-template-rows: auto minmax(120px, 1fr) auto auto auto;
+  gap: 8px;
+  min-height: 0;
+}
+
+.iron-tactic__section-title {
+  color: #d2b15f;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.iron-tactic__units {
+  overflow: auto;
+  border: 1px solid #3d4743;
+  background: #0b1110;
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+
+.iron-tactic__unit {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 7px;
+  border: 1px solid #2c3532;
+  background: #151c1b;
+  color: #eef3e9;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.iron-tactic__unit input {
+  accent-color: #d2b15f;
+}
+
+.iron-tactic__end-actions,
+.iron-tactic__path-actions,
+.iron-tactic__footer {
+  display: grid;
+  gap: 6px;
+}
+
+.iron-tactic__end-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.iron-tactic__path-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+.iron-tactic__footer {
+  grid-template-columns: 1fr 1.3fr;
+  margin-top: 4px;
+}
+
+.iron-tactic__end-actions button,
+.iron-tactic__path-actions button,
+.iron-tactic__cancel,
+.iron-tactic__execute {
+  padding: 9px 8px;
+  border: 1px solid #4b5552;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #26302f, #121817);
+  color: #eef3e9;
+  cursor: pointer;
+  font: 700 11px ui-monospace, Menlo, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.iron-tactic__end-actions button.is-active {
+  border-color: #d2b15f;
+  background: linear-gradient(180deg, #4f4728, #1d2018);
+  color: #f0d56a;
+}
+
+.iron-tactic__execute {
+  border-color: #d2b15f;
+  background: linear-gradient(180deg, #dec061, #967832);
+  color: #111513;
+}
+
+.iron-tactic__execute:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.iron-tactic__cancel:hover,
+.iron-tactic__path-actions button:hover,
+.iron-tactic__end-actions button:hover {
+  border-color: #757f7a;
+}
+
+@media (max-width: 760px) {
+  .iron-tactic__body {
+    grid-template-columns: 1fr;
+  }
+
+  .iron-tactic__side {
+    grid-template-rows: auto 140px auto auto auto;
+  }
+}

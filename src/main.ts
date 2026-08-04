@@ -2,7 +2,7 @@ import { Color, Fog, MeshStandardMaterial } from 'three';
 import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic } from './landing';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
-import { sendTelemetryEvent, trackMatchTelemetry, type MatchTelemetry } from './telemetry';
+import { sendTelemetryEvent, trackMatchTelemetry, approximatePathLength, summarizeUnitKinds, type MatchTelemetry } from './telemetry';
 import { installActiveMatchExitGuard, type ActiveMatchExitGuard } from './activeMatchExitGuard';
 import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHowToPlayWidget } from './howToPlay';
 import { showMissionBriefing } from './missionBriefing';
@@ -102,6 +102,7 @@ import { VisibilityGrid } from './sim/visibility';
 import {
   createGameSim,
   areTeamsHostile,
+  entityById,
   issueMoveOrder,
   selectedEntities,
   setSelected,
@@ -113,6 +114,7 @@ import {
   spawnWaspAt,
   type CombatEvent,
 } from './sim/world';
+import { issueTacticOrder } from './sim/tactics';
 import type { Entity } from './sim/components';
 import { BaseUnderAttackGate, findFriendlyBuildingUnderAttack } from './ui/baseUnderAttack';
 import { Hud } from './ui/hud';
@@ -120,6 +122,7 @@ import { MissionComms } from './ui/missionComms';
 import { showOutcomeScreen } from './ui/outcomeScreen';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
+import { TacticPlanner } from './ui/tacticPlanner';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
 import { unitDisplayName } from './ui/unitDisplayName';
 
@@ -2791,7 +2794,75 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       if (!result.ok) audio.playUi('error');
       return result;
     },
+    openTacticPlanner: (entities) => {
+      audio.playUi('select');
+      tacticPlanner.open(entities);
+    },
   }, localTeam, ctx.camera, hf);
+  const tacticPlanner = new TacticPlanner(
+    sim,
+    localTeam,
+    {
+      mapId: settings.mapId,
+      mapSize: settings.mapSize,
+      seed: settings.seed,
+      oreAmount: settings.oreAmount,
+      terrainRelief: settings.terrainRelief,
+      localAnchor: { x: localBase.transform.x, z: localBase.transform.z },
+    },
+    {
+      onOpen: () => {
+        controller.setEnabled(false);
+        sendTelemetryEvent('tactic-open', matchTelemetryMetadata(), {
+          selectionCount: selectedEntities(sim, localTeam).filter((entity) => entity.mover && !entity.building && !entity.harvester).length,
+        });
+      },
+      onCancel: ({ plannerDurationMs, selectionCount }) => {
+        controller.setEnabled(true);
+        sendTelemetryEvent('tactic-cancel', matchTelemetryMetadata(), { plannerDurationMs, selectionCount });
+      },
+      onExecute: (payload) => {
+        controller.setEnabled(true);
+        const units = payload.entityIds
+          .map((id) => entityById(sim, id))
+          .filter((entity): entity is Entity => !!entity && !entity.destroyed && entity.team?.id === localTeam);
+        const unitKinds = summarizeUnitKinds(
+          units.map((entity) => unitKindForUpgrade(entity) ?? entity.selectable?.type ?? 'unit'),
+        );
+        const feature = {
+          unitCount: units.length,
+          selectionCount: payload.selectionCount,
+          unitKinds,
+          waypointCount: payload.waypoints.length,
+          pathLengthApprox: approximatePathLength(payload.waypoints),
+          endAction: payload.endAction.kind,
+          plannerDurationMs: payload.plannerDurationMs,
+          subsetOfSelection: units.length < payload.selectionCount,
+        };
+        sendTelemetryEvent('tactic-execute', matchTelemetryMetadata(), feature);
+        const issued = lockstep
+          ? lockstep.issue({
+              type: 'tactic',
+              ids: units.map((entity) => entity.id),
+              waypoints: payload.waypoints,
+              endAction: payload.endAction.kind,
+              endTargetId: payload.endAction.kind === 'attack' ? payload.endAction.targetId : undefined,
+            })
+          : issueTacticOrder(sim, units, payload.waypoints, payload.endAction);
+        if (!issued) {
+          audio.playUi('error');
+          return;
+        }
+        audio.playUi('order');
+        const last = payload.waypoints[payload.waypoints.length - 1];
+        orderMarkers.push(
+          last.x,
+          last.z,
+          payload.endAction.kind === 'hold' ? 'move' : payload.endAction.kind === 'attack-move' ? 'attack-move' : 'attack',
+        );
+      },
+    },
+  );
   const durabilityPanel = durabilityScene
     ? createDurabilityPreviewPanel(durabilityScene, sim, localTeam, (target) => {
         rig.focusOn(
@@ -3184,6 +3255,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         sidebar.update();
         durabilityPanel?.update();
       }
+      if (tacticPlanner.isOpen) tacticPlanner.update();
       mobileControls?.update({
         firstPerson: firstPerson.active,
         flying: firstPerson.flying,
