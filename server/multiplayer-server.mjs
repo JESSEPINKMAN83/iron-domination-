@@ -39,9 +39,13 @@ const rooms = new Map();
  *   startsAt?: number;
  *   rematchStarting?: boolean;
  *   armyCount: 2 | 3 | 4;
+ *   controllerCount: 2 | 3 | 4;
+ *   controllerTeams: number[];
+ *   playersPerArmy: 1 | 2;
  *   armySides: number[];
  *   spawnSlots: number[];
- *   players: Array<{ id: string; index: number; name: string; color: string; ready: boolean; rematchReady: boolean; connected: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
+ *   hostPlayerId: string;
+ *   players: Array<{ id: string; index: number; armyId: number; role: 'commander' | 'field-officer'; name: string; color: string; ready: boolean; rematchReady: boolean; connected: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
  *   clients: Map<string, import('ws').WebSocket>;
  * }} Room
  */
@@ -98,16 +102,32 @@ setInterval(() => {
     );
     if (expiredPlayer) {
       if (room.status === 'in-game') {
-        broadcast(room, { type: 'room-closed', reason: `disconnect-timeout:${expiredPlayer.index}` });
-        closeRoom(code);
+        const teammate = room.players.find(
+          (player) => player.id !== expiredPlayer.id && player.armyId === expiredPlayer.armyId && player.connected,
+        );
+        if (!teammate) {
+          broadcast(room, { type: 'room-closed', reason: `disconnect-timeout:${expiredPlayer.armyId}` });
+          closeRoom(code);
+          continue;
+        }
+        room.players = room.players.filter((player) => player !== expiredPlayer);
+        if (expiredPlayer.role === 'commander') teammate.role = 'commander';
+        if (room.hostPlayerId === expiredPlayer.id) room.hostPlayerId = electHost(room)?.id ?? teammate.id;
+        room.updatedAt = now;
+        broadcast(room, roomState(room));
         continue;
       }
-      if (expiredPlayer.index === 1) {
+      const waitingTeammate = room.players.find(
+        (player) => player.id !== expiredPlayer.id && player.armyId === expiredPlayer.armyId && player.connected,
+      );
+      if (expiredPlayer.id === room.hostPlayerId && !waitingTeammate) {
         broadcast(room, { type: 'room-closed', reason: 'host-disconnected' });
         closeRoom(code);
         continue;
       }
       room.players = room.players.filter((player) => player !== expiredPlayer);
+      if (expiredPlayer.role === 'commander' && waitingTeammate) waitingTeammate.role = 'commander';
+      if (room.hostPlayerId === expiredPlayer.id) room.hostPlayerId = electHost(room)?.id ?? '';
       room.updatedAt = now;
       broadcast(room, roomState(room));
     }
@@ -139,6 +159,7 @@ function routeSocket(socket, body) {
 function handleHost(socket, body) {
   const room = createRoom(body.settings ?? body);
   const host = addPlayer(room, body.name ?? body.settings?.name ?? 'Commander 1', body.playerId, body.engine);
+  room.hostPlayerId = host.id;
   rooms.set(room.code, room);
   attachSocket(room, host, socket);
   send(socket, { type: 'session', requestId: body.requestId, room: publicRoom(room), player: publicPlayer(host) });
@@ -163,8 +184,10 @@ function handleResumeRoom(socket, body) {
   const snapshot = body?.room;
   const requestedPlayer = body?.player;
   const code = normalizeRoomCode(snapshot?.code);
-  const snapshotHost = Array.isArray(snapshot?.players) ? snapshot.players.find((player) => player?.index === 1) : undefined;
-  if (!code || requestedPlayer?.index !== 1 || requestedPlayer?.id !== snapshotHost?.id) {
+  const snapshotHostId = typeof snapshot?.hostPlayerId === 'string'
+    ? snapshot.hostPlayerId
+    : Array.isArray(snapshot?.players) ? snapshot.players.find((player) => player?.index === 1)?.id : undefined;
+  if (!code || requestedPlayer?.id !== snapshotHostId) {
     return send(socket, { type: 'error', requestId: body.requestId, error: 'invalid-resume' });
   }
   const existingRoom = rooms.get(code);
@@ -178,7 +201,7 @@ function handleResumeRoom(socket, body) {
     });
   }
   const room = restoreRoom(snapshot);
-  const host = room.players.find((player) => player.index === 1);
+  const host = room.players.find((player) => player.id === room.hostPlayerId);
   if (!host) return send(socket, { type: 'error', requestId: body.requestId, error: 'invalid-resume' });
   rooms.set(room.code, room);
   attachSocket(room, host, socket);
@@ -188,7 +211,7 @@ function handleResumeRoom(socket, body) {
 
 function handleStartMatch(socket, body) {
   const { room, player } = roomAndPlayer(body, socket);
-  if (!room || !player || player.index !== 1 || room.status !== 'waiting') return;
+  if (!room || !player || player.id !== room.hostPlayerId || room.status !== 'waiting') return;
   const connected = room.players.filter((candidate) => candidate.connected);
   if (connected.length === 0 || !connected.every((candidate) => candidate.ready)) return;
   ensureOpenAiOpponent(room, connected);
@@ -197,7 +220,7 @@ function handleStartMatch(socket, body) {
 
 function handleSettings(socket, body) {
   const { room, player } = roomAndPlayer(body, socket);
-  if (!room || !player || player.index !== 1 || room.status !== 'waiting') return;
+  if (!room || !player || player.id !== room.hostPlayerId || room.status !== 'waiting') return;
   const next = body.settings ?? {};
   room.mapId = normalizeMapId(next.mapId ?? room.mapId);
   room.mapSize = normalizeMapSize(next.mapSize ?? room.mapSize);
@@ -207,9 +230,18 @@ function handleSettings(socket, body) {
   room.ai = String(next.ai ?? room.ai);
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
-  const nextArmyCount = normalizeArmyCount(next.armyCount ?? room.armyCount);
-  if (room.players.every((candidate) => candidate.index <= nextArmyCount)) room.armyCount = nextArmyCount;
-  room.armySides = normalizeArmySides(next.armySides, room.armyCount);
+  const requestedControllerCount = normalizeControllerCount(
+    next.controllerCount ?? next.armyCount ?? room.controllerCount,
+  );
+  if (room.players.every((candidate) => candidate.index <= requestedControllerCount)) {
+    room.controllerCount = requestedControllerCount;
+    room.controllerTeams = normalizeControllerTeams(
+      next.controllerTeams ?? room.controllerTeams,
+      room.controllerCount,
+    );
+  }
+  room.playersPerArmy = 2;
+  reconcileControllerAssignments(room);
   room.spawnSlots = normalizeSpawnSlots(next.spawnSlots ?? room.spawnSlots);
   for (const candidate of room.players) candidate.ready = false;
   room.updatedAt = Date.now();
@@ -225,17 +257,29 @@ function handleSetReady(socket, body) {
 }
 
 function handlePlayerProfile(socket, body) {
-  const { room, player } = roomAndPlayer(body, socket);
-  if (!room || !player || room.status !== 'waiting') return;
+  const { room, player: actor } = roomAndPlayer(body, socket);
+  if (!room || !actor || room.status !== 'waiting') return;
+  const requestedTarget = typeof body.targetPlayerId === 'string'
+    ? room.players.find((candidate) => candidate.id === body.targetPlayerId)
+    : undefined;
+  const player = requestedTarget && actor.id === room.hostPlayerId ? requestedTarget : actor;
   const profile = body.profile ?? {};
+  const isRoomHost = player.id === room.hostPlayerId;
   if (typeof profile.name === 'string') player.name = normalizePlayerName(profile.name, player.index);
-  if (normalizePlayerColor(profile.color)) player.color = normalizePlayerColor(profile.color);
-  if (Number.isFinite(Number(profile.side))) {
-    room.armySides[player.index - 1] = normalizeSide(profile.side);
+  const requestedTeam = normalizeLobbyTeam(profile.team ?? profile.armyId);
+  if (requestedTeam && actor.id === room.hostPlayerId) {
+    const nextTeams = [...room.controllerTeams];
+    nextTeams[player.index - 1] = requestedTeam;
+    room.controllerTeams = normalizeControllerTeams(nextTeams, room.controllerCount);
+    reconcileControllerAssignments(room);
     for (const candidate of room.players) candidate.ready = false;
-  } else {
-    player.ready = false;
   }
+  if (isRoomHost) player.role = 'commander';
+  if (normalizePlayerColor(profile.color) && player.role === 'commander') {
+    const color = normalizePlayerColor(profile.color);
+    for (const teammate of room.players.filter((candidate) => candidate.armyId === player.armyId)) teammate.color = color;
+  }
+  player.ready = false;
   room.updatedAt = Date.now();
   broadcast(room, roomState(room));
 }
@@ -258,6 +302,7 @@ function handleCommand(socket, body) {
     type: 'command',
     playerId: player.id,
     playerIndex: player.index,
+    armyId: player.armyId,
     tick: Math.max(0, Math.floor(Number(body.tick) || 0)),
     command: body.command ?? {},
   }, player.id);
@@ -271,10 +316,11 @@ function handleTacticalPing(socket, body) {
   if (!room || !player || room.status !== 'in-game' || !kind || !Number.isFinite(x) || !Number.isFinite(z)) return;
   if (Math.abs(x) > 2000 || Math.abs(z) > 2000 || !consumeCommandBudget(socket)) return;
   room.updatedAt = Date.now();
-  broadcastToAllies(room, player.index, {
+  broadcastToAllies(room, player.armyId, {
     type: 'tactical-ping',
     playerId: player.id,
     playerIndex: player.index,
+    armyId: player.armyId,
     name: player.name,
     kind,
     x: Math.round(x * 10) / 10,
@@ -286,9 +332,29 @@ function handleForfeit(socket, body) {
   const { room, player } = roomAndPlayer(body, socket);
   if (!room || !player) return;
   room.updatedAt = Date.now();
-  broadcast(room, { type: 'player-forfeit', playerId: player.id, playerIndex: player.index, name: player.name });
-  broadcast(room, { type: 'room-closed', reason: `forfeit:${player.index}` });
-  setTimeout(() => closeRoom(room.code), 250).unref();
+  const teammate = room.players.find(
+    (candidate) => candidate.id !== player.id && candidate.armyId === player.armyId && candidate.connected,
+  );
+  const armyDefeated = !teammate;
+  broadcast(room, {
+    type: 'player-forfeit',
+    playerId: player.id,
+    playerIndex: player.index,
+    armyId: player.armyId,
+    name: player.name,
+    armyDefeated,
+  });
+  if (armyDefeated) {
+    broadcast(room, { type: 'room-closed', reason: `forfeit:${player.armyId}` });
+    setTimeout(() => closeRoom(room.code), 250).unref();
+    return;
+  }
+  if (player.role === 'commander') teammate.role = 'commander';
+  room.players = room.players.filter((candidate) => candidate.id !== player.id);
+  room.clients.delete(player.id);
+  if (room.hostPlayerId === player.id) room.hostPlayerId = electHost(room)?.id ?? teammate.id;
+  broadcast(room, roomState(room));
+  setTimeout(() => socket.close(1000, 'player-left'), 25).unref();
 }
 
 function handlePong(socket, body) {
@@ -307,8 +373,14 @@ function createRoom(body) {
   do {
     code = randomBytes(5).toString('base64url').replace(/[-_]/g, '').slice(0, 6).toUpperCase().padEnd(6, 'X');
   } while (rooms.has(code));
-  const armyCount = normalizeArmyCount(body?.armyCount);
-  const armySides = normalizeArmySides(body?.armySides, armyCount);
+  const legacyArmyCount = normalizeArmyCount(body?.armyCount);
+  const legacyPlayersPerArmy = normalizePlayersPerArmy(body?.playersPerArmy);
+  const controllerCount = normalizeControllerCount(
+    body?.controllerCount ?? Math.min(4, legacyArmyCount * legacyPlayersPerArmy),
+  );
+  const controllerTeams = normalizeControllerTeams(body?.controllerTeams, controllerCount);
+  const armyCount = Math.max(2, new Set(controllerTeams.slice(0, controllerCount)).size);
+  const armySides = normalizeArmySides(undefined, armyCount);
   const spawnSlots = normalizeSpawnSlots(body?.spawnSlots);
   return {
     code,
@@ -322,18 +394,25 @@ function createRoom(body) {
     combatMode: normalizeCombatMode(body?.combatMode),
     inputDelay: 8,
     armyCount,
+    controllerCount,
+    controllerTeams,
+    playersPerArmy: 2,
     armySides,
     spawnSlots,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     status: 'waiting',
+    hostPlayerId: '',
     players: [],
     clients: new Map(),
   };
 }
 
 function restoreRoom(snapshot) {
-  const armyCount = normalizeArmyCount(snapshot?.armyCount);
+  const controllerCount = normalizeControllerCount(snapshot?.controllerCount ?? snapshot?.armyCount);
+  const controllerTeams = normalizeControllerTeams(snapshot?.controllerTeams, controllerCount);
+  const armyCount = Math.max(2, new Set(controllerTeams.slice(0, controllerCount)).size);
+  const playersPerArmy = 2;
   const now = Date.now();
   const room = {
     code: normalizeRoomCode(snapshot?.code),
@@ -348,18 +427,25 @@ function restoreRoom(snapshot) {
     combatMode: normalizeCombatMode(snapshot?.combatMode),
     inputDelay: Math.max(4, Math.min(12, Math.floor(Number(snapshot?.inputDelay) || 8))),
     armyCount,
+    controllerCount,
+    controllerTeams,
+    playersPerArmy,
     armySides: normalizeArmySides(snapshot?.armySides, armyCount),
     spawnSlots: normalizeSpawnSlots(snapshot?.spawnSlots),
     createdAt: now,
     updatedAt: now,
     status: 'in-game',
+    hostPlayerId: typeof snapshot?.hostPlayerId === 'string' ? snapshot.hostPlayerId : '',
     players: [],
     clients: new Map(),
   };
   const sourcePlayers = Array.isArray(snapshot?.players) ? snapshot.players : [];
-  room.players = sourcePlayers.slice(0, armyCount).map((source, offset) => ({
+  room.players = sourcePlayers.slice(0, controllerCount).map((source, offset) => ({
     id: typeof source?.id === 'string' && /^[0-9a-f-]{16,64}$/i.test(source.id) ? source.id : randomUUID(),
-    index: Math.max(1, Math.min(armyCount, Math.floor(Number(source?.index) || offset + 1))),
+    index: Math.max(1, Math.min(controllerCount, Math.floor(Number(source?.index) || offset + 1))),
+    lobbyTeam: normalizeLobbyTeam(source?.lobbyTeam) ?? controllerTeams[offset] ?? offset + 1,
+    armyId: normalizeArmyId(source?.armyId ?? source?.index, armyCount) ?? Math.min(armyCount, offset + 1),
+    role: normalizePlayerRole(source?.role) ?? 'commander',
     name: normalizePlayerName(source?.name, offset + 1),
     color: normalizePlayerColor(source?.color) ?? defaultPlayerColor(offset + 1),
     ready: true,
@@ -369,12 +455,16 @@ function restoreRoom(snapshot) {
     joinedAt: now,
     disconnectedAt: now,
   }));
+  if (!room.hostPlayerId || !room.players.some((player) => player.id === room.hostPlayerId)) {
+    room.hostPlayerId = room.players.find((player) => player.index === 1)?.id ?? room.players[0]?.id ?? '';
+  }
+  reconcileControllerAssignments(room);
   return room;
 }
 
 function addPlayer(room, name, requestedId, engine) {
   let openIndex = 0;
-  for (let candidate = 1; candidate <= room.armyCount; candidate++) {
+  for (let candidate = 1; candidate <= room.controllerCount; candidate++) {
     if (!room.players.some((player) => player.index === candidate)) {
       openIndex = candidate;
       break;
@@ -385,6 +475,9 @@ function addPlayer(room, name, requestedId, engine) {
   const player = {
     id,
     index: openIndex,
+    lobbyTeam: room.controllerTeams[openIndex - 1] ?? openIndex,
+    armyId: 1,
+    role: 'commander',
     name: normalizePlayerName(name, openIndex),
     color: defaultPlayerColor(openIndex),
     ready: false,
@@ -394,6 +487,7 @@ function addPlayer(room, name, requestedId, engine) {
     joinedAt: Date.now(),
   };
   room.players.push(player);
+  reconcileControllerAssignments(room);
   return player;
 }
 
@@ -504,10 +598,14 @@ function publicRoom(room) {
     combatMode: room.combatMode,
     inputDelay: room.inputDelay,
     armyCount: room.armyCount,
+    controllerCount: room.controllerCount,
+    controllerTeams: room.controllerTeams,
+    playersPerArmy: room.playersPerArmy,
     armySides: room.armySides,
     spawnSlots: room.spawnSlots,
     status: room.status,
     startsAt: room.startsAt,
+    hostPlayerId: room.hostPlayerId,
     players: room.players.map(publicPlayer),
   };
 }
@@ -516,6 +614,9 @@ function publicPlayer(player) {
   return {
     id: player.id,
     index: player.index,
+    armyId: player.armyId,
+    lobbyTeam: player.lobbyTeam,
+    role: player.role,
     name: player.name,
     connected: player.connected,
     engine: player.engine,
@@ -557,7 +658,7 @@ function broadcast(room, message, excludePlayerId) {
 function broadcastToAllies(room, team, message) {
   const side = room.armySides[team - 1] ?? team;
   for (const player of room.players) {
-    if ((room.armySides[player.index - 1] ?? player.index) !== side) continue;
+    if ((room.armySides[player.armyId - 1] ?? player.armyId) !== side) continue;
     const client = room.clients.get(player.id);
     if (client) send(client, message);
   }
@@ -643,7 +744,7 @@ function normalizeSpawnSlots(value) {
 function ensureOpenAiOpponent(room, connectedPlayers) {
   const activeSides = room.armySides.slice(0, room.armyCount);
   if (new Set(activeSides).size > 1) return;
-  const occupied = new Set(connectedPlayers.map((player) => player.index));
+  const occupied = new Set(connectedPlayers.map((player) => player.armyId));
   const openArmy = Array.from({ length: room.armyCount }, (_, index) => index + 1).find((index) => !occupied.has(index));
   if (!openArmy) return;
   const alliedSide = activeSides[0] ?? 1;
@@ -653,6 +754,119 @@ function ensureOpenAiOpponent(room, connectedPlayers) {
 function normalizeArmyCount(value) {
   const count = Math.floor(Number(value));
   return count === 3 || count === 4 ? count : 2;
+}
+
+function normalizeControllerCount(value) {
+  const count = Math.floor(Number(value));
+  return count === 3 || count === 4 ? count : 2;
+}
+
+function normalizeLobbyTeam(value) {
+  const team = Math.floor(Number(value));
+  return team >= 1 && team <= 4 ? team : undefined;
+}
+
+function normalizeControllerTeams(value, controllerCount) {
+  const source = Array.isArray(value) ? value : [];
+  return Array.from({ length: 4 }, (_, index) => (
+    index < controllerCount
+      ? normalizeLobbyTeam(source[index]) ?? index + 1
+      : index + 1
+  ));
+}
+
+function reconcileControllerAssignments(room) {
+  room.controllerCount = normalizeControllerCount(room.controllerCount);
+  room.controllerTeams = normalizeControllerTeams(room.controllerTeams, room.controllerCount);
+  const activeTeams = room.controllerTeams.slice(0, room.controllerCount);
+  if (new Set(activeTeams).size < 2) {
+    activeTeams[activeTeams.length - 1] = activeTeams[0] === 1 ? 2 : 1;
+    room.controllerTeams[activeTeams.length - 1] = activeTeams[activeTeams.length - 1];
+  }
+  const labels = Array.from(new Set(activeTeams));
+  const actualArmy = new Map(labels.map((team, index) => [team, index + 1]));
+  room.armyCount = Math.max(2, labels.length);
+  room.armySides = Array.from({ length: 4 }, (_, index) => index + 1);
+
+  const ordered = [...room.players].sort((a, b) => {
+    if (a.id === room.hostPlayerId) return -1;
+    if (b.id === room.hostPlayerId) return 1;
+    return a.index - b.index;
+  });
+  const commanders = new Set();
+  for (const player of ordered) {
+    player.lobbyTeam = room.controllerTeams[player.index - 1] ?? player.index;
+    player.armyId = actualArmy.get(player.lobbyTeam) ?? 1;
+    player.role = commanders.has(player.armyId) ? 'field-officer' : 'commander';
+    commanders.add(player.armyId);
+  }
+  for (const player of ordered) {
+    const commander = ordered.find((candidate) => candidate.armyId === player.armyId && candidate.role === 'commander');
+    player.color = commander?.color ?? defaultPlayerColor(player.armyId);
+  }
+}
+
+function normalizePlayersPerArmy(value) {
+  return Number(value) === 2 ? 2 : 1;
+}
+
+function normalizeArmyId(value, armyCount) {
+  const armyId = Math.floor(Number(value));
+  return armyId >= 1 && armyId <= armyCount ? armyId : undefined;
+}
+
+function normalizePlayerRole(value) {
+  return value === 'field-officer' ? 'field-officer' : value === 'commander' ? 'commander' : undefined;
+}
+
+function commanderForArmy(room, armyId) {
+  return room.players.find((player) => player.armyId === armyId && player.role === 'commander');
+}
+
+function seatAvailable(room, playerId, armyId, role) {
+  if (role === 'field-officer' && room.playersPerArmy < 2) return false;
+  if (role === 'field-officer' && !room.players.some((player) => player.id !== playerId && player.armyId === armyId && player.role === 'commander')) return false;
+  return !room.players.some(
+    (player) => player.id !== playerId && player.armyId === armyId && player.role === role,
+  );
+}
+
+function nextOpenSeat(room) {
+  for (let armyId = 1; armyId <= room.armyCount; armyId++) {
+    if (seatAvailable(room, '', armyId, 'commander')) return { armyId, role: 'commander' };
+  }
+  if (room.playersPerArmy === 2) {
+    for (let armyId = 1; armyId <= room.armyCount; armyId++) {
+      if (seatAvailable(room, '', armyId, 'field-officer')) return { armyId, role: 'field-officer' };
+    }
+  }
+  return undefined;
+}
+
+function armiesFitSeatLimit(players, playersPerArmy) {
+  const counts = new Map();
+  for (const player of players) counts.set(player.armyId, (counts.get(player.armyId) ?? 0) + 1);
+  return Array.from(counts.values()).every((count) => count <= playersPerArmy);
+}
+
+function normalizeRestoredSeats(room) {
+  const occupied = new Set();
+  for (const player of room.players.sort((a, b) => a.index - b.index)) {
+    let key = `${player.armyId}:${player.role}`;
+    if (occupied.has(key) || (player.role === 'field-officer' && room.playersPerArmy < 2)) {
+      const seat = nextOpenSeat({ ...room, players: room.players.filter((candidate) => occupied.has(`${candidate.armyId}:${candidate.role}`)) });
+      if (seat) {
+        player.armyId = seat.armyId;
+        player.role = seat.role;
+        key = `${seat.armyId}:${seat.role}`;
+      }
+    }
+    occupied.add(key);
+  }
+}
+
+function electHost(room) {
+  return room.players.filter((player) => player.connected).sort((a, b) => a.index - b.index)[0];
 }
 
 function normalizeSide(value) {
@@ -669,7 +883,7 @@ function normalizePlayerColor(value) {
 }
 
 function defaultPlayerColor(index) {
-  return index === 1 ? 'jade' : 'crimson';
+  return ['jade', 'crimson', 'azure', 'amber'][Math.max(0, Math.min(3, index - 1))];
 }
 
 function sendOptions(req, res) {

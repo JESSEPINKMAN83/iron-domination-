@@ -690,3 +690,26 @@
 .cinematic-clean .game-chrome-controls {
   display: none !important;
 }
+
+/* Shared-army co-op room controls. */
+.war-lobby__army-bar { flex-wrap: wrap; }
+.war-lobby__seat-control { margin-left: auto; display: flex; align-items: center; gap: 5px; }
+.war-lobby__seat-control > span { color: var(--war-dim); font: 700 6px/1.2 ui-monospace, monospace; letter-spacing: .08em; }
+.war-lobby__seat-choices { display: grid; grid-template-columns: repeat(2, 27px); }
+.war-lobby__seat-choices .war-lobby__army-choice + .war-lobby__army-choice { margin-left: -1px; }
+.war-lobby__assignment-cell { min-width: 0; }
+.war-lobby__team-select { width: 100%; min-width: 0; min-height: 32px; padding: 0 28px 0 10px; border: 1px solid rgba(240,213,106,.48); border-radius: 0; color: #f0d56a; background: #0a0f10; font: 800 9px/1 ui-monospace, monospace; letter-spacing: .07em; cursor: pointer; box-sizing: border-box; }
+.war-lobby__team-select:hover:not(:disabled),
+.war-lobby__team-select:focus-visible { border-color: #f0d56a; outline: 1px solid rgba(240,213,106,.4); }
+.war-lobby__team-select:disabled { color: #c2c9c5; border-color: var(--war-line-strong); opacity: .75; cursor: default; }
+.war-lobby__player.is-ai { background: linear-gradient(90deg, rgba(100,112,107,.08), #0d1213 44%); border-style: dashed; }
+.war-lobby__table-head { grid-template-columns: minmax(0, 1fr) 154px 72px; }
+.war-lobby__player { grid-template-columns: 25px minmax(0, 1fr) 154px 72px; }
+
+@media (max-width: 700px) {
+  .war-lobby__seat-control { width: 100%; justify-content: flex-end; }
+  .war-lobby__player { grid-template-columns: 30px minmax(0, 1fr); }
+  .war-lobby__assignment-cell { grid-column: 1 / -1; grid-row: 2; }
+  .war-lobby__color-picker, .war-lobby__color-display { grid-column: 2; grid-row: 3; justify-self: end; }
+  .war-lobby__team-select { min-height: 36px; font-size: 9px; }
+}

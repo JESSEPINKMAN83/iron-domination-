@@ -91,12 +91,15 @@ describe('multiplayer relay', () => {
       guest,
       (message) => message.type === 'room-state' && message.room.armyCount === 2 && message.room.seed === 246810,
     );
-    host.send(JSON.stringify({ type: 'settings', roomCode, playerId: hostId, settings: { armyCount: 2, armySides: [1, 1] } }));
+    host.send(JSON.stringify({
+      type: 'settings', roomCode, playerId: hostId,
+      settings: { controllerCount: 3, controllerTeams: [1, 1, 2] },
+    }));
     await resizedSettings;
 
     const profileUpdated = nextMessage(
       host,
-      (message) => message.type === 'room-state' && message.room.players.some((player: any) => player.id === guestId && player.name === 'Wingmate' && player.color === 'azure'),
+      (message) => message.type === 'room-state' && message.room.players.some((player: any) => player.id === guestId && player.name === 'Wingmate' && player.role === 'field-officer'),
     );
     guest.send(JSON.stringify({ type: 'player-profile', roomCode, playerId: guestId, profile: { name: 'Wingmate', color: 'azure', side: 1 } }));
     await profileUpdated;
@@ -184,10 +187,14 @@ describe('multiplayer relay', () => {
     expect(rejoinSession.player.index).toBe(2);
     await reconnected;
 
-    const timedOut = nextMessage(host, (message) => message.type === 'room-closed', 1200);
+    const timedOut = nextMessage(
+      host,
+      (message) => message.type === 'room-state' && !message.room.players.some((player: any) => player.id === guestId),
+      1200,
+    );
     rejoined.close();
-    const closed = await timedOut;
-    expect(closed.reason).toBe('disconnect-timeout:2');
+    const recovered = await timedOut;
+    expect(recovered.room.players.some((player: any) => player.id === hostId)).toBe(true);
   }, 5000);
 
   it('lets a ready host launch alone with open AI slots and blocks late joins', async () => {
@@ -235,7 +242,10 @@ describe('multiplayer relay', () => {
     await waitForHealth(port);
 
     const host = await connect(port);
-    host.send(JSON.stringify({ type: 'host', requestId: 'host', name: 'Host', settings: { armyCount: 4, armySides: [1, 1, 2, 2], seed: 777 } }));
+    host.send(JSON.stringify({
+      type: 'host', requestId: 'host', name: 'Host',
+      settings: { armyCount: 4, controllerCount: 4, controllerTeams: [1, 1, 2, 2], seed: 777 },
+    }));
     const hostSession = await nextMessage(host, (message) => message.type === 'session');
     const roomCode = hostSession.room.code as string;
     const sessions = [hostSession];
@@ -246,7 +256,7 @@ describe('multiplayer relay', () => {
       clients.push(client);
       sessions.push(await nextMessage(client, (message) => message.type === 'session'));
     }
-    expect(hostSession.room.armyCount).toBe(4);
+    expect(hostSession.room.armyCount).toBe(2);
     expect(sessions.map((session) => session.player.index)).toEqual([1, 2, 3, 4]);
 
     const ready = nextMessage(host, (message) => message.type === 'room-state' && message.room.players.length === 4 && message.room.players.every((player: any) => player.ready));
@@ -259,8 +269,51 @@ describe('multiplayer relay', () => {
     const starts = clients.map((client) => nextMessage(client, (message) => message.type === 'match-start'));
     host.send(JSON.stringify({ type: 'start-match', roomCode, playerId: hostSession.player.id }));
     const events = await Promise.all(starts);
-    expect(events.every((event) => event.room.armyCount === 4)).toBe(true);
-    expect(events[0].room.armySides).toEqual([1, 1, 2, 2]);
+    expect(events.every((event) => event.room.armyCount === 2)).toBe(true);
+    expect(events[0].room.armySides).toEqual([1, 2, 3, 4]);
+  }, 5000);
+
+  it('assigns four players to two shared armies with Commander and Field Officer seats', async () => {
+    const port = await availablePort();
+    const child = spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, PORT: String(port), HEARTBEAT_MS: '50', START_COUNTDOWN_MS: '20' },
+      stdio: 'ignore',
+    });
+    children.push(child);
+    await waitForHealth(port);
+
+    const host = await connect(port);
+    host.send(JSON.stringify({
+      type: 'host', requestId: 'coop-host', name: 'Alpha Commander',
+      settings: { armyCount: 2, controllerCount: 4, controllerTeams: [1, 2, 1, 2], playersPerArmy: 2, seed: 8080 },
+    }));
+    const sessions = [await nextMessage(host, (message) => message.type === 'session')];
+    const clients = [host];
+    for (let index = 2; index <= 4; index++) {
+      const client = await connect(port);
+      client.send(JSON.stringify({ type: 'join', requestId: `coop-${index}`, code: sessions[0].room.code, name: `P${index}` }));
+      clients.push(client);
+      sessions.push(await nextMessage(client, (message) => message.type === 'session'));
+    }
+
+    expect(sessions.map((session) => [session.player.armyId, session.player.role])).toEqual([
+      [1, 'commander'],
+      [2, 'commander'],
+      [1, 'field-officer'],
+      [2, 'field-officer'],
+    ]);
+    expect(sessions[0].room.playersPerArmy).toBe(2);
+
+    const fieldUpdate = nextMessage(
+      host,
+      (message) => message.type === 'room-state' && message.room.players.some((player: any) => player.id === sessions[2].player.id && player.armyId === 1 && player.role === 'field-officer'),
+    );
+    clients[2].send(JSON.stringify({
+      type: 'player-profile', roomCode: sessions[0].room.code, playerId: sessions[2].player.id,
+      profile: { armyId: 1, role: 'field-officer' },
+    }));
+    await fieldUpdate;
   }, 5000);
 
   it('restores an in-progress room after a relay restart and lets the guest reclaim its slot', async () => {

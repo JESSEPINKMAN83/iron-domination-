@@ -1,28 +1,34 @@
 # Iron Dominion Multiplayer
 
-## Current Slice: Phase M3 Resilient Online 1v1
+## Current Slice: Phase M3 Resilient Online Co-op
 
-The friends-link 1v1 multiplayer layer now provides:
+The friends-link multiplayer layer now provides:
 
 - a lightweight WebSocket room relay server
 - host/join room codes
 - copyable room links with `?room=ABC123`
-- player assignment: host is player 1, guest is player 2
+- one or two human players per army, with up to four armies in a room
+- explicit army seats and roles: each army has one Commander and an optional Field Officer
+- shared army, economy, selection, orders, and unit control for teammates
+- Commander-only production, building placement, cancellations, and upgrades
+- Field Officers can select, move, attack with, and directly possess every unit in their army
+- deterministic V-mode ownership so two teammates cannot directly possess the same unit at once
 - synchronized seed/map/difficulty/AI profile/combat-mode handoff
 - host-authoritative lobby controls: guests mirror the host map, seed, and rules and cannot
   independently launch with local settings
 - dedicated room lobby with player slots, authoritative settings, and a host-only start command
 - lobby ping measurement and fixed match input delay selection: 4, 8, or 12 ticks
 - browser-engine exchange with a warning when players use different engines
-- guest-side local ownership of team 2
-- AI disabled in multiplayer rooms
+- player ownership maps to the assigned army instead of the connection order
+- armies without a human seat continue to deploy as AI opponents
 - deterministic command relay for RTS move/attack-move, stop, harvester orders, rally,
   structure build/place/cancel, unit queue/cancel, and primary producer selection
 - realtime V-mode possession mirroring for drive/fly controls, release, and manual fire
 - periodic sim-hash desync checks
 - host-authored snapshot repair when a sim-hash mismatch is detected
 - automatic socket reconnect with exponential backoff and the same player slot
-- a 60-second reconnect grace period before a disconnect becomes a defeat
+- a 60-second reconnect grace period; a disconnected teammate does not defeat the shared army
+- automatic Commander and room-host handoff when a co-op partner leaves
 - match pause and host-snapshot acknowledgement before a recovered room resumes
 - explicit multiplayer forfeit from the in-match MENU, with victory messaging for the opponent
 - visible in-match multiplayer status/warning overlay
@@ -66,16 +72,17 @@ This starts:
 - Vite app: `http://127.0.0.1:5173`
 - Multiplayer relay: `http://127.0.0.1:8787`
 
-Open two browser windows:
+Open two to four browser windows:
 
 1. In window A, use the setup screen Multiplayer section and click `HOST ROOM`.
 2. Copy the room link or room code.
 3. In window B, open the link or enter the same server URL and room code, then click `JOIN ROOM`.
-4. The guest waits in the room lobby; only the host can click `START MATCH` once both slots are connected.
-5. The room enters a short starting countdown, then both clients
+4. Set `PLAYERS / ARMY` to `2` and assign two players to the same army as `COMMANDER` and `FIELD`.
+5. The guests wait in the room lobby; only the room host can click `START MATCH` once every connected player is ready.
+6. The room enters a short starting countdown, then all clients
    receive the same start payload and boot.
-6. Host controls the green army; guest controls the red army.
-7. In-match V-mode controls are mirrored to the opponent as realtime possession commands.
+7. Teammates command the same army and economy. The Commander manages production while both roles can fight.
+8. In-match V-mode controls are mirrored to every player as realtime possession commands.
 
 ## Same Network Test
 
