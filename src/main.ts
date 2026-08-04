@@ -9,6 +9,7 @@ import { showMissionBriefing } from './missionBriefing';
 import './setup.css';
 import './mobile.css';
 import './durabilityPreview.css';
+import './outcomeScreen.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
 import {
@@ -46,6 +47,7 @@ import { Input } from './engine/input';
 import { GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
 import { FirstContactGate, findFirstVisibleHostileEntity } from './firstContact';
 import { advanceTick } from './match/advanceTick';
+import { BattleDebriefTracker, type MatchSnapshot } from './match/battleDebrief';
 import {
   openingFormationBasis,
   openingFormationPoint,
@@ -115,6 +117,7 @@ import type { Entity } from './sim/components';
 import { BaseUnderAttackGate, findFriendlyBuildingUnderAttack } from './ui/baseUnderAttack';
 import { Hud } from './ui/hud';
 import { MissionComms } from './ui/missionComms';
+import { showOutcomeScreen } from './ui/outcomeScreen';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
@@ -316,17 +319,6 @@ function createMatchHistoryPanel(): HTMLDivElement {
   }
   root.append(title, rows);
   return root;
-}
-
-interface MatchSnapshot {
-  elapsedSeconds: number;
-  playerCredits: number;
-  playerBuildings: number;
-  enemyBuildings: number;
-  playerUnits: number;
-  enemyUnits: number;
-  playerCollectors: number;
-  enemyCollectors: number;
 }
 
 interface StoredMatchSave {
@@ -2267,6 +2259,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const lineupStart = startMode === 'lineup' || weaponsLab;
   const impactMovementDemo =
     startMode === 'impact-demo' && !multiplayerMode && !isPublicHost(location.hostname);
+  const debriefPreview =
+    startMode === 'debrief-preview' && !multiplayerMode && !isPublicHost(location.hostname);
   const cinematicWar =
     startMode === 'cinematic' && !multiplayerMode && !isPublicHost(location.hostname);
   const battleStaging =
@@ -2282,7 +2276,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const collectorPreview =
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
-  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo;
+  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   const impactPreview =
@@ -2385,25 +2379,21 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     army.commander = new EnemyCommander(sim, hf, army.economy, army.vision, aiPersonality, aiDifficulty, hints);
   }
   const commanders = armies.map((army) => army.commander).filter((commander): commander is EnemyCommander => !!commander);
-  const matchSnapshot = (): MatchSnapshot => {
-    const aliveBuildings = (team: number) => buildings(sim, team).filter((entity) => !entity.destroyed).length;
-    const aliveUnits = (team: number) =>
-      sim.world.entities.filter((entity) => entity.team?.id === team && !entity.destroyed && !entity.building).length;
-    const aliveCollectors = (team: number) =>
-      sim.world.entities.filter((entity) => entity.team?.id === team && !entity.destroyed && entity.harvester).length;
-    const hostileTeams = teams.filter((team) => areTeamsHostile(sim, localTeam, team));
-    const sum = (values: number[]): number => values.reduce((total, value) => total + value, 0);
-    return {
-      elapsedSeconds: sim.tick / SIM_HZ,
-      playerCredits: economy.credits,
-      playerBuildings: aliveBuildings(localTeam),
-      enemyBuildings: sum(hostileTeams.map(aliveBuildings)),
-      playerUnits: aliveUnits(localTeam),
-      enemyUnits: sum(hostileTeams.map(aliveUnits)),
-      playerCollectors: aliveCollectors(localTeam),
-      enemyCollectors: sum(hostileTeams.map(aliveCollectors)),
-    };
-  };
+  const debriefTracker = new BattleDebriefTracker(
+    sim,
+    armies.map((army) => {
+      const roomPlayer = multiplayer?.session.room.players.find((player) => player.index === army.team);
+      return {
+        team: army.team,
+        side: army.side,
+        economy: army.economy,
+        commander: army.commander,
+        label: roomPlayer?.name ?? (army.team === localTeam ? 'YOUR ARMY' : `AI ARMY ${army.team}`),
+      };
+    }),
+    localTeam,
+  );
+  const matchSnapshot = (): MatchSnapshot => debriefTracker.snapshot(sim.tick / SIM_HZ);
 
   const loadedUnits = loadedFromSave ? Array.from(sim.world.entities).filter((entity) => entity.selectable && !entity.building) : [];
   const lineupUnits = !loadedFromSave && lineupStart ? spawnLineupUnits(sim, hf, economy, localBase.transform.x, localBase.transform.z) : [];
@@ -2870,7 +2860,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let outcome: 'victory' | 'defeat' | undefined;
   let matchTelemetry: MatchTelemetry | undefined;
   const checkOutcome = (): void => {
-    if (durabilityPreview || outcome || sim.tick < 60) return;
+    if (durabilityPreview || debriefPreview || outcome || sim.tick < 60) return;
     const alive = (team: number) => buildings(sim, team).filter((entity) => !entity.destroyed).length;
     const hostileTeams = teams.filter((team) => areTeamsHostile(sim, localTeam, team));
     if (isVictoryFromHostileBuildingCounts(hostileTeams.map(alive))) outcome = 'victory';
@@ -2889,7 +2879,6 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       });
       showOutcomeBanner(
         outcome,
-        combinedCommanderStats(commanders),
         settings,
         snapshot,
         multiplayer && lockstep ? () => lockstep.requestRematch() : undefined,
@@ -3003,6 +2992,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         fogView.refresh();
       }
       const events = tickResult.events;
+      debriefTracker.recordEvents(events);
       if (impactDemoScene) {
         if (sim.tick >= nextImpactDemoRouteTick) {
           impactDemoRouteToB = !impactDemoRouteToB;
@@ -3183,7 +3173,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   overlay.remove();
   loop.start();
   fadeOutLandingMusic(40_000);
-  if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !impactMovementDemo) {
+  if (debriefPreview) {
+    window.setTimeout(() => {
+      showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount), undefined);
+    }, 500);
+  }
+  if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !impactMovementDemo && !debriefPreview) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     showMissionBriefing({ enemyCount: hostileArmyCount });
     if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
@@ -3541,16 +3536,6 @@ function commandBaseForTeam(sim: ReturnType<typeof createGameSim>, team: number)
   );
 }
 
-function combinedCommanderStats(commanders: EnemyCommander[]): { attacksLaunched: number; rebuilds: number } {
-  return commanders.reduce(
-    (total, commander) => ({
-      attacksLaunched: total.attacksLaunched + commander.stats.attacksLaunched,
-      rebuilds: total.rebuilds + commander.stats.rebuilds,
-    }),
-    { attacksLaunched: 0, rebuilds: 0 },
-  );
-}
-
 function formatDuration(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(total / 60);
@@ -3581,73 +3566,65 @@ function dialogButton(label: string, action: () => void): HTMLButtonElement {
 
 function showOutcomeBanner(
   outcome: 'victory' | 'defeat',
-  aiStats: { attacksLaunched: number; rebuilds: number },
   settings: SkirmishSettings,
   snapshot: MatchSnapshot,
   onRematch?: () => void,
 ): void {
-  const el = document.createElement('div');
-  const win = outcome === 'victory';
-  el.style.cssText =
-    'position:fixed;left:50%;top:34%;transform:translate(-50%,-50%);z-index:60;padding:26px 48px;text-align:center;' +
-    'font:15px ui-monospace,Menlo,monospace;letter-spacing:.3em;color:#f0f3e8;pointer-events:none;' +
-    `background:rgba(8,12,14,.88);border:2px solid ${win ? '#d2b15f' : '#d65b46'};border-radius:4px;box-shadow:0 18px 60px rgba(0,0,0,.55);`;
-  const title = document.createElement('div');
-  title.textContent = win ? 'VICTORY' : 'DEFEAT';
-  title.style.cssText = `font-size:34px;color:${win ? '#f0d56a' : '#ff6a54'}`;
-  const summary = document.createElement('div');
-  summary.textContent = `time ${formatDuration(snapshot.elapsedSeconds)} · enemy launched ${aiStats.attacksLaunched} assaults · rebuilt ${aiStats.rebuilds}`;
-  summary.style.cssText = 'margin-top:10px;font-size:11px;letter-spacing:.14em;color:#aebbc4';
-  const stats = document.createElement('div');
-  stats.style.cssText =
-    'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px;letter-spacing:.08em;font-size:10px;color:#b8c5c1;';
-  for (const [label, value] of [
-    ['YOUR FORCE', `${snapshot.playerBuildings} bldg / ${snapshot.playerUnits} units`],
-    ['ENEMY FORCE', `${snapshot.enemyBuildings} bldg / ${snapshot.enemyUnits} units`],
-    ['ECONOMY', `$${snapshot.playerCredits} / ${snapshot.playerCollectors} collectors`],
-  ]) {
-    const cell = document.createElement('div');
-    cell.style.cssText = 'padding:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);';
-    cell.innerHTML = `<div style="color:#d2b15f;margin-bottom:3px;">${label}</div><div>${value}</div>`;
-    stats.appendChild(cell);
-  }
-  const actions = document.createElement('div');
-  actions.style.cssText = 'display:flex;justify-content:center;gap:10px;margin-top:18px;pointer-events:auto;';
-  const again = outcomeButton(onRematch ? 'REMATCH' : 'PLAY AGAIN', () => {
-    if (!onRematch) {
-      reloadWithSettings({ ...settings, seed: randomSeed() }, true);
-      return;
-    }
-    onRematch();
-    again.disabled = true;
-    again.textContent = 'WAITING FOR PLAYER';
-    again.style.opacity = '.55';
+  showOutcomeScreen({
+    outcome,
+    settings,
+    snapshot,
+    onPlayAgain: () => reloadWithSettings({ ...settings, seed: randomSeed() }, true),
+    onSetup: () => reloadWithSettings(settings, false),
+    onRematch,
   });
-  const setup = outcomeButton('SETUP', () => reloadWithSettings(settings, false));
-  actions.append(again, setup);
-  el.append(title, summary, stats, actions);
-  document.body.appendChild(el);
 }
 
-function outcomeButton(label: string, action: () => void): HTMLButtonElement {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.tabIndex = -1;
-  button.textContent = label;
-  button.style.cssText =
-    'height:36px;padding:0 14px;border:1px solid #d2b15f;border-radius:2px;background:linear-gradient(180deg,#d2b15f,#856c32);' +
-    'color:#121513;font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;cursor:pointer;';
-  button.onpointerdown = (event) => {
-    event.preventDefault();
-    event.stopPropagation();
+function createDebriefPreviewSnapshot(armyCount: ArmyCount): MatchSnapshot {
+  const samples = [
+    { damageDealt: 18_740, damageReceived: 7_920, kills: 31, buildingKills: 9, units: 24, lost: 8, buildings: 11, buildingLosses: 3, income: 14_260, spent: 13_480, credits: 5_380, shots: 286, hits: 174, assaults: 0, rebuilds: 0, retreats: 0 },
+    { damageDealt: 9_460, damageReceived: 13_580, kills: 12, buildingKills: 3, units: 0, lost: 26, buildings: 0, buildingLosses: 10, income: 10_820, spent: 10_170, credits: 650, shots: 241, hits: 119, assaults: 7, rebuilds: 2, retreats: 1 },
+    { damageDealt: 6_870, damageReceived: 10_930, kills: 7, buildingKills: 2, units: 0, lost: 19, buildings: 0, buildingLosses: 8, income: 8_640, spent: 8_110, credits: 530, shots: 184, hits: 81, assaults: 5, rebuilds: 1, retreats: 2 },
+    { damageDealt: 4_310, damageReceived: 8_220, kills: 5, buildingKills: 1, units: 0, lost: 15, buildings: 0, buildingLosses: 7, income: 7_420, spent: 7_030, credits: 390, shots: 151, hits: 63, assaults: 4, rebuilds: 0, retreats: 1 },
+  ];
+  const armies = samples.slice(0, armyCount).map((sample, index) => ({
+    team: index + 1,
+    side: index + 1,
+    label: index === 0 ? 'YOUR ARMY' : `AI ARMY ${index + 1}`,
+    isLocal: index === 0,
+    eliminated: index > 0,
+    credits: sample.credits,
+    income: sample.income,
+    spent: sample.spent,
+    refunds: 0,
+    unitsDeployed: sample.units + sample.lost,
+    unitsSurviving: sample.units,
+    unitLosses: sample.lost,
+    buildingsConstructed: sample.buildings + sample.buildingLosses,
+    buildingsSurviving: sample.buildings,
+    buildingLosses: sample.buildingLosses,
+    collectorsSurviving: index === 0 ? 3 : 0,
+    shotsFired: sample.shots,
+    hits: sample.hits,
+    damageDealt: sample.damageDealt,
+    damageReceived: sample.damageReceived,
+    unitKills: sample.kills,
+    buildingKills: sample.buildingKills,
+    attacksLaunched: sample.assaults,
+    rebuilds: sample.rebuilds,
+    retreats: sample.retreats,
+  }));
+  return {
+    elapsedSeconds: 14 * 60 + 37,
+    playerCredits: armies[0].credits,
+    playerBuildings: armies[0].buildingsSurviving,
+    enemyBuildings: 0,
+    playerUnits: armies[0].unitsSurviving,
+    enemyUnits: 0,
+    playerCollectors: armies[0].collectorsSurviving,
+    enemyCollectors: 0,
+    armies,
   };
-  button.onclick = (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    button.blur();
-    action();
-  };
-  return button;
 }
 
 function spawnStartingInfantry(
@@ -4782,6 +4759,15 @@ async function start(): Promise<void> {
   const mobileLandscape = new MobileLandscapeGate();
   mobileLandscape.activate();
   const settings = initialSettings(params);
+  if (!isPublicHost(location.hostname) && params.get('start') === 'debrief-preview') {
+    const app = document.getElementById('app');
+    if (app) {
+      app.style.background =
+        'radial-gradient(circle at 66% 32%,rgba(136,92,32,.4),transparent 38%),linear-gradient(145deg,#17150f,#050909 70%)';
+    }
+    showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount));
+    return;
+  }
   const rematch = consumeMultiplayerRematch();
   if (rematch) {
     const client = new MultiplayerClient(rematch.server);
