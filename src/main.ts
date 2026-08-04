@@ -2809,6 +2809,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       oreAmount: settings.oreAmount,
       terrainRelief: settings.terrainRelief,
       localAnchor: { x: localBase.transform.x, z: localBase.transform.z },
+      isVisible: (x, z) => playerVision.isVisibleWorld(x, z),
     },
     {
       onOpen: () => {
@@ -2839,7 +2840,6 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           plannerDurationMs: payload.plannerDurationMs,
           subsetOfSelection: units.length < payload.selectionCount,
         };
-        sendTelemetryEvent('tactic-execute', matchTelemetryMetadata(), feature);
         const issued = lockstep
           ? lockstep.issue({
               type: 'tactic',
@@ -2853,6 +2853,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           audio.playUi('error');
           return;
         }
+        sendTelemetryEvent('tactic-execute', matchTelemetryMetadata(), feature);
         audio.playUi('order');
         const last = payload.waypoints[payload.waypoints.length - 1];
         orderMarkers.push(

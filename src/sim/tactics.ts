@@ -1,5 +1,5 @@
 import type { Entity, TacticEndAction, TacticPlan } from './components';
-import { attackStandoffPoint, entityById, issueMoveOrder, type GameSim } from './world';
+import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, type GameSim } from './world';
 
 export const MAX_TACTIC_WAYPOINTS = 8;
 
@@ -58,6 +58,12 @@ export function issueTacticOrder(
   if (!validateTacticWaypoints(waypoints) || !validateTacticEndAction(endAction)) return false;
   const movers = tacticEligibleEntities(entities);
   if (movers.length === 0) return false;
+  if (endAction.kind === 'attack') {
+    const target = entityById(sim, endAction.targetId);
+    const team = movers[0].team?.id;
+    if (!target || target.destroyed || !target.health || target.health.current <= 0 ||
+      !areTeamsHostile(sim, team, target.team?.id)) return false;
+  }
 
   const first = waypoints[0];
   const remaining = waypoints.slice(1).map((point) => ({ x: point.x, z: point.z }));
@@ -105,6 +111,7 @@ export function advanceTacticAfterArrival(sim: GameSim, entity: Entity): void {
     const target = entityById(sim, endAction.targetId);
     if (!target || target.destroyed || !target.health || target.health.current <= 0) return;
     if (!entity.team || !target.team) return;
+    if (!areTeamsHostile(sim, entity.team.id, target.team.id)) return;
     const destination = attackStandoffPoint(sim, [entity], target);
     if (!issueMoveOrder(sim, [entity], destination.x, destination.z, true)) return;
     if (entity.mover) entity.mover.attackTargetId = target.id;

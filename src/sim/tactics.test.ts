@@ -77,6 +77,18 @@ describe('tactic orders', () => {
     expect(issueTacticOrder(sim, [tank], tooMany, { kind: 'hold' })).toBe(false);
   });
 
+  it('rejects an attack tactic aimed at a friendly unit', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, 0, 0, 'Scout', 1);
+    const ally = spawnTankAt(sim, 40, 0, 'Ally', 1);
+
+    expect(
+      issueTacticOrder(sim, [tank], [{ x: 20, z: 0 }], { kind: 'attack', targetId: ally.id }),
+    ).toBe(false);
+    expect(tank.mover?.tactic).toBeUndefined();
+  });
+
   it('clears a tactic when a normal move order is issued', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

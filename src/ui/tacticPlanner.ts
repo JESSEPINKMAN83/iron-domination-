@@ -14,6 +14,8 @@ export type TacticPlannerMapContext = {
   terrainRelief?: number;
   /** World-space anchor for the local army (HQ / spawn). Used to orient the map. */
   localAnchor: { x: number; z: number };
+  /** Fog-of-war visibility. Hidden armies must never be revealed by the planner. */
+  isVisible?: (x: number, z: number) => boolean;
 };
 
 export type TacticExecutePayload = {
@@ -45,6 +47,7 @@ export class TacticPlanner {
   private endMode: EndMode = 'hold';
   private attackTargetId?: number;
   private onKeyDown?: (event: KeyboardEvent) => void;
+  private lastDynamicRefreshAt = 0;
 
   constructor(
     private readonly sim: GameSim,
@@ -72,6 +75,7 @@ export class TacticPlanner {
     this.endMode = 'hold';
     this.attackTargetId = undefined;
     this.openedAt = performance.now();
+    this.lastDynamicRefreshAt = 0;
     this.callbacks.onOpen?.();
 
     const raster = createTacticalMapRaster(
@@ -199,17 +203,31 @@ export class TacticPlanner {
 
   update(): void {
     if (!this.overlay) return;
+    const now = performance.now();
+    if (now - this.lastDynamicRefreshAt < 100) return;
+    this.lastDynamicRefreshAt = now;
+
     // Drop dead units from the candidate list while the match keeps playing.
+    const previousCandidateCount = this.candidates.length;
     this.candidates = this.candidates.filter((entity) => !entity.destroyed && this.sim.world.has(entity));
+    let chromeChanged = this.candidates.length !== previousCandidateCount;
     for (const id of [...this.selectedIds]) {
-      if (!this.candidates.some((entity) => entity.id === id)) this.selectedIds.delete(id);
+      if (!this.candidates.some((entity) => entity.id === id)) {
+        this.selectedIds.delete(id);
+        chromeChanged = true;
+      }
     }
     if (this.attackTargetId !== undefined) {
       const target = [...this.sim.world.entities].find((entity) => entity.id === this.attackTargetId);
-      if (!target || target.destroyed) this.attackTargetId = undefined;
+      if (!target || target.destroyed || !this.isEntityVisible(target)) {
+        this.attackTargetId = undefined;
+        chromeChanged = true;
+      }
     }
-    this.renderUnitList();
-    this.syncChrome();
+    if (chromeChanged) {
+      this.renderUnitList();
+      this.syncChrome();
+    }
     this.redrawOverlay();
   }
 
@@ -288,6 +306,7 @@ export class TacticPlanner {
     for (const entity of this.sim.world.entities) {
       if (entity.destroyed || !entity.team || !entity.health) continue;
       if (!areTeamsHostile(this.sim, this.localTeam, entity.team.id)) continue;
+      if (!this.isEntityVisible(entity)) continue;
       const dist = Math.hypot(entity.transform.x - x, entity.transform.z - z);
       if (dist < bestDist) {
         best = entity;
@@ -376,6 +395,7 @@ export class TacticPlanner {
       const point = toView(entity.transform.x, entity.transform.z);
       const hostile = areTeamsHostile(this.sim, this.localTeam, entity.team.id);
       const mine = entity.team.id === this.localTeam;
+      if (!mine && !this.isEntityVisible(entity)) continue;
       const selected = this.selectedIds.has(entity.id);
       const isTarget = entity.id === this.attackTargetId;
       const isBuilding = !!entity.building;
@@ -434,6 +454,7 @@ export class TacticPlanner {
     for (const entity of this.sim.world.entities) {
       if (entity.destroyed || !entity.team || !entity.building) continue;
       if (!areTeamsHostile(this.sim, this.localTeam, entity.team.id)) continue;
+      if (!this.isEntityVisible(entity)) continue;
       sumX += entity.transform.x;
       sumZ += entity.transform.z;
       count += 1;
@@ -442,12 +463,18 @@ export class TacticPlanner {
       for (const entity of this.sim.world.entities) {
         if (entity.destroyed || !entity.team || !entity.mover) continue;
         if (!areTeamsHostile(this.sim, this.localTeam, entity.team.id)) continue;
+        if (!this.isEntityVisible(entity)) continue;
         sumX += entity.transform.x;
         sumZ += entity.transform.z;
         count += 1;
       }
     }
     return count > 0 ? { x: sumX / count, z: sumZ / count } : undefined;
+  }
+
+  private isEntityVisible(entity: Entity): boolean {
+    return entity.team?.id === this.localTeam ||
+      (this.map.isVisible?.(entity.transform.x, entity.transform.z) ?? true);
   }
 }
 
