@@ -40,21 +40,21 @@ describe('host match mode selection', () => {
 
   it('launches a local skirmish when only the host is connected', () => {
     expect(shouldLaunchLocalSkirmish(room([
-      { id: 'host', index: 1, name: 'Host', connected: true },
+      { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
     ]), 'host')).toBe(true);
   });
 
   it('launches multiplayer when a guest is connected', () => {
     expect(shouldLaunchLocalSkirmish(room([
-      { id: 'host', index: 1, name: 'Host', connected: true },
-      { id: 'guest', index: 2, name: 'Guest', connected: true },
+      { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
+      { id: 'guest', index: 2, armyId: 2, role: 'commander', name: 'Guest', connected: true },
     ]), 'host')).toBe(false);
   });
 
   it('returns to a local skirmish when the former guest is disconnected', () => {
     expect(shouldLaunchLocalSkirmish(room([
-      { id: 'host', index: 1, name: 'Host', connected: true },
-      { id: 'guest', index: 2, name: 'Guest', connected: false },
+      { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
+      { id: 'guest', index: 2, armyId: 2, role: 'commander', name: 'Guest', connected: false },
     ]), 'host')).toBe(true);
   });
 });

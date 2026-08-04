@@ -14,16 +14,25 @@ export interface MultiplayerRoom {
   combatMode?: CombatMode;
   inputDelay?: number;
   armyCount: number;
+  controllerCount?: 2 | 3 | 4;
+  controllerTeams?: number[];
+  playersPerArmy?: 1 | 2;
   armySides: number[];
   spawnSlots?: number[];
   status: 'waiting' | 'starting' | 'in-game';
   startsAt?: number;
   players: MultiplayerPlayer[];
+  hostPlayerId?: string;
 }
+
+export type MultiplayerRole = 'commander' | 'field-officer';
 
 export interface MultiplayerPlayer {
   id: string;
   index: number;
+  armyId: number;
+  lobbyTeam?: number;
+  role: MultiplayerRole;
   name: string;
   connected: boolean;
   engine?: string;
@@ -47,6 +56,7 @@ export interface TacticalPing {
   type: 'tactical-ping';
   playerId: string;
   playerIndex: number;
+  armyId: number;
   name: string;
   kind: TacticalPingKind;
   x: number;
@@ -56,10 +66,10 @@ export interface TacticalPing {
 export type MultiplayerEvent =
   | { type: 'room-state'; room: MultiplayerRoom }
   | { type: 'match-start'; room: MultiplayerRoom; rematch?: boolean }
-  | { type: 'command'; playerId: string; playerIndex: number; tick: number; command: unknown }
+  | { type: 'command'; playerId: string; playerIndex: number; armyId: number; tick: number; command: unknown }
   | TacticalPing
   | { type: 'heartbeat'; now: number }
-  | { type: 'player-forfeit'; playerId: string; playerIndex: number; name: string }
+  | { type: 'player-forfeit'; playerId: string; playerIndex: number; armyId: number; name: string; armyDefeated: boolean }
   | { type: 'room-closed'; reason: string };
 
 export interface MultiplayerSession {
@@ -99,7 +109,7 @@ export class MultiplayerClient {
 
   constructor(readonly baseUrl: string) {}
 
-  async host(settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; terrainRelief?: number; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; armySides?: number[]; spawnSlots?: number[]; name?: string; playerId?: string }): Promise<MultiplayerSession> {
+  async host(settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; terrainRelief?: number; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; controllerCount?: number; controllerTeams?: number[]; playersPerArmy?: 1 | 2; armySides?: number[]; spawnSlots?: number[]; name?: string; playerId?: string }): Promise<MultiplayerSession> {
     await this.ensureSocket();
     return this.request({
       type: 'host',
@@ -123,7 +133,7 @@ export class MultiplayerClient {
     this.send({ type: 'tactical-ping', roomCode: normalizeRoomCode(roomCode), playerId, kind, x, z });
   }
 
-  updateSettings(roomCode: string, playerId: string, settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; terrainRelief?: number; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; armySides?: number[]; spawnSlots?: number[] }): void {
+  updateSettings(roomCode: string, playerId: string, settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; terrainRelief?: number; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; controllerCount?: number; controllerTeams?: number[]; playersPerArmy?: 1 | 2; armySides?: number[]; spawnSlots?: number[] }): void {
     this.send({ type: 'settings', roomCode: normalizeRoomCode(roomCode), playerId, settings });
   }
 
@@ -135,8 +145,8 @@ export class MultiplayerClient {
     this.send({ type: 'set-ready', roomCode: normalizeRoomCode(roomCode), playerId, ready });
   }
 
-  updatePlayerProfile(roomCode: string, playerId: string, profile: { name?: string; color?: MultiplayerColor; side?: number }): void {
-    this.send({ type: 'player-profile', roomCode: normalizeRoomCode(roomCode), playerId, profile });
+  updatePlayerProfile(roomCode: string, playerId: string, profile: { name?: string; color?: MultiplayerColor; side?: number; team?: number; armyId?: number; role?: MultiplayerRole }, targetPlayerId?: string): void {
+    this.send({ type: 'player-profile', roomCode: normalizeRoomCode(roomCode), playerId, targetPlayerId, profile });
   }
 
   requestRematch(roomCode: string, playerId: string): void {
@@ -249,7 +259,7 @@ export class MultiplayerClient {
       this.onOpen?.();
     } catch (err) {
       const reason = String((err as Error).message ?? err);
-      if (reason === 'room-not-found' && previous.player.index === 1) {
+      if (reason === 'room-not-found' && (previous.room.hostPlayerId ?? previous.room.players.find((player) => player.index === 1)?.id) === previous.player.id) {
         try {
           const session = await this.request({
             type: 'resume-room',

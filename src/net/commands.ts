@@ -93,11 +93,30 @@ export class LockstepRuntime {
   private estimatedRttMs = 160;
   private recoveryResumeTimer?: ReturnType<typeof setTimeout>;
   private lateRemoteCommandTick?: number;
+  private readonly possessionOwners = new Map<number, number>();
 
   constructor(private readonly options: LockstepRuntimeOptions) {}
 
   get localTeam(): number {
+    return this.options.session.player.armyId ?? this.options.session.player.index;
+  }
+
+  get localPlayerIndex(): number {
     return this.options.session.player.index;
+  }
+
+  get canManageEconomy(): boolean {
+    return (this.options.session.player.role ?? 'commander') === 'commander';
+  }
+
+  canPossess(entityId: number): boolean {
+    const owner = this.possessionOwners.get(entityId);
+    return owner === undefined || owner === this.localPlayerIndex;
+  }
+
+  private get isHost(): boolean {
+    const hostPlayerId = this.options.session.room.hostPlayerId ?? this.options.session.room.players.find((player) => player.index === 1)?.id;
+    return hostPlayerId ? hostPlayerId === this.options.session.player.id : this.localPlayerIndex === 1;
   }
 
   connect(): void {
@@ -117,7 +136,7 @@ export class LockstepRuntime {
         this.connected = true;
         if (this.connectionInterrupted) {
           this.connectionInterrupted = false;
-          if (this.localTeam === 1) this.sendRecoverySnapshot('Reconnected — synchronizing match state');
+          if (this.isHost) this.sendRecoverySnapshot('Reconnected — synchronizing match state');
           else {
             this.recoveryPending = true;
             this.roomPaused = true;
@@ -180,8 +199,12 @@ export class LockstepRuntime {
   issue(command: NetCommand): boolean {
     const roomDelay = this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS;
     const tick = this.options.sim.tick + roomDelay;
-    this.queue.push({ tick, playerIndex: this.localTeam, command });
-    this.queue.sort((a, b) => a.tick - b.tick);
+    if (isEconomyCommand(command) && !this.canManageEconomy) {
+      this.options.onStatus?.('Field Officers can command and possess units; the Commander manages production.', true);
+      return false;
+    }
+    this.queue.push({ tick, playerIndex: this.localPlayerIndex, command });
+    sortCommandQueue(this.queue);
     void this.send(command, tick);
     return true;
   }
@@ -215,21 +238,45 @@ export class LockstepRuntime {
     this.connected = true;
     if (event.type === 'heartbeat') return;
     if (event.type === 'player-forfeit') {
-      this.connected = false;
-      this.roomPaused = true;
-      const message =
-        event.playerIndex === this.localTeam ? 'You forfeited the match' : `${event.name || `Commander ${event.playerIndex}`} forfeited — victory`;
+      const armyDefeated = event.armyDefeated !== false;
+      const isLocal = event.playerId === this.options.session.player.id;
+      if (armyDefeated || isLocal) {
+        this.connected = false;
+        this.roomPaused = true;
+      }
+      const message = isLocal
+        ? 'You left the match'
+        : armyDefeated
+          ? `${event.name || `Commander ${event.playerIndex}`} forfeited — victory`
+          : `${event.name || `Player ${event.playerIndex}`} left; their teammate remains in command`;
       this.options.onStatus?.(message, true);
       return;
     }
     if (event.type === 'room-state' || event.type === 'match-start') {
+      this.options.session.room = event.room;
+      const latestLocalPlayer = event.room.players.find((player) => player.id === this.options.session.player.id);
+      if (latestLocalPlayer) this.options.session.player = latestLocalPlayer;
       if (event.type === 'match-start' && event.rematch) {
         this.options.onRematchStart?.();
         return;
       }
-      const missing = event.room.players.some((player) => player.index !== this.localTeam && !player.connected);
+      const representedArmies = new Set(event.room.players.map((player) => player.armyId ?? player.index));
+      const missing = Array.from(representedArmies).some(
+        (armyId) => armyId !== this.localTeam && !event.room.players.some(
+          (player) => (player.armyId ?? player.index) === armyId && player.connected,
+        ),
+      );
+      const disconnectedIndexes = new Set(event.room.players.filter((player) => !player.connected).map((player) => player.index));
+      let releasedPossession = false;
+      for (const [entityId, ownerIndex] of this.possessionOwners) {
+        if (!disconnectedIndexes.has(ownerIndex)) continue;
+        this.possessionOwners.delete(entityId);
+        const entity = entityById(this.options.sim, entityId);
+        if (entity) delete entity.playerControlled;
+        releasedPossession = true;
+      }
       const connected = event.room.players.filter((player) => player.connected).length;
-      const localPing = event.room.players.find((player) => player.index === this.localTeam)?.pingMs;
+      const localPing = event.room.players.find((player) => player.id === this.options.session.player.id)?.pingMs;
       if (Number.isFinite(localPing)) this.estimatedRttMs = Math.max(20, Math.min(500, Number(localPing)));
       const previousConnected = this.connectedPlayerCount;
       this.connectedPlayerCount = connected;
@@ -237,9 +284,12 @@ export class LockstepRuntime {
       const peerDisconnected = !this.peerMissing && missing;
       this.peerMissing = missing;
       this.roomPaused = missing || this.recoveryPending;
+      if (releasedPossession && this.isHost && !this.recoveryPending) {
+        this.sendRecoverySnapshot('Teammate control released after disconnect — synchronizing match state');
+      }
       if (peerDisconnected || (missing && previousConnected !== connected)) this.options.onStatus?.('Opponent disconnected — match paused', true);
       else if (peerReconnected) {
-        if (this.localTeam === 1) this.sendRecoverySnapshot('Opponent reconnected — synchronizing match state');
+        if (this.isHost) this.sendRecoverySnapshot('Opponent reconnected — synchronizing match state');
         else {
           this.recoveryPending = true;
           this.roomPaused = true;
@@ -262,7 +312,7 @@ export class LockstepRuntime {
       return;
     }
     if (event.type === 'tactical-ping') {
-      if (!areTeamsHostile(this.options.sim, this.localTeam, event.playerIndex)) this.options.onTacticalPing?.(event);
+      if (!areTeamsHostile(this.options.sim, this.localTeam, event.armyId ?? event.playerIndex)) this.options.onTacticalPing?.(event);
       return;
     }
     if (event.type !== 'command') return;
@@ -292,12 +342,15 @@ export class LockstepRuntime {
         : Math.min(this.lateRemoteCommandTick, event.tick);
     }
     this.queue.push({ tick: event.tick, playerIndex: event.playerIndex, command });
-    this.queue.sort((a, b) => a.tick - b.tick);
+    sortCommandQueue(this.queue);
   }
 
   private apply(playerIndex: number, command: NetCommand, commandTick = this.options.sim.tick): void {
-    const economy = this.options.economies[playerIndex];
+    const player = this.options.session.room.players.find((candidate) => candidate.index === playerIndex);
+    const team = player?.armyId ?? playerIndex;
+    const economy = this.options.economies[team];
     if (!economy) return;
+    if (isEconomyCommand(command) && (player?.role ?? 'commander') !== 'commander') return;
     if (command.type === 'sim-hash') {
       if (this.recoveryPending) return;
       const localHash = this.hashHistory.get(commandTick);
@@ -306,16 +359,16 @@ export class LockstepRuntime {
       return;
     }
     if (command.type === 'snapshot-request') {
-      if (this.localTeam === 1) this.sendRecoverySnapshot(`Snapshot requested after desync ${command.hash} vs ${command.expectedHash}`);
+      if (this.isHost) this.sendRecoverySnapshot(`Snapshot requested after desync ${command.hash} vs ${command.expectedHash}`);
       return;
     }
     if (command.type === 'match-snapshot') {
-      if (this.localTeam === 1 || !isSerializedMatchState(command.state)) return;
+      if (this.isHost || !isSerializedMatchState(command.state)) return;
       this.restoreSnapshot(command.state, command.hash);
       return;
     }
     if (command.type === 'snapshot-applied') {
-      if (this.localTeam !== 1 || !this.recoveryPending) return;
+      if (!this.isHost || !this.recoveryPending) return;
       const localHash = hashSim(this.options.sim);
       if (localHash === command.hash && this.options.sim.tick === command.tick) {
         void this.send({ type: 'snapshot-resume', hash: localHash, tick: command.tick }, command.tick);
@@ -326,7 +379,7 @@ export class LockstepRuntime {
       return;
     }
     if (command.type === 'snapshot-resume') {
-      if (this.localTeam === 1 || !this.recoveryPending) return;
+      if (this.isHost || !this.recoveryPending) return;
       const localHash = hashSim(this.options.sim);
       if (localHash !== command.hash || this.options.sim.tick !== command.tick) return;
       this.recoveryPending = false;
@@ -337,7 +390,7 @@ export class LockstepRuntime {
     if (command.type === 'move') {
       issueMoveOrder(
         this.options.sim,
-        ownedEntities(this.options.sim, command.ids, playerIndex),
+        ownedEntities(this.options.sim, command.ids, team),
         command.x,
         command.z,
         command.attackMove,
@@ -347,15 +400,15 @@ export class LockstepRuntime {
       );
     } else if (command.type === 'attack') {
       const target = entityById(this.options.sim, command.targetId);
-      if (target) issueAttackOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), target);
+      if (target) issueAttackOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, team), target);
     } else if (command.type === 'ground-fire') {
-      issueGroundAttack(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), command.x, command.z);
+      issueGroundAttack(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.x, command.z);
     } else if (command.type === 'harvest') {
-      issueHarvestOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), command.x, command.z);
+      issueHarvestOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.x, command.z);
     } else if (command.type === 'return-harvesters') {
-      issueHarvesterReturnOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, playerIndex), command.x, command.z);
+      issueHarvesterReturnOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.x, command.z);
     } else if (command.type === 'stop') {
-      stopEntities(ownedEntities(this.options.sim, command.ids, playerIndex));
+      stopEntities(ownedEntities(this.options.sim, command.ids, team));
     } else if (command.type === 'start-structure') {
       startStructureBuild(this.options.sim, economy, command.kind);
     } else if (command.type === 'cancel-structure') {
@@ -377,10 +430,13 @@ export class LockstepRuntime {
       const producer = entityById(this.options.sim, command.producerId);
       if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
     } else if (command.type === 'upgrade-units') {
-      purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, playerIndex);
+      purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, team);
     } else if (command.type === 'possess-input') {
-      const entity = ownedEntity(this.options.sim, command.id, playerIndex);
+      const entity = ownedEntity(this.options.sim, command.id, team);
       if (!entity?.possessable || (!entity.mover && !isFortressTower(entity))) return;
+      const owner = this.possessionOwners.get(entity.id);
+      if (owner !== undefined && owner !== playerIndex) return;
+      this.possessionOwners.set(entity.id, playerIndex);
       entity.playerControlled = {
         throttle: clampUnit(command.throttle),
         turn: clampUnit(command.turn),
@@ -391,8 +447,11 @@ export class LockstepRuntime {
       };
       if (entity.turret) entity.turret.yaw = command.aimYaw;
     } else if (command.type === 'possess-fire') {
-      const entity = ownedEntity(this.options.sim, command.id, playerIndex);
+      const entity = ownedEntity(this.options.sim, command.id, team);
       if (!entity?.possessable) return;
+      const owner = this.possessionOwners.get(entity.id);
+      if (owner !== undefined && owner !== playerIndex) return;
+      this.possessionOwners.set(entity.id, playerIndex);
       entity.playerControlled = {
         throttle: entity.playerControlled?.throttle ?? 0,
         turn: entity.playerControlled?.turn ?? 0,
@@ -403,30 +462,34 @@ export class LockstepRuntime {
       };
       if (entity.turret) entity.turret.yaw = Math.atan2(command.x - entity.transform.x, command.z - entity.transform.z);
       manualFireAt(this.options.sim, entity, command.x, command.z, command.slot, command.y, command.targetId);
-      const followers = ownedEntities(this.options.sim, command.followerIds ?? [], playerIndex).filter((follower) => follower.id !== entity.id);
+      const followers = ownedEntities(this.options.sim, command.followerIds ?? [], team).filter((follower) => follower.id !== entity.id);
       for (const follower of followers) {
         if (follower.turret) follower.turret.yaw = Math.atan2(command.x - follower.transform.x, command.z - follower.transform.z);
         manualFireAt(this.options.sim, follower, command.x, command.z, command.slot, command.y);
         if (command.slot === 'secondary') manualFireAt(this.options.sim, follower, command.x, command.z, 'primary', command.y);
       }
     } else if (command.type === 'possess-follow') {
-      if (!ownedEntity(this.options.sim, command.leaderId, playerIndex)) return;
+      if (!ownedEntity(this.options.sim, command.leaderId, team)) return;
       issueMoveOrder(
         this.options.sim,
-        ownedEntities(this.options.sim, command.followerIds, playerIndex),
+        ownedEntities(this.options.sim, command.followerIds, team),
         command.x,
         command.z,
         false,
         command.faceYaw,
       );
     } else if (command.type === 'possess-release') {
-      const entity = ownedEntity(this.options.sim, command.id, playerIndex);
-      if (entity) delete entity.playerControlled;
+      const entity = ownedEntity(this.options.sim, command.id, team);
+      const owner = entity ? this.possessionOwners.get(entity.id) : undefined;
+      if (entity && (owner === undefined || owner === playerIndex)) {
+        this.possessionOwners.delete(entity.id);
+        delete entity.playerControlled;
+      }
     }
   }
 
   private handleHashMismatch(localHash: number, expectedHash: number): void {
-    if (this.localTeam === 1) {
+    if (this.isHost) {
       this.sendRecoverySnapshot(`Desync detected — sent recovery snapshot (${localHash} vs ${expectedHash})`);
       return;
     }
@@ -440,7 +503,7 @@ export class LockstepRuntime {
 
   private handleLateRemoteCommand(commandTick: number): void {
     const localHash = hashSim(this.options.sim);
-    if (this.localTeam === 1) {
+    if (this.isHost) {
       this.sendRecoverySnapshot(`Late network command for tick ${commandTick} — resynchronizing combat state`);
       return;
     }
@@ -465,6 +528,7 @@ export class LockstepRuntime {
 
   private restoreSnapshot(state: SerializedMatchState, expectedHash: number): void {
     restoreSerializedSim(this.options.sim, this.options.hf, state.sim);
+    this.possessionOwners.clear();
     for (const economyState of state.economies) {
       const economy = this.options.economies[economyState.team];
       if (economy) restoreEconomyState(economy, this.options.sim, economyState);
@@ -520,6 +584,20 @@ function ownedEntities(sim: GameSim, ids: number[], team: number): Entity[] {
   return ids
     .map((id) => entityById(sim, id))
     .filter((entity): entity is Entity => !!entity && !entity.destroyed && entity.team?.id === team);
+}
+
+function sortCommandQueue(queue: QueuedCommand[]): void {
+  queue.sort((a, b) => a.tick - b.tick || a.playerIndex - b.playerIndex);
+}
+
+function isEconomyCommand(command: NetCommand): boolean {
+  return command.type === 'start-structure' ||
+    command.type === 'cancel-structure' ||
+    command.type === 'place-structure' ||
+    command.type === 'queue-unit' ||
+    command.type === 'cancel-unit' ||
+    command.type === 'primary-producer' ||
+    command.type === 'upgrade-units';
 }
 
 function clampUnit(value: number): number {

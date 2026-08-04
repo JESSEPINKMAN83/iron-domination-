@@ -194,6 +194,8 @@ export class FirstPersonController {
       prepareExitPose?: (entity: Entity, aimYaw: number) => CameraPose;
       onExit?: (entity?: Entity) => void;
       onHitFeedback?: (force: number) => void;
+      canEnter?: (entity: Entity) => boolean;
+      onEnterDenied?: () => void;
     } = {},
     private readonly localTeam = 1,
     private readonly commandSink?: FirstPersonCommandSink,
@@ -353,9 +355,11 @@ export class FirstPersonController {
 
   enter(candidates: Entity[]): boolean {
     if (this.active) return false;
-    const eligible = candidates.filter(
+    const controllable = candidates.filter(
       (candidate) => candidate.possessable && (candidate.mover || isFortressTower(candidate)) && !candidate.destroyed,
     );
+    const eligible = controllable.filter((candidate) => this.callbacks.canEnter?.(candidate) ?? true);
+    if (controllable.length > 0 && eligible.length === 0) this.callbacks.onEnterDenied?.();
     const selectedFortress = eligible.find(isFortressTower);
     const selection = selectedFortress
       ? { leader: selectedFortress, squad: [selectedFortress] }
@@ -407,6 +411,11 @@ export class FirstPersonController {
 
   simTick(): void {
     if (!this.possessed) return;
+    if (!(this.callbacks.canEnter?.(this.possessed) ?? true)) {
+      this.callbacks.onEnterDenied?.();
+      this.beginExit();
+      return;
+    }
     if (this.possessed.destroyed) {
       if (!this.cyclePossessed(1)) this.beginExit();
       return;

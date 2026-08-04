@@ -745,8 +745,9 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       terrainReliefInput.value = String(sanitizeTerrainRelief(room.terrainRelief) ?? defaultTerrainRelief(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID));
       armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
       multiplayerSpawnSlots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
-      armies.setPlayerIndex(playerIndex);
-      const guestLocked = playerIndex !== 1;
+      const roomPlayer = room.players.find((player) => player.index === playerIndex);
+      armies.setPlayerIndex(roomPlayer?.armyId ?? playerIndex);
+      const guestLocked = room.hostPlayerId ? roomPlayer?.id !== room.hostPlayerId : playerIndex !== 1;
       difficulty.setDisabled(guestLocked);
       commander.setDisabled(guestLocked);
       combatMode.setDisabled(guestLocked);
@@ -1454,7 +1455,8 @@ function createRoomLobbyView(
   heading.append(title, headerTools);
 
   let latestRoom = session.room;
-  let selectedArmy = session.player.index;
+  let selectedArmy = session.player.armyId ?? session.player.index;
+  const isCurrentHost = (): boolean => (latestRoom.hostPlayerId ?? latestRoom.players.find((player) => player.index === 1)?.id) === session.player.id;
 
   const briefing = document.createElement('section');
   briefing.className = 'war-lobby__briefing';
@@ -1635,7 +1637,7 @@ function createRoomLobbyView(
   armyBar.className = 'war-lobby__army-bar';
   const armyLabel = document.createElement('div');
   armyLabel.className = 'war-lobby__army-label';
-  armyLabel.innerHTML = '<strong>ARMIES IN BATTLE</strong><span>Empty slots deploy as AI</span>';
+  armyLabel.innerHTML = '<strong>PLAYERS IN BATTLE</strong><span>Empty player positions are controlled by the computer</span>';
   const armyChoices = document.createElement('div');
   armyChoices.className = 'war-lobby__army-choices';
   const armyButtons = new Map<ArmyCount, HTMLButtonElement>();
@@ -1644,20 +1646,14 @@ function createRoomLobbyView(
     button.type = 'button';
     button.className = 'war-lobby__army-choice';
     button.textContent = String(count);
-    button.setAttribute('aria-label', `${count} armies in battle`);
+    button.setAttribute('aria-label', `${count} players in battle`);
     button.onclick = () => {
-      if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
-      const armySides = [...latestRoom.armySides] as ArmySides;
-      if (count === 4 && armySides.join(',') === '1,2,3,4') {
-        armySides[0] = 1;
-        armySides[1] = 1;
-        armySides[2] = 2;
-        armySides[3] = 2;
-      }
+      if (!isCurrentHost() || latestRoom.status !== 'waiting') return;
+      const controllerTeams = [...(latestRoom.controllerTeams ?? [1, 2, 3, 4])];
       client.updateSettings(latestRoom.code, session.player.id, {
         ...settings(),
-        armyCount: count,
-        armySides: ensureOpposingSides(count, armySides),
+        controllerCount: count,
+        controllerTeams,
       });
       button.blur();
     };
@@ -1676,7 +1672,7 @@ function createRoomLobbyView(
   tableHead.className = 'war-lobby__table-head';
   tableHead.innerHTML = '<span>PLAYER</span><span>TEAM</span><span>COLOUR</span>';
   const defaultColors = ['jade', 'crimson', 'azure', 'amber'] as const;
-  const playerRows = Array.from({ length: 4 }, (_, offset) => {
+  const playerRows = Array.from({ length: 8 }, (_, offset) => {
     const index = offset + 1;
     const row = document.createElement('div');
     row.className = 'war-lobby__player';
@@ -1694,15 +1690,34 @@ function createRoomLobbyView(
     const connection = document.createElement('div');
     connection.className = 'war-lobby__connection';
     identity.append(nameInput, nameText, connection);
-    const team = document.createElement('select');
-    team.className = 'war-lobby__team';
-    team.setAttribute('aria-label', `Player ${index} team`);
-    for (let side = 1; side <= 4; side++) {
+    const assignmentCell = document.createElement('div');
+    assignmentCell.className = 'war-lobby__assignment-cell';
+    const assignment = document.createElement('select');
+    assignment.className = 'war-lobby__team-select';
+    assignment.setAttribute('aria-label', `Player ${index} team`);
+    for (let team = 1; team <= 4; team++) {
       const option = document.createElement('option');
-      option.value = String(side);
-      option.textContent = `SIDE ${side}`;
-      team.appendChild(option);
+      option.value = String(team);
+      option.textContent = `TEAM ${team}`;
+      assignment.appendChild(option);
     }
+    assignment.onchange = () => {
+      if (!isCurrentHost() || latestRoom.status !== 'waiting') return;
+      const controllerTeams = [...(latestRoom.controllerTeams ?? [1, 2, 3, 4])];
+      controllerTeams[index - 1] = Math.max(1, Math.min(4, Number(assignment.value) || index));
+      let controllerCount = latestRoom.controllerCount ?? latestRoom.armyCount;
+      if (new Set(controllerTeams.slice(0, controllerCount)).size < 2 && controllerCount < 4) {
+        const alliedTeam = controllerTeams[0] ?? 1;
+        controllerTeams[controllerCount] = alliedTeam === 1 ? 2 : 1;
+        controllerCount += 1;
+      }
+      client.updateSettings(latestRoom.code, session.player.id, {
+        ...settings(),
+        controllerCount,
+        controllerTeams,
+      });
+    };
+    assignmentCell.append(assignment);
     const colorPicker = document.createElement('div');
     colorPicker.className = 'war-lobby__color-picker';
     const colorButtons = new Map<keyof typeof LOBBY_COLORS, HTMLButtonElement>();
@@ -1713,7 +1728,12 @@ function createRoomLobbyView(
       button.title = color;
       button.setAttribute('aria-label', `Player ${index} colour ${color}`);
       button.style.background = value;
-      button.onclick = () => client.updatePlayerProfile(latestRoom.code, session.player.id, { color });
+      button.onclick = () => {
+        const player = latestRoom.players.find((candidate) => candidate.index === index);
+        if (player?.id === session.player.id && player.role === 'commander') {
+          client.updatePlayerProfile(latestRoom.code, session.player.id, { color });
+        }
+      };
       colorButtons.set(color, button);
       colorPicker.appendChild(button);
     }
@@ -1730,25 +1750,15 @@ function createRoomLobbyView(
       nameSaveTimer = window.setTimeout(saveName, 250);
     };
     nameInput.onchange = saveName;
-    team.onchange = () => {
-      const player = latestRoom.players.find((candidate) => candidate.index === index);
-      const nextSide = Number(team.value);
-      if (player?.id === session.player.id) {
-        client.updatePlayerProfile(latestRoom.code, session.player.id, { side: nextSide });
-      } else if (session.player.index === 1) {
-        const armySides = [...latestRoom.armySides] as ArmySides;
-        armySides[index - 1] = nextSide;
-        client.updateSettings(latestRoom.code, session.player.id, { ...settings(), armySides });
-      }
-    };
     row.onclick = (event) => {
       if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
       if ((event.target as HTMLElement).closest('input,button,select')) return;
-      selectedArmy = index;
+      const player = latestRoom.players.find((candidate) => candidate.index === index);
+      selectedArmy = player?.armyId ?? selectedArmy;
       update(latestRoom, session.player.index);
     };
-    row.append(slot, identity, team, colorPicker, colorDisplay);
-    return { row, slot, nameInput, nameText, connection, team, colorPicker, colorButtons, colorDisplay, defaultColor: defaultColors[offset] };
+    row.append(slot, identity, assignmentCell, colorPicker, colorDisplay);
+    return { row, slot, nameInput, nameText, connection, assignment, colorPicker, colorButtons, colorDisplay, defaultColor: defaultColors[offset % defaultColors.length] };
   });
   players.append(tableHead, ...playerRows.map((view) => view.row));
 
@@ -1834,10 +1844,12 @@ function createRoomLobbyView(
       oreAmount: room.oreAmount,
       terrainRelief: room.terrainRelief,
       armyCount: room.armyCount,
+      controllerCount: room.controllerCount,
+      controllerTeams: room.controllerTeams,
       armySides: room.armySides,
       spawnSlots: room.spawnSlots,
       selectedArmy,
-      players: room.players.map((player) => [player.index, player.name, player.color, player.connected]),
+      players: room.players.map((player) => [player.index, player.armyId, player.role, player.name, player.color, player.connected]),
     });
     if (signature === lastDeploymentSignature) return;
     lastDeploymentSignature = signature;
@@ -1847,12 +1859,26 @@ function createRoomLobbyView(
     const overlay = document.createElement('div');
     overlay.className = 'war-lobby__deployments';
     const slots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
+    const roomHost = room.players.find((candidate) => candidate.id === room.hostPlayerId)
+      ?? room.players.find((candidate) => candidate.index === 1);
+    const hostArmyId = roomHost?.armyId ?? 1;
+    const controllerCount = room.controllerCount ?? room.armyCount;
+    const controllerTeams = room.controllerTeams ?? [1, 2, 3, 4];
+    const teamLabels = Array.from(new Set(controllerTeams.slice(0, controllerCount)));
     for (let spawnSlot = 1; spawnSlot <= 4; spawnSlot++) {
       const armyOffset = slots.findIndex((slot) => slot === spawnSlot);
       const armyIndex = armyOffset + 1;
       const active = armyIndex > 0 && armyIndex <= room.armyCount;
-      const player = active ? room.players.find((candidate) => candidate.index === armyIndex) : undefined;
-      const color = active ? player?.color ?? (['jade', 'crimson', 'azure', 'amber'] as const)[armyIndex - 1] : undefined;
+      const lobbyTeam = teamLabels[armyIndex - 1];
+      const controllerSlots = active
+        ? Array.from({ length: controllerCount }, (_, index) => index + 1).filter((index) => controllerTeams[index - 1] === lobbyTeam)
+        : [];
+      const armyPlayers = active ? room.players.filter((candidate) => candidate.armyId === armyIndex) : [];
+      const controllerNames = controllerSlots.map((index) => (
+        room.players.find((candidate) => candidate.index === index)?.name ?? `COMPUTER ${index}`
+      ));
+      const commander = armyPlayers.find((candidate) => candidate.role === 'commander');
+      const color = active ? commander?.color ?? (['jade', 'crimson', 'azure', 'amber'] as const)[armyIndex - 1] : undefined;
       const point = startPosition(100, spawnSlot);
       const marker = document.createElement('button');
       marker.type = 'button';
@@ -1864,8 +1890,11 @@ function createRoomLobbyView(
       marker.style.setProperty('--army-color', color ? LOBBY_COLORS[color] : '#63706b');
       marker.disabled = !isHost || room.status !== 'waiting';
       marker.setAttribute('aria-label', active ? `Army ${armyIndex} deployment position` : `Empty deployment position ${spawnSlot}`);
+      const relationship = armyIndex === hostArmyId
+        ? 'YOUR FORCE'
+        : 'ENEMY FORCE';
       marker.innerHTML = active
-        ? `<span class="war-lobby__deployment-pin">${armyIndex}</span><strong>${escapeLobbyText(player?.name ?? `AI ARMY ${armyIndex}`)}</strong><small>SIDE ${room.armySides[armyIndex - 1] ?? armyIndex}</small>`
+        ? `<span class="war-lobby__deployment-pin">${armyIndex}</span><strong>${escapeLobbyText(controllerNames.join(' + '))}</strong><small>${controllerSlots.length > 1 ? 'SHARED · ' : ''}${relationship}</small>`
         : '<span class="war-lobby__deployment-pin">+</span><strong>OPEN POSITION</strong>';
       marker.onclick = () => {
         if (!isHost || room.status !== 'waiting') return;
@@ -1897,14 +1926,14 @@ function createRoomLobbyView(
     latestRoom = room;
     session.room = room;
     selectedArmy = Math.max(1, Math.min(room.armyCount, selectedArmy));
-    title.textContent = playerIndex === 1 ? 'COMMAND WAR ROOM' : 'BATTLE BRIEFING';
+    const isHost = isCurrentHost();
+    title.textContent = isHost ? 'COMMAND WAR ROOM' : 'BATTLE BRIEFING';
     const roomCode = shareCopy.querySelector('strong');
     if (roomCode) roomCode.textContent = room.code;
-    const isHost = playerIndex === 1;
     invite.hidden = !isHost || room.status !== 'waiting';
     inviteLink.value = multiplayerInviteUrl(location.href, room.code);
     for (const [count, button] of armyButtons) {
-      const selected = room.armyCount === count;
+      const selected = (room.controllerCount ?? room.armyCount) === count;
       button.classList.toggle('is-active', selected);
       button.setAttribute('aria-pressed', String(selected));
       button.disabled = !isHost || room.status !== 'waiting';
@@ -1940,44 +1969,54 @@ function createRoomLobbyView(
       button.setAttribute('aria-pressed', String(selected));
       button.disabled = !isHost || room.status !== 'waiting';
     }
+    const controllerCount = room.controllerCount ?? room.armyCount;
+    const controllerTeams = room.controllerTeams ?? [1, 2, 3, 4];
+    const activeTeamLabels = Array.from(new Set(controllerTeams.slice(0, controllerCount)));
     for (let offset = 0; offset < playerRows.length; offset++) {
       const index = offset + 1;
       const view = playerRows[offset];
       const player = room.players.find((candidate) => candidate.index === index);
       const isLocal = player?.id === session.player.id;
-      const color = player?.color ?? view.defaultColor;
-      view.row.hidden = index > room.armyCount;
+      const lobbyTeam = player?.lobbyTeam ?? controllerTeams[index - 1] ?? index;
+      const armyId = player?.armyId ?? Math.max(1, activeTeamLabels.indexOf(lobbyTeam) + 1);
+      const roomHost = room.players.find((candidate) => candidate.id === room.hostPlayerId) ?? room.players.find((candidate) => candidate.index === 1);
+      const commander = room.players.find((candidate) => candidate.armyId === armyId && candidate.role === 'commander');
+      const color = commander?.color ?? player?.color ?? view.defaultColor;
+      const isAi = !player;
+      view.row.hidden = index > controllerCount;
       view.row.classList.toggle('is-local', isLocal);
-      view.row.classList.toggle('is-open', !player?.connected);
-      view.row.classList.toggle('is-selected', isHost && selectedArmy === index);
+      view.row.classList.toggle('is-open', isAi || !player?.connected);
+      view.row.classList.toggle('is-ai', isAi);
+      view.row.classList.toggle('is-selected', isHost && selectedArmy === armyId);
       view.row.style.setProperty('--army-color', LOBBY_COLORS[color]);
       view.slot.style.color = LOBBY_COLORS[color];
       view.nameInput.hidden = !isLocal;
       view.nameText.hidden = isLocal;
       if (isLocal && document.activeElement !== view.nameInput) view.nameInput.value = player?.name ?? session.player.name;
       view.nameInput.disabled = room.status !== 'waiting';
-      view.nameText.textContent = player?.name ?? (index === 1 ? 'HOST SLOT' : 'OPEN / AI');
+      view.nameText.textContent = player?.name ?? `COMPUTER ${index}`;
       view.connection.textContent = player?.connected
-        ? player.ready ? 'READY' : `${player.pingMs ?? '...'}ms · NOT READY`
-        : player ? 'DISCONNECTED · AI ON START' : 'AI FILLS IF EMPTY';
-      view.connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : '#6f7b78';
-      view.team.value = String(room.armySides[index - 1] ?? index);
-      view.team.disabled = room.status !== 'waiting' || (!isLocal && !isHost);
-      view.colorPicker.hidden = !isLocal;
-      view.colorDisplay.hidden = isLocal;
+        ? `${player.role === 'field-officer' ? 'FIELD OFFICER' : 'COMMANDER'} · ${player.ready ? 'READY' : `${player.pingMs ?? '...'}ms · NOT READY`}`
+        : player ? 'DISCONNECTED · RECONNECT RESERVED' : `${room.ai.toUpperCase()} AI · READY`;
+      view.connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : isAi ? '#9aa6a1' : '#6f7b78';
+      view.assignment.value = String(lobbyTeam);
+      view.assignment.disabled = !isHost || room.status !== 'waiting';
+      view.assignment.title = `Assign ${player?.name ?? `Computer ${index}`} to Team ${lobbyTeam}`;
+      view.colorPicker.hidden = !isLocal || player?.role !== 'commander';
+      view.colorDisplay.hidden = isLocal && player?.role === 'commander';
       view.colorDisplay.style.background = LOBBY_COLORS[color];
       view.colorDisplay.title = color;
       for (const [buttonColor, button] of view.colorButtons) {
         const selected = buttonColor === color;
         button.classList.toggle('is-active', selected);
-        button.disabled = !isLocal || room.status !== 'waiting';
+        button.disabled = !isLocal || player?.role !== 'commander' || room.status !== 'waiting';
       }
     }
     const localPlayer = room.players.find((player) => player.id === session.player.id) ?? session.player;
     session.player = localPlayer;
     const connectedPlayers = room.players.filter((player) => player.connected);
     const connected = connectedPlayers.length;
-    const openSlots = Math.max(0, room.armyCount - connected);
+    const computerPlayers = Math.max(0, controllerCount - connected);
     const allConnectedReady = connected > 0 && connectedPlayers.every((player) => player.ready);
     const engines = new Set(room.players.map((player) => player.engine).filter(Boolean));
     renderDeploymentMap(room, isHost);
@@ -1985,14 +2024,14 @@ function createRoomLobbyView(
     else if (engines.size > 1) status.textContent = 'Different browsers detected · matching browsers are recommended.';
     else if (!allConnectedReady) {
       const notReady = connectedPlayers.filter((player) => !player.ready).length;
-      status.textContent = `${notReady} ${notReady === 1 ? 'commander' : 'commanders'} must confirm READY before deployment.`;
+      status.textContent = `${notReady} ${notReady === 1 ? 'player must' : 'players must'} confirm READY before deployment.`;
     }
-    else if (openSlots > 0) status.textContent = playerIndex === 1
+    else if (computerPlayers > 0) status.textContent = isHost
       ? shouldLaunchLocalSkirmish(room, session.player.id)
         ? 'No guest connected · Start launches a local skirmish with AI.'
-        : `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI.`
-      : `${openSlots} open ${openSlots === 1 ? 'slot' : 'slots'} will deploy as AI · waiting for host.`;
-    else status.textContent = playerIndex === 1 ? 'All commanders ready.' : 'Ready · waiting for host.';
+        : `${computerPlayers} computer ${computerPlayers === 1 ? 'player is' : 'players are'} ready · invite more players or start now.`
+      : `${computerPlayers} computer ${computerPlayers === 1 ? 'player is' : 'players are'} ready · waiting for host.`;
+    else status.textContent = isHost ? 'All players ready.' : 'Ready · waiting for host.';
     ready.hidden = false;
     launch.hidden = !isHost;
     ready.disabled = room.status !== 'waiting';
@@ -2033,7 +2072,10 @@ function renderRoomStatus(room: MultiplayerRoom, playerIndex: number, setStatus:
   const connectedPlayers = room.players.filter((player) => player.connected);
   const connected = connectedPlayers.length;
   const openSlots = Math.max(0, room.armyCount - connected);
-  const team = `army ${playerIndex} / side ${room.armySides[playerIndex - 1] ?? playerIndex}`;
+  const player = room.players.find((candidate) => candidate.index === playerIndex);
+  const armyId = player?.armyId ?? playerIndex;
+  const role = player?.role === 'field-officer' ? 'field officer' : 'commander';
+  const team = `army ${armyId} / side ${room.armySides[armyId - 1] ?? armyId} / ${role}`;
   const map = MAP_PRESETS[sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID].shortLabel;
   const mapSize = MAP_SIZE_PRESETS[sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE].label;
   const countdown =
@@ -2188,11 +2230,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (multiplayer) settings = settingsFromRoom(multiplayer.session.room);
   applyMultiplayerFactionColors(
     multiplayer
-      ? Object.fromEntries(multiplayer.session.room.players.map((player) => [player.index, player.color]))
+      ? Object.fromEntries(
+          multiplayer.session.room.players
+            .filter((player) => player.role === 'commander')
+            .map((player) => [player.armyId, player.color]),
+        )
       : {},
   );
-  const localTeam = multiplayer?.session.player.index ?? 1;
-  const humanTeams = multiplayer ? multiplayer.session.room.players.map((player) => player.index) : [localTeam];
+  const localTeam = multiplayer?.session.player.armyId ?? multiplayer?.session.player.index ?? 1;
+  const humanTeams = multiplayer
+    ? Array.from(new Set(multiplayer.session.room.players.map((player) => player.armyId ?? player.index)))
+    : [localTeam];
   const aiTeams = new Set(aiControlledTeams(settings.armyCount, humanTeams));
   const app = document.getElementById('app');
   if (!app) throw new Error('#app missing');
@@ -2382,13 +2430,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const debriefTracker = new BattleDebriefTracker(
     sim,
     armies.map((army) => {
-      const roomPlayer = multiplayer?.session.room.players.find((player) => player.index === army.team);
+      const roomPlayers = multiplayer?.session.room.players.filter((player) => (player.armyId ?? player.index) === army.team) ?? [];
       return {
         team: army.team,
         side: army.side,
         economy: army.economy,
         commander: army.commander,
-        label: roomPlayer?.name ?? (army.team === localTeam ? 'YOUR ARMY' : `AI ARMY ${army.team}`),
+        label: roomPlayers.length > 0
+          ? roomPlayers.map((player) => player.name).join(' + ')
+          : army.team === localTeam ? 'YOUR ARMY' : `AI ARMY ${army.team}`,
       };
     }),
     localTeam,
@@ -2504,7 +2554,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         },
       })
     : undefined;
-  if (multiplayerMode) setNetworkStatus(`Room ${multiplayer.session.room.code} · army ${localTeam} · online`);
+  const canManageArmy = !multiplayerMode || multiplayer.session.player.role !== 'field-officer';
+  const commanderOnly = (): void => {
+    audio.playUi('error');
+    setNetworkStatus('Field Officer role: command and possess units while your Commander manages production.', true);
+  };
+  if (multiplayerMode) {
+    const role = multiplayer.session.player.role === 'field-officer' ? 'Field Officer' : 'Commander';
+    setNetworkStatus(`Room ${multiplayer.session.room.code} · army ${localTeam} · ${role} · online`);
+  }
 
   const rig = new RtsCameraRig(ctx.camera, input, hf);
   const openingThreat = armies
@@ -2661,6 +2719,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   );
   sidebar = new Sidebar(sim, hf, economy, playerVision, {
     buildStructure: (kind) => {
+      if (!canManageArmy) return commanderOnly();
       if (economy.readyStructure === kind) {
         const start = initialPlacementPoint(sim, hf, economy, localBase, kind);
         enterReadyStructurePlacement(sim, hf, economy, start.x, start.z);
@@ -2672,21 +2731,25 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       else startStructureBuild(sim, economy, kind);
     },
     cancelStructure: () => {
+      if (!canManageArmy) return commanderOnly();
       audio.playUi('cancel');
       if (lockstep) lockstep.issue({ type: 'cancel-structure' });
       else cancelStructureBuild(sim, economy);
     },
     queueUnit: (kind, producer) => {
+      if (!canManageArmy) return commanderOnly();
       audio.playUi('build');
       if (lockstep) lockstep.issue({ type: 'queue-unit', kind, producerId: producer?.id });
       else queueUnit(sim, economy, kind, producer);
     },
     cancelUnit: (kind, producer) => {
+      if (!canManageArmy) return commanderOnly();
       audio.playUi('cancel');
       if (lockstep) lockstep.issue({ type: 'cancel-unit', kind, producerId: producer?.id });
       else cancelUnitQueue(sim, economy, kind, producer);
     },
     setPrimaryProducer: (producer) => {
+      if (!canManageArmy) return commanderOnly();
       audio.playUi('select');
       if (lockstep && producer.id !== undefined) lockstep.issue({ type: 'primary-producer', producerId: producer.id });
       else setPrimaryProducer(economy, producer);
@@ -2715,6 +2778,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     },
     credits: () => economy.credits,
     purchaseUpgrade: (ids, upgradeId) => {
+      if (!canManageArmy) {
+        commanderOnly();
+        return { ok: false, reason: 'Commander manages shared upgrades', upgraded: 0, cost: 0 };
+      }
       audio.playUi('build');
       if (lockstep) {
         lockstep.issue({ type: 'upgrade-units', ids, upgradeId });
@@ -2801,6 +2868,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         hud.setFirstPerson(false);
       },
       onHitFeedback: (force) => hud.flashReticle(force),
+      canEnter: (entity) => lockstep?.canPossess(entity.id) ?? true,
+      onEnterDenied: () => setNetworkStatus('That unit is currently controlled by your teammate.', true),
     },
     localTeam,
     lockstep

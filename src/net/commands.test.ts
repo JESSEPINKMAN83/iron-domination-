@@ -9,6 +9,78 @@ import { LockstepRuntime } from './commands';
 import type { MultiplayerClient, MultiplayerSession } from './multiplayer';
 
 describe('multiplayer lockstep commands', () => {
+  it('lets a Field Officer command shared army units but blocks shared-economy spending', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1);
+    const economy2 = createEconomy(2);
+    const sharedTank = spawnTankAt(sim, 28, 28, 'Shared Tank', 1);
+    const client = {
+      connect: () => undefined,
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const session: MultiplayerSession = {
+      player: { id: 'field', index: 3, armyId: 1, role: 'field-officer', name: 'Field', connected: true },
+      room: {
+        code: 'COOP', seed: 1, ai: 'normal', aiStyle: 'balanced', armyCount: 2, playersPerArmy: 2,
+        armySides: [1, 2, 3, 4], status: 'in-game',
+        players: [
+          { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
+          { id: 'field', index: 3, armyId: 1, role: 'field-officer', name: 'Field', connected: true },
+        ],
+      },
+    };
+    const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
+
+    expect(lockstep.localTeam).toBe(1);
+    expect(lockstep.issue({ type: 'move', ids: [sharedTank.id], x: 72, z: 64, attackMove: false })).toBe(true);
+    expect(lockstep.issue({ type: 'start-structure', kind: 'power-plant' })).toBe(false);
+    for (let i = 0; i < 8; i++) {
+      sim.tick++;
+      lockstep.tick();
+    }
+
+    expect(sharedTank.mover?.target).toEqual({ x: 72, z: 64 });
+    expect(economy1.structureLine).toBeUndefined();
+  });
+
+  it('reserves a possessed shared unit for the teammate who controls it first', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy1 = createEconomy(1);
+    const sharedTank = spawnTankAt(sim, 28, 28, 'Shared Tank', 1);
+    let onEvent: ((event: any) => void) | undefined;
+    const client = {
+      connect: (_room: string, _player: string, handler: (event: any) => void) => { onEvent = handler; },
+      disconnect: () => undefined,
+      sendCommand: async () => undefined,
+    } as unknown as MultiplayerClient;
+    const session: MultiplayerSession = {
+      player: { id: 'field', index: 3, armyId: 1, role: 'field-officer', name: 'Field', connected: true },
+      room: {
+        code: 'COOP', seed: 1, ai: 'normal', aiStyle: 'balanced', armyCount: 2, playersPerArmy: 2,
+        armySides: [1, 2, 3, 4], status: 'in-game',
+        players: [
+          { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
+          { id: 'field', index: 3, armyId: 1, role: 'field-officer', name: 'Field', connected: true },
+        ],
+      },
+    };
+    const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1 }, client, session });
+    lockstep.connect();
+    onEvent?.({
+      type: 'command', playerId: 'host', playerIndex: 1, armyId: 1, tick: 8,
+      command: { type: 'possess-input', id: sharedTank.id, throttle: 1, turn: 0, aimYaw: 0 },
+    });
+    for (let i = 0; i < 8; i++) {
+      sim.tick++;
+      lockstep.tick();
+    }
+
+    expect(lockstep.canPossess(sharedTank.id)).toBe(false);
+  });
+
   it('applies delayed team-2 move commands to team-2 units', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -27,7 +99,7 @@ describe('multiplayer lockstep commands', () => {
       },
     } as unknown as MultiplayerClient;
     const session: MultiplayerSession = {
-      player: { id: 'guest', index: 2, name: 'Guest', connected: true },
+      player: { id: 'guest', index: 2, armyId: 2, role: 'commander', name: 'Guest', connected: true },
       room: { code: 'ABCD', seed: 1, ai: 'normal', aiStyle: 'balanced', armyCount: 2, armySides: [1, 2, 3, 4], status: 'in-game', players: [] },
     };
     const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
@@ -137,7 +209,7 @@ describe('multiplayer lockstep commands', () => {
       },
     } as unknown as MultiplayerClient;
     const session: MultiplayerSession = {
-      player: { id: 'host', index: 1, name: 'Host', connected: true },
+      player: { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
       room: { code: 'ABCD', seed: 1, ai: 'normal', aiStyle: 'balanced', armyCount: 2, armySides: [1, 2, 3, 4], status: 'in-game', players: [] },
     };
     const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
@@ -229,7 +301,7 @@ describe('multiplayer lockstep commands', () => {
       sendCommand: async () => undefined,
     } as unknown as MultiplayerClient;
     const session: MultiplayerSession = {
-      player: { id: 'host', index: 1, name: 'Host', connected: true },
+      player: { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
       room: { code: 'ABCD', seed: 1, ai: 'normal', aiStyle: 'balanced', armyCount: 2, armySides: [1, 2, 3, 4], status: 'in-game', players: [] },
     };
     const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
@@ -290,7 +362,7 @@ describe('multiplayer lockstep commands', () => {
       sendCommand: async () => undefined,
     } as unknown as MultiplayerClient;
     const session: MultiplayerSession = {
-      player: { id: 'host', index: 1, name: 'Host', connected: true },
+      player: { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
       room: { code: 'ABCD', seed: 1, ai: 'normal', aiStyle: 'balanced', armyCount: 2, armySides: [1, 2, 3, 4], status: 'in-game', players: [] },
     };
     const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
@@ -660,7 +732,7 @@ describe('multiplayer lockstep commands', () => {
 
 function sessionFor(index: 1 | 2): MultiplayerSession {
   return {
-    player: { id: index === 1 ? 'host' : 'guest', index, name: index === 1 ? 'Host' : 'Guest', connected: true },
+    player: { id: index === 1 ? 'host' : 'guest', index, armyId: index, role: 'commander', name: index === 1 ? 'Host' : 'Guest', connected: true },
     room: { code: 'ABCD', seed: 1, ai: 'normal', aiStyle: 'balanced', armyCount: 2, armySides: [1, 2, 3, 4], status: 'in-game', players: [] },
   };
 }
