@@ -3877,7 +3877,7 @@ function spawnStartingTanks(
       if (!unit) continue;
       unit.combatRank = {
         rank: demo.rank,
-        killValue: cost * (demo.rank === 1 ? 1 : demo.rank === 2 ? 3 : 6),
+        killValue: cost * (demo.rank === 1 ? 2 : demo.rank === 2 ? 5 : 9),
         unitCost: cost,
       };
     }
