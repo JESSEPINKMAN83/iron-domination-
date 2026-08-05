@@ -12,6 +12,7 @@ import './durabilityPreview.css';
 import './outcomeScreen.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
+import { UnitVoiceDirector } from './audio/unitVoiceDirector';
 import {
   DEFAULT_ORE_AMOUNT,
   DEFAULT_MAP_ID,
@@ -2499,6 +2500,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const economyFx = new EconomyFxView(sim, hf, isVisibleToPlayer);
   ctx.scene.add(economyFx.group);
   const audio = new AudioDirector(ctx.camera);
+  const unitVoices = new UnitVoiceDirector(audio);
   window.addEventListener('pointerdown', () => audio.unlock(), { passive: true });
   window.addEventListener('keydown', () => audio.unlock(), { passive: true });
   const orderMarkers = new OrderMarkerView(hf);
@@ -2672,7 +2674,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       showOrder: (x, z, kind) => {
         orderMarkers.push(x, z, kind);
         audio.playUi(kind === 'attack' ? 'build' : 'order');
+        if (kind === 'attack' || kind === 'attack-move') unitVoices.acknowledge(selectedEntities(sim, localTeam), 'attack');
+        else if (kind === 'move' || kind === 'fast-move') unitVoices.acknowledge(selectedEntities(sim, localTeam), 'move');
       },
+      selectionChanged: (entities) => unitVoices.acknowledge(entities, 'selected'),
       showFacingOrder: (x, z, yaw, kind, length, count, baseSpacing) => orderMarkers.pushFacing(x, z, yaw, kind, length, count, baseSpacing),
       showFacingPreview: (fromX, fromZ, toX, toZ, kind, count, baseSpacing) =>
         orderMarkers.showFacingPreview(fromX, fromZ, toX, toZ, kind, count, baseSpacing),
@@ -2772,12 +2777,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const selectionBar = new SelectionBar(sim, {
     selectEntities: (entities) => {
       audio.playUi('select');
-      setSelected(
-        sim,
-        entities.filter((entity) => !entity.destroyed && sim.world.has(entity)),
-        false,
-        localTeam,
-      );
+      const available = entities.filter((entity) => !entity.destroyed && sim.world.has(entity));
+      setSelected(sim, available, false, localTeam);
+      unitVoices.acknowledge(available, 'selected');
     },
     credits: () => economy.credits,
     purchaseUpgrade: (ids, upgradeId) => {
@@ -2855,6 +2857,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         }
         sendTelemetryEvent('tactic-execute', matchTelemetryMetadata(), feature);
         audio.playUi('order');
+        unitVoices.acknowledge(units, 'tactic');
         const last = payload.waypoints[payload.waypoints.length - 1];
         orderMarkers.push(
           last.x,
