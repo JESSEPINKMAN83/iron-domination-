@@ -9,7 +9,8 @@ export type TelemetryEventName =
   | 'tactic-cancel'
   | 'tactic-execute'
   | 'tactic-complete'
-  | 'tactic-interrupted';
+  | 'tactic-interrupted'
+  | 'tactic-feedback';
 
 export type TacticTelemetryFeature = {
   unitCount?: number;
@@ -20,6 +21,7 @@ export type TacticTelemetryFeature = {
   endAction?: 'hold' | 'attack-move' | 'attack';
   plannerDurationMs?: number;
   subsetOfSelection?: boolean;
+  useful?: boolean;
 };
 
 const TELEMETRY_ENDPOINT = '/api/wix-submit';

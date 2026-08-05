@@ -123,6 +123,7 @@ import { showOutcomeScreen } from './ui/outcomeScreen';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
 import { TacticPlanner } from './ui/tacticPlanner';
+import { maybeAskTacticFeedback, hideTacticFeedbackPrompt } from './ui/tacticFeedbackPrompt';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
 import { unitDisplayName } from './ui/unitDisplayName';
 
@@ -2813,6 +2814,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     },
     {
       onOpen: () => {
+        hideTacticFeedbackPrompt();
         controller.setEnabled(false);
         sendTelemetryEvent('tactic-open', matchTelemetryMetadata(), {
           selectionCount: selectedEntities(sim, localTeam).filter((entity) => entity.mover && !entity.building && !entity.harvester).length,
@@ -2821,6 +2823,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       onCancel: ({ plannerDurationMs, selectionCount }) => {
         controller.setEnabled(true);
         sendTelemetryEvent('tactic-cancel', matchTelemetryMetadata(), { plannerDurationMs, selectionCount });
+        maybeAskTacticFeedback((useful) => {
+          sendTelemetryEvent('tactic-feedback', matchTelemetryMetadata(), { useful });
+        });
       },
       onExecute: (payload) => {
         controller.setEnabled(true);
@@ -2861,6 +2866,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           last.z,
           payload.endAction.kind === 'hold' ? 'move' : payload.endAction.kind === 'attack-move' ? 'attack-move' : 'attack',
         );
+        maybeAskTacticFeedback((useful) => {
+          sendTelemetryEvent('tactic-feedback', matchTelemetryMetadata(), { useful });
+        });
       },
     },
   );
