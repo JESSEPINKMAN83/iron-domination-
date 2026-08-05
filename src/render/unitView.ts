@@ -1628,8 +1628,12 @@ export class UnitView {
       ? (this.selectionOverlayVisible && selected) || (pct < 0.65 && nearCamera)
       : (this.selectionOverlayVisible && selected) || pct < 0.995);
     if (!healthBar.root.visible) return;
-    healthBar.root.position.set(x, y + (entity.selectable?.type === 'infantry' ? 2.6 : entity.selectable?.type === 'vulture' ? 3.2 : 4.9), z);
+    const lift = unitChromeLift(entity);
+    const rankVisible = (entity.combatRank?.rank ?? 0) > 0;
+    healthBar.root.position.set(x, y + lift, z);
     healthBar.root.lookAt(camera.position);
+    // Sit to the right of the rank disc when both are showing.
+    healthBar.root.translateX(rankVisible ? 1.55 : 0);
     healthBar.fill.scale.x = Math.max(0.02, pct);
     healthBar.fill.position.x = -1.8 * (1 - pct);
     healthBar.fillMaterial.color.setHex(pct < 0.3 ? 0xff5142 : pct < 0.62 ? 0xffc04a : 0x79f06f);
@@ -1643,19 +1647,31 @@ export class UnitView {
       badge.root.visible = false;
       return;
     }
-    const selected = entity.selectable?.selected ?? false;
-    const nearCamera = !compact || camera.position.distanceToSquared(this.lowDetailTransform.position.set(x, y, z)) < 120_000;
-    badge.root.visible = nearCamera && (selected || rank >= 2 || !compact);
+    // Always show earned ranks when near the camera — including low-detail army views.
+    const nearCamera = camera.position.distanceToSquared(this.lowDetailTransform.position.set(x, y, z)) < (compact ? 220_000 : 420_000);
+    badge.root.visible = nearCamera;
     if (!badge.root.visible) return;
     if (badge.rank !== rank) {
       badge.rank = rank;
       badge.material.map = rankChevronTexture(rank);
       badge.material.needsUpdate = true;
     }
-    const lift = entity.selectable?.type === 'infantry' ? 3.35 : entity.selectable?.type === 'vulture' ? 4.0 : 5.7;
+    const healthBar = this.healthBars.get(entity);
+    const healthVisible = !!healthBar?.root.visible;
+    const lift = unitChromeLift(entity);
+    const scale = compact ? 1.2 : 1.05;
+    badge.root.scale.setScalar(scale);
     badge.root.position.set(x, y + lift, z);
     badge.root.lookAt(camera.position);
+    // Sit to the left of the health bar (same height), or centered if HP chrome is hidden.
+    badge.root.translateX(healthVisible ? -2.55 : 0);
   }
+}
+
+function unitChromeLift(entity: Entity): number {
+  if (entity.selectable?.type === 'infantry') return 2.85;
+  if (entity.selectable?.type === 'vulture') return 3.45;
+  return 5.15;
 }
 
 function createHealthBar(backMaterial: Material): { root: Group; fill: Mesh; fillMaterial: MeshBasicMaterial } {
@@ -1675,7 +1691,7 @@ function createHealthBar(backMaterial: Material): { root: Group; fill: Mesh; fil
   return { root, fill, fillMaterial };
 }
 
-const RANK_BADGE_GEOM = new PlaneGeometry(1.55, 1.15);
+const RANK_BADGE_GEOM = new PlaneGeometry(2.2, 2.2);
 const rankTextures = new Map<number, CanvasTexture>();
 
 function rankChevronTexture(rank: number): CanvasTexture {
@@ -1683,22 +1699,31 @@ function rankChevronTexture(rank: number): CanvasTexture {
   const cached = rankTextures.get(clamped);
   if (cached) return cached;
   const canvas = document.createElement('canvas');
-  canvas.width = 96;
-  canvas.height = 72;
+  canvas.width = 128;
+  canvas.height = 128;
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const color = clamped >= 3 ? '#f4d56a' : '#e0c45a';
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
+  // Dark disc so chevrons read clearly over busy terrain / unit meshes.
+  ctx.beginPath();
+  ctx.arc(64, 64, 58, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(8, 12, 10, 0.92)';
+  ctx.fill();
   ctx.lineWidth = 5;
+  ctx.strokeStyle = clamped >= 3 ? '#f4d56a' : '#d2b15f';
+  ctx.stroke();
+
+  const color = clamped >= 3 ? '#f7e08a' : '#e8c85a';
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 7;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+  const startY = clamped === 1 ? 52 : clamped === 2 ? 40 : 30;
   for (let i = 0; i < clamped; i++) {
-    const y = 18 + i * 16;
+    const y = startY + i * 22;
     ctx.beginPath();
-    ctx.moveTo(18, y + 14);
-    ctx.lineTo(48, y);
-    ctx.lineTo(78, y + 14);
+    ctx.moveTo(28, y + 16);
+    ctx.lineTo(64, y);
+    ctx.lineTo(100, y + 16);
     ctx.stroke();
   }
   const texture = new CanvasTexture(canvas);

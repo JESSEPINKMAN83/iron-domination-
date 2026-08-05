@@ -3239,7 +3239,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       firstPerson.handleCombatEvents(events);
       audio.handleCombatEvents(events, firstPerson.possessedEntity?.id);
       for (const event of events) {
-        if (event.kind === 'rank-up' && event.sourceTeamId === localTeam) audio.playUi('build');
+        if (event.kind === 'rank-up' && event.sourceTeamId === localTeam) {
+          audio.playUi('build');
+          showRankUpToast(event.targetLabel ?? 'Veteran');
+        }
       }
       economyFx.push(events);
       combatView.push(events);
@@ -3721,6 +3724,21 @@ function dialogButton(label: string, action: () => void): HTMLButtonElement {
   return button;
 }
 
+function showRankUpToast(rankLabel: string): void {
+  const existing = document.getElementById('iron-rank-up-toast');
+  existing?.remove();
+  const toast = document.createElement('div');
+  toast.id = 'iron-rank-up-toast';
+  toast.textContent = `UNIT PROMOTED — ${rankLabel.toUpperCase()}`;
+  toast.style.cssText =
+    'position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:70;pointer-events:none;' +
+    'padding:10px 16px;border:2px solid #f0d56a;border-radius:3px;background:rgba(12,16,14,.92);' +
+    'color:#f0d56a;font:700 13px ui-monospace,Menlo,monospace;letter-spacing:.08em;' +
+    'box-shadow:0 12px 28px rgba(0,0,0,.45)';
+  document.body.appendChild(toast);
+  window.setTimeout(() => toast.remove(), 2200);
+}
+
 function showOutcomeBanner(
   outcome: 'victory' | 'defeat',
   settings: SkirmishSettings,
@@ -3842,6 +3860,27 @@ function spawnStartingTanks(
     const tank = spawnTankAt(sim, p.x, p.z, `Army ${team} M-17 ${spawned.length + 1}`, team);
     orientOpeningUnit(tank, basis);
     spawned.push(tank);
+  }
+  // Debug armies: seed a few ranks so chevrons are visible without a long fight.
+  if (count >= 12) {
+    const cost = 550;
+    const demos: Array<{ index: number; rank: 1 | 2 | 3 }> = [
+      { index: 0, rank: 1 },
+      { index: 1, rank: 1 },
+      { index: 2, rank: 1 },
+      { index: 3, rank: 2 },
+      { index: 4, rank: 2 },
+      { index: 5, rank: 3 },
+    ];
+    for (const demo of demos) {
+      const unit = spawned[demo.index];
+      if (!unit) continue;
+      unit.combatRank = {
+        rank: demo.rank,
+        killValue: cost * (demo.rank === 1 ? 1 : demo.rank === 2 ? 3 : 6),
+        unitCost: cost,
+      };
+    }
   }
   void hf;
   return spawned;

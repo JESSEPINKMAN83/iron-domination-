@@ -20,10 +20,11 @@ export interface CombatRankState {
 /** Kill-value thresholds as multiples of the unit's own cost. */
 const RANK_COST_MULTIPLES: readonly number[] = [0, 1, 3, 6];
 
-const RANK_DAMAGE: readonly number[] = [1, 1.12, 1.24, 1.4];
-const RANK_COOLDOWN: readonly number[] = [1, 0.91, 0.83, 0.76];
-const RANK_ACCURACY: readonly number[] = [1, 1.1, 1.18, 1.28];
-const RANK_SCATTER: readonly number[] = [1, 0.9, 0.82, 0.72];
+const RANK_DAMAGE: readonly number[] = [1, 1.2, 1.4, 1.65];
+const RANK_COOLDOWN: readonly number[] = [1, 0.82, 0.68, 0.55];
+const RANK_SPEED: readonly number[] = [1, 1.14, 1.26, 1.4];
+const RANK_ACCURACY: readonly number[] = [1, 1.12, 1.22, 1.35];
+const RANK_SCATTER: readonly number[] = [1, 0.88, 0.76, 0.62];
 
 export function combatRankName(rank: CombatRankLevel): CombatRankName {
   return COMBAT_RANK_NAMES[rank];
@@ -70,6 +71,10 @@ export function combatRankAccuracyMultiplier(entity: Entity): number {
 
 export function combatRankScatterMultiplier(entity: Entity): number {
   return RANK_SCATTER[entity.combatRank?.rank ?? 0] ?? 1;
+}
+
+export function combatRankSpeedMultiplier(entity: Entity): number {
+  return RANK_SPEED[entity.combatRank?.rank ?? 0] ?? 1;
 }
 
 export function killValueForTarget(target: Entity): number {

@@ -3,6 +3,7 @@ import {
   combatRankCooldownMultiplier,
   combatRankDamageMultiplier,
   combatRankName,
+  combatRankSpeedMultiplier,
   creditCombatKill,
   ensureCombatRank,
   rankThreshold,
@@ -48,8 +49,9 @@ describe('combat ranks', () => {
     const peer = makeUnit({ id: 2, team: { id: 2 }, name: 'M-17 Enemy' });
     expect(creditCombatKill(attacker, peer)).toBe(1);
     expect(attacker.combatRank?.rank).toBe(1);
-    expect(combatRankDamageMultiplier(attacker)).toBeCloseTo(1.12);
+    expect(combatRankDamageMultiplier(attacker)).toBeCloseTo(1.2);
     expect(combatRankCooldownMultiplier(attacker)).toBeLessThan(1);
+    expect(combatRankSpeedMultiplier(attacker)).toBeGreaterThan(1);
 
     // More kills to Elite then Ace
     creditCombatKill(attacker, makeUnit({ id: 3, team: { id: 2 }, name: 'M-17 Enemy' }));
@@ -59,7 +61,8 @@ describe('combat ranks', () => {
     creditCombatKill(attacker, makeUnit({ id: 6, team: { id: 2 }, name: 'M-17 Enemy' }));
     creditCombatKill(attacker, makeUnit({ id: 7, team: { id: 2 }, name: 'M-17 Enemy' }));
     expect(attacker.combatRank?.rank).toBe(3);
-    expect(combatRankDamageMultiplier(attacker)).toBeCloseTo(1.4);
+    expect(combatRankDamageMultiplier(attacker)).toBeCloseTo(1.65);
+    expect(combatRankSpeedMultiplier(attacker)).toBeCloseTo(1.4);
     expect(creditCombatKill(attacker, makeUnit({ id: 8, team: { id: 2 }, name: 'M-17 Enemy' }))).toBeUndefined();
   });
 

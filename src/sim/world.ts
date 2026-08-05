@@ -13,6 +13,7 @@ import type { ImpactZone } from './impactModel';
 import { rotateFormationOffset, tacticalFormationLayout } from './formations';
 import { SpatialHash } from './spatialHash';
 import { advanceTacticAfterArrival } from './tactics';
+import { combatRankSpeedMultiplier } from './combatRank';
 
 const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -665,7 +666,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     transform.y ??= sampleHeight(hf, transform.x, transform.z);
     let desiredX = 0;
     let desiredZ = 0;
-    let desiredSpeed = mover.speed * (mover.sprint ? RTS_SPRINT_MULTIPLIER : 1);
+    let desiredSpeed = mover.speed * (mover.sprint ? RTS_SPRINT_MULTIPLIER : 1) * combatRankSpeedMultiplier(entity);
     let orientToMovement = false;
 
     if (entity.flight) {
@@ -687,7 +688,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       const boost = entity.playerControlled.boost ? POSSESSION_BOOST_MULTIPLIER : 1;
       const turnRate = throttle === 0 ? 1.55 : 1.15;
       transform.rot = normalizeAngle(transform.rot + turn * turnRate * dt);
-      const driveSpeed = mover.speed * boost * (throttle < 0 ? 0.42 : 0.78);
+      const driveSpeed = mover.speed * boost * (throttle < 0 ? 0.42 : 0.78) * combatRankSpeedMultiplier(entity);
       desiredX = Math.sin(transform.rot) * driveSpeed * throttle;
       desiredZ = Math.cos(transform.rot) * driveSpeed * throttle;
       // real traverse speed — you feel the turret's weight chasing the crosshair
@@ -724,7 +725,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       if (distance > ARRIVAL_EPSILON) {
         desiredX = dx / distance;
         desiredZ = dz / distance;
-        desiredSpeed = Math.min(mover.speed, Math.max(1.2, distance * 3.2));
+        desiredSpeed = Math.min(mover.speed * combatRankSpeedMultiplier(entity), Math.max(1.2, distance * 3.2));
       } else {
         transform.x = mover.holdPosition.x;
         transform.z = mover.holdPosition.z;
@@ -986,9 +987,10 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
     : mover.sprint
       ? RTS_SPRINT_MULTIPLIER
       : 1;
-  const maxSpeed = model.maxSpeed * boost;
-  const maxReverse = model.maxReverse * boost;
-  const maxStrafe = model.maxStrafe * boost;
+  const rankSpeed = combatRankSpeedMultiplier(entity);
+  const maxSpeed = model.maxSpeed * boost * rankSpeed;
+  const maxReverse = model.maxReverse * boost * rankSpeed;
+  const maxStrafe = model.maxStrafe * boost * rankSpeed;
   const speed = Math.hypot(velocity.x, velocity.z);
   const command = entity.playerControlled ? possessedFlightCommand(entity) : aiFlightCommand(sim, entity);
   const yawSpeedT = clamp(speed / maxSpeed, 0, 1);
