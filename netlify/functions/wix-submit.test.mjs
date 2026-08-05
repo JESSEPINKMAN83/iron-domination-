@@ -313,6 +313,57 @@ describe('wix-submit Netlify function', () => {
     expect(cmsBody.feature).toMatchObject({ useful: true });
   });
 
+  it('accepts match-end combat rank mix feature fields', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(wixResponse({ ok: true }, 201));
+
+    const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'telemetry',
+        event: 'match-end',
+        playerId: '01234567-89ab-cdef-0123-456789abcdef',
+        page: 'https://game.test/',
+        buildVersion: '0.1.0',
+        match: {
+          matchId: 'match-ranks',
+          status: 'victory',
+          multiplayer: false,
+          mapId: 'highlands',
+          mapSize: 'medium',
+          seed: 12,
+          playerTeam: 1,
+          playerSide: 1,
+          elapsedSeconds: 420,
+          fps: 60,
+          quality: 'balanced',
+          renderScale: 1,
+          buildVersion: '0.1.0',
+        },
+        feature: {
+          rankRecruitShare: 0.9,
+          rankVeteranShare: 0.07,
+          rankEliteShare: 0.02,
+          rankAceShare: 0.01,
+          rankCounts: 'recruit:90,veteran:7,elite:2,ace:1',
+          combatUnitCount: 100,
+        },
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    const cmsBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(cmsBody.event).toBe('match-end');
+    expect(cmsBody.feature).toMatchObject({
+      rankRecruitShare: 0.9,
+      rankVeteranShare: 0.07,
+      rankEliteShare: 0.02,
+      rankAceShare: 0.01,
+      combatUnitCount: 100,
+    });
+  });
+
   it('rejects telemetry with an unknown event name', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
