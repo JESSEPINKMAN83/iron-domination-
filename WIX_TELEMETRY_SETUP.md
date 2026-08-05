@@ -45,6 +45,9 @@ until the player answers (plus reserved `tactic-complete` /
 `tactic-interrupted`). Those include a `feature` object with unit/path stats
 (`useful` on feedback).
 
+`match-end` also includes combat-rank mix for the local army (Recruit / Veteran /
+Elite / Ace shares that sum to ~1).
+
 The Worker forwards them to the existing Velo HTTP function
 (`ironDominionSubmission`) with `kind: "telemetry"`. Complete the Wix side by
 pasting the prompts below into the Wix AI chat, in order.
@@ -75,7 +78,13 @@ pasting the prompts below into the Wix AI chat, in order.
     "endAction": "hold | attack-move | attack",
     "plannerDurationMs": 8500,
     "subsetOfSelection": true,
-    "useful": true
+    "useful": true,
+    "rankRecruitShare": 0.9,
+    "rankVeteranShare": 0.07,
+    "rankEliteShare": 0.02,
+    "rankAceShare": 0.01,
+    "rankCounts": "recruit:90,veteran:7,elite:2,ace:1",
+    "combatUnitCount": 100
   }
 }
 ```
@@ -120,6 +129,12 @@ pasting the prompts below into the Wix AI chat, in order.
 > - Feature planner duration ms — `featurePlannerDurationMs` — Number
 > - Feature subset of selection — `featureSubsetOfSelection` — Boolean
 > - Feature useful — `featureUseful` — Boolean
+> - Rank recruit share — `rankRecruitShare` — Number
+> - Rank veteran share — `rankVeteranShare` — Number
+> - Rank elite share — `rankEliteShare` — Number
+> - Rank ace share — `rankAceShare` — Number
+> - Rank counts — `rankCounts` — Text
+> - Combat unit count — `combatUnitCount` — Number
 >
 > Then update the existing `post_ironDominionSubmission` function in
 > `backend/http-functions.js`. Keep the `x-iron-dominion-secret` header check
@@ -168,6 +183,12 @@ pasting the prompts below into the Wix AI chat, in order.
 >       featurePlannerDurationMs: Number(feature.plannerDurationMs) || 0,
 >       featureSubsetOfSelection: feature.subsetOfSelection === true,
 >       featureUseful: feature.useful === true,
+>       rankRecruitShare: Number(feature.rankRecruitShare) || 0,
+>       rankVeteranShare: Number(feature.rankVeteranShare) || 0,
+>       rankEliteShare: Number(feature.rankEliteShare) || 0,
+>       rankAceShare: Number(feature.rankAceShare) || 0,
+>       rankCounts: String(feature.rankCounts || ''),
+>       combatUnitCount: Number(feature.combatUnitCount) || 0,
 >     });
 >   }
 >   await wixData.insert('IronDominionEvents', item, { suppressAuth: true });
@@ -204,6 +225,10 @@ pasting the prompts below into the Wix AI chat, in order.
 >     `attack-move`, `attack`) for `tactic-execute` today.
 > 11. **Tactic useful rate** — among `tactic-feedback` today, share where
 >     `featureUseful === true`.
+> 12. **Avg combat-rank mix** — average of `rankRecruitShare` /
+>     `rankVeteranShare` / `rankEliteShare` / `rankAceShare` on `match-end`
+>     today (stacked bar or four %).
+> 13. **Ace rate** — average `rankAceShare` on `match-end` today.
 >
 > Note: `heartbeat` events exist for abandoned-match analysis — exclude them
 > from the counts above.
@@ -215,7 +240,7 @@ pasting the prompts below into the Wix AI chat, in order.
 3. Verify: open the game (a `session-start` row should appear in
    IronDominionEvents), start a skirmish (`match-start`), open Define Tactic
    (`tactic-open`), execute a path (`tactic-execute`), finish or lose the match
-   (`match-end` with `matchStatus` victory/defeat).
+   (`match-end` with `matchStatus` victory/defeat and rank share fields).
 
 No new secrets or env vars are needed — telemetry reuses `WIX_CMS_ENDPOINT` and
 `IRON_DOMINION_INGEST_SECRET`. Telemetry does not use the Wix Forms API, so it

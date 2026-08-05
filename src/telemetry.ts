@@ -22,6 +22,12 @@ export type TacticTelemetryFeature = {
   plannerDurationMs?: number;
   subsetOfSelection?: boolean;
   useful?: boolean;
+  rankRecruitShare?: number;
+  rankVeteranShare?: number;
+  rankEliteShare?: number;
+  rankAceShare?: number;
+  rankCounts?: string;
+  combatUnitCount?: number;
 };
 
 const TELEMETRY_ENDPOINT = '/api/wix-submit';
@@ -81,7 +87,10 @@ export interface MatchTelemetry {
   end(): void;
 }
 
-export function trackMatchTelemetry(matchMetadata: () => FeedbackMatchMetadata): MatchTelemetry {
+export function trackMatchTelemetry(
+  matchMetadata: () => FeedbackMatchMetadata,
+  featureAtEnd?: () => TacticTelemetryFeature | undefined,
+): MatchTelemetry {
   sendTelemetryEvent('match-start', matchMetadata());
   let ended = false;
   const interval = window.setInterval(() => sendTelemetryEvent('heartbeat', matchMetadata()), HEARTBEAT_INTERVAL_MS);
@@ -96,7 +105,7 @@ export function trackMatchTelemetry(matchMetadata: () => FeedbackMatchMetadata):
       ended = true;
       window.clearInterval(interval);
       window.removeEventListener('pagehide', onPageHide);
-      sendTelemetryEvent('match-end', matchMetadata());
+      sendTelemetryEvent('match-end', matchMetadata(), featureAtEnd?.());
     },
   };
 }

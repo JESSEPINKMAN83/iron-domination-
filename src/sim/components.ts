@@ -120,6 +120,13 @@ export interface UnitUpgrades {
   };
 }
 
+/** Battlefield veterancy earned by surviving and destroying enemies. */
+export interface CombatRank {
+  rank: 0 | 1 | 2 | 3;
+  killValue: number;
+  unitCost: number;
+}
+
 export interface Turret {
   yaw: number;
   turnRate: number;
@@ -231,6 +238,7 @@ export interface Entity {
   weapons?: WeaponRack;
   specialWeapon?: Weapon;
   unitUpgrades?: UnitUpgrades;
+  combatRank?: CombatRank;
   aiCombat?: AiCombat;
   turret?: Turret;
   vision?: Vision;

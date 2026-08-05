@@ -80,6 +80,12 @@ function parseTelemetryFeature(value) {
     plannerDurationMs: finiteNumber(value.plannerDurationMs, 0, 3_600_000),
     subsetOfSelection: typeof value.subsetOfSelection === 'boolean' ? value.subsetOfSelection : undefined,
     useful: typeof value.useful === 'boolean' ? value.useful : undefined,
+    rankRecruitShare: finiteNumber(value.rankRecruitShare, 0, 1, 3),
+    rankVeteranShare: finiteNumber(value.rankVeteranShare, 0, 1, 3),
+    rankEliteShare: finiteNumber(value.rankEliteShare, 0, 1, 3),
+    rankAceShare: finiteNumber(value.rankAceShare, 0, 1, 3),
+    rankCounts: cleanText(value.rankCounts, 120) || undefined,
+    combatUnitCount: finiteNumber(value.combatUnitCount, 0, 10_000),
   };
   return Object.values(feature).some((entry) => entry !== undefined) ? feature : undefined;
 }

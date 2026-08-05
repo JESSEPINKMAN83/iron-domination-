@@ -3,6 +3,7 @@ import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, 
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
 import { sendTelemetryEvent, trackMatchTelemetry, approximatePathLength, summarizeUnitKinds, type MatchTelemetry } from './telemetry';
+import { summarizeCombatRankShares } from './sim/combatRank';
 import { installActiveMatchExitGuard, type ActiveMatchExitGuard } from './activeMatchExitGuard';
 import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHowToPlayWidget } from './howToPlay';
 import { showMissionBriefing } from './missionBriefing';
@@ -3072,7 +3073,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     };
   };
   setFeedbackMatchMetadataProvider(matchTelemetryMetadata);
-  matchTelemetry = trackMatchTelemetry(matchTelemetryMetadata);
+  matchTelemetry = trackMatchTelemetry(matchTelemetryMetadata, () => summarizeCombatRankShares(sim.world.entities, localTeam));
   const firstContactGate = new FirstContactGate();
   const baseUnderAttackGate = new BaseUnderAttackGate();
   const missionComms = new MissionComms();
@@ -3237,6 +3238,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       unitView.pushCombatEvents(events);
       firstPerson.handleCombatEvents(events);
       audio.handleCombatEvents(events, firstPerson.possessedEntity?.id);
+      for (const event of events) {
+        if (event.kind === 'rank-up' && event.sourceTeamId === localTeam) audio.playUi('build');
+      }
       economyFx.push(events);
       combatView.push(events);
       checkBaseUnderAttack(events);

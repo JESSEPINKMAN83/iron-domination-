@@ -2,6 +2,14 @@ import { WEAPONS, type ArmorClass, type WeaponKind } from '../content/phase4';
 import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { angleDelta, slewAngle } from './angles';
 import type { Entity, Weapon } from './components';
+import {
+  combatRankAccuracyMultiplier,
+  combatRankCooldownMultiplier,
+  combatRankDamageMultiplier,
+  combatRankName,
+  combatRankScatterMultiplier,
+  creditCombatKill,
+} from './combatRank';
 import { hash2i, smoothstep } from './noise';
 import { hasTerrainLineOfSight, sampleHeight } from './heightfield';
 import { directionalImpactResponse } from './impactModel';
@@ -278,7 +286,7 @@ function stepEscortDrones(sim: GameSim, dt: number, canFire: boolean): void {
     const cos = Math.cos(owner.transform.rot);
     const fromX = owner.transform.x + local.x * cos + local.z * sin;
     const fromZ = owner.transform.z - local.x * sin + local.z * cos;
-    const damage = applyDamage(sim, target, directDamageForTarget('microLaser', target));
+    const damage = applyDamage(sim, target, directDamageForTarget('microLaser', target), undefined, owner);
     state.cooldown = def.cooldown;
     state.targetId = target.id;
     const hit = damage > 0 ? summarizeHit(target, damage) : undefined;
@@ -527,7 +535,7 @@ export function manualFireAt(
       trajectory: attacker.flight ? 'flat' : 'flat',
       weaponKind: def.kind,
       forceScale,
-    });
+    }, attacker);
     if (direct > 0) alertEconomyDefenders(sim, target, attacker);
     damage = direct;
     hit = direct > 0 ? summarizeHit(target, direct) : undefined;
@@ -542,7 +550,7 @@ export function manualFireAt(
     hit = area.hit;
     weapon.targetId = undefined;
   }
-  weapon.cooldown = def.cooldown;
+  weapon.cooldown = weaponCooldown(def.cooldown, attacker);
   sim.events.push({
     kind: def.kind,
     weaponKind: def.kind,
@@ -979,7 +987,7 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
         trajectory: impactTrajectory,
         weaponKind,
         forceScale: projectile.forceScale,
-      });
+      }, attacker);
       if (directDamage > 0) {
         alertEconomyDefenders(sim, directTarget, attacker);
         hit = summarizeHit(directTarget, directDamage);
@@ -1035,7 +1043,7 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
       splashRadius: 0,
       trajectory: attacker.flight ? 'flat' : 'flat',
       weaponKind: def.kind,
-    });
+    }, attacker);
     if (directDamage > 0) alertEconomyDefenders(sim, target, attacker);
     hit = directDamage > 0 ? summarizeHit(target, directDamage) : undefined;
   }
@@ -1058,7 +1066,7 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
 }
 
 function weaponCooldown(baseCooldown: number, attacker: Entity): number {
-  return baseCooldown * (attacker.aiCombat?.cooldownMultiplier ?? 1);
+  return baseCooldown * (attacker.aiCombat?.cooldownMultiplier ?? 1) * combatRankCooldownMultiplier(attacker);
 }
 
 function autoAimPoint(
@@ -1074,10 +1082,11 @@ function autoAimPoint(
   if (!ai) return { x: targetX, z: targetZ, directTarget: target };
   const salt = weaponKindSalt(weapon.kind) + (mode === 'direct' ? 0x101 : mode === 'projectile' ? 0x202 : 0x303);
   const hitRoll = hash2i(attacker.id, sim.tick + target.id, salt);
-  const hitsCleanly = hitRoll <= ai.accuracy;
+  const accuracy = Math.min(1, ai.accuracy * combatRankAccuracyMultiplier(attacker));
+  const hitsCleanly = hitRoll <= accuracy;
   if (hitsCleanly && mode === 'direct') return { x: targetX, z: targetZ, directTarget: target };
 
-  const scatterBase = ai.projectileScatter * (mode === 'bomb' ? 1.15 : mode === 'projectile' ? 0.82 : 0.62);
+  const scatterBase = ai.projectileScatter * combatRankScatterMultiplier(attacker) * (mode === 'bomb' ? 1.15 : mode === 'projectile' ? 0.82 : 0.62);
   if (scatterBase <= 0.01 && hitsCleanly) return { x: targetX, z: targetZ, directTarget: target };
   const angle = hash2i(target.id, attacker.id, sim.tick + salt) * Math.PI * 2;
   const missBoost = hitsCleanly ? 0.35 : 1.0;
@@ -1263,10 +1272,11 @@ interface DamageImpact {
   forceScale?: number;
 }
 
-function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: DamageImpact): number {
+function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: DamageImpact, source?: Entity): number {
   if (!target.health || amount <= 0) return 0;
+  const scaled = amount * (source ? combatRankDamageMultiplier(source) : 1);
   const before = target.health.current;
-  target.health.current = Math.max(0, target.health.current - amount);
+  target.health.current = Math.max(0, target.health.current - scaled);
   const dealt = before - target.health.current;
   if (dealt > 0 && impact && !target.building) applyImpactPhysics(sim, target, dealt, impact);
   if (dealt > 0 && target.building && impact) {
@@ -1286,6 +1296,26 @@ function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: Dama
     target.selectable && (target.selectable.selected = false);
     stopEntities([target]);
     if (target.building) sim.nav.removeDynamicBlocker(target.id);
+    if (source) {
+      const promoted = creditCombatKill(source, target);
+      if (promoted !== undefined) {
+        sim.events.push({
+          kind: 'rank-up',
+          fromX: source.transform.x,
+          fromY: source.transform.y,
+          fromZ: source.transform.z,
+          toX: source.transform.x,
+          toY: source.transform.y,
+          toZ: source.transform.z,
+          sourceTeamId: source.team?.id,
+          targetId: source.id,
+          targetLabel: combatRankName(promoted),
+          targetType: source.selectable?.type,
+          damage: 0,
+          killed: false,
+        });
+      }
+    }
   }
   return dealt;
 }
@@ -1439,7 +1469,7 @@ function applyAreaDamage(
       trajectory: trajectory ?? (attacker?.flight ? 'flat' : 'flat'),
       weaponKind: kind,
       forceScale,
-    });
+    }, attacker);
     if (dealt > 0) alertEconomyDefenders(sim, target, attacker);
     damage += dealt;
     if (dealt > 0 && (!hit || dealt > hit.damage)) hit = summarizeHit(target, dealt);

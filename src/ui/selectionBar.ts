@@ -201,6 +201,8 @@ export class SelectionBar {
     img.style.cssText = 'position:relative;z-index:2;width:100%;height:100%;object-fit:cover;display:block;';
     img.onerror = () => img.remove();
     icon.append(fallback, img, badge(`×${group.entities.length}`, active));
+    const topRank = Math.max(0, ...group.entities.map((entity) => entity.combatRank?.rank ?? 0));
+    if (topRank > 0) icon.appendChild(rankChevronBadge(topRank));
     if (group.unitKind) icon.appendChild(this.upgradeButton(group));
 
     const copy = document.createElement('div');
@@ -211,7 +213,8 @@ export class SelectionBar {
     const meta = document.createElement('div');
     meta.style.cssText = 'font-size:10px;color:#aebbc4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;';
     const health = group.healthPct === undefined ? '' : ` · ${group.healthPct}% HP`;
-    meta.textContent = `${group.type}${health}`;
+    const rankLabel = topRank > 0 ? ` · ${['', 'Veteran', 'Elite', 'Ace'][topRank]}` : '';
+    meta.textContent = `${group.type}${health}${rankLabel}`;
     copy.append(name, meta);
     button.append(icon, copy);
     return button;
@@ -467,6 +470,24 @@ function badge(text: string, active: boolean): HTMLDivElement {
   el.style.cssText =
     'position:absolute;right:3px;top:3px;z-index:4;padding:1px 4px;border:1px solid rgba(0,0,0,.55);font-size:10px;line-height:14px;' +
     `background:${active ? '#d2b15f' : '#111615'};color:${active ? '#151715' : '#f0d56a'};box-shadow:0 1px 4px rgba(0,0,0,.45);`;
+  return el;
+}
+
+/** Gold chevron stack for Veteran / Elite / Ace on selection cards. */
+function rankChevronBadge(rank: number): HTMLDivElement {
+  const el = document.createElement('div');
+  el.title = rank === 1 ? 'Veteran' : rank === 2 ? 'Elite' : 'Ace';
+  el.setAttribute('aria-label', el.title);
+  el.style.cssText =
+    'position:absolute;left:3px;bottom:3px;z-index:5;display:grid;gap:1px;padding:2px 3px;' +
+    'border:1px solid rgba(210,177,95,.55);background:rgba(8,12,10,.82);box-shadow:0 1px 4px rgba(0,0,0,.45);';
+  for (let i = 0; i < Math.min(3, rank); i++) {
+    const chevron = document.createElement('div');
+    chevron.style.cssText =
+      'width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;' +
+      `border-bottom:6px solid ${rank >= 3 ? '#f4d56a' : '#e0c45a'};margin:0 auto;`;
+    el.appendChild(chevron);
+  }
   return el;
 }
 
