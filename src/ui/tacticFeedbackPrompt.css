@@ -1,0 +1,62 @@
+.iron-tactic-feedback {
+  position: fixed;
+  z-index: 6000;
+  width: min(260px, calc(100vw - 24px));
+  padding: 12px 12px 11px;
+  box-sizing: border-box;
+  pointer-events: auto;
+  border: 2px solid #f0d56a;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #3a3420, #0c100f);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65), 0 14px 36px rgba(0, 0, 0, 0.65);
+  color: #e0e7dd;
+  font: 12px/1.35 ui-monospace, Menlo, monospace;
+  animation: iron-tactic-feedback-in 0.22s ease-out;
+}
+
+@keyframes iron-tactic-feedback-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.iron-tactic-feedback__label {
+  margin: 0 0 10px;
+  color: #f0d56a;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.iron-tactic-feedback__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.iron-tactic-feedback__actions button {
+  padding: 9px 10px;
+  border: 1px solid #4b5552;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #26302f, #121817);
+  color: #eef3e9;
+  cursor: pointer;
+  font: 700 11px ui-monospace, Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.iron-tactic-feedback__actions button[data-answer='yes'] {
+  border-color: #d2b15f;
+  background: linear-gradient(180deg, #dec061, #967832);
+  color: #111513;
+}
+
+.iron-tactic-feedback__actions button:hover {
+  border-color: #757f7a;
+}

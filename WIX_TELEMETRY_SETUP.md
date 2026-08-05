@@ -1,13 +1,49 @@
 # Wix Telemetry Setup
 
+## How data reaches Wix Headless
+
+The live game does **not** call Wix APIs from the browser. It posts to our
+Cloudflare Worker, which forwards into your Wix site’s HTTP function. That is the
+Wix Headless ingest path used for telemetry (and the same one used for signup /
+feedback forms).
+
+```
+Browser (Iron Dominion)
+  → POST /api/wix-submit
+      { kind: "telemetry", event, playerId, page, buildVersion, match?, feature? }
+  → Cloudflare Worker (`serverless/wix-backoffice.mjs`)
+      validates payload + allowlisted event names
+      adds header `x-iron-dominion-secret`
+  → Wix Velo HTTP function `post_ironDominionSubmission`
+      (env: WIX_CMS_ENDPOINT)
+  → wixData.insert('IronDominionEvents', …)
+  → Business Manager custom dashboard reads IronDominionEvents
+```
+
+**Required Worker secrets (already used for forms — no new secrets):**
+- `WIX_CMS_ENDPOINT` — full URL of the published Velo HTTP function
+- `IRON_DOMINION_INGEST_SECRET` — shared secret checked by Velo
+
+**Game-side send helper:** `sendTelemetryEvent()` in `src/telemetry.ts` uses
+`navigator.sendBeacon` / `fetch` to `/api/wix-submit`. Define Tactic feedback
+calls it with `event: "tactic-feedback"` and `feature: { useful: true|false }`.
+
+Complete the Wix CMS + Velo + dashboard steps below (paste the prompts into the
+Wix AI chat, in order), then publish the Wix site **before** relying on
+production dashboards.
+
+---
+
 The game now sends automatic telemetry events (no player action needed) to the
 same Worker endpoint as forms: `session-start` on every page load, `match-start`
 when a match begins, `heartbeat` every 2 minutes during play (and on tab close),
 and `match-end` on victory/defeat.
 
 Tactic planner usage also emits feature events: `tactic-open`, `tactic-cancel`,
-and `tactic-execute` (plus reserved `tactic-complete` / `tactic-interrupted` for
-follow-up dashboards). Those include a `feature` object with unit/path stats.
+`tactic-execute`, and `tactic-feedback` from a Yes/No prompt after each close
+until the player answers (plus reserved `tactic-complete` /
+`tactic-interrupted`). Those include a `feature` object with unit/path stats
+(`useful` on feedback).
 
 The Worker forwards them to the existing Velo HTTP function
 (`ironDominionSubmission`) with `kind: "telemetry"`. Complete the Wix side by
@@ -18,7 +54,7 @@ pasting the prompts below into the Wix AI chat, in order.
 ```json
 {
   "kind": "telemetry",
-  "event": "session-start | match-start | match-end | heartbeat | tactic-open | tactic-cancel | tactic-execute | tactic-complete | tactic-interrupted",
+  "event": "session-start | match-start | match-end | heartbeat | tactic-open | tactic-cancel | tactic-execute | tactic-complete | tactic-interrupted | tactic-feedback",
   "playerId": "anonymous uuid, stable per browser",
   "page": "https://…",
   "buildVersion": "0.1.0",
@@ -38,7 +74,8 @@ pasting the prompts below into the Wix AI chat, in order.
     "pathLengthApprox": 120.5,
     "endAction": "hold | attack-move | attack",
     "plannerDurationMs": 8500,
-    "subsetOfSelection": true
+    "subsetOfSelection": true,
+    "useful": true
   }
 }
 ```
@@ -82,6 +119,7 @@ pasting the prompts below into the Wix AI chat, in order.
 > - Feature end action — `featureEndAction` — Text
 > - Feature planner duration ms — `featurePlannerDurationMs` — Number
 > - Feature subset of selection — `featureSubsetOfSelection` — Boolean
+> - Feature useful — `featureUseful` — Boolean
 >
 > Then update the existing `post_ironDominionSubmission` function in
 > `backend/http-functions.js`. Keep the `x-iron-dominion-secret` header check
@@ -129,6 +167,7 @@ pasting the prompts below into the Wix AI chat, in order.
 >       featureEndAction: String(feature.endAction || ''),
 >       featurePlannerDurationMs: Number(feature.plannerDurationMs) || 0,
 >       featureSubsetOfSelection: feature.subsetOfSelection === true,
+>       featureUseful: feature.useful === true,
 >     });
 >   }
 >   await wixData.insert('IronDominionEvents', item, { suppressAuth: true });
@@ -163,6 +202,8 @@ pasting the prompts below into the Wix AI chat, in order.
 >    `tactic-execute` today.
 > 10. **End-action mix** — counts of `featureEndAction` (`hold`,
 >     `attack-move`, `attack`) for `tactic-execute` today.
+> 11. **Tactic useful rate** — among `tactic-feedback` today, share where
+>     `featureUseful === true`.
 >
 > Note: `heartbeat` events exist for abandoned-match analysis — exclude them
 > from the counts above.

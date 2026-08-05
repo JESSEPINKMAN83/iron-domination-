@@ -275,6 +275,44 @@ describe('wix-submit Netlify function', () => {
     });
   });
 
+  it('accepts tactic-feedback with useful flag', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(wixResponse({ ok: true }, 201));
+
+    const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'telemetry',
+        event: 'tactic-feedback',
+        playerId: '01234567-89ab-cdef-0123-456789abcdef',
+        page: 'https://game.test/',
+        buildVersion: '0.1.0',
+        match: {
+          matchId: 'match-tactic-feedback',
+          status: 'ongoing',
+          multiplayer: false,
+          mapId: 'highlands',
+          mapSize: 'medium',
+          seed: 12,
+          playerTeam: 1,
+          playerSide: 1,
+          elapsedSeconds: 42,
+          fps: 60,
+          quality: 'balanced',
+          renderScale: 1,
+          buildVersion: '0.1.0',
+        },
+        feature: { useful: true },
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    const cmsBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(cmsBody.event).toBe('tactic-feedback');
+    expect(cmsBody.feature).toMatchObject({ useful: true });
+  });
+
   it('rejects telemetry with an unknown event name', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const response = await handler(new Request('https://game.test/.netlify/functions/wix-submit', {

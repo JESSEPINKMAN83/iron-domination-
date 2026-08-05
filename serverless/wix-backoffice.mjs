@@ -79,6 +79,7 @@ function parseTelemetryFeature(value) {
     endAction,
     plannerDurationMs: finiteNumber(value.plannerDurationMs, 0, 3_600_000),
     subsetOfSelection: typeof value.subsetOfSelection === 'boolean' ? value.subsetOfSelection : undefined,
+    useful: typeof value.useful === 'boolean' ? value.useful : undefined,
   };
   return Object.values(feature).some((entry) => entry !== undefined) ? feature : undefined;
 }
@@ -227,6 +228,7 @@ function parseSubmission(body) {
       'tactic-execute',
       'tactic-complete',
       'tactic-interrupted',
+      'tactic-feedback',
     ].includes(body.event)
       ? body.event
       : '';
