@@ -17,14 +17,14 @@ export interface CombatRankState {
   unitCost: number;
 }
 
-/** Kill-value thresholds as multiples of the unit's own cost. */
-const RANK_COST_MULTIPLES: readonly number[] = [0, 1, 3, 6];
+const RANK_DAMAGE: readonly number[] = [1, 1.12, 1.24, 1.4];
+const RANK_COOLDOWN: readonly number[] = [1, 0.88, 0.78, 0.68];
+const RANK_SPEED: readonly number[] = [1, 1.08, 1.15, 1.24];
+const RANK_ACCURACY: readonly number[] = [1, 1.1, 1.18, 1.28];
+const RANK_SCATTER: readonly number[] = [1, 0.9, 0.82, 0.72];
 
-const RANK_DAMAGE: readonly number[] = [1, 1.2, 1.4, 1.65];
-const RANK_COOLDOWN: readonly number[] = [1, 0.82, 0.68, 0.55];
-const RANK_SPEED: readonly number[] = [1, 1.14, 1.26, 1.4];
-const RANK_ACCURACY: readonly number[] = [1, 1.12, 1.22, 1.35];
-const RANK_SCATTER: readonly number[] = [1, 0.88, 0.76, 0.62];
+/** Kill-value thresholds as multiples of the unit's own cost. */
+const RANK_COST_MULTIPLES: readonly number[] = [0, 2, 5, 9];
 
 export function combatRankName(rank: CombatRankLevel): CombatRankName {
   return COMBAT_RANK_NAMES[rank];

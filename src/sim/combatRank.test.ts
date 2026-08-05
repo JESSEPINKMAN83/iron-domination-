@@ -43,27 +43,25 @@ describe('combat ranks', () => {
     expect(combatRankDamageMultiplier(attacker)).toBe(1);
 
     const victimCost = state.unitCost;
-    expect(rankThreshold(victimCost, 1)).toBe(victimCost);
+    expect(rankThreshold(victimCost, 1)).toBe(victimCost * 2);
 
-    // One peer-cost kill → Veteran
+    // Two peer-cost kills → Veteran (2× cost threshold)
     const peer = makeUnit({ id: 2, team: { id: 2 }, name: 'M-17 Enemy' });
-    expect(creditCombatKill(attacker, peer)).toBe(1);
+    expect(creditCombatKill(attacker, peer)).toBeUndefined();
+    expect(creditCombatKill(attacker, makeUnit({ id: 3, team: { id: 2 }, name: 'M-17 Enemy' }))).toBe(1);
     expect(attacker.combatRank?.rank).toBe(1);
-    expect(combatRankDamageMultiplier(attacker)).toBeCloseTo(1.2);
+    expect(combatRankDamageMultiplier(attacker)).toBeCloseTo(1.12);
     expect(combatRankCooldownMultiplier(attacker)).toBeLessThan(1);
     expect(combatRankSpeedMultiplier(attacker)).toBeGreaterThan(1);
 
-    // More kills to Elite then Ace
-    creditCombatKill(attacker, makeUnit({ id: 3, team: { id: 2 }, name: 'M-17 Enemy' }));
-    creditCombatKill(attacker, makeUnit({ id: 4, team: { id: 2 }, name: 'M-17 Enemy' }));
+    // Push through Elite (5×) then Ace (9×)
+    for (let id = 4; id <= 6; id++) creditCombatKill(attacker, makeUnit({ id, team: { id: 2 }, name: 'M-17 Enemy' }));
     expect(attacker.combatRank?.rank).toBe(2);
-    creditCombatKill(attacker, makeUnit({ id: 5, team: { id: 2 }, name: 'M-17 Enemy' }));
-    creditCombatKill(attacker, makeUnit({ id: 6, team: { id: 2 }, name: 'M-17 Enemy' }));
-    creditCombatKill(attacker, makeUnit({ id: 7, team: { id: 2 }, name: 'M-17 Enemy' }));
+    for (let id = 7; id <= 10; id++) creditCombatKill(attacker, makeUnit({ id, team: { id: 2 }, name: 'M-17 Enemy' }));
     expect(attacker.combatRank?.rank).toBe(3);
-    expect(combatRankDamageMultiplier(attacker)).toBeCloseTo(1.65);
-    expect(combatRankSpeedMultiplier(attacker)).toBeCloseTo(1.4);
-    expect(creditCombatKill(attacker, makeUnit({ id: 8, team: { id: 2 }, name: 'M-17 Enemy' }))).toBeUndefined();
+    expect(combatRankDamageMultiplier(attacker)).toBeCloseTo(1.4);
+    expect(combatRankSpeedMultiplier(attacker)).toBeCloseTo(1.24);
+    expect(creditCombatKill(attacker, makeUnit({ id: 11, team: { id: 2 }, name: 'M-17 Enemy' }))).toBeUndefined();
   });
 
   it('summarizes rank shares for Wix match-end telemetry', () => {
