@@ -12,6 +12,7 @@ import { UNIT_ARSENALS } from '../content/unitArsenal';
 import type { ImpactZone } from './impactModel';
 import { rotateFormationOffset, tacticalFormationLayout } from './formations';
 import { SpatialHash } from './spatialHash';
+import { advanceTacticAfterArrival } from './tactics';
 
 const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -522,6 +523,7 @@ export function issueMoveOrder(
     entity.mover.attackTargetId = undefined;
     entity.mover.faceYaw = faceYaw;
     entity.mover.defenseAlert = undefined;
+    entity.mover.tactic = undefined;
     for (const weapon of attackWeapons(entity)) weapon.targetId = undefined;
     issued = true;
   });
@@ -583,6 +585,7 @@ export function stopEntities(entities: Entity[]): void {
     entity.mover.attackTargetId = undefined;
     entity.mover.faceYaw = undefined;
     entity.mover.defenseAlert = undefined;
+    entity.mover.tactic = undefined;
     entity.velocity.x = 0;
     entity.velocity.z = 0;
     for (const weapon of attackWeapons(entity)) weapon.targetId = undefined;
@@ -678,6 +681,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       mover.attackMove = false;
       mover.sprint = undefined;
       mover.attackTargetId = undefined;
+      mover.tactic = undefined;
       const throttle = Math.max(-1, Math.min(1, entity.playerControlled.throttle));
       const turn = Math.max(-1, Math.min(1, entity.playerControlled.turn));
       const boost = entity.playerControlled.boost ? POSSESSION_BOOST_MULTIPLIER : 1;
@@ -702,6 +706,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         mover.sprint = undefined;
         velocity.x = 0;
         velocity.z = 0;
+        advanceTacticAfterArrival(sim, entity);
       } else if (finalDist < 18) {
         desiredX = finalDx / finalDist;
         desiredZ = finalDz / finalDist;
@@ -985,7 +990,7 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
   const maxReverse = model.maxReverse * boost;
   const maxStrafe = model.maxStrafe * boost;
   const speed = Math.hypot(velocity.x, velocity.z);
-  const command = entity.playerControlled ? possessedFlightCommand(entity) : aiFlightCommand(entity);
+  const command = entity.playerControlled ? possessedFlightCommand(entity) : aiFlightCommand(sim, entity);
   const yawSpeedT = clamp(speed / maxSpeed, 0, 1);
   const yawRate = lerp(model.yawRateHover, model.yawRateAtSpeed, yawSpeedT);
   let yawApplied = command.turn * yawRate * dt;
@@ -1135,6 +1140,7 @@ function possessedFlightCommand(entity: MovingEntity): FlightCommand {
   mover.sprint = undefined;
   mover.attackTargetId = undefined;
   mover.defenseAlert = undefined;
+  mover.tactic = undefined;
   return {
     throttle: clamp(controlled?.throttle ?? 0, -1, 1),
     turn: clamp(controlled?.turn ?? 0, -1.65, 1.65),
@@ -1144,7 +1150,7 @@ function possessedFlightCommand(entity: MovingEntity): FlightCommand {
   };
 }
 
-function aiFlightCommand(entity: MovingEntity): FlightCommand {
+function aiFlightCommand(sim: GameSim, entity: MovingEntity): FlightCommand {
   const { transform, velocity, mover } = entity;
   const command: FlightCommand = { throttle: 0, turn: 0, strafe: 0, climb: 0 };
   const target = mover.target ?? mover.engage ?? mover.holdPosition;
@@ -1158,6 +1164,7 @@ function aiFlightCommand(entity: MovingEntity): FlightCommand {
         mover.holdPosition = { x: mover.target.x, z: mover.target.z };
         mover.target = undefined;
         mover.sprint = undefined;
+        advanceTacticAfterArrival(sim, entity);
       }
       velocity.x *= 0.9;
       velocity.z *= 0.9;
@@ -1318,6 +1325,16 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.holdPosition ? Math.round(entity.mover.holdPosition.z * 10) : 0);
       mix(entity.mover.attackTargetId ?? 0);
       mix(entity.mover.sprint ? 1 : 0);
+      if (entity.mover.tactic) {
+        mix(entity.mover.tactic.remaining.length);
+        for (const point of entity.mover.tactic.remaining) {
+          mix(Math.round(point.x * 10));
+          mix(Math.round(point.z * 10));
+        }
+        const end = entity.mover.tactic.endAction;
+        mix(end.kind === 'hold' ? 1 : end.kind === 'attack-move' ? 2 : 3);
+        if (end.kind === 'attack') mix(end.targetId);
+      }
     }
     if (entity.weapon) {
       mix(Math.round(entity.weapon.cooldown * 1000));

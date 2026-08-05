@@ -40,6 +40,18 @@ export interface Selectable {
   radius: number;
 }
 
+/** End behavior after a tactic waypoint path is finished. */
+export type TacticEndAction =
+  | { kind: 'hold' }
+  | { kind: 'attack-move' }
+  | { kind: 'attack'; targetId: number };
+
+/** Multi-waypoint path plan; `remaining` are waypoints after the current `target`. */
+export interface TacticPlan {
+  remaining: Array<{ x: number; z: number }>;
+  endAction: TacticEndAction;
+}
+
 export interface Mover {
   speed: number;
   radius: number;
@@ -59,6 +71,8 @@ export interface Mover {
   engage?: { x: number; z: number };
   /** temporary local-base response when a nearby friendly building is hit */
   defenseAlert?: { targetId: number; x: number; z: number; ttl: number };
+  /** queued tactic path; cleared by stop/new orders or when the end action is applied */
+  tactic?: TacticPlan;
 }
 
 export interface Flight {

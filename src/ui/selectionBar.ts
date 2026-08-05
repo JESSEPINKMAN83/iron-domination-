@@ -38,6 +38,7 @@ export class SelectionBar {
       selectEntities: (entities: Entity[]) => void;
       credits: () => number;
       purchaseUpgrade: (ids: number[], upgradeId: UnitUpgradeId) => UpgradePurchaseResult;
+      openTacticPlanner?: (entities: Entity[]) => void;
     },
     private readonly localTeam = 1,
     private readonly camera?: Camera,
@@ -129,6 +130,32 @@ export class SelectionBar {
     for (const group of groups) grid.appendChild(this.groupButton(group, selectedCount));
 
     this.root.append(header, grid);
+    const tacticalUnits = groups
+      .flatMap((group) => group.entities)
+      .filter((entity) => entity.mover && !entity.building && !entity.harvester);
+    if (tacticalUnits.length > 0 && this.actions.openTacticPlanner) {
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;justify-content:flex-end;';
+      const tacticBtn = document.createElement('button');
+      tacticBtn.type = 'button';
+      tacticBtn.textContent = 'Define Tactic';
+      tacticBtn.title = 'Plan a multi-point path for the selected units';
+      tacticBtn.style.cssText =
+        'padding:7px 12px;border:1px solid #d2b15f;border-radius:2px;cursor:pointer;' +
+        'background:linear-gradient(180deg,#4f4728,#1d2018);color:#f0d56a;font:700 11px ui-monospace,Menlo,monospace;' +
+        'letter-spacing:.08em;text-transform:uppercase;';
+      tacticBtn.onpointerdown = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      tacticBtn.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.actions.openTacticPlanner?.(tacticalUnits);
+      };
+      actions.appendChild(tacticBtn);
+      this.root.appendChild(actions);
+    }
   }
 
   private groupButton(group: SelectionGroup, selectedCount: number): HTMLDivElement {

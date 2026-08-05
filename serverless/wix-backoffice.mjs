@@ -67,6 +67,22 @@ function parseMatchMetadata(value) {
   };
 }
 
+function parseTelemetryFeature(value) {
+  if (!value || typeof value !== 'object') return undefined;
+  const endAction = ['hold', 'attack-move', 'attack'].includes(value.endAction) ? value.endAction : undefined;
+  const feature = {
+    unitCount: finiteNumber(value.unitCount, 0, 10_000),
+    selectionCount: finiteNumber(value.selectionCount, 0, 10_000),
+    unitKinds: cleanText(value.unitKinds, 400) || undefined,
+    waypointCount: finiteNumber(value.waypointCount, 0, 64),
+    pathLengthApprox: finiteNumber(value.pathLengthApprox, 0, 1_000_000, 1),
+    endAction,
+    plannerDurationMs: finiteNumber(value.plannerDurationMs, 0, 3_600_000),
+    subsetOfSelection: typeof value.subsetOfSelection === 'boolean' ? value.subsetOfSelection : undefined,
+  };
+  return Object.values(feature).some((entry) => entry !== undefined) ? feature : undefined;
+}
+
 function configuration(env) {
   return {
     apiKey: env.WIX_API_KEY ?? '',
@@ -201,7 +217,17 @@ function parseSubmission(body) {
   }
 
   if (body.kind === 'telemetry') {
-    const event = ['session-start', 'match-start', 'match-end', 'heartbeat'].includes(body.event)
+    const event = [
+      'session-start',
+      'match-start',
+      'match-end',
+      'heartbeat',
+      'tactic-open',
+      'tactic-cancel',
+      'tactic-execute',
+      'tactic-complete',
+      'tactic-interrupted',
+    ].includes(body.event)
       ? body.event
       : '';
     const playerId = cleanText(body.playerId, 64);
@@ -213,6 +239,7 @@ function parseSubmission(body) {
       page: cleanText(body.page, 1000),
       buildVersion: cleanText(body.buildVersion, 80),
       match: parseMatchMetadata(body.match),
+      feature: parseTelemetryFeature(body.feature),
     };
   }
 
