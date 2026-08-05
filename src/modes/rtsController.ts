@@ -45,6 +45,7 @@ export interface OrderFeedback {
   showTargetHover?(target: Entity): void;
   clearTargetHover?(): void;
   tryRally?(x: number, z: number): boolean;
+  selectionChanged?(entities: Entity[]): void;
 }
 
 export interface RtsCommandSink {
@@ -399,7 +400,7 @@ export class RtsController {
         this.pointerDown = undefined;
         this.selectionBox.style.display = 'none';
         if (shouldDeselect) {
-          setSelected(this.sim, [], false, this.localTeam);
+          this.updateSelection([], false);
           this.flashControlGroup('SELECTION CLEARED');
           e.preventDefault();
         }
@@ -438,7 +439,7 @@ export class RtsController {
         const maxX = Math.max(down.x, e.clientX);
         const maxY = Math.max(down.y, e.clientY);
         const hits = this.units.entitiesInScreenRect(this.camera, minX, minY, maxX, maxY, window.innerWidth, window.innerHeight);
-        setSelected(this.sim, hits, e.shiftKey, this.localTeam);
+        this.updateSelection(hits, e.shiftKey);
       } else {
         this.selectClick(e);
       }
@@ -544,14 +545,14 @@ export class RtsController {
   private selectClick(e: PointerEvent): void {
     const hit = this.entityAt(e.clientX, e.clientY);
     if (!hit) {
-      if (!e.shiftKey) setSelected(this.sim, [], false, this.localTeam);
+      if (!e.shiftKey) this.updateSelection([], false);
       return;
     }
     const now = performance.now();
     if (this.lastClick.entity === hit && now - this.lastClick.time < 320 && hit.selectable) {
-      setSelected(this.sim, this.units.visibleOfType(this.camera, hit.selectable.type, window.innerWidth, window.innerHeight), e.shiftKey, this.localTeam);
+      this.updateSelection(this.units.visibleOfType(this.camera, hit.selectable.type, window.innerWidth, window.innerHeight), e.shiftKey);
     } else {
-      setSelected(this.sim, [hit], e.shiftKey, this.localTeam);
+      this.updateSelection([hit], e.shiftKey);
     }
     this.lastClick = { time: now, entity: hit };
   }
@@ -600,7 +601,7 @@ export class RtsController {
     } else {
       const group = this.controlGroups.recall(n, this.sim, this.localTeam);
       if (group !== undefined) {
-        setSelected(this.sim, group, false, this.localTeam);
+        this.updateSelection(group, false);
         this.flashControlGroup(group.length > 0 ? `GROUP ${n} SELECTED  ·  ${group.length} ${group.length === 1 ? 'UNIT' : 'UNITS'}` : `GROUP ${n} EMPTY`);
         e.preventDefault();
         e.stopPropagation();
@@ -613,6 +614,11 @@ export class RtsController {
     const start = this.touchPointerStarts.get(e.pointerId);
     if (!candidate?.pointerIds.has(e.pointerId) || !start) return;
     candidate.maxMovement = Math.max(candidate.maxMovement, Math.hypot(e.clientX - start.x, e.clientY - start.y));
+  }
+
+  private updateSelection(entities: Entity[], additive: boolean): void {
+    setSelected(this.sim, entities, additive, this.localTeam);
+    this.orderFeedback?.selectionChanged?.(selectedEntities(this.sim, this.localTeam));
   }
 
   private flashControlGroup(message: string): void {

@@ -22,6 +22,7 @@ export class AudioDirector {
   private compressor?: DynamicsCompressorNode;
   private voices = 0;
   private muted = false;
+  private activeVoice?: HTMLAudioElement;
   private lastByBucket = new Map<string, number>();
   private readonly noiseBuffers = new Map<number, AudioBuffer>();
 
@@ -48,6 +49,11 @@ export class AudioDirector {
 
   toggleMuted(): boolean {
     this.muted = !this.muted;
+    if (this.muted && this.activeVoice) {
+      this.activeVoice.pause();
+      this.activeVoice.currentTime = 0;
+      this.activeVoice = undefined;
+    }
     if (this.master && this.ctx) {
       this.master.gain.cancelScheduledValues(this.ctx.currentTime);
       this.master.gain.setTargetAtTime(this.muted ? 0 : 0.74, this.ctx.currentTime, 0.04);
@@ -58,6 +64,24 @@ export class AudioDirector {
   setMuted(muted: boolean): void {
     if (this.muted === muted) return;
     this.toggleMuted();
+  }
+
+  playVoice(url: string, volume = 0.58): void {
+    if (this.muted || typeof Audio === 'undefined') return;
+    if (this.activeVoice) {
+      this.activeVoice.pause();
+      this.activeVoice.currentTime = 0;
+    }
+    const voice = new Audio(url);
+    voice.preload = 'auto';
+    voice.volume = clamp(volume, 0, 1);
+    this.activeVoice = voice;
+    const clear = (): void => {
+      if (this.activeVoice === voice) this.activeVoice = undefined;
+    };
+    voice.addEventListener('ended', clear, { once: true });
+    voice.addEventListener('error', clear, { once: true });
+    void voice.play().catch(clear);
   }
 
   playUi(kind: 'select' | 'order' | 'build' | 'cancel' | 'error'): void {
