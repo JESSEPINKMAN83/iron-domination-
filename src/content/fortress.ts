@@ -6,8 +6,9 @@ export type FortressTowerKind = Extract<StructureKind, 'guard-tower' | 'aa-tower
 export const FORTRESS_TOWER_KINDS: readonly FortressTowerKind[] = ['guard-tower', 'aa-tower'];
 
 export const FORTRESS_TOWER = {
-  socketHeight: 25.5,
-  muzzleHeight: 17.2,
+  // Camera sits just above the launcher deck on the redesigned 10.5u towers.
+  socketHeight: 13.2,
+  muzzleHeight: 12.0,
   turretTurnRate: 3.25,
   visionRadius: 260,
   primaryRange: 220,

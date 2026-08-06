@@ -7,7 +7,10 @@ export function createStructureDamage(entity: Entity): StructureDamage {
   const footprint = entity.building?.footprint ?? { w: 4, h: 4 };
   const cols = clamp(Math.round(footprint.w / 2), 3, 4);
   const rows = clamp(Math.round(footprint.h / 2), 3, 4);
-  const tiers = Math.max(2, footprint.w >= 8 || footprint.h >= 8 ? 2 : 2);
+  // Defense towers use 3 visual body tiers (plinth / shaft / head); other
+  // structures keep the classic 2-tier damage grid.
+  const kind = entity.building?.kind;
+  const tiers = kind === 'guard-tower' || kind === 'aa-tower' ? 3 : 2;
   return { cols, rows, tiers, cells: new Uint8Array(cols * rows * tiers), version: 0 };
 }
 
