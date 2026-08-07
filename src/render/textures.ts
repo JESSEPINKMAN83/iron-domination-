@@ -285,15 +285,33 @@ export function createDetailNormalTexture(source: CanvasTexture, strength = 1.8)
 
 export function createOreTexture(): CanvasTexture {
   return makeTexture(256, 404, (ctx, rng, s) => {
-    ctx.fillStyle = '#5d4a33';
+    // darker mineral bed so the amber veins read as glowing seams
+    ctx.fillStyle = '#3a2f22';
     ctx.fillRect(0, 0, s, s);
-    blotches(ctx, rng, s, 34, ['#a2762c', '#8a6526', '#6e5320'], 10, 30, 0.3);
-    speckle(ctx, rng, s, 4000, ['#6b5638', '#54432c', '#7d6440']);
-    // bright crystalline flecks — catch a little bloom
-    for (let i = 0; i < 900; i++) {
+    blotches(ctx, rng, s, 30, ['#4a3a28', '#5d4a33', '#2c241a'], 12, 34, 0.4);
+    speckle(ctx, rng, s, 3200, ['#54432c', '#6b5638', '#3a2f22']);
+    // crystalline veins
+    for (let i = 0; i < 26; i++) {
+      const x = rng() * s;
+      const y = rng() * s;
+      const len = 22 + rng() * 60;
+      const angle = rng() * Math.PI * 2;
+      const grad = ctx.createLinearGradient(x, y, x + Math.cos(angle) * len, y + Math.sin(angle) * len);
+      grad.addColorStop(0, 'rgba(240, 190, 80, 0)');
+      grad.addColorStop(0.5, 'rgba(242, 198, 90, 0.85)');
+      grad.addColorStop(1, 'rgba(240, 190, 80, 0)');
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.2 + rng() * 2.2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
+      ctx.stroke();
+    }
+    // bright flecks
+    for (let i = 0; i < 1100; i++) {
       ctx.fillStyle = rng() > 0.5 ? '#e0a83e' : '#f2c65a';
-      ctx.globalAlpha = 0.35 + rng() * 0.4;
-      const r = 0.5 + rng() * 1.4;
+      ctx.globalAlpha = 0.3 + rng() * 0.5;
+      const r = 0.4 + rng() * 1.3;
       ctx.beginPath();
       ctx.arc(rng() * s, rng() * s, r, 0, Math.PI * 2);
       ctx.fill();

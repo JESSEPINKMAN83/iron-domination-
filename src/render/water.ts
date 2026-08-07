@@ -140,6 +140,15 @@ export class WaterView {
     }
   }
 
+  refreshAtmosphere(sunDirection: Vector3, fog?: Fog): void {
+    this.material.uniforms.uSunDir.value.copy(sunDirection).negate();
+    if (fog) {
+      this.material.uniforms.uFogColor.value.copy(fog.color);
+      this.material.uniforms.uFogNear.value = fog.near;
+      this.material.uniforms.uFogFar.value = fog.far;
+    }
+  }
+
   setDebugOverlay(enabled: boolean): void {
     this.mesh.visible = !enabled;
   }

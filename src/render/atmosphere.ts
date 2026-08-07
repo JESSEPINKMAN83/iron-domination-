@@ -126,6 +126,7 @@ export class BattlefieldAtmosphere {
   readonly lowClouds: CloudClusterLayout[];
   readonly highClouds: CloudClusterLayout[];
 
+  private style: MapAtmosphere;
   private readonly sky: Mesh;
   private readonly haze: Mesh;
   private readonly hazeMaterial: MeshBasicMaterial;
@@ -135,17 +136,23 @@ export class BattlefieldAtmosphere {
   private readonly wrapExtent: number;
   private readonly baseFogColor: Color;
   private readonly cloudFogColor: Color;
-  private readonly baseFogNear: number;
-  private readonly baseFogFar: number;
+  private baseFogNear: number;
+  private baseFogFar: number;
   private lastCloudUpdate = Number.NEGATIVE_INFINITY;
 
   constructor(
     hf: Heightfield,
-    private readonly style: MapAtmosphere,
+    style: MapAtmosphere,
     seed: number,
     sunDirection: Vector3,
     densityScale = 1,
   ) {
+    this.style = {
+      ...style,
+      sunDirection: [...style.sunDirection] as [number, number, number],
+      lowClouds: { ...style.lowClouds },
+      highClouds: { ...style.highClouds },
+    };
     this.wrapExtent = hf.size / 2 + Math.max(style.highClouds.radiusMax, style.lowClouds.radiusMax) * 1.4;
     this.baseFogColor = new Color(style.sky);
     this.cloudFogColor = new Color(style.cloudLight).lerp(new Color(style.cloudShade), 0.42);
@@ -196,6 +203,28 @@ export class BattlefieldAtmosphere {
     this.group.add(this.haze);
 
     this.updateCloudMatrices(0);
+  }
+
+  /** Live-update sky, fog bases, and cloud tint when time/weather changes. */
+  applyLook(style: MapAtmosphere, sunDirection: Vector3): void {
+    this.style = {
+      ...style,
+      sunDirection: [...style.sunDirection] as [number, number, number],
+      lowClouds: { ...style.lowClouds },
+      highClouds: { ...style.highClouds },
+    };
+    this.baseFogColor.set(style.sky);
+    this.cloudFogColor.set(style.cloudLight).lerp(new Color(style.cloudShade), 0.42);
+    this.baseFogNear = style.fogNear;
+    this.baseFogFar = style.fogFar;
+    const skyMaterial = this.sky.material as ShaderMaterial;
+    skyMaterial.uniforms.uZenith.value.set(style.skyZenith);
+    skyMaterial.uniforms.uHorizon.value.set(style.skyHorizon);
+    skyMaterial.uniforms.uSunColor.value.set(style.sunGlow);
+    skyMaterial.uniforms.uSunDirection.value.copy(sunDirection).negate();
+    skyMaterial.uniforms.uSunStrength.value = style.sunStrength;
+    this.tintLayer(this.lowLayer, 1);
+    this.tintLayer(this.highLayer, 0.56);
   }
 
   update(timeSeconds: number, camera: Camera, fog: Fog, immersiveFlight: boolean): void {
@@ -249,6 +278,12 @@ export class BattlefieldAtmosphere {
     mesh.frustumCulled = false;
     mesh.renderOrder = speed > 0.8 ? 3 : 2;
     return { mesh, clusters, puffCount, speed };
+  }
+
+  private tintLayer(layer: CloudLayerView, speedHint: number): void {
+    const colour = new Color(this.style.cloudLight).lerp(new Color(this.style.cloudShade), speedHint > 0.8 ? 0.2 : 0.1);
+    const material = layer.mesh.material;
+    if (material instanceof MeshLambertMaterial) material.color.copy(colour);
   }
 
   private updateCloudMatrices(timeSeconds: number): void {

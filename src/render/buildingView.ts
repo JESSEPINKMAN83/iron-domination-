@@ -63,6 +63,7 @@ export class BuildingView {
   private readonly healthBackMaterial = new MeshBasicMaterial({ color: 0x050806, transparent: true, opacity: 0.84, depthWrite: false, side: DoubleSide });
 
   private readonly accentMaterials: Record<FactionId, Material>;
+  private readonly accentBoostTargets: { material: MeshStandardMaterial; base: number }[] = [];
 
   constructor(
     private readonly sim: GameSim,
@@ -76,6 +77,11 @@ export class BuildingView {
       3: this.createAccentMaterial(ctx, 3),
       4: this.createAccentMaterial(ctx, 4),
     };
+    for (const material of Object.values(this.accentMaterials)) {
+      if (material instanceof MeshStandardMaterial) {
+        this.accentBoostTargets.push({ material, base: material.emissiveIntensity || 1 });
+      }
+    }
     this.scorchMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x313638, roughness: 0.96, metalness: 0.04 }));
     this.crackMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x24282a, roughness: 1, metalness: 0.02 }));
     this.rubbleMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1c1a17, roughness: 1, metalness: 0.04 }));
@@ -101,7 +107,7 @@ export class BuildingView {
     });
     this.materials = {
       'command-yard': ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x5d6670, roughness: 0.8, metalness: 0.1 })),
-      'power-plant': ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x586d7b, roughness: 0.78, metalness: 0.12 })),
+      'power-plant': ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1d2733, roughness: 0.42, metalness: 0.45 })),
       refinery: ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x6c6554, roughness: 0.82, metalness: 0.08 })),
       barracks: ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x59685a, roughness: 0.85, metalness: 0.06 })),
       factory: ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x667077, roughness: 0.76, metalness: 0.14 })),
@@ -111,6 +117,12 @@ export class BuildingView {
       'aa-tower': ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x4b5f6d, roughness: 0.74, metalness: 0.18 })),
     };
     this.ensureGhostCount(1);
+  }
+
+
+  setAccentEmissiveMul(multiplier: number): void {
+    const mul = Math.max(1, multiplier);
+    for (const target of this.accentBoostTargets) target.material.emissiveIntensity = target.base * mul;
   }
 
   private createAccentMaterial(ctx: RenderContext, id: FactionId): Material {
@@ -306,7 +318,11 @@ export class BuildingView {
     // Keep the identity plate on a clear roof edge. The previous central
     // position intersected large roof machinery and could flicker or appear
     // partially hidden at normal RTS camera angles.
-    accent.position.set(0, buildingHeight + 0.16, fullD * 0.4);
+    accent.position.set(
+      0,
+      entity.building?.kind === 'power-plant' ? buildingHeight + 0.42 : buildingHeight + 0.16,
+      entity.building?.kind === 'power-plant' ? fullD * 0.36 : fullD * 0.4,
+    );
     accent.castShadow = true;
     const label = createBuildingLabel(entity.building?.label ?? entity.name ?? 'Building', fullW * 0.5, Math.max(0.5, fullD * 0.12), buildingHeight);
     label.position.copy(accent.position);
@@ -973,8 +989,8 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     // signal, gauge, and façade light that happens to share the base material.
     box(name, 0.34, 0.2, 0.18, x, y, z, signal.clone(), fragility);
 
-  box('foundation', width * 1.06, 0.38, depth * 1.06, 0, 0.18, 0, dark, 10);
-  if (kind !== 'wall') {
+  box('foundation', width * 1.02, 0.28, depth * 1.02, 0, 0.14, 0, dark, 10);
+  if (kind !== 'wall' && kind !== 'power-plant') {
     box('front-armored-skirt', width * 0.9, 0.52, 0.28, 0, 0.48, depth * 0.512, metal, 8);
     box('side-armored-skirt', 0.28, 0.52, depth * 0.9, width * 0.512, 0.48, 0, metal, 8);
     for (const x of [-width * 0.43, width * 0.43]) {
@@ -1018,47 +1034,148 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     activity(radarBar, 'spin-y', 0.72, 1, entity.id * 0.17);
     activity(perimeterLight('command-pulse', 0, height + height * 1.48, -depth * 0.24), 'pulse', 2.4, 1, 0.4);
   } else if (kind === 'power-plant') {
-    frontPanel('power-intake', width * 0.54, height * 0.38, -width * 0.06, height * 0.46, dark, 7);
-    for (const x of [-width * 0.25, -width * 0.08, width * 0.09]) {
+    // 1. Central Arc-Reactor Sphere & Gyroscopic Ring Core (Roof Center)
+    const reactorCore = new Group();
+    reactorCore.name = 'power-arc-reactor';
+    reactorCore.position.set(-width * 0.04, height + height * 0.65, 0);
+
+    // Glowing Plasma Fusion Orb
+    const orbMat = new MeshStandardMaterial({
+      color: 0x00e5ff,
+      emissive: 0x00aaff,
+      emissiveIntensity: 2.4,
+      roughness: 0.2,
+      metalness: 0.1,
+    });
+    const orb = new Mesh(new CylinderGeometry(width * 0.12, width * 0.12, height * 0.35, 18), orbMat);
+    reactorCore.add(orb);
+
+    // Vertical Energy Light Pillar
+    const beamMat = transparentBasic(0x00e5ff, 0.45);
+    const energyBeam = new Mesh(new CylinderGeometry(width * 0.08, width * 0.08, height * 1.8, 16), beamMat);
+    energyBeam.position.y = height * 0.6;
+    reactorCore.add(energyBeam);
+
+    // Outer Gyroscopic Containment Rings
+    const ring1 = new Mesh(new RingGeometry(width * 0.16, width * 0.20, 24), brass);
+    ring1.rotation.x = Math.PI * 0.5;
+    reactorCore.add(ring1);
+
+    const ring2 = new Mesh(new RingGeometry(width * 0.18, width * 0.22, 24), metal);
+    ring2.rotation.y = Math.PI * 0.5;
+    reactorCore.add(ring2);
+
+    add(reactorCore, 3);
+    activity(ring1, 'spin-y', 2.4, 1, 0);
+    activity(ring2, 'spin-z', 1.8, 1, 0.5);
+    activity(orb, 'pulse', 3.2, 0.4, 0);
+
+    // 2. MASSIVE Twin Hyperbolic Cooling Towers (Left & Back)
+    for (const x of [-width * 0.26, width * 0.22]) {
+      const z = -depth * 0.18;
+      // Flared base
+      cyl('cooling-tower-base', width * 0.18, width * 0.24, height * 0.65, x, height + height * 0.32, z, concrete, 5, 24);
+      // Tapered top rim
+      cyl('cooling-tower-top', width * 0.20, width * 0.15, height * 0.65, x, height + height * 0.95, z, concrete, 5, 24);
+      // Heavy Steel Structural Waist & Top Rings
+      cyl('cooling-tower-waist', width * 0.16, width * 0.16, 0.2, x, height + height * 0.65, z, dark, 4, 24);
+      cyl('cooling-tower-top-rim', width * 0.21, width * 0.21, 0.22, x, height + height * 1.27, z, metal, 4, 24);
+      // Glowing Reactor Well Mouth
+      cyl('cooling-tower-plasma', width * 0.17, width * 0.17, 0.16, x, height + height * 1.28, z, hotCore, 4, 20);
+      activity(perimeterLight('tower-beacon-a', x - width * 0.08, height + height * 1.38, z), 'pulse', 4.0, 1, x);
+      activity(perimeterLight('tower-beacon-b', x + width * 0.08, height + height * 1.38, z), 'pulse', 4.0, 1, x + 1);
+    }
+
+    // 3. Four Corner High-Voltage Tesla Energy Pillars
+    const cornerOffsets = [
+      { x: -width * 0.42, z: -depth * 0.42 },
+      { x: width * 0.42, z: -depth * 0.42 },
+      { x: -width * 0.42, z: depth * 0.42 },
+      { x: width * 0.42, z: depth * 0.42 },
+    ];
+    for (let i = 0; i < cornerOffsets.length; i++) {
+      const pos = cornerOffsets[i];
+      cyl('tesla-base', width * 0.08, width * 0.1, 0.4, pos.x, height * 0.2, pos.z, dark, 6, 14);
+      const teslaCore = cyl('tesla-core', width * 0.04, width * 0.04, height * 0.6, pos.x, height * 0.6, pos.z, hotCore, 4, 12);
+      // Induction rings
+      for (const yOff of [-0.2, 0, 0.2]) {
+        const ring = new Mesh(new CylinderGeometry(width * 0.065, width * 0.065, 0.05, 12), brass);
+        ring.position.y = yOff;
+        teslaCore.add(ring);
+      }
+      cyl('tesla-cap', width * 0.09, width * 0.09, 0.16, pos.x, height * 0.95, pos.z, metal, 4, 14);
+      activity(teslaCore, 'pulse', 3.5, 0.6, i * 0.4);
+    }
+
+    // 4. Front Turbine Intake & Glowing Neon Polarity (+ x +) Panels
+    frontPanel('power-intake-housing', width * 0.62, height * 0.46, -width * 0.04, height * 0.44, dark, 7);
+    box('power-intake-header', width * 0.64, height * 0.08, 0.32, -width * 0.04, height * 0.68, depth * 0.52, warning, 6);
+
+    for (const x of [-width * 0.24, -width * 0.04, width * 0.16]) {
       const fan = new Group();
       fan.name = 'power-turbine-intake';
-      fan.position.set(x, height * 0.48, depth * 0.525);
-      const rim = new Mesh(new CylinderGeometry(width * 0.065, width * 0.065, 0.2, 18), metal);
+      fan.position.set(x, height * 0.46, depth * 0.528);
+
+      const rim = new Mesh(new CylinderGeometry(width * 0.085, width * 0.085, 0.2, 18), metal);
       rim.rotation.x = Math.PI / 2;
       fan.add(rim);
+
+      const back = new Mesh(new CircleGeometry(width * 0.08, 16), dark);
+      back.position.z = 0.02;
+      fan.add(back);
+
+      const hub = new Mesh(new CylinderGeometry(width * 0.03, width * 0.03, 0.14, 12), hotCore);
+      hub.rotation.x = Math.PI / 2;
+      hub.position.z = 0.1;
+      fan.add(hub);
+
       const rotor = new Group();
-      rotor.position.z = 0.12;
-      for (let i = 0; i < 4; i++) {
-        const blade = new Mesh(new BoxGeometry(width * 0.055, width * 0.012, 0.08), brass);
-        blade.rotation.z = i * Math.PI * 0.5;
+      rotor.position.z = 0.1;
+      for (let j = 0; j < 4; j++) {
+        const blade = new Mesh(new BoxGeometry(width * 0.07, width * 0.016, 0.06), brass);
+        blade.rotation.z = j * Math.PI * 0.5;
         rotor.add(blade);
       }
       fan.add(rotor);
       add(fan, 5);
-      activity(rotor, 'spin-z', 2.6 + x * 0.02, 1, x);
+      activity(rotor, 'spin-z', 4.0 + x * 0.03, 1, x);
     }
-    for (const x of [-width * 0.22, width * 0.18]) {
-      cyl('cooling-tower', width * 0.09, width * 0.13, height * 0.82, x, height + height * 0.4, -depth * 0.12, concrete, 5, 18);
-      cyl('cooling-tower-mouth', width * 0.11, width * 0.11, 0.16, x, height + height * 0.82, -depth * 0.12, dark, 4, 18);
+
+    // Circular Polarity Panels (+ x +) on Front Base (matching user reference image)
+    const panelY = height * 0.18;
+    const panelZ = depth * 0.528;
+    const panelXs = [-width * 0.24, -width * 0.04, width * 0.16];
+    const isPlus = [true, false, true];
+    for (let i = 0; i < 3; i++) {
+      const px = panelXs[i];
+      const pod = cyl('polarity-pod', width * 0.07, width * 0.07, 0.16, px, panelY, panelZ, dark, 6, 16);
+      pod.rotation.x = Math.PI / 2;
+      const symbolMat = isPlus[i] ? hotCore : warning;
+      const bar1 = new Mesh(new BoxGeometry(width * 0.08, 0.045, width * 0.025), symbolMat);
+      bar1.position.z = 0.09;
+      pod.add(bar1);
+      const bar2 = new Mesh(new BoxGeometry(width * 0.08, 0.045, width * 0.025), symbolMat);
+      bar2.position.z = 0.09;
+      bar2.rotation.z = Math.PI / 2;
+      if (!isPlus[i]) bar2.rotation.z += Math.PI / 4;
+      pod.add(bar2);
     }
-    for (const x of [width * 0.02, width * 0.32]) {
-      cyl('smokestack', width * 0.045, width * 0.055, height * 0.88, x, height + height * 0.44, depth * 0.2, metal, 4, 14);
-      cyl('stack-cap', width * 0.065, width * 0.065, 0.16, x, height + height * 0.9, depth * 0.2, dark, 4, 14);
+
+    // Industrial Exhaust Stacks
+    for (const x of [-width * 0.04, width * 0.32]) {
+      const z = depth * 0.25;
+      cyl('smokestack', width * 0.05, width * 0.06, height * 0.95, x, height + height * 0.48, z, metal, 4, 14);
+      cyl('stack-cap', width * 0.075, width * 0.075, 0.18, x, height + height * 0.98, z, dark, 4, 14);
+      cyl('stack-glow-rim', width * 0.055, width * 0.055, 0.14, x, height + height * 1.0, z, hotCore, 4, 12);
     }
-    box('generator-hall', width * 0.48, height * 0.22, depth * 0.32, -width * 0.04, height + height * 0.11, depth * 0.2, roof, 6);
-    stripe(width * 0.18, depth * 0.08, width * 0.18, depth * 0.03, 4);
-    box('power-bolt-a', width * 0.09, 0.16, depth * 0.34, width * 0.08, height + height * 0.75, 0, warning, 3).rotation.z = -0.45;
-    box('power-bolt-b', width * 0.09, 0.16, depth * 0.34, width * 0.18, height + height * 0.58, 0, warning, 3).rotation.z = 0.45;
-    for (const z of [-depth * 0.26, 0, depth * 0.26]) {
-      const coil = cyl('transformer-coil', width * 0.055, width * 0.055, height * 0.34, width * 0.42, height + height * 0.2, z, hotCore, 4, 12);
-      for (const y of [-height * 0.1, 0, height * 0.1]) {
-        const ring = new Mesh(new CylinderGeometry(width * 0.075, width * 0.075, 0.05, 12), brass);
-        ring.position.y = y;
-        coil.add(ring);
-      }
-      activity(coil, 'pulse', 2.8, 0.9, z);
-    }
-    box('power-bus-duct', width * 0.12, height * 0.18, depth * 0.74, width * 0.36, height + height * 0.12, 0, metal, 6);
+
+    // Generator Hall Main Body
+    box('generator-hall', width * 0.54, height * 0.28, depth * 0.34, -width * 0.04, height + height * 0.14, depth * 0.12, roof, 6);
+    ventBank('generator-hall', 5, -width * 0.04, height + height * 0.18, depth * 0.3, true);
+    stripe(width * 0.26, depth * 0.08, width * 0.16, depth * 0.03, 4);
+
+    // Power Bus Duct & High-Voltage Conduits
+    box('power-bus-duct', width * 0.14, height * 0.22, depth * 0.82, width * 0.36, height + height * 0.14, 0, metal, 6);
   } else if (kind === 'refinery') {
     frontPanel('refinery-processor-face', width * 0.48, height * 0.42, -width * 0.1, height * 0.45, roof, 7);
     for (const x of [-width * 0.26, -width * 0.1, width * 0.06]) {
@@ -1322,9 +1439,10 @@ function syncDetailPartBases(parts: DetailPart[]): void {
 
 function updateBuildingActivity(root: Group, tick: number, entityId: number, active: boolean): void {
   const parts = (root.userData.activityParts ?? []) as BuildingActivityPart[];
-  const seconds = tick / 30;
+  const simSeconds = tick / 30;
+  const realSeconds = typeof performance !== 'undefined' ? performance.now() * 0.001 : simSeconds;
   for (const part of parts) {
-    const wave = Math.sin(seconds * part.speed + part.phase + entityId * 0.13);
+    const wave = Math.sin(simSeconds * part.speed + part.phase + entityId * 0.13);
     if (part.kind === 'pulse') {
       part.object.traverse((child) => {
         if (!(child instanceof Mesh)) return;
@@ -1340,8 +1458,8 @@ function updateBuildingActivity(root: Group, tick: number, entityId: number, act
       continue;
     }
     if (!active) continue;
-    if (part.kind === 'spin-y') part.object.rotation.y = part.baseRy + seconds * part.speed;
-    else if (part.kind === 'spin-z') part.object.rotation.z = part.baseRz + seconds * part.speed;
+    if (part.kind === 'spin-y') part.object.rotation.y = part.baseRy + realSeconds * part.speed;
+    else if (part.kind === 'spin-z') part.object.rotation.z = part.baseRz + realSeconds * part.speed;
     else if (part.kind === 'slide-x') part.object.position.x = part.baseX + wave * part.amplitude;
     else if (part.kind === 'rock-z') part.object.rotation.z = part.baseRz + wave * part.amplitude;
   }
