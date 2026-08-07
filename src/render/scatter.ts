@@ -3,15 +3,19 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  CanvasTexture,
+  CircleGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
+  DoubleSide,
   Euler,
   Group,
   IcosahedronGeometry,
   InstancedMesh,
   Material,
   Matrix4,
+  MeshBasicMaterial,
   Quaternion,
   Vector3,
 } from 'three';
@@ -19,6 +23,25 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32 } from '../sim/noise';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { InstancedMeshRegistry, InstanceTransform } from './instancing';
+import type { MacroTintMap } from './textures';
+
+const MAX_GROUND_TUFTS = 6000;
+const BUILDING_CONTACT_RESERVE = 512;
+
+interface ScatterOptions {
+  macroTint?: MacroTintMap;
+  groundRealism?: boolean;
+  enableGroundClutter?: boolean;
+}
+
+interface ContactEntity {
+  destroyed?: unknown;
+  building?: unknown;
+  transform: { x: number; z: number };
+  collider?: { radius: number };
+}
+
+interface ContactTransform { x: number; y: number; z: number; radius: number }
 
 function paint(geom: BufferGeometry, color: Color): BufferGeometry {
   const out = geom.index ? geom.toNonIndexed() : geom;
@@ -103,6 +126,52 @@ export class ScatterView {
   private readonly scale = new Vector3();
   private readonly crushedColor = new Color('#3b3026');
   private readonly gridSize = 9;
+  private grassMesh?: InstancedMesh;
+  private grassMaterial?: Material;
+  private grassFullCount = 0;
+  private contactMesh?: InstancedMesh;
+  private contactStaticCount = 0;
+  private contactCapacity = 0;
+
+  setGroundClutter(mesh: InstancedMesh, material: Material): void {
+    this.grassMesh = mesh;
+    this.grassMaterial = material;
+    this.grassFullCount = mesh.count;
+  }
+
+  setContactLayer(mesh: InstancedMesh, staticCount: number, capacity: number): void {
+    this.contactMesh = mesh;
+    this.contactStaticCount = staticCount;
+    this.contactCapacity = capacity;
+    this.group.add(mesh);
+  }
+
+  updateGroundEffects(timeSeconds: number, qualityTier: number): void {
+    const uniforms = this.grassMaterial?.userData.groundUniforms as { time: { value: number } } | undefined;
+    if (uniforms) uniforms.time.value = timeSeconds;
+    if (this.grassMesh) {
+      this.grassMesh.visible = qualityTier < 2;
+      this.grassMesh.count = qualityTier === 1 ? Math.ceil(this.grassFullCount * 0.55) : this.grassFullCount;
+    }
+    if (this.contactMesh) this.contactMesh.visible = qualityTier < 2;
+  }
+
+  syncBuildingContacts(entities: Iterable<ContactEntity>, hf: Heightfield): void {
+    const mesh = this.contactMesh;
+    if (!mesh) return;
+    let index = this.contactStaticCount;
+    this.quat.identity();
+    for (const entity of entities) {
+      if (!entity.building || entity.destroyed || index >= this.contactCapacity) continue;
+      const radius = Math.min(5.5, Math.max(1.4, (entity.collider?.radius ?? 2.4) * 0.5));
+      this.pos.set(entity.transform.x, sampleHeight(hf, entity.transform.x, entity.transform.z) + 0.08, entity.transform.z);
+      this.scale.set(radius, radius, radius);
+      this.matrix.compose(this.pos, this.quat, this.scale);
+      mesh.setMatrixAt(index++, this.matrix);
+    }
+    mesh.count = index;
+    mesh.instanceMatrix.needsUpdate = true;
+  }
 
   addMesh(mesh: InstancedMesh): void {
     this.group.add(mesh);
@@ -162,6 +231,7 @@ export function buildScatter(
   registry: InstancedMeshRegistry,
   material: Material,
   seed: number,
+  options: ScatterOptions = {},
 ): ScatterView {
   const rng = mulberry32(seed);
   const kind = hf.kind;
@@ -175,6 +245,7 @@ export function buildScatter(
   ];
 
   const view = new ScatterView();
+  const contactTransforms: ContactTransform[] = [];
   const bound = hf.size / 2 - 12;
   for (const def of defs) {
     const list: InstanceTransform[] = [];
@@ -206,6 +277,7 @@ export function buildScatter(
         scale: def.scaleMin + rng() * (def.scaleMax - def.scaleMin),
         tint,
       });
+      contactTransforms.push({ x, y: h + 0.07, z, radius: def.isTree ? 0.62 : 0.48 });
     }
     const mesh = registry.register(def.name, def.geometry, material, list);
     view.addMesh(mesh);
@@ -224,5 +296,155 @@ export function buildScatter(
       });
     }
   }
+  const groundRealism = options.groundRealism !== false;
+  if (groundRealism && options.enableGroundClutter !== false) {
+    // Keep this tiny alpha-cutout layer out of CSM: cascaded shadow patching
+    // makes sub-pixel blades turn into dark specks at strategy-view distance.
+    const grassMaterial = createGrassTuftMaterial(kind);
+    const tufts = createGroundTufts(hf, seed ^ 0x47524153, options.macroTint);
+    const grassMesh = registry.register('ground-tufts', createGrassTuftGeometry(), grassMaterial, tufts);
+    grassMesh.castShadow = false;
+    grassMesh.receiveShadow = false;
+    grassMesh.frustumCulled = false;
+    view.addMesh(grassMesh);
+    view.setGroundClutter(grassMesh, grassMaterial);
+  }
+  if (groundRealism) {
+    const contactCapacity = contactTransforms.length + BUILDING_CONTACT_RESERVE;
+    const contactMesh = createContactLayer(contactCapacity, contactTransforms);
+    view.setContactLayer(contactMesh, contactTransforms.length, contactCapacity);
+  }
   return view;
+}
+
+export function groundClutterTargetCount(hf: Heightfield): number {
+  return Math.min(MAX_GROUND_TUFTS, Math.floor((hf.size * hf.size) / 25));
+}
+
+function createGroundTufts(hf: Heightfield, seed: number, macro?: MacroTintMap): InstanceTransform[] {
+  const rng = mulberry32(seed);
+  const target = groundClutterTargetCount(hf);
+  const result: InstanceTransform[] = [];
+  const bound = hf.size / 2 - 10;
+  let guard = 0;
+  while (result.length < target && guard++ < target * 35) {
+    const x = (rng() * 2 - 1) * bound;
+    const z = (rng() * 2 - 1) * bound;
+    const h = sampleHeight(hf, x, z);
+    if (h < hf.waterLevel + 0.65 || splatWeightAt(hf, x, z, 0) < 0.48) continue;
+    const slope = Math.max(
+      Math.abs(sampleHeight(hf, x + 0.9, z) - sampleHeight(hf, x - 0.9, z)),
+      Math.abs(sampleHeight(hf, x, z + 0.9) - sampleHeight(hf, x, z - 0.9)),
+    ) / 1.8;
+    if (slope > 0.55) continue;
+    const macroColor = sampleMacroTint(macro, x, z);
+    const base = hf.kind === 'crater-oasis' ? new Color('#c0a465') : hf.kind === 'frostbite-pass' ? new Color('#d2dfdc') : new Color('#78975b');
+    base.multiply(macroColor).multiplyScalar(0.86 + rng() * 0.24);
+    result.push({ x, y: h + 0.02, z, rotY: rng() * Math.PI * 2, scale: 0.82 + rng() * 0.72, tint: base });
+  }
+  return result;
+}
+
+function splatWeightAt(hf: Heightfield, x: number, z: number, channel: number): number {
+  const gx = Math.max(0, Math.min(hf.samples - 1, Math.round((x / hf.size + 0.5) * (hf.samples - 1))));
+  const gz = Math.max(0, Math.min(hf.samples - 1, Math.round((z / hf.size + 0.5) * (hf.samples - 1))));
+  return hf.splat[(gz * hf.samples + gx) * 4 + channel] / 255;
+}
+
+function sampleMacroTint(macro: MacroTintMap | undefined, x: number, z: number): Color {
+  if (!macro) return new Color(1, 1, 1);
+  const px = Math.max(0, Math.min(macro.size - 1, Math.round((x / macro.worldSize + 0.5) * (macro.size - 1))));
+  const py = Math.max(0, Math.min(macro.size - 1, Math.round((z / macro.worldSize + 0.5) * (macro.size - 1))));
+  const i = (py * macro.size + px) * 4;
+  return new Color(
+    0.68 + (macro.data[i] / 255) * 0.64,
+    0.68 + (macro.data[i + 1] / 255) * 0.64,
+    0.68 + (macro.data[i + 2] / 255) * 0.64,
+  );
+}
+
+function createGrassTuftGeometry(): BufferGeometry {
+  const positions: number[] = [];
+  const clusters = [[0, 0], [0.34, 0.18], [-0.27, 0.28]] as const;
+  for (let cluster = 0; cluster < clusters.length; cluster++) {
+    const [cx, cz] = clusters[cluster];
+    for (let blade = 0; blade < 7; blade++) {
+      const angle = (blade / 7) * Math.PI + cluster * 0.47;
+      const dx = Math.cos(angle) * 0.13;
+      const dz = Math.sin(angle) * 0.13;
+      const leanX = Math.cos(angle + 0.8) * (0.05 + (blade % 2) * 0.025);
+      const leanZ = Math.sin(angle + 0.8) * (0.05 + (blade % 2) * 0.025);
+      const height = 0.54 + ((blade + cluster) % 3) * 0.12;
+      positions.push(cx - dx, 0, cz - dz, cx + dx, 0, cz + dz, cx + leanX, height, cz + leanZ);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function createGrassTuftMaterial(_kind: Heightfield['kind']): MeshBasicMaterial {
+  // The terrain and contact layer provide the lighting cue. Keeping tiny
+  // blades unlit preserves their biome tint instead of turning side-facing
+  // triangles into black specks at normal RTS camera angles.
+  const material = new MeshBasicMaterial({ color: 0xffffff, side: DoubleSide, toneMapped: true });
+  const previousCompile = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile?.call(material, shader, renderer);
+    shader.uniforms.uGroundTime = { value: 0 };
+    material.userData.groundUniforms = { time: shader.uniforms.uGroundTime };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uGroundTime;\nvarying float vGroundFade;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec3 tuftCenter = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          float tuftPhase = instanceMatrix[3].x * 0.071 + instanceMatrix[3].z * 0.053;
+          transformed.x += sin(uGroundTime * 1.35 + tuftPhase) * position.y * 0.055;
+          vGroundFade = 1.0 - smoothstep(72.0, 155.0, distance(cameraPosition, tuftCenter));
+        #else
+          vGroundFade = 1.0;
+        #endif`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vGroundFade;')
+      .replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
+        float groundDither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        if (groundDither > vGroundFade) discard;`);
+  };
+  material.customProgramCacheKey = () => 'ground-tufts-v1';
+  return material;
+}
+
+function createContactLayer(capacity: number, contacts: ContactTransform[]): InstancedMesh {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2d canvas context unavailable');
+  const gradient = ctx.createRadialGradient(32, 32, 2, 32, 32, 31);
+  gradient.addColorStop(0, 'rgba(0,0,0,0.72)');
+  gradient.addColorStop(0.48, 'rgba(0,0,0,0.28)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 64, 64);
+  const map = new CanvasTexture(canvas);
+  const material = new MeshBasicMaterial({ map, transparent: true, opacity: 0.16, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, toneMapped: false });
+  const geometry = new CircleGeometry(1, 20).rotateX(-Math.PI / 2);
+  const mesh = new InstancedMesh(geometry, material, capacity);
+  const matrix = new Matrix4();
+  const position = new Vector3();
+  const scale = new Vector3();
+  const quaternion = new Quaternion();
+  for (let i = 0; i < contacts.length; i++) {
+    const contact = contacts[i];
+    position.set(contact.x, contact.y, contact.z);
+    scale.set(contact.radius, contact.radius, contact.radius);
+    matrix.compose(position, quaternion, scale);
+    mesh.setMatrixAt(i, matrix);
+  }
+  mesh.count = contacts.length;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 2;
+  return mesh;
 }

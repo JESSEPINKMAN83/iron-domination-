@@ -19,7 +19,16 @@ import {
 } from 'three';
 import type { CSM } from 'three/addons/csm/CSM.js';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
-import { createDirtTexture, createGrassTexture, createOreTexture, createRockTexture, type TerrainTextureStyle } from './textures';
+import {
+  createDetailNormalTexture,
+  createDirtTexture,
+  createGrassTexture,
+  createMacroTintMap,
+  createOreTexture,
+  createRockTexture,
+  type MacroTintMap,
+  type TerrainTextureStyle,
+} from './textures';
 import type { ResourceNode } from '../sim/world';
 
 const CHUNKS = 4;
@@ -100,14 +109,16 @@ function buildChunkGeometry(hf: Heightfield, startX: number, startY: number, chu
 
 export class TerrainView {
   readonly group = new Group();
+  readonly macroTint: MacroTintMap;
   /** shared with overlays that drape data over the terrain (walkability, fog) */
   readonly chunkGeometries: BufferGeometry[] = [];
   private readonly overlayGroup = new Group();
   private readonly oreGlowGroup = new Group();
   private readonly oreGlows: OreGlow[] = [];
 
-  constructor(hf: Heightfield, csm: CSM | undefined, maxAnisotropy: number) {
-    const material = createSplatMaterial(hf, csm, maxAnisotropy);
+  constructor(hf: Heightfield, csm: CSM | undefined, maxAnisotropy: number, seed: number, groundRealism = true) {
+    this.macroTint = createMacroTintMap(hf, seed);
+    const material = createSplatMaterial(hf, csm, maxAnisotropy, this.macroTint, groundRealism);
     const overlayMaterial = createWalkOverlayMaterial(hf);
 
     const chunkCells = hf.cells / CHUNKS;
@@ -381,14 +392,21 @@ function hashAngle(x: number, z: number): number {
   return (n - Math.floor(n)) * Math.PI * 2;
 }
 
-function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotropy: number): MeshStandardMaterial {
+function createSplatMaterial(
+  hf: Heightfield,
+  csm: CSM | undefined,
+  maxAnisotropy: number,
+  macroTint: MacroTintMap,
+  groundRealism: boolean,
+): MeshStandardMaterial {
   const style = terrainTextureStyle(hf);
   const grass = createGrassTexture(style);
   const dirt = createDirtTexture(style);
   const rock = createRockTexture(style);
   const ore = createOreTexture();
+  const detailNormal = createDetailNormalTexture(grass);
   const aniso = Math.min(8, maxAnisotropy);
-  for (const t of [grass, dirt, rock, ore]) t.anisotropy = aniso;
+  for (const t of [grass, dirt, rock, ore, detailNormal]) t.anisotropy = aniso;
 
   const splatTex = new DataTexture(new Uint8Array(hf.splat), hf.samples, hf.samples, RGBAFormat);
   splatTex.minFilter = LinearFilter;
@@ -402,6 +420,13 @@ function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotrop
   csm?.setupMaterial(material);
   const csmCompile = material.onBeforeCompile;
   const tiling = hf.size / 9; // one detail tile every 9 m
+  if (groundRealism) {
+    material.normalMap = detailNormal;
+    material.normalScale.set(0.52, 0.52);
+    detailNormal.repeat.set(tiling, tiling);
+    detailNormal.updateMatrix();
+  }
+  material.customProgramCacheKey = () => `terrain-ground-realism-${groundRealism ? 1 : 0}`;
 
   material.onBeforeCompile = (shader, renderer) => {
     csmCompile?.call(material, shader, renderer);
@@ -410,6 +435,7 @@ function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotrop
     shader.uniforms.uDirt = { value: dirt };
     shader.uniforms.uRock = { value: rock };
     shader.uniforms.uOre = { value: ore };
+    shader.uniforms.uMacroTint = { value: macroTint.texture };
     shader.uniforms.uTiling = { value: tiling };
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -420,6 +446,7 @@ function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotrop
         uniform sampler2D uDirt;
         uniform sampler2D uRock;
         uniform sampler2D uOre;
+        uniform sampler2D uMacroTint;
         uniform float uTiling;`,
       )
       .replace(
@@ -428,11 +455,15 @@ function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotrop
           vec4 splatW = texture2D(uSplat, vUv);
           splatW /= max(splatW.r + splatW.g + splatW.b + splatW.a, 1e-4);
           vec2 tUv = vUv * uTiling;
-          vec3 splatCol =
-            splatW.r * texture2D(uGrass, tUv).rgb +
-            splatW.g * texture2D(uDirt, tUv).rgb +
-            splatW.b * texture2D(uRock, tUv).rgb +
-            splatW.a * texture2D(uOre, tUv).rgb;
+          vec2 rotatedUv = mat2(0.819152, -0.573576, 0.573576, 0.819152) * tUv * 0.371 + vec2(17.13, 41.79);
+          vec3 splatCol = vec3(0.0);
+          if (splatW.r > 0.015) splatCol += splatW.r * mix(texture2D(uGrass, tUv).rgb, texture2D(uGrass, rotatedUv).rgb, ${groundRealism ? '0.45' : '0.0'});
+          if (splatW.g > 0.015) splatCol += splatW.g * mix(texture2D(uDirt, tUv).rgb, texture2D(uDirt, rotatedUv).rgb, ${groundRealism ? '0.45' : '0.0'});
+          if (splatW.b > 0.015) splatCol += splatW.b * mix(texture2D(uRock, tUv).rgb, texture2D(uRock, rotatedUv).rgb, ${groundRealism ? '0.45' : '0.0'});
+          if (splatW.a > 0.015) splatCol += splatW.a * texture2D(uOre, tUv).rgb;
+          vec3 macroTint = mix(vec3(0.68), vec3(1.32), texture2D(uMacroTint, vUv).rgb);
+          macroTint = clamp(vec3(1.0) + (macroTint - vec3(1.0)) * 2.35, vec3(0.58), vec3(1.42));
+          splatCol *= ${groundRealism ? 'macroTint' : 'vec3(1.0)'};
           diffuseColor.rgb *= splatCol;
         }`,
       );

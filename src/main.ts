@@ -71,6 +71,7 @@ import { BuildingView } from './render/buildingView';
 import { CombatView } from './render/combatView';
 import { EconomyFxView } from './render/economyFxView';
 import { FogView } from './render/fogView';
+import { GroundTrailView } from './render/groundTrailView';
 import { InstancedMeshRegistry } from './render/instancing';
 import { OrderMarkerView } from './render/orderMarkerView';
 import { applyMultiplayerFactionColors } from './render/palette';
@@ -2263,6 +2264,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   console.info(`[map] ${selectedMap.label} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${hf.oreFields.length} ore fields · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
 
   const params = new URLSearchParams(location.search);
+  const groundRealism = params.get('ground-realism') !== '0';
   const mobileTouch = isMobileTouchDevice();
   const requestedQuality = params.get('quality');
   const initialQualityTier = qualityTierFromQuery(requestedQuality) ?? (mobileTouch ? 0 as const : undefined);
@@ -2290,7 +2292,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const assets = new AssetPipeline(ctx.renderer);
   void assets;
 
-  const terrain = new TerrainView(hf, ctx.csm, ctx.maxAnisotropy);
+  const terrain = new TerrainView(hf, ctx.csm, ctx.maxAnisotropy, settings.seed, groundRealism);
   ctx.scene.add(terrain.group);
 
   const water = new WaterView(hf, ctx.sunDirection, ctx.scene.fog as Fog, {
@@ -2303,7 +2305,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const scatterMaterial = ctx.setupLitMaterial(
     new MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, flatShading: true }),
   );
-  const scatter = buildScatter(hf, registry, scatterMaterial, settings.seed ^ 0x5eed);
+  const scatter = buildScatter(hf, registry, scatterMaterial, settings.seed ^ 0x5eed, {
+    macroTint: terrain.macroTint,
+    groundRealism,
+    enableGroundClutter: !mobileTouch,
+  });
   ctx.scene.add(scatter.group);
   const snowfall = settings.mapId === 'frostbite-pass' ? new SnowfallView(hf, settings.seed) : undefined;
   if (snowfall) ctx.scene.add(snowfall.points);
@@ -2495,8 +2501,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const unitView = new UnitView([...lineupUnits, ...startingUnits], hf, ctx, isVisibleToPlayer, localTeam);
   unitView.attach(ctx.scene);
+  const groundTrails = mobileTouch || !groundRealism ? undefined : new GroundTrailView(hf, isVisibleToPlayer);
+  if (groundTrails) ctx.scene.add(groundTrails.mesh);
   const buildingView = new BuildingView(sim, hf, ctx, isVisibleToPlayer);
   ctx.scene.add(buildingView.group);
+  scatter.syncBuildingContacts(sim.world.entities, hf);
   const combatView = new CombatView(hf, isVisibleToPlayer, (id) => sim.byId.get(id), localTeam);
   ctx.scene.add(combatView.group);
   const economyFx = new EconomyFxView(sim, hf, isVisibleToPlayer);
@@ -3046,6 +3055,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let simHz = SIM_HZ;
   let lastSimSample = performance.now();
   let lastUiRefreshTick = -999;
+  let lastContactVisualTick = sim.tick;
   let renderFrame = 0;
   let deferredEffectDt = 0;
   const fallbackMatchId = `${multiplayerMode ? `mp-${multiplayer!.session.room.code}` : 'sp'}-${crypto.randomUUID()}`;
@@ -3140,6 +3150,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           if (entity.selectable?.type === 'tank' && !entity.destroyed) scatter.crushNear(entity.transform.x, entity.transform.z, 3.6);
         }
       }
+      groundTrails?.sample(sim.world.entities, sim.tick / SIM_HZ, ctx.visualQuality);
       if (sim.tick - lastFogTextureTick >= 4) {
         lastFogTextureTick = sim.tick;
         fogView.refresh();
@@ -3256,6 +3267,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       ctx.setFastMotionMode((multiplayerMode || mobileTouch) && firstPerson.flying);
       unitView.setVisualQuality(ctx.visualQuality);
       combatView.setVisualQuality(ctx.visualQuality);
+      scatter.updateGroundEffects(time, ctx.visualQuality);
+      groundTrails?.update(sim.tick / SIM_HZ + alpha / SIM_HZ, ctx.visualQuality);
       if (firstPerson.active) firstPerson.update(dt, alpha);
       else {
         rig.setGrabSuppressed(controller.isRightOrderGestureActive());
@@ -3273,6 +3286,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.update();
         sidebar.update();
         durabilityPanel?.update();
+      }
+      if (sim.tick - lastContactVisualTick >= 30) {
+        lastContactVisualTick = sim.tick;
+        scatter.syncBuildingContacts(sim.world.entities, hf);
       }
       if (tacticPlanner.isOpen) tacticPlanner.update();
       mobileControls?.update({
