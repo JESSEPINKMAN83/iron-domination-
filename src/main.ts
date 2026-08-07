@@ -622,6 +622,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     context.className = 'war-context';
     const configModeNote = document.createElement('div');
     configModeNote.className = 'war-config__mode-note';
+    configModeNote.hidden = true;
     config.appendChild(configModeNote);
 
     let refresh = (): void => {};
@@ -700,10 +701,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     oreAmountInput.value = String(sanitizeOreAmount(defaults.oreAmount) ?? DEFAULT_ORE_AMOUNT);
     oreAmountInput.setAttribute('aria-label', 'Ore amount');
     oreAmountInput.oninput = () => refresh();
-    const oreScale = document.createElement('span');
-    oreScale.className = 'war-ore-control__scale';
-    oreScale.innerHTML = '<span>SPARSE</span><span>STANDARD</span><span>MAXIMUM</span>';
-    oreControl.append(oreHeader, oreAmountInput, oreScale);
+    oreControl.append(oreHeader, oreAmountInput);
     const reliefControl = document.createElement('label');
     reliefControl.className = 'war-ore-control war-relief-control';
     const reliefHeader = document.createElement('span');
@@ -723,36 +721,32 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       reliefCustomized = true;
       refresh();
     };
-    const reliefScale = document.createElement('span');
-    reliefScale.className = 'war-ore-control__scale';
-    reliefScale.innerHTML = '<span>GENTLE</span><span>TACTICAL</span><span>EXTREME</span>';
-    reliefControl.append(reliefHeader, terrainReliefInput, reliefScale);
-    const seedCaption = document.createElement('p');
-    seedCaption.className = 'war-field-note';
-    seedCaption.textContent = 'Terrain relief controls the height of ridges and depth of valleys. Desert defaults to deep canyon terrain.';
-    battlefieldControls.append(mapSettings, seedRow, oreControl, reliefControl, seedCaption);
+    reliefControl.append(reliefHeader, terrainReliefInput);
+    // Second config row: seed, ore and relief spread horizontally above the map.
+    const terrainRow = document.createElement('div');
+    terrainRow.className = 'war-terrain-row';
+    terrainRow.append(seedRow, oreControl, reliefControl);
+    battlefieldControls.append(mapSettings, terrainRow);
     const battlefield = document.createElement('div');
     battlefield.className = 'war-battlefield';
-    battlefield.append(mapPreview, battlefieldControls);
-    const battlefieldSection = createSetupSection('01', 'BATTLEFIELD', 'Select the terrain and scale of the operation.', battlefield);
+    battlefield.append(battlefieldControls, mapPreview);
+    const battlefieldSection = createSetupSection('01', 'BATTLEFIELD', '', battlefield);
     battlefieldSection.classList.add('war-section--battlefield');
     config.append(battlefieldSection);
 
     const rules = document.createElement('div');
     rules.className = 'war-rules-grid';
     rules.append(difficulty.root, commander.root, combatMode.root);
-    const rulesSection = createSetupSection('02', 'BATTLE RULES', 'Set enemy pressure and how directly you control combat.', rules);
+    const rulesSection = createSetupSection('02', 'BATTLE RULES', '', rules);
     rulesSection.classList.add('war-section--rules');
-    config.append(rulesSection);
 
     const forcesSection = createSetupSection(
       '03',
       'FORCES & ALLIANCES',
-      'Choose how many armies enter the battle and place allied armies on the same side.',
+      '',
       armies.root,
     );
     forcesSection.classList.add('war-section--forces');
-    config.append(forcesSection);
 
     let multiplayerClient: MultiplayerClient | undefined;
     let multiplayerSession: MultiplayerSession | undefined;
@@ -803,9 +797,6 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       oreAmountInput.disabled = guestLocked;
       terrainReliefInput.disabled = guestLocked;
       config.classList.toggle('is-locked', guestLocked);
-      seedCaption.textContent = guestLocked
-        ? 'Match settings are controlled by the host and synchronized for both players.'
-        : 'Your map, seed and rules are synchronized to the guest before the match starts.';
       refresh();
       applyingRoomSettings = false;
     };
@@ -856,7 +847,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     const brief = document.createElement('div');
     brief.className = 'war-brief';
     brief.append(summaryGrid, history, controlsHeading, controls);
-    const briefSection = createSetupSection('04', 'OPERATION BRIEF', 'Review the active battlefield settings and field controls.', brief);
+    const briefSection = createSetupSection('04', 'OPERATION BRIEF', '', brief);
     briefSection.classList.add('war-section--brief');
     config.append(briefSection);
 
@@ -906,10 +897,12 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
         oreAmountInput.disabled = false;
         terrainReliefInput.disabled = false;
         config.classList.remove('is-locked');
-        seedCaption.textContent = 'Terrain relief controls the height of ridges and depth of valleys. Desert defaults to deep canyon terrain.';
       },
     );
     syncMultiplayerSettings = () => multiplayer.syncHostSettings();
+    // Only battle rules + forces live in the command column; seed/ore/relief
+    // sit above the map in the main column.
+    multiplayer.setConfigControls([rulesSection, forcesSection]);
     context.appendChild(multiplayer.root);
 
     refresh = (): void => {
@@ -918,9 +911,9 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       const oreAmount = sanitizeOreAmount(oreAmountInput.value) ?? DEFAULT_ORE_AMOUNT;
       const terrainRelief = sanitizeTerrainRelief(terrainReliefInput.value) ?? defaultTerrainRelief(map.id);
       const fields = oreFieldCount(map.id, mapSizeChoice.value(), oreAmount);
-      oreOutput.textContent = `${oreAmountLabel(oreAmount)} · ${fields} FIELDS · ${oreAmount}%`;
+      oreOutput.textContent = `${oreAmount}%`;
       oreAmountInput.setAttribute('aria-valuetext', `${oreAmountLabel(oreAmount)}, ${fields} ore fields, ${oreAmount} percent`);
-      reliefOutput.textContent = `${terrainReliefLabel(terrainRelief)} · ${terrainRelief}%`;
+      reliefOutput.textContent = `${terrainRelief}%`;
       terrainReliefInput.setAttribute('aria-valuetext', `${terrainReliefLabel(terrainRelief)}, ${terrainRelief} percent terrain relief`);
       renderLobbyMapPreview(
         mapPreview,
@@ -1029,13 +1022,20 @@ function createSegmentedControl<T extends string>(
   const root = document.createElement('div');
   root.className = 'war-field';
   const title = document.createElement('div');
-  title.textContent = label.toUpperCase();
   title.className = 'war-field__label';
+  const titleText = document.createElement('span');
+  titleText.textContent = label.toUpperCase();
+  const info = document.createElement('span');
+  info.className = 'war-field__info';
+  info.textContent = 'i';
+  info.setAttribute('role', 'tooltip');
+  const infoText = document.createElement('span');
+  infoText.className = 'war-field__info-text';
+  info.appendChild(infoText);
+  title.append(titleText, info);
   const buttons = document.createElement('div');
   buttons.className = 'war-choice-group';
   buttons.style.setProperty('--option-count', String(values.length));
-  const description = document.createElement('div');
-  description.className = 'war-field__description';
   const render = (): void => {
     for (const button of Array.from(buttons.children) as HTMLButtonElement[]) {
       const active = button.dataset.value === current;
@@ -1043,7 +1043,7 @@ function createSegmentedControl<T extends string>(
       button.setAttribute('aria-pressed', String(active));
       button.disabled = disabled;
     }
-    description.textContent = descriptions[current];
+    infoText.textContent = descriptions[current];
   };
   for (const value of values) {
     const button = document.createElement('button');
@@ -1059,7 +1059,7 @@ function createSegmentedControl<T extends string>(
     };
     buttons.appendChild(button);
   }
-  root.append(title, buttons, description);
+  root.append(title, buttons);
   render();
   return {
     root,
@@ -1218,10 +1218,15 @@ function createMultiplayerSetupPanel(
   root: HTMLDivElement;
   setMode: (mode: 'host' | 'join') => void;
   setMobileSummary: (summary: string) => void;
+  setConfigControls: (controls: HTMLElement[]) => void;
   syncHostSettings: () => void;
 } {
   const root = document.createElement('div');
   root.className = 'war-operation';
+
+  // Scrollable config region (sliders etc.) above the pinned action bar.
+  const configSlot = document.createElement('div');
+  configSlot.className = 'war-operation__config';
 
   const hostEntry = document.createElement('div');
   hostEntry.className = 'war-operation__entry';
@@ -1231,9 +1236,7 @@ function createMultiplayerSetupPanel(
     '<p>Launch an instant skirmish against AI, or open an online room when another commander is joining.</p>';
 
   const hostCard = document.createElement('section');
-  hostCard.className = 'war-mode-card war-mode-card--primary';
-  const hostCopy = document.createElement('div');
-  hostCopy.innerHTML = '<span class="war-multiplayer__step">BATTLE MODE</span><h3>SKIRMISH READY</h3><p>Starts locally with no network delay. Open a room only if you want another player to join.</p>';
+  hostCard.className = 'war-mode-card war-mode-card--primary war-action-bar';
 
   const joinEntry = document.createElement('div');
   joinEntry.className = 'war-operation__entry war-operation__entry--join';
@@ -1261,8 +1264,9 @@ function createMultiplayerSetupPanel(
   mobileDeploySummary.className = 'war-mobile-deploy-summary';
   mobileDeploySummary.innerHTML = '<span>READY TO DEPLOY</span><strong></strong>';
   hostActions.append(mobileDeploySummary, skirmish, host);
-  hostCard.append(hostCopy, hostActions);
-  hostEntry.append(hostCard);
+  hostCard.append(hostActions);
+  // Scrollable config sits inside the host entry, above the pinned action bar.
+  hostEntry.append(configSlot, hostCard);
 
   const joinCard = document.createElement('section');
   joinCard.className = 'war-mode-card war-mode-card--primary';
@@ -1430,8 +1434,10 @@ function createMultiplayerSetupPanel(
   advanced.className = 'war-multiplayer__advanced';
   const advancedSummary = document.createElement('summary');
   advancedSummary.textContent = 'ADVANCED CONNECTION';
-  advanced.append(advancedSummary, serverLabel.root);
-  root.append(hostEntry, joinEntry, status, advanced);
+  // Status line lives inside the advanced connection panel to keep the action
+  // bar compact.
+  advanced.append(advancedSummary, status, serverLabel.root);
+  root.append(hostEntry, joinEntry, advanced);
   if (normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? '') && !currentSession()) {
     setStatus('Joining invitation...');
     void joinRoom();
@@ -1442,6 +1448,9 @@ function createMultiplayerSetupPanel(
     setMobileSummary: (summary) => {
       const value = mobileDeploySummary.querySelector('strong');
       if (value) value.textContent = summary;
+    },
+    setConfigControls: (controls) => {
+      configSlot.append(...controls);
     },
     setMode: (nextMode) => {
       if (activeSession) {
@@ -3369,6 +3378,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
       unitView.update(alpha, dt, ctx.camera);
       selectionBar.updateWorldAnchors();
+      sidebar.animateResources(dt);
       if (sim.tick - lastUiRefreshTick >= 3) {
         lastUiRefreshTick = sim.tick;
         buildingView.setProducerHighlights(sidebar.producerHighlightIds());

@@ -41,7 +41,7 @@ export type TacticalMapRaster = {
 
 type Rgb = readonly [number, number, number];
 
-const RASTER_SIZE = 384;
+const RASTER_SIZE = 768;
 const MAX_CACHE_ENTRIES = 10;
 const rasterCache = new Map<string, TacticalMapRaster>();
 

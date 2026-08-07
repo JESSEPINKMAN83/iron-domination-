@@ -198,62 +198,68 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
         <span data-music-label>Play music</span>
       </button>
       <section class="iron-landing__hero">
-        <p class="iron-landing__eyebrow">${inviteRoom ? `Multiplayer invitation · Room ${inviteRoom}` : 'Beta access · Play free'}</p>
-        <h1 aria-label="Iron Domination">
-          <span data-text="Iron">Iron</span>
-          <span data-text="Domination">Domination</span>
-        </h1>
-        <p class="iron-landing__copy">
-          ${inviteRoom ? 'Your friend is waiting in the battle room.' : 'Command a war from above. Then drop into the fight yourself.'}
-        </p>
-        <p class="iron-landing__detail">
-          ${inviteRoom
-            ? 'Enter your details once. You will join the room automatically as soon as signup is complete.'
-            : 'Iron Dominion is a hybrid strategy war game where you build your base, deploy armies, and switch into first-person mode to fight alongside your troops on the ground.'}
-        </p>
-        ${returningPlayer ? `
-          <div class="iron-landing__returning">
-            <button class="iron-landing__cta" data-action="start-game" type="button">${inviteRoom ? 'Join room' : 'Play game'}</button>
-          </div>
-        ` : `
-        <form class="iron-landing__form" name="${FORM_NAME}" method="POST" action="${BETA_SIGNUP_ENDPOINT}" novalidate>
-          <button class="iron-landing__cta" data-action="open-signup" type="button" aria-expanded="false">Play game</button>
-          <div class="iron-landing__signup-panel" hidden>
-            <p class="iron-landing__signup-title">Request beta clearance</p>
-            <div class="iron-landing__fields">
-              <label>
-                <span>Name</span>
-                <input name="name" type="text" autocomplete="name" placeholder="Your name" required>
-              </label>
-              <label>
-                <span>Email</span>
-                <input name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
-              </label>
+        <div class="iron-landing__hero-inner">
+          <p class="iron-landing__eyebrow">${inviteRoom ? `Multiplayer invitation · Room ${inviteRoom}` : 'Beta access · Play free'}</p>
+          <h1 aria-label="Iron Domination">
+            <span data-text="Iron">Iron</span>
+            <span data-text="Domination">Domination</span>
+          </h1>
+          <p class="iron-landing__copy">
+            ${inviteRoom ? 'Your friend is waiting in the battle room.' : 'Command a war from above. Then drop into the fight yourself.'}
+          </p>
+          <p class="iron-landing__detail">
+            ${inviteRoom
+              ? 'Enter your details once. You will join the room automatically as soon as signup is complete.'
+              : 'A hybrid strategy war game. Build your base, deploy your armies — then switch to first-person and fight alongside your troops on the ground.'}
+          </p>
+          ${returningPlayer ? `
+            <div class="iron-landing__returning">
+              <button class="iron-landing__cta" data-action="start-game" type="button">${inviteRoom ? 'Join room' : 'Play game'}</button>
             </div>
-            <label class="iron-landing__consent">
-              <input name="release-updates" type="checkbox" value="yes">
-              <span>Email me occasional development updates and news about the official release.</span>
-            </label>
-            <p class="iron-landing__error" role="alert" hidden></p>
-            <button class="iron-landing__cta iron-landing__cta--submit" data-action="submit-signup" type="submit">${inviteRoom ? 'Sign up & join room' : 'Enter battlefield'}</button>
-          </div>
-        </form>
-        `}
-        ${fullscreenHint}
+          ` : `
+          <form class="iron-landing__form" name="${FORM_NAME}" method="POST" action="${BETA_SIGNUP_ENDPOINT}" novalidate>
+            <button class="iron-landing__cta" data-action="open-signup" type="button" aria-expanded="false">Play game</button>
+            <div class="iron-landing__signup-panel" hidden>
+              <p class="iron-landing__signup-title">Request beta clearance</p>
+              <div class="iron-landing__fields">
+                <label>
+                  <span>Name</span>
+                  <input name="name" type="text" autocomplete="name" placeholder="Your name" required>
+                </label>
+                <label>
+                  <span>Email</span>
+                  <input name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+                </label>
+              </div>
+              <label class="iron-landing__consent">
+                <input name="release-updates" type="checkbox" value="yes">
+                <span>Email me occasional development updates and news about the official release.</span>
+              </label>
+              <p class="iron-landing__error" role="alert" hidden></p>
+              <button class="iron-landing__cta iron-landing__cta--submit" data-action="submit-signup" type="submit">${inviteRoom ? 'Sign up & join room' : 'Enter battlefield'}</button>
+            </div>
+          </form>
+          `}
+          ${fullscreenHint}
+        </div>
         <ul class="iron-landing__doctrine" aria-label="Core game features">
           <li>
+            <span class="iron-landing__doctrine-index">01</span>
             <img src="/assets/ui/command-icons/command-yard.png" alt="">
             <strong>Build</strong><span>Your base</span>
           </li>
           <li>
+            <span class="iron-landing__doctrine-index">02</span>
             <img src="/assets/ui/command-icons/infantry.png" alt="">
             <strong>Deploy</strong><span>Your army</span>
           </li>
           <li class="is-active">
+            <span class="iron-landing__doctrine-index">03</span>
             <i class="iron-landing__reticle" aria-hidden="true"></i>
             <strong>Fight</strong><span>On the ground</span>
           </li>
           <li>
+            <span class="iron-landing__doctrine-index">04</span>
             <img src="/assets/ui/command-icons/siege-tank.png" alt="">
             <strong>Adapt</strong><span>And conquer</span>
           </li>

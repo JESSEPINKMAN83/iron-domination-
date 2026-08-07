@@ -60,10 +60,23 @@ export class Sidebar {
   private readonly tabs: HTMLDivElement;
   private readonly body: HTMLDivElement;
   private readonly status: HTMLDivElement;
+  private readonly creditsBlock: HTMLSpanElement;
+  private readonly creditsValue: HTMLSpanElement;
+  private readonly powerBlock: HTMLSpanElement;
+  private readonly powerValue: HTMLSpanElement;
+  private readonly statusNote: HTMLSpanElement;
   private readonly mobileStatus: HTMLDivElement;
   private readonly mobilePrimaryMetric: HTMLSpanElement;
   private readonly mobileSecondaryMetric: HTMLSpanElement;
   private activeTab: Tab = 'buildings';
+  private creditsShown = -1;
+  private creditsTarget = 0;
+  private creditsPulse = 0;
+  private creditsPulseSign = 0;
+  private powerShown?: number;
+  private powerPulse = 0;
+  private powerPulseSign = 0;
+  private resourceBarHidden = false;
   private lastStatusText = '';
   private lastBodyKey = '';
   private lastBodyTick = -1;
@@ -103,7 +116,7 @@ export class Sidebar {
     this.radarWrap = document.createElement('div');
     this.radarWrap.className = 'game-sidebar__radar-wrap';
     this.radarWrap.style.cssText =
-      'position:relative;display:grid;grid-template-rows:18px auto;gap:6px;padding:7px;background:#060908;border:2px solid #151817;' +
+      'position:relative;display:grid;grid-template-rows:auto auto;gap:6px;padding:7px;background:#060908;border:2px solid #151817;' +
       'border-top-color:#66706a;border-left-color:#66706a;box-shadow:inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75);overflow:hidden;';
     this.radar = document.createElement('canvas');
     this.radar.className = 'game-sidebar__radar';
@@ -124,8 +137,35 @@ export class Sidebar {
     this.status = document.createElement('div');
     this.status.className = 'game-sidebar__status';
     this.status.style.cssText =
-      'height:18px;padding:0 6px;background:#101514;border:1px solid #424a47;box-sizing:border-box;' +
-      'box-shadow:inset 0 0 12px rgba(0,0,0,.55);color:#d2b15f;font-size:10px;line-height:16px;white-space:pre;overflow:hidden;';
+      'min-height:38px;display:flex;align-items:center;gap:10px;padding:0 9px;background:linear-gradient(180deg,#161d1c,#0c1110);' +
+      'border:1px solid #4a5350;box-sizing:border-box;box-shadow:inset 0 0 14px rgba(0,0,0,.6),inset 0 1px 0 rgba(210,177,95,.1);' +
+      'color:#d2b15f;overflow:hidden;font-variant-numeric:tabular-nums;';
+    this.creditsBlock = document.createElement('span');
+    this.creditsBlock.className = 'game-sidebar__credits';
+    this.creditsBlock.style.cssText = 'display:flex;align-items:baseline;gap:2px;color:#f4dc9a;';
+    const creditsSymbol = document.createElement('span');
+    creditsSymbol.style.cssText = 'font:700 13px/1 ui-monospace,Menlo,monospace;color:#b1934f;';
+    creditsSymbol.textContent = '$';
+    this.creditsValue = document.createElement('span');
+    this.creditsValue.style.cssText =
+      `font:800 22px/1 ui-monospace,Menlo,monospace;letter-spacing:.01em;transform-origin:left center;text-shadow:${CREDITS_GLOW};`;
+    this.creditsBlock.append(creditsSymbol, this.creditsValue);
+    this.powerBlock = document.createElement('span');
+    this.powerBlock.className = 'game-sidebar__power';
+    this.powerBlock.style.cssText =
+      'display:flex;align-items:baseline;gap:4px;padding-left:10px;border-left:1px solid rgba(210,177,95,.2);color:#d2b15f;';
+    const powerLabel = document.createElement('span');
+    powerLabel.style.cssText = 'font:700 9px/1 ui-monospace,Menlo,monospace;letter-spacing:.14em;color:#8b948e;';
+    powerLabel.textContent = 'PWR';
+    this.powerValue = document.createElement('span');
+    this.powerValue.style.cssText = 'font:800 19px/1 ui-monospace,Menlo,monospace;transform-origin:left center;';
+    this.powerBlock.append(powerLabel, this.powerValue);
+    this.statusNote = document.createElement('span');
+    this.statusNote.className = 'game-sidebar__status-note';
+    this.statusNote.style.cssText =
+      'flex:1;min-width:0;text-align:right;font:10px/1.3 ui-monospace,Menlo,monospace;color:#94a09a;' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    this.status.append(this.creditsBlock, this.powerBlock, this.statusNote);
     this.mobileStatus = document.createElement('div');
     this.mobileStatus.className = 'game-sidebar__mobile-status';
     this.mobileStatus.style.display = 'none';
@@ -175,19 +215,35 @@ export class Sidebar {
     const latest = placing ?? this.notice?.text ?? this.economy.ledger.slice(-1)[0]?.label ?? 'ready';
     const healthPct = possessed?.health ? Math.max(0, possessed.health.current / Math.max(1, possessed.health.max)) : 1;
     const speed = possessed?.velocity ? Math.hypot(possessed.velocity.x, possessed.velocity.z) : 0;
-    const statusText = possessed
+    const possessedText = possessed
       ? isFortressTower(possessed)
         ? `FORTRESS LINK   HULL ${Math.round(healthPct * 100)}%   SYSTEMS ARMED`
         : `${unitDisplayName(possessed).toUpperCase()}   HP ${Math.round(healthPct * 100)}%   SPD ${Math.round(speed)}`
-      : [
-          `$${Math.floor(this.economy.credits)}`,
-          `PWR ${powerDelta >= 0 ? '+' : ''}${powerDelta}${powerDelta < 0 ? ' LOW POWER' : ''}`,
-          latest,
-        ].join('   ');
+      : undefined;
+    const credits = Math.floor(this.economy.credits);
+    const statusText =
+      possessedText ?? `$${credits}   PWR ${powerDelta >= 0 ? '+' : ''}${powerDelta}${powerDelta < 0 ? ' LOW POWER' : ''}   ${latest}`;
+    this.resourceBarHidden = possessedText !== undefined;
     if (statusText !== this.lastStatusText) {
-      this.status.textContent = statusText;
-      this.status.style.color = possessed ? healthPct < 0.3 ? '#ff7666' : '#d2b15f' : powerDelta < 0 ? '#ff7666' : '#d2b15f';
       this.lastStatusText = statusText;
+      if (possessedText) {
+        this.resourceBarHidden = true;
+        this.creditsBlock.style.display = 'none';
+        this.powerBlock.style.display = 'none';
+        this.statusNote.style.cssText =
+          'flex:1;min-width:0;text-align:left;font:700 10px/1.4 ui-monospace,Menlo,monospace;white-space:pre;overflow:hidden;';
+        this.statusNote.style.color = healthPct < 0.3 ? '#ff7666' : '#d2b15f';
+        this.statusNote.textContent = possessedText;
+      } else {
+        this.resourceBarHidden = false;
+        this.creditsBlock.style.display = 'flex';
+        this.powerBlock.style.display = 'flex';
+        this.statusNote.style.cssText =
+          'flex:1;min-width:0;text-align:right;font:10px/1.3 ui-monospace,Menlo,monospace;' +
+          'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+        this.statusNote.style.color = powerDelta < 0 || latest.startsWith('UNDER ATTACK') ? '#ff8f7d' : '#94a09a';
+        this.statusNote.textContent = powerDelta < 0 ? `LOW POWER · ${latest}` : latest;
+      }
     }
     if (possessed) {
       this.mobilePrimaryMetric.textContent = `HP ${Math.round(healthPct * 100)}`;
@@ -236,6 +292,53 @@ export class Sidebar {
       this.lastLiveTick = this.sim.tick;
       this.updateLivePanel();
     }
+    // keeps the counters correct even without the per-frame driver below
+    this.animateResources(0.05);
+  }
+
+  /**
+   * Per-frame counter animation for the resource strip. `update()` only runs every few sim
+   * ticks, which is too coarse to roll digits smoothly, so the main loop drives this every
+   * frame instead — it early-outs once the numbers have settled.
+   */
+  animateResources(dt: number): void {
+    if (this.resourceBarHidden || this.root.style.display === 'none') return;
+    const credits = Math.floor(this.economy.credits);
+    const power = this.economy.powerProduced - this.economy.powerUsed;
+    if (credits !== this.creditsTarget) {
+      // ignore the very first paint so a fresh match doesn't roll up from zero
+      if (this.creditsShown >= 0 && Math.abs(credits - this.creditsTarget) >= CREDIT_PULSE_MIN) {
+        this.creditsPulseSign = credits > this.creditsTarget ? 1 : -1;
+        this.creditsPulse = 1;
+      }
+      this.creditsTarget = credits;
+    }
+    if (power !== this.powerShown) {
+      if (this.powerShown !== undefined) {
+        this.powerPulseSign = power > this.powerShown ? 1 : -1;
+        this.powerPulse = 1;
+      }
+      this.powerShown = power;
+      this.powerValue.textContent = `${power >= 0 ? '+' : ''}${power}`;
+      this.powerBlock.style.color = power < 0 ? '#ff7666' : '#d2b15f';
+    }
+    const settled = this.creditsShown === this.creditsTarget && this.creditsPulse <= 0 && this.powerPulse <= 0;
+    if (settled) return;
+
+    // exponential approach: ~95% of any jump is covered in 200ms, then it snaps
+    const step = 1 - Math.exp(-Math.max(dt, 0) / 0.07);
+    if (this.creditsShown < 0) this.creditsShown = this.creditsTarget;
+    else {
+      const remaining = this.creditsTarget - this.creditsShown;
+      this.creditsShown = Math.abs(remaining) < 0.75 ? this.creditsTarget : this.creditsShown + remaining * step;
+    }
+    this.creditsValue.textContent = `${Math.round(this.creditsShown)}`;
+
+    const decay = Math.max(0, 1 - Math.max(dt, 0) / PULSE_SECONDS);
+    this.creditsPulse = this.creditsPulse <= 0.02 ? 0 : this.creditsPulse * decay;
+    this.powerPulse = this.powerPulse <= 0.02 ? 0 : this.powerPulse * decay;
+    applyPulse(this.creditsValue, this.creditsPulse, this.creditsPulseSign, '#f4dc9a', CREDITS_GLOW);
+    applyPulse(this.powerValue, this.powerPulse, this.powerPulseSign, power < 0 ? '#ff7666' : '#d2b15f', 'none');
   }
 
   setVisible(visible: boolean): void {
@@ -260,7 +363,7 @@ export class Sidebar {
     this.root.style.width = active ? '218px' : '322px';
     this.root.style.padding = active ? '7px' : '10px';
     this.root.style.gap = active ? '0' : '7px';
-    this.radarWrap.style.gridTemplateRows = active ? '18px auto auto' : '18px auto';
+    this.radarWrap.style.gridTemplateRows = active ? 'auto auto auto' : 'auto auto';
     this.radarWrap.style.gap = active ? '4px' : '6px';
     this.radarWrap.style.padding = active ? '5px' : '7px';
     this.radar.style.pointerEvents = active ? 'none' : 'auto';
@@ -1276,6 +1379,34 @@ function compactCredits(credits: number): string {
   if (rounded < 1000) return `$${rounded}`;
   const thousands = rounded / 1000;
   return `$${thousands >= 10 ? Math.round(thousands) : thousands.toFixed(1).replace(/\.0$/, '')}K`;
+}
+
+/** Credit swings smaller than this roll silently — only real purchases and deliveries flash. */
+const CREDIT_PULSE_MIN = 8;
+const CREDITS_GLOW = '0 0 10px rgba(210,177,95,.28)';
+const PULSE_SECONDS = 0.42;
+const GAIN_TINT: [number, number, number] = [141, 226, 149];
+const SPEND_TINT: [number, number, number] = [255, 148, 108];
+
+/** Tint, swell, and glow a counter right after it changed, fading back to its resting look. */
+function applyPulse(el: HTMLElement, pulse: number, sign: number, base: string, baseShadow: string): void {
+  if (pulse <= 0) {
+    el.style.color = base;
+    el.style.transform = '';
+    el.style.textShadow = baseShadow;
+    return;
+  }
+  const tint = sign >= 0 ? GAIN_TINT : SPEND_TINT;
+  el.style.color = mixToward(base, tint, Math.min(1, pulse * 0.85));
+  el.style.transform = `scale(${(1 + 0.1 * pulse).toFixed(3)})`;
+  el.style.textShadow = `0 0 ${(9 + 15 * pulse).toFixed(1)}px rgba(${tint[0]},${tint[1]},${tint[2]},${(0.55 * pulse).toFixed(2)})`;
+}
+
+function mixToward(baseHex: string, tint: [number, number, number], t: number): string {
+  const base = Number.parseInt(baseHex.slice(1), 16);
+  const channels = [(base >> 16) & 255, (base >> 8) & 255, base & 255];
+  const mixed = channels.map((channel, index) => Math.round(channel + (tint[index] - channel) * t));
+  return `rgb(${mixed[0]},${mixed[1]},${mixed[2]})`;
 }
 
 function cardCss(state: CardState): string {
