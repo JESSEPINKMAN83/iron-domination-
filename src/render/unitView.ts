@@ -451,6 +451,7 @@ export class UnitView {
   private bikeDustSerial = 0;
   private visualQuality: VisualQualityTier = 0;
   private visualFrame = 0;
+  private readonly accentBoostTargets: { material: MeshStandardMaterial; base: number }[] = [];
   private readonly wreckMaterial: Material;
   private readonly vehicleScorchMaterial: Material;
   private readonly vehicleCrackMaterial: Material;
@@ -490,6 +491,12 @@ export class UnitView {
       3: createTeamMaterials(ctx, 3, localTeam === 3),
       4: createTeamMaterials(ctx, 4, localTeam === 4),
     };
+    const ownMaterials = this.teamMaterials[factionId(localTeam)];
+    for (const material of Object.values(ownMaterials)) {
+      if (material instanceof MeshStandardMaterial && material.emissiveIntensity > 0) {
+        this.accentBoostTargets.push({ material, base: material.emissiveIntensity });
+      }
+    }
     this.lowDetailMeshes = {
       1: createLowDetailMeshes(ctx, 1),
       2: createLowDetailMeshes(ctx, 2),
@@ -744,6 +751,11 @@ export class UnitView {
 
   setPriorityDetailedEntity(entity?: Entity): void {
     this.priorityDetailedEntity = entity;
+  }
+
+  setAccentEmissiveMul(multiplier: number): void {
+    const mul = Math.max(1, multiplier);
+    for (const target of this.accentBoostTargets) target.material.emissiveIntensity = target.base * mul;
   }
 
   setFortressOpticsActive(active: boolean): void {

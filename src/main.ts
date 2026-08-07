@@ -37,6 +37,7 @@ import {
   sanitizeTerrainRelief,
   type MapId,
   type MapSize,
+  type MapAtmosphere,
 } from './content/maps';
 import { STRUCTURES, type StructureKind, type UnitKind } from './content/phase3';
 import { WEAPONS, type WeaponKind } from './content/phase4';
@@ -79,6 +80,19 @@ import { buildScatter } from './render/scatter';
 import { TerrainView } from './render/terrainMesh';
 import { UnitView } from './render/unitView';
 import { WaterView } from './render/water';
+import { WeatherView } from './render/weatherView';
+import { AtmosphereTransition, weatherDensityFor, type AtmosphereSnapshot } from './render/atmosphereTransition';
+import {
+  resolveAtmosphere,
+  sanitizeTimeOfDay,
+  sanitizeWeather,
+  TIME_OF_DAY_IDS,
+  TIME_OF_DAY_LABELS,
+  WEATHER_IDS,
+  WEATHER_LABELS,
+  type TimeOfDay,
+  type Weather,
+} from './content/atmosphereVariants';
 import { SnowfallView } from './render/weather';
 import {
   buildings,
@@ -146,6 +160,8 @@ interface SkirmishSettings {
   seed: number;
   oreAmount: number;
   terrainRelief: number;
+  timeOfDay: TimeOfDay;
+  weather: Weather;
   ai: Difficulty;
   aiStyle: Personality;
   debug: boolean;
@@ -403,6 +419,8 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
       seed: Number.isFinite(parsed.seed) ? Math.floor(Number(parsed.seed)) : undefined,
       oreAmount: sanitizeOreAmount(parsed.oreAmount),
       terrainRelief: sanitizeTerrainRelief(parsed.terrainRelief),
+      timeOfDay: sanitizeTimeOfDay(parsed.timeOfDay),
+      weather: sanitizeWeather(parsed.weather),
       ai: DIFFICULTIES.includes(parsed.ai as Difficulty) ? parsed.ai : undefined,
       aiStyle: PERSONALITIES.includes(parsed.aiStyle as Personality) ? parsed.aiStyle : undefined,
       debug: parsed.debug === true,
@@ -426,6 +444,8 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
   const mapSize = sanitizeMapSize(params.get('size'));
   const oreAmount = sanitizeOreAmount(params.get('ore'));
   const terrainRelief = sanitizeTerrainRelief(params.get('relief'));
+  const timeOfDay = sanitizeTimeOfDay(params.get('tod'));
+  const weather = sanitizeWeather(params.get('weather'));
   const ai = params.get('ai');
   const aiStyle = params.get('ai-style');
   const combat = params.get('combat');
@@ -438,6 +458,8 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
     seed: Number.isFinite(seed) && seed > 0 ? Math.floor(seed) : undefined,
     oreAmount,
     terrainRelief,
+    timeOfDay,
+    weather,
     ai: DIFFICULTIES.includes(ai as Difficulty) ? (ai as Difficulty) : undefined,
     aiStyle: PERSONALITIES.includes(aiStyle as Personality) ? (aiStyle as Personality) : undefined,
     debug: params.get('debug') === 'armies' ? true : undefined,
@@ -460,6 +482,8 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     seed: fromUrl.seed ?? stored.seed ?? randomSeed(),
     oreAmount: fromUrl.oreAmount ?? stored.oreAmount ?? DEFAULT_ORE_AMOUNT,
     terrainRelief: fromUrl.terrainRelief ?? stored.terrainRelief ?? defaultTerrainRelief(mapId),
+    timeOfDay: fromUrl.timeOfDay ?? stored.timeOfDay ?? 'day',
+    weather: fromUrl.weather ?? stored.weather ?? 'clear',
     ai: fromUrl.ai ?? stored.ai ?? 'normal',
     aiStyle: fromUrl.aiStyle ?? stored.aiStyle ?? 'balanced',
     debug: fromUrl.debug ?? stored.debug ?? false,
@@ -615,6 +639,14 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       'Map size', MAP_SIZE_IDS, defaults.mapSize, MAP_SIZE_DESCRIPTIONS,
       (size) => MAP_SIZE_PRESETS[size].label, () => refresh(),
     );
+    const timeOfDayDescriptions = Object.fromEntries(TIME_OF_DAY_IDS.map((id) => [id, TIME_OF_DAY_LABELS[id]])) as Record<TimeOfDay, string>;
+    const weatherDescriptions = Object.fromEntries(WEATHER_IDS.map((id) => [id, WEATHER_LABELS[id]])) as Record<Weather, string>;
+    const timeOfDayChoice = createSegmentedControl(
+      'Time of day', TIME_OF_DAY_IDS, defaults.timeOfDay ?? 'day', timeOfDayDescriptions, (id) => TIME_OF_DAY_LABELS[id], () => refresh(),
+    );
+    const weatherChoice = createSegmentedControl(
+      'Weather', WEATHER_IDS, defaults.weather ?? 'clear', weatherDescriptions, (id) => WEATHER_LABELS[id], () => refresh(),
+    );
     const difficulty = createSegmentedControl('Difficulty', DIFFICULTIES, defaults.ai, DIFFICULTY_DESCRIPTIONS, undefined, () => refresh());
     const commander = createSegmentedControl('Enemy commander', PERSONALITIES, defaults.aiStyle, PERSONALITY_DESCRIPTIONS, undefined, () => refresh());
     const combatMode = createSegmentedControl('Combat mode', COMBAT_MODES, defaults.combatMode, COMBAT_MODE_DESCRIPTIONS, undefined, () => refresh());
@@ -626,7 +658,7 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     battlefieldControls.className = 'war-battlefield__controls';
     const mapSettings = document.createElement('div');
     mapSettings.className = 'war-settings-grid';
-    mapSettings.append(mapChoice.root, mapSizeChoice.root);
+    mapSettings.append(mapChoice.root, mapSizeChoice.root, timeOfDayChoice.root, weatherChoice.root);
 
     const seedRow = document.createElement('div');
     seedRow.className = 'war-seed-row';
@@ -731,6 +763,8 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       seed: Math.max(1, Math.floor(Number(seedInput.value) || randomSeed())),
       oreAmount: sanitizeOreAmount(oreAmountInput.value) ?? DEFAULT_ORE_AMOUNT,
       terrainRelief: sanitizeTerrainRelief(terrainReliefInput.value) ?? defaultTerrainRelief(mapChoice.value()),
+      timeOfDay: timeOfDayChoice.value(),
+      weather: weatherChoice.value(),
       ai: difficulty.value(),
       aiStyle: commander.value(),
       debug: defaults.debug,
@@ -749,6 +783,8 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       seedInput.value = String(room.seed);
       oreAmountInput.value = String(sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT);
       terrainReliefInput.value = String(sanitizeTerrainRelief(room.terrainRelief) ?? defaultTerrainRelief(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID));
+      timeOfDayChoice.setValue(sanitizeTimeOfDay(room.timeOfDay) ?? 'day');
+      weatherChoice.setValue(sanitizeWeather(room.weather) ?? 'clear');
       armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
       multiplayerSpawnSlots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
       const roomPlayer = room.players.find((player) => player.index === playerIndex);
@@ -759,6 +795,8 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
       combatMode.setDisabled(guestLocked);
       mapChoice.setDisabled(guestLocked);
       mapSizeChoice.setDisabled(guestLocked);
+      timeOfDayChoice.setDisabled(guestLocked);
+      weatherChoice.setDisabled(guestLocked);
       armies.setDisabled(guestLocked);
       seedInput.disabled = guestLocked;
       randomize.disabled = guestLocked;
@@ -859,6 +897,8 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
         combatMode.setDisabled(false);
         mapChoice.setDisabled(false);
         mapSizeChoice.setDisabled(false);
+        timeOfDayChoice.setDisabled(false);
+        weatherChoice.setDisabled(false);
         armies.setDisabled(false);
         armies.setPlayerIndex(1);
         seedInput.disabled = false;
@@ -2112,6 +2152,8 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
     seed: room.seed,
     oreAmount: sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT,
     terrainRelief: sanitizeTerrainRelief(room.terrainRelief) ?? defaultTerrainRelief(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID),
+    timeOfDay: sanitizeTimeOfDay(room.timeOfDay) ?? 'day',
+    weather: sanitizeWeather(room.weather) ?? 'clear',
     ai: room.ai,
     aiStyle: room.aiStyle,
     debug: false,
@@ -2209,22 +2251,25 @@ function setupTextInput(label: string, value: string): { root: HTMLLabelElement;
   return { root, input };
 }
 
-function applyMapAtmosphere(ctx: RenderContext, preset: (typeof MAP_PRESETS)[MapId]): void {
-  const sky = new Color(preset.atmosphere.sky);
+function applyMapAtmosphere(
+  ctx: RenderContext,
+  atmosphere: MapAtmosphere,
+): void {
+  const sky = new Color(atmosphere.sky);
   ctx.scene.background = sky;
   if (ctx.scene.fog instanceof Fog) {
     ctx.scene.fog.color.copy(sky);
-    ctx.scene.fog.near = preset.atmosphere.fogNear;
-    ctx.scene.fog.far = preset.atmosphere.fogFar;
+    ctx.scene.fog.near = atmosphere.fogNear;
+    ctx.scene.fog.far = atmosphere.fogFar;
   }
-  ctx.hemisphere.color.setHex(preset.atmosphere.hemisphereSky);
-  ctx.hemisphere.groundColor.setHex(preset.atmosphere.hemisphereGround);
-  ctx.hemisphere.intensity = preset.atmosphere.hemisphereIntensity;
+  ctx.hemisphere.color.setHex(atmosphere.hemisphereSky);
+  ctx.hemisphere.groundColor.setHex(atmosphere.hemisphereGround);
+  ctx.hemisphere.intensity = atmosphere.hemisphereIntensity;
   ctx.setEnvironmentLight(
-    preset.atmosphere.sunDirection,
-    preset.atmosphere.sunColor,
-    preset.atmosphere.sunStrength,
-    preset.atmosphere.exposure,
+    atmosphere.sunDirection,
+    atmosphere.sunColor,
+    atmosphere.sunStrength,
+    atmosphere.exposure,
   );
 }
 
@@ -2274,15 +2319,28 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     // stable long enough to compare FULL/BALANCED/PERFORMANCE side by side.
     lockQualityTier: isExplicitQualityTier(requestedQuality),
   });
-  applyMapAtmosphere(ctx, selectedMap);
+  let activeTimeOfDay: TimeOfDay = settings.timeOfDay ?? 'day';
+  let activeWeather: Weather = settings.weather ?? 'clear';
+  const resolvedStart = resolveAtmosphere(selectedMap.atmosphere, activeTimeOfDay, activeWeather);
+  applyMapAtmosphere(ctx, resolvedStart.atmosphere);
   const atmosphere = new BattlefieldAtmosphere(
     hf,
-    selectedMap.atmosphere,
+    resolvedStart.atmosphere,
     settings.seed,
     ctx.sunDirection,
     mobileTouch ? 0.55 : 1,
   );
   ctx.scene.add(atmosphere.group);
+  const weatherView = new WeatherView(hf, mobileTouch);
+  weatherView.setWeather(activeWeather);
+  weatherView.setDensity(weatherDensityFor(activeWeather));
+  if (ctx.scene.fog instanceof Fog) weatherView.setFogTint(ctx.scene.fog.color);
+  ctx.scene.add(weatherView.rain, weatherView.snow);
+  const atmosphereTransition = new AtmosphereTransition();
+  let liveAtmosphereSnapshot: AtmosphereSnapshot = {
+    atmosphere: resolvedStart.atmosphere,
+    accentEmissiveMul: resolvedStart.extras.accentEmissiveMul,
+  };
   const input = new Input(mobileTouch);
   input.attach(ctx.renderer.domElement);
 
@@ -2297,6 +2355,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     deepColor: selectedMap.atmosphere.waterDeep,
     shallowColor: selectedMap.atmosphere.waterShallow,
   });
+  water.refreshAtmosphere(ctx.sunDirection, ctx.scene.fog instanceof Fog ? ctx.scene.fog : undefined);
   ctx.scene.add(water.mesh);
 
   const registry = new InstancedMeshRegistry();
@@ -2306,7 +2365,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const scatter = buildScatter(hf, registry, scatterMaterial, settings.seed ^ 0x5eed);
   ctx.scene.add(scatter.group);
   const snowfall = settings.mapId === 'frostbite-pass' ? new SnowfallView(hf, settings.seed) : undefined;
-  if (snowfall) ctx.scene.add(snowfall.points);
+  if (snowfall) {
+    // Map flavor snow only while weather is clear so rain/snow overlays don't double up.
+    snowfall.points.visible = activeWeather === 'clear';
+    ctx.scene.add(snowfall.points);
+  }
 
   const startMode = params.get('start');
   const weaponsLab = startMode === 'weapons-lab' && !multiplayerMode && !isPublicHost(location.hostname);
@@ -2497,6 +2560,42 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   unitView.attach(ctx.scene);
   const buildingView = new BuildingView(sim, hf, ctx, isVisibleToPlayer);
   ctx.scene.add(buildingView.group);
+  unitView.setAccentEmissiveMul(liveAtmosphereSnapshot.accentEmissiveMul);
+  buildingView.setAccentEmissiveMul(liveAtmosphereSnapshot.accentEmissiveMul);
+  let weatherDensityCurrent = weatherDensityFor(activeWeather);
+
+  const applyAtmosphereLook = (snapshot: AtmosphereSnapshot, weatherDensity: number): void => {
+    liveAtmosphereSnapshot = snapshot;
+    weatherDensityCurrent = weatherDensity;
+    applyMapAtmosphere(ctx, snapshot.atmosphere);
+    atmosphere.applyLook(snapshot.atmosphere, ctx.sunDirection);
+    water.refreshAtmosphere(ctx.sunDirection, ctx.scene.fog instanceof Fog ? ctx.scene.fog : undefined);
+    unitView.setAccentEmissiveMul(snapshot.accentEmissiveMul);
+    buildingView.setAccentEmissiveMul(snapshot.accentEmissiveMul);
+    weatherView.setDensity(weatherDensity);
+    if (ctx.scene.fog instanceof Fog) weatherView.setFogTint(ctx.scene.fog.color);
+    if (snowfall) snowfall.points.visible = activeWeather === 'clear';
+  };
+
+  const setMatchAtmosphere = (timeOfDay: TimeOfDay, weather: Weather, animate: boolean): void => {
+    const resolved = resolveAtmosphere(selectedMap.atmosphere, timeOfDay, weather);
+    const next: AtmosphereSnapshot = {
+      atmosphere: resolved.atmosphere,
+      accentEmissiveMul: resolved.extras.accentEmissiveMul,
+    };
+    const fromDensity = weatherDensityCurrent;
+    const toDensity = weatherDensityFor(weather);
+    activeTimeOfDay = timeOfDay;
+    activeWeather = weather;
+    settings.timeOfDay = timeOfDay;
+    settings.weather = weather;
+    weatherView.setWeather(weather);
+    if (!animate) {
+      atmosphereTransition.snap(next, toDensity, applyAtmosphereLook);
+      return;
+    }
+    atmosphereTransition.start(liveAtmosphereSnapshot, next, fromDensity, toDensity);
+  };
   const combatView = new CombatView(hf, isVisibleToPlayer, (id) => sim.byId.get(id), localTeam);
   ctx.scene.add(combatView.group);
   const economyFx = new EconomyFxView(sim, hf, isVisibleToPlayer);
@@ -2901,6 +3000,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   });
   createGameMenu(settings, {
     setPaused: setUiPaused,
+    onAtmosphereChange: (timeOfDay, weather) => setMatchAtmosphere(timeOfDay, weather, true),
     snapshot: matchSnapshot,
     save:
       multiplayerMode
@@ -3262,7 +3362,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         rig.setEmptyRightDragLook(controller.isEmptyRightLookActive());
         rig.update(dt);
       }
+      atmosphereTransition.update(dt, applyAtmosphereLook);
       atmosphere.update(time, ctx.camera, ctx.scene.fog as Fog, firstPerson.flying);
+      weatherView.update(dt, ctx.camera, time);
       unitView.setFortressOpticsActive(firstPerson.fortress);
       unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
       unitView.update(alpha, dt, ctx.camera);
@@ -3507,6 +3609,7 @@ function createGameMenu(
   settings: SkirmishSettings,
   options: {
     setPaused: (paused: boolean) => void;
+    onAtmosphereChange?: (timeOfDay: TimeOfDay, weather: Weather) => void;
     snapshot: () => MatchSnapshot;
     save?: () => StoredMatchSave;
     load?: () => boolean;
@@ -3537,6 +3640,7 @@ function createGameMenu(
       save: options.save,
       load: options.load,
       forfeit: options.forfeit,
+      onAtmosphereChange: options.onAtmosphereChange,
       onClose: () => options.setPaused(false),
       onHelp: () => openHowToPlay(),
     });
@@ -3568,6 +3672,7 @@ function showMatchMenu(
     save?: () => StoredMatchSave;
     load?: () => boolean;
     forfeit?: () => void;
+    onAtmosphereChange?: (timeOfDay: TimeOfDay, weather: Weather) => void;
     onClose: () => void;
     onHelp: () => void;
   },
@@ -3595,7 +3700,7 @@ function showMatchMenu(
   const panel = document.createElement('div');
   panel.className = 'game-menu-panel';
   panel.style.cssText =
-    'width:300px;display:grid;gap:8px;padding:14px;background:rgba(8,12,14,.94);border:1px solid #596260;border-radius:3px;' +
+    'width:340px;display:grid;gap:8px;padding:14px;background:rgba(8,12,14,.94);border:1px solid #596260;border-radius:3px;' +
     'box-shadow:0 18px 60px rgba(0,0,0,.55);font:11px ui-monospace,Menlo,monospace;color:#d7e0e7;letter-spacing:.08em;';
   const title = document.createElement('div');
   title.textContent = 'MATCH MENU';
@@ -3622,6 +3727,38 @@ function showMatchMenu(
       details.appendChild(cell);
     }
   }
+  const atmosphereBlock = document.createElement('div');
+  atmosphereBlock.style.cssText = 'display:grid;gap:6px;margin:4px 0 8px;';
+  const todLabel = document.createElement('div');
+  todLabel.textContent = 'TIME OF DAY';
+  todLabel.style.cssText = 'color:#d2b15f;font-size:10px;';
+  const todRow = document.createElement('div');
+  todRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
+  for (const id of TIME_OF_DAY_IDS) {
+    const button = dialogButton(TIME_OF_DAY_LABELS[id], () => {
+      settings.timeOfDay = id;
+      options.onAtmosphereChange?.(settings.timeOfDay, settings.weather);
+      status.textContent = `${TIME_OF_DAY_LABELS[settings.timeOfDay]} · ${WEATHER_LABELS[settings.weather]} (local view)`;
+    });
+    if (settings.timeOfDay === id) button.style.outline = '1px solid #d2b15f';
+    todRow.appendChild(button);
+  }
+  const weatherLabel = document.createElement('div');
+  weatherLabel.textContent = 'WEATHER';
+  weatherLabel.style.cssText = 'color:#d2b15f;font-size:10px;margin-top:4px;';
+  const weatherRow = document.createElement('div');
+  weatherRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
+  for (const id of WEATHER_IDS) {
+    const button = dialogButton(WEATHER_LABELS[id], () => {
+      settings.weather = id;
+      options.onAtmosphereChange?.(settings.timeOfDay, settings.weather);
+      status.textContent = `${TIME_OF_DAY_LABELS[settings.timeOfDay]} · ${WEATHER_LABELS[settings.weather]} (local view)`;
+    });
+    if (settings.weather === id) button.style.outline = '1px solid #d2b15f';
+    weatherRow.appendChild(button);
+  }
+  atmosphereBlock.append(todLabel, todRow, weatherLabel, weatherRow);
+
   const resume = dialogButton('Resume', close);
   const help = dialogButton('Help / controls', () => {
     window.removeEventListener('keydown', onKeyDown);
@@ -3651,6 +3788,7 @@ function showMatchMenu(
   const setup = dialogButton('Back to setup', () => reloadWithSettings(settings, false));
   panel.append(title, status);
   if (snapshot) panel.append(details);
+  panel.append(atmosphereBlock);
   panel.append(resume, help, copy);
   if (saveButton) panel.append(saveButton);
   if (loadButton) panel.append(loadButton);
@@ -3668,6 +3806,8 @@ function copyMatchLink(settings: SkirmishSettings, status: HTMLElement): void {
   url.searchParams.set('seed', String(settings.seed));
   url.searchParams.set('ore', String(settings.oreAmount));
   url.searchParams.set('relief', String(settings.terrainRelief));
+  url.searchParams.set('tod', settings.timeOfDay);
+  url.searchParams.set('weather', settings.weather);
   url.searchParams.set('ai', settings.ai);
   url.searchParams.set('ai-style', settings.aiStyle);
   url.searchParams.set('combat', settings.combatMode);
