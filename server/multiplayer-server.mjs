@@ -227,6 +227,8 @@ function handleSettings(socket, body) {
   room.seed = Math.max(1, Math.floor(Number(next.seed) || room.seed));
   room.oreAmount = normalizeOreAmount(next.oreAmount ?? room.oreAmount);
   room.terrainRelief = normalizeTerrainRelief(next.terrainRelief ?? room.terrainRelief, room.mapId);
+  room.timeOfDay = normalizeTimeOfDay(next.timeOfDay ?? room.timeOfDay);
+  room.weather = normalizeWeather(next.weather ?? room.weather);
   room.ai = String(next.ai ?? room.ai);
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
@@ -389,6 +391,8 @@ function createRoom(body) {
     seed: Math.max(1, Math.floor(Number(body?.seed) || 1)),
     oreAmount: normalizeOreAmount(body?.oreAmount),
     terrainRelief: normalizeTerrainRelief(body?.terrainRelief, normalizeMapId(body?.mapId)),
+    timeOfDay: normalizeTimeOfDay(body?.timeOfDay),
+    weather: normalizeWeather(body?.weather),
     ai: String(body?.ai ?? 'normal'),
     aiStyle: String(body?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(body?.combatMode),
@@ -422,6 +426,8 @@ function restoreRoom(snapshot) {
     seed: Math.max(1, Math.floor(Number(snapshot?.seed) || 1)),
     oreAmount: normalizeOreAmount(snapshot?.oreAmount),
     terrainRelief: normalizeTerrainRelief(snapshot?.terrainRelief, normalizeMapId(snapshot?.mapId)),
+    timeOfDay: normalizeTimeOfDay(snapshot?.timeOfDay),
+    weather: normalizeWeather(snapshot?.weather),
     ai: String(snapshot?.ai ?? 'normal'),
     aiStyle: String(snapshot?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(snapshot?.combatMode),
@@ -593,6 +599,8 @@ function publicRoom(room) {
     seed: room.seed,
     oreAmount: room.oreAmount,
     terrainRelief: room.terrainRelief,
+    timeOfDay: room.timeOfDay,
+    weather: room.weather,
     ai: room.ai,
     aiStyle: room.aiStyle,
     combatMode: room.combatMode,
@@ -685,6 +693,15 @@ function normalizeRoomCode(code) {
 
 function normalizeCombatMode(value) {
   return value === 'manual' ? 'manual' : 'assisted';
+}
+
+
+function normalizeTimeOfDay(value) {
+  return value === 'sunset' || value === 'night' || value === 'day' ? value : 'day';
+}
+
+function normalizeWeather(value) {
+  return value === 'rain' || value === 'snow' || value === 'clear' ? value : 'clear';
 }
 
 function normalizeOreAmount(value) {

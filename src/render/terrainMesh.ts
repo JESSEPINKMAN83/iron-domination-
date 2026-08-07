@@ -16,25 +16,34 @@ import {
   MeshStandardMaterial,
   NearestFilter,
   RGBAFormat,
+  TetrahedronGeometry,
 } from 'three';
 import type { CSM } from 'three/addons/csm/CSM.js';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
-import { createDirtTexture, createGrassTexture, createOreTexture, createRockTexture, type TerrainTextureStyle } from './textures';
+import {
+  createDetailNormalTexture,
+  createDirtTexture,
+  createGrassTexture,
+  createMacroTintMap,
+  createOreTexture,
+  createRockTexture,
+  type MacroTintMap,
+  type TerrainTextureStyle,
+} from './textures';
 import type { ResourceNode } from '../sim/world';
+import { mulberry32 } from '../sim/noise';
 
 const CHUNKS = 4;
 
 interface OreGlow {
-  outer: Mesh;
-  core: Mesh;
   rim: Mesh;
   rig: Group;
   pumpJack: Group;
-  outerMaterial: MeshBasicMaterial;
-  coreMaterial: MeshBasicMaterial;
   rimMaterial: MeshBasicMaterial;
   statusMaterial: MeshBasicMaterial;
   rigMaterials: MeshStandardMaterial[];
+  crystals: Mesh[];
+  crystalMaterials: MeshStandardMaterial[];
 }
 
 function buildChunkGeometry(hf: Heightfield, startX: number, startY: number, chunkCells: number): BufferGeometry {
@@ -100,14 +109,16 @@ function buildChunkGeometry(hf: Heightfield, startX: number, startY: number, chu
 
 export class TerrainView {
   readonly group = new Group();
+  readonly macroTint: MacroTintMap;
   /** shared with overlays that drape data over the terrain (walkability, fog) */
   readonly chunkGeometries: BufferGeometry[] = [];
   private readonly overlayGroup = new Group();
   private readonly oreGlowGroup = new Group();
   private readonly oreGlows: OreGlow[] = [];
 
-  constructor(hf: Heightfield, csm: CSM | undefined, maxAnisotropy: number) {
-    const material = createSplatMaterial(hf, csm, maxAnisotropy);
+  constructor(hf: Heightfield, csm: CSM | undefined, maxAnisotropy: number, seed: number, groundRealism = true) {
+    this.macroTint = createMacroTintMap(hf, seed);
+    const material = createSplatMaterial(hf, csm, maxAnisotropy, this.macroTint, groundRealism);
     const overlayMaterial = createWalkOverlayMaterial(hf);
 
     const chunkCells = hf.cells / CHUNKS;
@@ -147,12 +158,8 @@ export class TerrainView {
       const glow = this.oreGlows[i];
       const pct = node ? Math.max(0, Math.min(1, node.remaining / node.capacity)) : 0;
       const visible = pct > 0.01;
-      glow.outer.visible = visible;
-      glow.core.visible = pct > 0.08;
       glow.rim.visible = visible;
-      glow.outerMaterial.opacity = 0.06 + pct * 0.28;
-      glow.coreMaterial.opacity = pct * 0.48;
-      glow.rimMaterial.opacity = 0.04 + pct * 0.18;
+      glow.rimMaterial.opacity = 0.02 + pct * 0.09;
       glow.rig.visible = pct > 0.005;
       glow.rig.scale.setScalar(0.92 + pct * 0.08);
       glow.pumpJack.rotation.x = Math.sin(now * 2.4 + i * 0.7) * (0.05 + pct * 0.14);
@@ -162,41 +169,74 @@ export class TerrainView {
         material.opacity = 0.35 + pct * 0.65;
         material.color.lerpColors(material.userData.depletedColor, material.userData.fullColor, pct);
       }
+      for (let c = 0; c < glow.crystals.length; c++) {
+        const crystal = glow.crystals[c];
+        const material = glow.crystalMaterials[c];
+        const seed = crystal.userData.seed as number;
+        const baseScale = crystal.userData.baseScale as number;
+        crystal.visible = visible;
+        crystal.scale.setScalar(baseScale * (0.55 + pct * 0.45));
+        crystal.rotation.y = crystal.userData.baseRotY + Math.sin(now * 0.6 + seed) * 0.06;
+        material.opacity = 0.55 + pct * 0.4;
+        material.emissiveIntensity = 0.9 + pct * 1.4 + Math.sin(now * 1.7 + seed) * 0.25;
+      }
     }
   }
 
   private buildOreGlow(hf: Heightfield): void {
     for (const field of hf.oreFields) {
-      const outerMaterial = oreGlowMaterial(0xf0d56a, 0.28);
-      const coreMaterial = oreGlowMaterial(0xfff0a0, 0.42);
-      const rimMaterial = oreGlowMaterial(0x7df27d, 0.18);
-      const outer = new Mesh(createTerrainDiscGeometry(hf, field.x, field.z, field.radius * 1.1, 64, 0.16), outerMaterial);
-      outer.renderOrder = 22;
-      this.oreGlowGroup.add(outer);
-
-      const core = new Mesh(createTerrainDiscGeometry(hf, field.x, field.z, field.radius * 0.52, 56, 0.2), coreMaterial);
-      core.renderOrder = 23;
-      this.oreGlowGroup.add(core);
-
-      const rim = new Mesh(createTerrainDiscGeometry(hf, field.x, field.z, field.radius * 1.28, 72, 0.24), rimMaterial);
-      rim.renderOrder = 24;
+      const rimMaterial = oreGlowMaterial(0xd9b25a, 0.1);
+      const rim = new Mesh(createTerrainDiscGeometry(hf, field.x, field.z, field.radius * 1.05, 72, 0.14), rimMaterial);
+      rim.renderOrder = 22;
+      rim.visible = false;
       this.oreGlowGroup.add(rim);
 
       const rig = createOilFieldRig(field.radius);
       rig.position.set(field.x, sampleHeight(hf, field.x, field.z) + 0.54, field.z);
       rig.rotation.y = hashAngle(field.x, field.z);
       this.oreGlowGroup.add(rig);
+
+      const crystals: Mesh[] = [];
+      const crystalMaterials: MeshStandardMaterial[] = [];
+      const rng = mulberry32((Math.floor(field.x * 31) ^ Math.floor(field.z * 57) ^ 0x9e3779b9) >>> 0);
+      const crystalCount = Math.max(12, Math.round(field.radius * 0.95));
+      for (let c = 0; c < crystalCount; c++) {
+        const angle = rng() * Math.PI * 2;
+        const distance = field.radius * (0.18 + rng() * 0.6);
+        const x = field.x + Math.cos(angle) * distance;
+        const z = field.z + Math.sin(angle) * distance;
+        const size = 0.55 + rng() * 1.0;
+        const material = new MeshStandardMaterial({
+          color: 0x3a2f1d,
+          emissive: 0xe0a83e,
+          emissiveIntensity: 1.8,
+          roughness: 0.3,
+          metalness: 0.1,
+          transparent: true,
+          opacity: 0.95,
+        });
+        const crystal = new Mesh(new TetrahedronGeometry(1, 0), material);
+        crystal.position.set(x, sampleHeight(hf, x, z) + size * 0.42, z);
+        crystal.rotation.set(rng() * 0.9 - 0.45, rng() * Math.PI * 2, rng() * 0.9 - 0.45);
+        crystal.castShadow = true;
+        crystal.userData.seed = rng() * Math.PI * 2;
+        crystal.userData.baseScale = size;
+        crystal.userData.baseRotY = crystal.rotation.y;
+        crystal.scale.setScalar(size);
+        this.oreGlowGroup.add(crystal);
+        crystals.push(crystal);
+        crystalMaterials.push(material);
+      }
+
       this.oreGlows.push({
-        outer,
-        core,
         rim,
         rig,
         pumpJack: rig.getObjectByName('pumpJack') as Group,
-        outerMaterial,
-        coreMaterial,
         rimMaterial,
         statusMaterial: rig.getObjectByName('statusLight') instanceof Mesh ? (rig.getObjectByName('statusLight') as Mesh).material as MeshBasicMaterial : oreGlowMaterial(0x7df27d, 0.3),
         rigMaterials: rig.userData.materials as MeshStandardMaterial[],
+        crystals,
+        crystalMaterials,
       });
     }
   }
@@ -381,14 +421,21 @@ function hashAngle(x: number, z: number): number {
   return (n - Math.floor(n)) * Math.PI * 2;
 }
 
-function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotropy: number): MeshStandardMaterial {
+function createSplatMaterial(
+  hf: Heightfield,
+  csm: CSM | undefined,
+  maxAnisotropy: number,
+  macroTint: MacroTintMap,
+  groundRealism: boolean,
+): MeshStandardMaterial {
   const style = terrainTextureStyle(hf);
   const grass = createGrassTexture(style);
   const dirt = createDirtTexture(style);
   const rock = createRockTexture(style);
   const ore = createOreTexture();
+  const detailNormal = createDetailNormalTexture(grass);
   const aniso = Math.min(8, maxAnisotropy);
-  for (const t of [grass, dirt, rock, ore]) t.anisotropy = aniso;
+  for (const t of [grass, dirt, rock, ore, detailNormal]) t.anisotropy = aniso;
 
   const splatTex = new DataTexture(new Uint8Array(hf.splat), hf.samples, hf.samples, RGBAFormat);
   splatTex.minFilter = LinearFilter;
@@ -402,6 +449,13 @@ function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotrop
   csm?.setupMaterial(material);
   const csmCompile = material.onBeforeCompile;
   const tiling = hf.size / 9; // one detail tile every 9 m
+  if (groundRealism) {
+    material.normalMap = detailNormal;
+    material.normalScale.set(0.52, 0.52);
+    detailNormal.repeat.set(tiling, tiling);
+    detailNormal.updateMatrix();
+  }
+  material.customProgramCacheKey = () => `terrain-ground-realism-${groundRealism ? 1 : 0}`;
 
   material.onBeforeCompile = (shader, renderer) => {
     csmCompile?.call(material, shader, renderer);
@@ -410,6 +464,7 @@ function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotrop
     shader.uniforms.uDirt = { value: dirt };
     shader.uniforms.uRock = { value: rock };
     shader.uniforms.uOre = { value: ore };
+    shader.uniforms.uMacroTint = { value: macroTint.texture };
     shader.uniforms.uTiling = { value: tiling };
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -420,6 +475,7 @@ function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotrop
         uniform sampler2D uDirt;
         uniform sampler2D uRock;
         uniform sampler2D uOre;
+        uniform sampler2D uMacroTint;
         uniform float uTiling;`,
       )
       .replace(
@@ -428,11 +484,15 @@ function createSplatMaterial(hf: Heightfield, csm: CSM | undefined, maxAnisotrop
           vec4 splatW = texture2D(uSplat, vUv);
           splatW /= max(splatW.r + splatW.g + splatW.b + splatW.a, 1e-4);
           vec2 tUv = vUv * uTiling;
-          vec3 splatCol =
-            splatW.r * texture2D(uGrass, tUv).rgb +
-            splatW.g * texture2D(uDirt, tUv).rgb +
-            splatW.b * texture2D(uRock, tUv).rgb +
-            splatW.a * texture2D(uOre, tUv).rgb;
+          vec2 rotatedUv = mat2(0.819152, -0.573576, 0.573576, 0.819152) * tUv * 0.371 + vec2(17.13, 41.79);
+          vec3 splatCol = vec3(0.0);
+          if (splatW.r > 0.015) splatCol += splatW.r * mix(texture2D(uGrass, tUv).rgb, texture2D(uGrass, rotatedUv).rgb, ${groundRealism ? '0.45' : '0.0'});
+          if (splatW.g > 0.015) splatCol += splatW.g * mix(texture2D(uDirt, tUv).rgb, texture2D(uDirt, rotatedUv).rgb, ${groundRealism ? '0.45' : '0.0'});
+          if (splatW.b > 0.015) splatCol += splatW.b * mix(texture2D(uRock, tUv).rgb, texture2D(uRock, rotatedUv).rgb, ${groundRealism ? '0.45' : '0.0'});
+          if (splatW.a > 0.015) splatCol += splatW.a * texture2D(uOre, tUv).rgb;
+          vec3 macroTint = mix(vec3(0.68), vec3(1.32), texture2D(uMacroTint, vUv).rgb);
+          macroTint = clamp(vec3(1.0) + (macroTint - vec3(1.0)) * 2.35, vec3(0.58), vec3(1.42));
+          splatCol *= ${groundRealism ? 'macroTint' : 'vec3(1.0)'};
           diffuseColor.rgb *= splatCol;
         }`,
       );

@@ -1,19 +1,19 @@
 import {
   BackSide,
   type Camera,
+  CanvasTexture,
+  ClampToEdgeWrapping,
   Color,
-  DoubleSide,
-  DynamicDrawUsage,
   Fog,
   Group,
-  IcosahedronGeometry,
-  InstancedMesh,
+  LinearFilter,
   Mesh,
   MeshBasicMaterial,
-  MeshLambertMaterial,
-  Object3D,
   ShaderMaterial,
   SphereGeometry,
+  Sprite,
+  SpriteMaterial,
+  SRGBColorSpace,
   Vector3,
 } from 'three';
 import type { CloudLayerPreset, MapAtmosphere } from '../content/maps';
@@ -40,7 +40,9 @@ export interface CloudClusterLayout {
 }
 
 interface CloudLayerView {
-  mesh: InstancedMesh;
+  group: Group;
+  sprites: Sprite[];
+  material: SpriteMaterial;
   clusters: CloudClusterLayout[];
   puffCount: number;
   speed: number;
@@ -97,15 +99,22 @@ export function createCloudLayout(
     const puffs: CloudPuffLayout[] = [];
     for (let puffIndex = 0; puffIndex < puffsPerCluster; puffIndex++) {
       const central = puffIndex === 0;
+      const inner = !central && puffIndex < Math.max(3, Math.ceil(puffsPerCluster * 0.42));
       const angle = rng() * Math.PI * 2;
-      const distance = central ? 0 : radiusX * lerp(0.18, 0.58, Math.sqrt(rng()));
+      const distance = central
+        ? 0
+        : radiusX * lerp(inner ? 0.08 : 0.24, inner ? 0.32 : 0.64, Math.sqrt(rng()));
       puffs.push({
         offsetX: Math.cos(angle) * distance,
-        offsetY: (rng() * 2 - 1) * thickness * (central ? 0.08 : 0.28),
+        offsetY: central
+          ? thickness * lerp(0.12, 0.28, rng())
+          : inner
+            ? thickness * lerp(0.02, 0.3, rng())
+            : thickness * lerp(-0.24, 0.08, rng()),
         offsetZ: Math.sin(angle) * distance * (radiusZ / radiusX),
-        scaleX: radiusX * lerp(central ? 0.42 : 0.24, central ? 0.56 : 0.42, rng()),
-        scaleY: thickness * lerp(central ? 0.72 : 0.5, central ? 1.02 : 0.9, rng()),
-        scaleZ: radiusZ * lerp(central ? 0.38 : 0.22, central ? 0.52 : 0.4, rng()),
+        scaleX: radiusX * lerp(central ? 0.32 : inner ? 0.24 : 0.18, central ? 0.46 : inner ? 0.38 : 0.31, rng()),
+        scaleY: thickness * lerp(central ? 1.15 : inner ? 0.88 : 0.58, central ? 1.62 : inner ? 1.38 : 1.02, rng()),
+        scaleZ: radiusZ * lerp(central ? 0.3 : inner ? 0.22 : 0.17, central ? 0.44 : inner ? 0.36 : 0.3, rng()),
       });
     }
     clusters.push({
@@ -126,26 +135,32 @@ export class BattlefieldAtmosphere {
   readonly lowClouds: CloudClusterLayout[];
   readonly highClouds: CloudClusterLayout[];
 
+  private style: MapAtmosphere;
   private readonly sky: Mesh;
   private readonly haze: Mesh;
   private readonly hazeMaterial: MeshBasicMaterial;
   private readonly lowLayer: CloudLayerView;
   private readonly highLayer: CloudLayerView;
-  private readonly dummy = new Object3D();
   private readonly wrapExtent: number;
   private readonly baseFogColor: Color;
   private readonly cloudFogColor: Color;
-  private readonly baseFogNear: number;
-  private readonly baseFogFar: number;
+  private baseFogNear: number;
+  private baseFogFar: number;
   private lastCloudUpdate = Number.NEGATIVE_INFINITY;
 
   constructor(
     hf: Heightfield,
-    private readonly style: MapAtmosphere,
+    style: MapAtmosphere,
     seed: number,
     sunDirection: Vector3,
     densityScale = 1,
   ) {
+    this.style = {
+      ...style,
+      sunDirection: [...style.sunDirection] as [number, number, number],
+      lowClouds: { ...style.lowClouds },
+      highClouds: { ...style.highClouds },
+    };
     this.wrapExtent = hf.size / 2 + Math.max(style.highClouds.radiusMax, style.lowClouds.radiusMax) * 1.4;
     this.baseFogColor = new Color(style.sky);
     this.cloudFogColor = new Color(style.cloudLight).lerp(new Color(style.cloudShade), 0.42);
@@ -177,7 +192,7 @@ export class BattlefieldAtmosphere {
     this.highClouds = createCloudLayout(hf.size, seed, style.highClouds, 0x71a9c1, densityScale);
     this.lowLayer = this.createLayer(this.lowClouds, style.lowClouds.opacity, 1);
     this.highLayer = this.createLayer(this.highClouds, style.highClouds.opacity, 0.56);
-    this.group.add(this.highLayer.mesh, this.lowLayer.mesh);
+    this.group.add(this.highLayer.group, this.lowLayer.group);
 
     this.hazeMaterial = new MeshBasicMaterial({
       color: this.cloudFogColor,
@@ -196,6 +211,28 @@ export class BattlefieldAtmosphere {
     this.group.add(this.haze);
 
     this.updateCloudMatrices(0);
+  }
+
+  /** Live-update sky, fog bases, and cloud tint when time/weather changes. */
+  applyLook(style: MapAtmosphere, sunDirection: Vector3): void {
+    this.style = {
+      ...style,
+      sunDirection: [...style.sunDirection] as [number, number, number],
+      lowClouds: { ...style.lowClouds },
+      highClouds: { ...style.highClouds },
+    };
+    this.baseFogColor.set(style.sky);
+    this.cloudFogColor.set(style.cloudLight).lerp(new Color(style.cloudShade), 0.42);
+    this.baseFogNear = style.fogNear;
+    this.baseFogFar = style.fogFar;
+    const skyMaterial = this.sky.material as ShaderMaterial;
+    skyMaterial.uniforms.uZenith.value.set(style.skyZenith);
+    skyMaterial.uniforms.uHorizon.value.set(style.skyHorizon);
+    skyMaterial.uniforms.uSunColor.value.set(style.sunGlow);
+    skyMaterial.uniforms.uSunDirection.value.copy(sunDirection).negate();
+    skyMaterial.uniforms.uSunStrength.value = style.sunStrength;
+    this.tintLayer(this.lowLayer, 1);
+    this.tintLayer(this.highLayer, 0.56);
   }
 
   update(timeSeconds: number, camera: Camera, fog: Fog, immersiveFlight: boolean): void {
@@ -230,25 +267,54 @@ export class BattlefieldAtmosphere {
 
   private createLayer(clusters: CloudClusterLayout[], opacity: number, speed: number): CloudLayerView {
     const puffCount = clusters.reduce((total, cluster) => total + cluster.puffs.length, 0);
-    const geometry = this.style.cloudSoftness >= 0.75
-      ? new SphereGeometry(1, 14, 10)
-      : new IcosahedronGeometry(1, 2);
-    const colour = new Color(this.style.cloudLight).lerp(new Color(this.style.cloudShade), speed > 0.8 ? 0.2 : 0.1);
-    const material = new MeshLambertMaterial({
-      color: colour,
+    const visualOpacity = Math.min(0.64, 0.16 + opacity * 0.72);
+    const texture = createCloudTexture(
+      new Color(this.style.cloudLight),
+      new Color(this.style.cloudShade),
+      this.style.cloudSoftness,
+    );
+    const tint = new Color('#ffffff').lerp(
+      new Color(this.style.skyHorizon),
+      speed > 0.8 ? 0.05 : 0.1,
+    );
+    const material = new SpriteMaterial({
+      map: texture,
+      color: tint,
       transparent: true,
-      opacity,
+      opacity: visualOpacity,
       depthWrite: false,
-      side: DoubleSide,
-      flatShading: this.style.cloudSoftness < 0.6,
       fog: true,
+      toneMapped: false,
+      alphaTest: 0.008,
     });
-    const mesh = new InstancedMesh(geometry, material, Math.max(1, puffCount));
-    mesh.count = puffCount;
-    mesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    mesh.frustumCulled = false;
-    mesh.renderOrder = speed > 0.8 ? 3 : 2;
-    return { mesh, clusters, puffCount, speed };
+    const group = new Group();
+    const sprites: Sprite[] = [];
+    for (const cluster of clusters) {
+      for (const puff of cluster.puffs) {
+        const sprite = new Sprite(material);
+        sprite.scale.set(
+          (puff.scaleX + puff.scaleZ) * 1.38,
+          puff.scaleY * 2.05,
+          1,
+        );
+        sprite.renderOrder = speed > 0.8 ? 3 : 2;
+        sprite.frustumCulled = false;
+        sprites.push(sprite);
+        group.add(sprite);
+      }
+    }
+    return { group, sprites, material, clusters, puffCount, speed };
+  }
+
+  private tintLayer(layer: CloudLayerView, speedHint: number): void {
+    layer.material.color.copy(
+      new Color(this.style.cloudLight)
+        .lerp(new Color(this.style.cloudShade), speedHint > 0.8 ? 0.12 : 0.06)
+        .lerp(new Color(this.style.skyHorizon), speedHint > 0.8 ? 0.05 : 0.1),
+    );
+    const preset = speedHint > 0.8 ? this.style.lowClouds : this.style.highClouds;
+    layer.material.opacity = Math.min(0.64, 0.16 + preset.opacity * 0.72);
+    layer.material.needsUpdate = true;
   }
 
   private updateCloudMatrices(timeSeconds: number): void {
@@ -261,14 +327,13 @@ export class BattlefieldAtmosphere {
     for (const cluster of layer.clusters) {
       const center = this.driftedCenter(cluster, timeSeconds, layer.speed);
       for (const puff of cluster.puffs) {
-        this.dummy.position.set(center.x + puff.offsetX, cluster.y + puff.offsetY, center.z + puff.offsetZ);
-        this.dummy.scale.set(puff.scaleX, puff.scaleY, puff.scaleZ);
-        this.dummy.rotation.set(0, (instance * 1.618) % Math.PI, 0);
-        this.dummy.updateMatrix();
-        layer.mesh.setMatrixAt(instance++, this.dummy.matrix);
+        layer.sprites[instance++].position.set(
+          center.x + puff.offsetX,
+          cluster.y + puff.offsetY,
+          center.z + puff.offsetZ,
+        );
       }
     }
-    if (layer.puffCount > 0) layer.mesh.instanceMatrix.needsUpdate = true;
   }
 
   private driftedCenter(cluster: CloudClusterLayout, timeSeconds: number, speed: number): { x: number; z: number } {
@@ -279,6 +344,61 @@ export class BattlefieldAtmosphere {
   }
 }
 
+function createCloudTexture(light: Color, shade: Color, softness: number): CanvasTexture {
+  const width = 256;
+  const height = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('2D canvas is required for cloud rendering');
+  const image = context.createImageData(width, height);
+  const lightSrgb = light.clone().convertLinearToSRGB();
+  const shadeSrgb = shade.clone().lerp(light, softness * 0.28).convertLinearToSRGB();
+  const blobs = [
+    { x: 0.5, y: 0.48, rx: 0.3, ry: 0.34, strength: 1 },
+    { x: 0.3, y: 0.58, rx: 0.24, ry: 0.25, strength: 0.88 },
+    { x: 0.7, y: 0.59, rx: 0.25, ry: 0.24, strength: 0.9 },
+    { x: 0.42, y: 0.34, rx: 0.2, ry: 0.24, strength: 0.82 },
+    { x: 0.62, y: 0.36, rx: 0.18, ry: 0.21, strength: 0.78 },
+  ];
+
+  for (let y = 0; y < height; y++) {
+    const v = y / (height - 1);
+    for (let x = 0; x < width; x++) {
+      const u = x / (width - 1);
+      let density = 0;
+      for (const blob of blobs) {
+        const dx = (u - blob.x) / blob.rx;
+        const dy = (v - blob.y) / blob.ry;
+        const contribution = Math.exp(-(dx * dx + dy * dy) * 2.15) * blob.strength;
+        density = 1 - (1 - density) * (1 - Math.min(0.96, contribution));
+      }
+      const textureNoise =
+        Math.sin(u * 71 + v * 37) * 0.035 +
+        Math.sin(u * 131 - v * 83) * 0.022;
+      const edge = smoothstep(0.08, 0.68, density + textureNoise);
+      const verticalFade = smoothstep(0.98, 0.7, v) * smoothstep(0.02, 0.2, v);
+      const alpha = Math.pow(edge * verticalFade, lerp(1.32, 0.92, softness));
+      const sunMix = smoothstep(0.82, 0.12, v) * 0.78 + 0.18;
+      const index = (y * width + x) * 4;
+      image.data[index] = Math.round(lerp(shadeSrgb.r, lightSrgb.r, sunMix) * 255);
+      image.data[index + 1] = Math.round(lerp(shadeSrgb.g, lightSrgb.g, sunMix) * 255);
+      image.data[index + 2] = Math.round(lerp(shadeSrgb.b, lightSrgb.b, sunMix) * 255);
+      image.data[index + 3] = Math.round(Math.max(0, Math.min(1, alpha)) * 255);
+    }
+  }
+  context.putImageData(image, 0, 0);
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  texture.wrapS = ClampToEdgeWrapping;
+  texture.wrapT = ClampToEdgeWrapping;
+  texture.minFilter = LinearFilter;
+  texture.magFilter = LinearFilter;
+  texture.generateMipmaps = false;
+  return texture;
+}
+
 function wrap(value: number, extent: number): number {
   const width = extent * 2;
   return ((((value + extent) % width) + width) % width) - extent;
@@ -286,4 +406,9 @@ function wrap(value: number, extent: number): number {
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
