@@ -1,5 +1,6 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic, type LandingIntent } from './landing';
+import { createCommanderChip, currentCommander } from './identity/commander';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
 import { sendTelemetryEvent, trackMatchTelemetry, approximatePathLength, summarizeUnitKinds, type MatchTelemetry } from './telemetry';
@@ -592,15 +593,23 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
 
     const header = document.createElement('header');
     header.className = 'war-setup__header';
+    const multiplayerIntent = options.intent === 'multiplayer';
     const headerCopy = document.createElement('div');
     headerCopy.innerHTML =
-      '<div class="war-setup__eyebrow"><span>COMMAND CENTRE</span><span class="war-setup__signal">SYSTEM ONLINE</span></div>' +
-      '<h1 class="war-setup__title">BATTLE SETUP</h1>' +
-      '<p class="war-setup__intro">Host a battle, prepare a skirmish against the AI, or join another commander\'s room.</p>';
+      `<div class="war-setup__eyebrow"><span>${multiplayerIntent ? 'MULTIPLAYER' : 'COMMAND CENTRE'}</span><span class="war-setup__signal">SYSTEM ONLINE</span></div>` +
+      `<h1 class="war-setup__title">${multiplayerIntent ? 'ONLINE BATTLE' : 'BATTLE SETUP'}</h1>` +
+      `<p class="war-setup__intro">${multiplayerIntent
+        ? 'Open a room and send the code to a friend, or switch to JOIN if you already have one.'
+        : 'Host a battle, prepare a skirmish against the AI, or join another commander\'s room.'}</p>`;
     const betaBadge = document.createElement('div');
     betaBadge.className = 'war-setup__badge';
     betaBadge.innerHTML = '<strong>PUBLIC BETA</strong><span>BUILD 0.1</span>';
-    header.append(headerCopy, betaBadge);
+    const headerAside = document.createElement('div');
+    headerAside.className = 'war-setup__header-aside';
+    const commanderIdentity = currentCommander();
+    if (commanderIdentity) headerAside.append(createCommanderChip(commanderIdentity, { size: 44 }));
+    headerAside.append(betaBadge);
+    header.append(headerCopy, headerAside);
 
     const params = new URLSearchParams(location.search);
     let mode: 'host' | 'join' = params.has('room') ? 'join' : 'host';
@@ -1450,9 +1459,23 @@ function createMultiplayerSetupPanel(
       if (value) value.textContent = summary;
     },
     focusOnlineRoom: () => {
+      // The player asked for multiplayer, so lead with the room actions instead of
+      // the local skirmish button they would otherwise reach for first.
+      hostEntry.classList.add('is-multiplayer-intent');
+      hostCopy.innerHTML =
+        '<span class="war-multiplayer__step">MULTIPLAYER</span><h3>OPEN A ROOM</h3>' +
+        '<p>You get a room code to share. Your friend joins from the JOIN tab or your invite link. Prefer to warm up alone? Start a local skirmish instead.</p>';
+      host.textContent = 'OPEN ONLINE ROOM';
+      host.classList.remove('war-button--secondary');
+      host.classList.add('war-button--primary');
+      skirmish.textContent = 'PLAY LOCAL SKIRMISH INSTEAD';
+      skirmish.classList.remove('war-button--primary');
+      skirmish.classList.add('war-button--secondary');
+      hostActions.classList.add('is-multiplayer-first');
       const target = activeMode === 'join' ? join : host;
       target.classList.add('is-intent-highlight');
       target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (activeMode === 'host') setStatus('Multiplayer ready · open a room to get a code you can share.', false);
     },
     setMode: (nextMode) => {
       if (activeSession) {

@@ -725,3 +725,8 @@
 @media (prefers-reduced-motion: reduce) {
   .war-button.is-intent-highlight { animation: none; }
 }
+
+.war-setup__header-aside { display: flex; align-items: center; gap: 14px; }
+.war-operation__entry.is-multiplayer-intent { box-shadow: inset 0 0 0 1px rgba(240, 202, 108, .34); }
+.war-mode-card__actions.is-multiplayer-first { display: flex; flex-direction: column; gap: 10px; }
+.war-mode-card__actions.is-multiplayer-first .war-button--primary { order: -1; }

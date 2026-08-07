@@ -497,3 +497,37 @@
   .iron-landing__cta { transition: none; }
   .iron-landing__music-toggle.is-playing .iron-landing__music-meter i { animation: none; height: 9px; }
 }
+
+.commander-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px 7px 8px;
+  border: 1px solid rgba(223, 189, 100, .34);
+  border-radius: 999px;
+  background: rgba(10, 14, 13, .72);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  text-align: left;
+}
+.commander-chip__text { display: grid; gap: 1px; min-width: 0; }
+.commander-chip__text small {
+  color: rgba(226, 233, 226, .58);
+  font: 500 11px/1 'Teko', "Arial Narrow", Impact, sans-serif;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+.commander-chip__text strong {
+  overflow: hidden;
+  max-width: 190px;
+  color: #f3dc9d;
+  font: 600 22px/1 'Teko', "Arial Narrow", Impact, sans-serif;
+  letter-spacing: .05em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.iron-landing__commander { position: absolute; top: 18px; left: 20px; z-index: 3; }
+@media (max-width: 640px) {
+  .iron-landing__commander { top: 12px; left: 12px; }
+  .commander-chip__text strong { max-width: 120px; font-size: 18px; }
+}

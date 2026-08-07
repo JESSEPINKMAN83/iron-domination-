@@ -2,11 +2,11 @@ import './landing.css';
 import { isMobileTouchDevice, isStandaloneMobileExperience } from './mobile/platform';
 import { submitToBackoffice } from './backoffice';
 import { identityEnabled } from './identity/flag';
+import { commanderName, createCommanderChip, currentCommander, rememberLocalCommander } from './identity/commander';
 
 const FORM_NAME = 'iron-dominion-beta';
 const BETA_SIGNUP_ENDPOINT = 'https://formspree.io/f/xjgnkega';
 const ACCESS_STORAGE_KEY = 'iron-dominion.beta-access.v1';
-const PROFILE_STORAGE_KEY = 'iron-dominion.beta-profile.v1';
 const LANDING_MUSIC_VOLUME = 0.32;
 const LANDING_MUSIC_ID = 'iron-menu-music';
 const LANDING_MUSIC_URL = '/assets/landing/home-theme.mp3';
@@ -165,20 +165,14 @@ export function hasBetaAccess(): boolean {
 function rememberBetaAccess(profile?: BetaProfile): void {
   try {
     window.localStorage.setItem(ACCESS_STORAGE_KEY, 'granted');
-    if (profile) window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
   } catch {
     // Access still works for this visit when browser storage is unavailable.
   }
+  if (profile) rememberLocalCommander(profile);
 }
 
 export function betaPlayerName(): string | undefined {
-  try {
-    const profile = JSON.parse(window.localStorage.getItem(PROFILE_STORAGE_KEY) ?? 'null') as Partial<BetaProfile> | null;
-    const name = typeof profile?.name === 'string' ? profile.name.trim() : '';
-    return name ? name.slice(0, 28) : undefined;
-  } catch {
-    return undefined;
-  }
+  return commanderName();
 }
 
 export function showLandingScreen(options: LandingOptions = {}): Promise<LandingIntent> {
@@ -298,6 +292,15 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
     document.body.appendChild(root);
     startLandingMusic();
     setupLandingMusicControl(root);
+    const showCommanderChip = (): void => {
+      const identity = currentCommander();
+      if (!identity || root.querySelector('.iron-landing__commander')) return;
+      const holder = document.createElement('div');
+      holder.className = 'iron-landing__commander';
+      holder.append(createCommanderChip(identity));
+      root.append(holder);
+    };
+    if (splitPaths) showCommanderChip();
     const completeLanding = (intent: LandingIntent): void => {
       root.classList.add('is-setup-open');
       resolve(intent);
