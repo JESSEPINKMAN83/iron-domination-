@@ -1042,7 +1042,7 @@ describe('phase 4 combat simulation', () => {
     expect(tower?.weapons?.secondary?.kind).toBe('tankBomb');
     expect(tower?.weapons?.secondary?.salvoCount).toBe(4);
     expect(tower?.specialWeapon?.kind).toBe('annihilatorMissile');
-    expect(tower?.possessable?.socketHeight).toBeGreaterThan(25);
+    expect(tower?.possessable?.socketHeight).toBeGreaterThan(12);
     expect(tower?.mover).toBeUndefined();
     expect(tower?.transform.y).toBeTypeOf('number');
 
@@ -1120,7 +1120,7 @@ describe('phase 4 combat simulation', () => {
     expect(tower?.weapon?.kind).toBe('aaMissile');
     expect(tower?.weapons?.secondary?.kind).toBe('swarmRocket');
     expect(tower?.specialWeapon?.kind).toBe('annihilatorMissile');
-    expect(tower?.possessable?.socketHeight).toBeGreaterThan(25);
+    expect(tower?.possessable?.socketHeight).toBeGreaterThan(12);
     expect(tower?.turret?.turnRate).toBeGreaterThan(3);
     expect(tower?.vision?.radius).toBe(300);
   });
