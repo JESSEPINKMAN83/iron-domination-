@@ -360,6 +360,38 @@
 .iron-landing__cta:focus-visible { outline: 2px solid #fff1b2; outline-offset: 4px; }
 .iron-landing__cta:disabled { opacity: .68; cursor: wait; transform: none; }
 .iron-landing__cta--submit { min-height: 64px; margin-top: 16px; font-size: 29px; }
+
+.iron-landing__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: stretch;
+  justify-content: center;
+}
+.iron-landing__actions .iron-landing__cta { min-width: min(300px, 100%); }
+.iron-landing__cta--ghost {
+  background: rgba(14, 18, 17, .62);
+  color: #f3dc9d;
+  box-shadow: inset 0 0 0 2px rgba(223, 189, 100, .5);
+  text-shadow: none;
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .5));
+}
+.iron-landing__cta--ghost::before,
+.iron-landing__cta--ghost::after { opacity: .35; }
+.iron-landing__cta--ghost:hover { background: rgba(26, 32, 29, .78); color: #fff1b2; }
+.iron-landing__paths-note {
+  margin: 14px 0 0;
+  color: rgba(226, 233, 226, .66);
+  font: 500 15px/1.4 'Teko', "Arial Narrow", Impact, sans-serif;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  .iron-landing__actions { flex-direction: column; }
+  .iron-landing__actions .iron-landing__cta { min-width: 100%; margin-top: 0; }
+  .iron-landing__actions { margin-top: 20px; }
+}
 .iron-landing.is-setup-open { pointer-events: none; }
 
 .iron-landing__doctrine {

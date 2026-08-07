@@ -1,5 +1,5 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
-import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic } from './landing';
+import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic, type LandingIntent } from './landing';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
 import { sendTelemetryEvent, trackMatchTelemetry, approximatePathLength, summarizeUnitKinds, type MatchTelemetry } from './telemetry';
@@ -582,7 +582,7 @@ function showLoadingOverlay(): HTMLDivElement {
   return el;
 }
 
-function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> {
+function showSetupScreen(defaults: SkirmishSettings, options: { intent?: LandingIntent } = {}): Promise<SkirmishSettings> {
   return new Promise((resolve) => {
     const root = document.createElement('div');
     root.id = 'iron-setup';
@@ -979,6 +979,10 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     document.body.appendChild(root);
     refresh();
     renderMode();
+    if (options.intent === 'multiplayer') {
+      shell.classList.add('is-multiplayer-intent');
+      multiplayer.focusOnlineRoom();
+    }
   });
 }
 
@@ -1219,6 +1223,7 @@ function createMultiplayerSetupPanel(
   root: HTMLDivElement;
   setMode: (mode: 'host' | 'join') => void;
   setMobileSummary: (summary: string) => void;
+  focusOnlineRoom: () => void;
   syncHostSettings: () => void;
 } {
   const root = document.createElement('div');
@@ -1443,6 +1448,11 @@ function createMultiplayerSetupPanel(
     setMobileSummary: (summary) => {
       const value = mobileDeploySummary.querySelector('strong');
       if (value) value.textContent = summary;
+    },
+    focusOnlineRoom: () => {
+      const target = activeMode === 'join' ? join : host;
+      target.classList.add('is-intent-highlight');
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
     },
     setMode: (nextMode) => {
       if (activeSession) {
@@ -5139,8 +5149,9 @@ async function start(): Promise<void> {
   }
   const localSetupPreview = !isPublicHost(location.hostname) && params.get('setup-preview') === '1';
   startLandingMusic();
-  if (!localSetupPreview && !(inviteRoom && hasBetaAccess())) await showLandingScreen({ inviteRoom });
-  const chosen = await showSetupScreen(settings);
+  let intent: LandingIntent = inviteRoom ? 'multiplayer' : 'single';
+  if (!localSetupPreview && !(inviteRoom && hasBetaAccess())) intent = await showLandingScreen({ inviteRoom });
+  const chosen = await showSetupScreen(settings, { intent });
   document.getElementById('iron-landing')?.remove();
   await boot(chosen);
 }
