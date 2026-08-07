@@ -131,12 +131,18 @@
 .war-map-preview, .war-lobby__map {
   position: relative;
   width: 100%;
-  min-height: clamp(420px, 52vh, 620px);
-  aspect-ratio: auto;
   overflow: hidden;
   border: 1px solid rgba(223, 189, 100, .48);
   background: #07100f;
   box-shadow: inset 0 0 0 1px rgba(223, 189, 100, 0.12), 0 12px 34px rgba(0,0,0,.3);
+}
+/* The battlefield is square, so the preview is too — stretching it to the
+   column width distorts distances and the terrain reads wrong. */
+.war-map-preview {
+  width: 100%;
+  max-width: min(100%, 56vh);
+  margin-inline: auto;
+  aspect-ratio: 1;
 }
 
 .tactical-map { container: tactical-map / inline-size; isolation: isolate; }
@@ -155,97 +161,137 @@
   z-index: 8;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(transparent 49%, rgba(255,255,255,.025) 50%);
-  background-size: 100% 4px;
+  background: linear-gradient(transparent 50%, rgba(255,255,255,.02) 50%);
+  background-size: 100% 6px;
   mix-blend-mode: overlay;
-  opacity: .55;
+  opacity: .3;
 }
-.tactical-map__canvas { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; display: block; filter: saturate(.94) contrast(1.08); image-rendering: pixelated; image-rendering: crisp-edges; }
+/* Smooth downscale: the raster is generated well above display size, so let the
+   browser filter it instead of snapping to pixels. */
+.tactical-map__canvas { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; display: block; filter: saturate(1.02) contrast(1.03); image-rendering: auto; }
 .tactical-map__grid {
   position: absolute;
   z-index: 2;
   inset: 0;
   pointer-events: none;
   background:
-    repeating-linear-gradient(90deg, transparent 0 calc(12.5% - 1px), rgba(230,220,170,.1) 12.5%),
-    repeating-linear-gradient(0deg, transparent 0 calc(12.5% - 1px), rgba(230,220,170,.1) 12.5%);
-  border: 8px solid rgba(4,10,10,.22);
-  box-shadow: inset 0 0 0 1px rgba(242,216,122,.17);
+    repeating-linear-gradient(90deg, transparent 0 calc(12.5% - 1px), rgba(230,220,170,.055) 12.5%),
+    repeating-linear-gradient(0deg, transparent 0 calc(12.5% - 1px), rgba(230,220,170,.055) 12.5%);
+  border: 10px solid rgba(4,10,10,.16);
+  box-shadow: inset 0 0 0 1px rgba(242,216,122,.14);
 }
 .tactical-map__heading, .tactical-map__telemetry {
   position: absolute;
   z-index: 6;
-  top: 10px;
-  padding: 5px 7px;
-  display: grid;
-  gap: 2px;
-  background: rgba(4,9,9,.68);
-  border-left: 2px solid var(--war-gold);
-  box-shadow: 0 4px 14px rgba(0,0,0,.26);
-  -webkit-backdrop-filter: blur(5px);
-  backdrop-filter: blur(5px);
+  top: 12px;
+  padding: 7px 11px;
+  background: rgba(4,9,9,.74);
+  border: 1px solid rgba(242,216,122,.2);
+  border-left: 3px solid var(--war-gold);
+  box-shadow: 0 6px 18px rgba(0,0,0,.4);
+  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
 }
-.tactical-map__heading { left: 10px; }
-.tactical-map__heading span, .tactical-map__telemetry span { color: #aab6ae; font: 700 6px/1.25 ui-monospace, monospace; letter-spacing: .12em; }
-.tactical-map__heading strong { color: #f4dc86; font: 700 11px/1 ui-monospace, monospace; letter-spacing: .12em; }
-.tactical-map__telemetry { right: 10px; align-items: end; border-left: 0; border-right: 2px solid var(--war-gold); text-align: right; }
-.tactical-map__telemetry span:first-child { color: #f0d675; }
-.tactical-map__north { position: absolute; z-index: 6; left: 15px; top: 62px; width: 18px; color: #f4dc86; text-align: center; filter: drop-shadow(0 2px 3px #000); }
-.tactical-map__north i { display: block; width: 0; height: 0; margin: auto; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 13px solid currentColor; }
-.tactical-map__north span { font: 700 7px/1 ui-monospace, monospace; }
+.tactical-map__heading { left: 12px; display: grid; gap: 4px; }
+.tactical-map__heading strong { color: #f6e39a; font: 800 15px/1 ui-monospace, monospace; letter-spacing: .1em; }
+.tactical-map__heading span { color: #9fada6; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; }
+.tactical-map__telemetry { right: 12px; display: flex; gap: 14px; border-left: 1px solid rgba(242,216,122,.2); border-right: 3px solid var(--war-gold); }
+.tactical-map__telemetry span { display: grid; gap: 4px; justify-items: end; }
+.tactical-map__telemetry small { color: #8b9891; font: 700 8px/1 ui-monospace, monospace; letter-spacing: .13em; }
+.tactical-map__telemetry b { color: #f0d675; font: 800 13px/1 ui-monospace, monospace; letter-spacing: .04em; }
+.tactical-map__north { position: absolute; z-index: 6; left: 20px; top: 84px; width: 22px; color: #f4dc86; text-align: center; filter: drop-shadow(0 2px 4px rgba(0,0,0,.9)); }
+.tactical-map__north i { display: block; width: 0; height: 0; margin: auto; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 17px solid currentColor; }
+.tactical-map__north span { display: block; margin-top: 2px; font: 800 10px/1 ui-monospace, monospace; }
 .tactical-map__deployments { position: absolute; z-index: 7; inset: 0; pointer-events: none; }
+.tactical-map__deployments.is-draggable .tactical-map__deployment.is-draggable { pointer-events: auto; cursor: grab; touch-action: none; }
+.tactical-map__deployment.is-draggable:hover { filter: brightness(1.12); }
+.tactical-map__deployment.is-dragging { cursor: grabbing; z-index: 3; filter: brightness(1.18); box-shadow: 0 0 26px color-mix(in srgb, var(--deployment-color) 50%, transparent), 0 10px 22px rgba(0,0,0,.6); }
+.tactical-map__deployment.is-invalid { --deployment-color: #d9534f; border-style: dashed; }
+.tactical-map__deployment.is-invalid > i { background: #d9534f; box-shadow: 0 0 12px #d9534f; }
+/* While a marker is in flight the grid is emphasised as a placement guide. */
+.tactical-map.is-placing .tactical-map__grid { background:
+  repeating-linear-gradient(90deg, transparent 0 calc(12.5% - 1px), rgba(230,220,170,.16) 12.5%),
+  repeating-linear-gradient(0deg, transparent 0 calc(12.5% - 1px), rgba(230,220,170,.16) 12.5%); }
 .tactical-map__deployment {
   --deployment-color: #d7dde0;
+  /* Distance from the chip's leading edge to the centre of the badge. */
+  --anchor-x: 24px;
   position: absolute;
-  width: 112px;
-  min-height: 36px;
-  padding: 4px 6px;
+  width: 150px;
+  min-height: 44px;
+  padding: 6px 9px;
   display: flex;
-  gap: 6px;
+  gap: 9px;
   align-items: center;
+  border-radius: 3px;
   color: #eef3ee;
-  background: linear-gradient(110deg, color-mix(in srgb, var(--deployment-color) 23%, rgba(4,9,9,.88)), rgba(4,9,9,.78));
+  background: linear-gradient(110deg, color-mix(in srgb, var(--deployment-color) 26%, rgba(4,9,9,.92)), rgba(4,9,9,.86));
   border: 1px solid color-mix(in srgb, var(--deployment-color) 72%, white 8%);
-  box-shadow: 0 0 18px color-mix(in srgb, var(--deployment-color) 26%, transparent), 0 5px 12px rgba(0,0,0,.45);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--deployment-color) 28%, transparent), 0 6px 16px rgba(0,0,0,.55);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
-.tactical-map__deployment--1 { transform: translate(0, 0); }
-.tactical-map__deployment--2 { transform: translate(-100%, -100%); }
-.tactical-map__deployment--3 { transform: translate(-100%, 0); }
-.tactical-map__deployment--4 { transform: translate(0, -100%); }
-.tactical-map__deployment.is-local { outline: 1px solid #f5d871; outline-offset: 3px; }
+/* The numbered badge sits exactly on the start position; the label trails away
+   from the nearest edge so corner deployments stay inside the map. */
+.tactical-map__deployment { transform: translate(calc(-1 * var(--anchor-x)), -50%); }
+.tactical-map__deployment.is-flipped { flex-direction: row-reverse; transform: translate(calc(var(--anchor-x) - 100%), -50%); }
+.tactical-map__deployment.is-flipped > span { text-align: right; }
+.tactical-map__deployment.is-local { outline: 2px solid #f5d871; outline-offset: 3px; }
 .tactical-map__deployment.is-open { opacity: .65; border-style: dashed; filter: saturate(.55); }
 .tactical-map__deployment > i {
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   color: #07100d;
   background: var(--deployment-color);
-  box-shadow: 0 0 10px var(--deployment-color);
-  font: 800 9px/1 ui-monospace, monospace;
+  box-shadow: 0 0 12px var(--deployment-color), inset 0 1px 0 rgba(255,255,255,.45);
+  font: 800 13px/1 ui-monospace, monospace;
   font-style: normal;
 }
-.tactical-map__deployment > span { min-width: 0; display: grid; gap: 2px; }
-.tactical-map__deployment strong { overflow: hidden; color: #f1f4ef; font: 800 7px/1 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; letter-spacing: .05em; }
-.tactical-map__deployment small { overflow: hidden; color: color-mix(in srgb, var(--deployment-color) 78%, white 22%); font: 700 6px/1 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; letter-spacing: .06em; }
-.tactical-map__scale { position: absolute; z-index: 6; left: 12px; bottom: 11px; width: 100%; color: #e7d483; pointer-events: none; }
-.tactical-map__scale i { display: block; width: var(--scale-width); max-width: 92px; height: 5px; border: solid currentColor; border-width: 0 1px 1px; }
-.tactical-map__scale span { display: block; margin-top: 3px; font: 700 6px/1 ui-monospace, monospace; letter-spacing: .1em; }
-.tactical-map__legend { position: absolute; z-index: 6; right: 11px; bottom: 10px; padding: 5px 6px; display: flex; gap: 7px; background: rgba(4,9,9,.68); color: #c5cec7; font: 700 5px/1 ui-monospace, monospace; letter-spacing: .08em; }
-.tactical-map__legend span { display: flex; gap: 3px; align-items: center; }
-.tactical-map__legend i { width: 6px; height: 6px; border-radius: 50%; }
-.tactical-map__legend i[data-kind="water"] { background: #287887; }
-.tactical-map__legend i[data-kind="ridge"] { background: #8f9892; }
-.tactical-map__legend i[data-kind="ore"] { background: #f0c85b; box-shadow: 0 0 5px #e2b640; }
+.tactical-map__deployment > span { min-width: 0; display: grid; gap: 3px; }
+.tactical-map__deployment strong { overflow: hidden; color: #f6f8f4; font: 800 11px/1 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; letter-spacing: .05em; }
+.tactical-map__deployment small { overflow: hidden; color: color-mix(in srgb, var(--deployment-color) 68%, white 32%); font: 700 9px/1 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; letter-spacing: .06em; }
+.tactical-map__scale { position: absolute; z-index: 6; left: 16px; bottom: 14px; width: 100%; color: #f0dc94; pointer-events: none; filter: drop-shadow(0 1px 3px rgba(0,0,0,.9)); }
+.tactical-map__scale i { display: block; width: var(--scale-width); max-width: 130px; height: 8px; border: solid currentColor; border-width: 0 2px 2px; }
+.tactical-map__scale span { display: block; margin-top: 4px; font: 800 10px/1 ui-monospace, monospace; letter-spacing: .1em; }
+.tactical-map__legend {
+  position: absolute;
+  z-index: 6;
+  right: 14px;
+  bottom: 13px;
+  padding: 8px 11px;
+  display: flex;
+  gap: 13px;
+  border-radius: 3px;
+  border: 1px solid rgba(242,216,122,.18);
+  background: rgba(4,9,9,.76);
+  color: #cfd8d1;
+  font: 700 9px/1 ui-monospace, monospace;
+  letter-spacing: .1em;
+  box-shadow: 0 6px 16px rgba(0,0,0,.4);
+  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
+}
+.tactical-map__legend span { display: flex; gap: 6px; align-items: center; }
+.tactical-map__legend i { width: 9px; height: 9px; border-radius: 50%; }
+.tactical-map__legend i[data-kind="water"] { background: #2e8ba0; }
+.tactical-map__legend i[data-kind="ridge"] { background: #9aa49d; }
+.tactical-map__legend i[data-kind="ore"] { background: #f0c85b; box-shadow: 0 0 7px #e2b640; }
 
+@container tactical-map (max-width: 420px) {
+  .tactical-map__heading strong { font-size: 12px; }
+  .tactical-map__telemetry { gap: 10px; }
+  .tactical-map__telemetry b { font-size: 11px; }
+  .tactical-map__deployment { --anchor-x: 18px; width: 118px; min-height: 36px; padding: 4px 6px; gap: 6px; }
+  .tactical-map__deployment > i { width: 22px; height: 22px; font-size: 11px; }
+  .tactical-map__deployment strong { font-size: 9px; }
+  .tactical-map__deployment small { font-size: 8px; }
+}
 @container tactical-map (max-width: 285px) {
-  .tactical-map__telemetry span:last-child, .tactical-map__legend { display: none; }
-  .tactical-map__deployment { width: 92px; min-height: 30px; padding: 3px 4px; gap: 4px; }
-  .tactical-map__deployment > i { width: 19px; height: 19px; }
-  .tactical-map__deployment strong { font-size: 6px; }
-  .tactical-map__deployment small { font-size: 5px; }
+  .tactical-map__telemetry span:not(:first-child), .tactical-map__legend { display: none; }
 }
 .war-battlefield__controls { display: grid; gap: 14px; align-content: start; min-width: 0; }
 .war-rules-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
@@ -579,7 +625,7 @@
   .war-tab small { font-size: 9px; }
   .war-config, .war-aside, .war-operation { padding: 22px 17px 28px; }
   .war-battlefield { grid-template-columns: 1fr; }
-  .war-map-preview { min-height: 190px; }
+  .war-map-preview { max-width: 100%; }
   .war-settings-grid, .war-rules-grid { grid-template-columns: 1fr; }
   .war-terrain-row { grid-template-columns: 1fr; }
   .war-rules-grid .war-field:last-child { grid-column: auto; }

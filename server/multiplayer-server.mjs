@@ -44,6 +44,7 @@ const rooms = new Map();
  *   playersPerArmy: 1 | 2;
  *   armySides: number[];
  *   spawnSlots: number[];
+ *   spawnPoints: Array<{ x: number; z: number }>;
  *   hostPlayerId: string;
  *   players: Array<{ id: string; index: number; armyId: number; role: 'commander' | 'field-officer'; name: string; color: string; ready: boolean; rematchReady: boolean; connected: boolean; engine: string; pingMs?: number; joinedAt: number; disconnectedAt?: number }>;
  *   clients: Map<string, import('ws').WebSocket>;
@@ -245,6 +246,7 @@ function handleSettings(socket, body) {
   room.playersPerArmy = 2;
   reconcileControllerAssignments(room);
   room.spawnSlots = normalizeSpawnSlots(next.spawnSlots ?? room.spawnSlots);
+  room.spawnPoints = normalizeSpawnPoints(next.spawnPoints ?? room.spawnPoints, room.spawnSlots);
   for (const candidate of room.players) candidate.ready = false;
   room.updatedAt = Date.now();
   broadcast(room, roomState(room));
@@ -384,6 +386,7 @@ function createRoom(body) {
   const armyCount = Math.max(2, new Set(controllerTeams.slice(0, controllerCount)).size);
   const armySides = normalizeArmySides(undefined, armyCount);
   const spawnSlots = normalizeSpawnSlots(body?.spawnSlots);
+  const spawnPoints = normalizeSpawnPoints(body?.spawnPoints, spawnSlots);
   return {
     code,
     mapId: normalizeMapId(body?.mapId),
@@ -403,6 +406,7 @@ function createRoom(body) {
     playersPerArmy: 2,
     armySides,
     spawnSlots,
+    spawnPoints,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     status: 'waiting',
@@ -438,6 +442,7 @@ function restoreRoom(snapshot) {
     playersPerArmy,
     armySides: normalizeArmySides(snapshot?.armySides, armyCount),
     spawnSlots: normalizeSpawnSlots(snapshot?.spawnSlots),
+    spawnPoints: normalizeSpawnPoints(snapshot?.spawnPoints, normalizeSpawnSlots(snapshot?.spawnSlots)),
     createdAt: now,
     updatedAt: now,
     status: 'in-game',
@@ -611,6 +616,7 @@ function publicRoom(room) {
     playersPerArmy: room.playersPerArmy,
     armySides: room.armySides,
     spawnSlots: room.spawnSlots,
+    spawnPoints: room.spawnPoints,
     status: room.status,
     startsAt: room.startsAt,
     hostPlayerId: room.hostPlayerId,
@@ -756,6 +762,35 @@ function normalizeSpawnSlots(value) {
     used.add(slot ?? index + 1);
   }
   return result;
+}
+
+/**
+ * Dragged start positions, as offsets from map centre in fractions of map size.
+ * Clamped to the same edge limit the client enforces so a tampered payload
+ * cannot place a base off the battlefield.
+ */
+function normalizeSpawnPoints(value, fallbackSlots) {
+  const corners = [
+    { x: -0.34, z: -0.34 },
+    { x: 0.34, z: 0.34 },
+    { x: 0.34, z: -0.34 },
+    { x: -0.34, z: 0.34 },
+  ];
+  const slots = Array.isArray(fallbackSlots) ? fallbackSlots : [1, 2, 3, 4];
+  const input = Array.isArray(value) ? value : [];
+  const limit = 0.44;
+  return Array.from({ length: 4 }, (_, index) => {
+    const raw = input[index];
+    const x = Number(raw?.x);
+    const z = Number(raw?.z);
+    if (!Number.isFinite(x) || !Number.isFinite(z)) {
+      return { ...corners[Math.max(1, Math.min(4, Math.floor(slots[index] ?? index + 1))) - 1] };
+    }
+    return {
+      x: Math.max(-limit, Math.min(limit, x)),
+      z: Math.max(-limit, Math.min(limit, z)),
+    };
+  });
 }
 
 function ensureOpenAiOpponent(room, connectedPlayers) {
