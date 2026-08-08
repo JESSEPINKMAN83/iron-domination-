@@ -1,9 +1,13 @@
 import { createServer } from 'node:http';
+import { createHmac } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
 type RelayMessage = Record<string, any> & { type: string };
+
+const RELAY_SECRET = 'relay-test-secret';
+const ticketFor = (memberId: string) => createHmac('sha256', RELAY_SECRET).update(memberId).digest('base64url');
 
 const children: ChildProcess[] = [];
 const sockets: WebSocket[] = [];
@@ -78,7 +82,12 @@ describe('multiplayer relay', () => {
     const enforcePort = await availablePort();
     children.push(spawn(process.execPath, ['server/multiplayer-server.mjs'], {
       cwd: process.cwd(),
-      env: { ...process.env, PORT: String(enforcePort), MEMBER_AUTH: 'enforce' },
+      env: {
+        ...process.env,
+        PORT: String(enforcePort),
+        MEMBER_AUTH: 'enforce',
+        IRON_DOMINION_INGEST_SECRET: RELAY_SECRET,
+      },
       stdio: 'ignore',
     }));
     await waitForHealth(enforcePort);
@@ -93,6 +102,57 @@ describe('multiplayer relay', () => {
     blockedJoin.send(JSON.stringify({ type: 'join', requestId: 'enforce-2', code: 'ABCD', name: 'Guest' }));
     const joinRefusal = await nextMessage(blockedJoin, (message) => message.type === 'session' || message.type === 'error');
     expect(joinRefusal.error).toBe('member-required');
+
+    const admitted = await connect(enforcePort);
+    admitted.send(JSON.stringify({
+      type: 'host',
+      requestId: 'enforce-3',
+      name: 'Host',
+      settings: { seed: 7 },
+      memberId: 'member-1',
+      memberTicket: ticketFor('member-1'),
+    }));
+    const session2 = await nextMessage(admitted, (message) => message.type === 'session' || message.type === 'error');
+    expect(session2.type).toBe('session');
+    expect(session2.player.verifiedMember).toBe(true);
+  });
+
+  it('admits everyone when enforce is on but no secret is configured, so a missing env var cannot lock the game', async () => {
+    const port = await availablePort();
+    children.push(spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, PORT: String(port), MEMBER_AUTH: 'enforce', IRON_DOMINION_INGEST_SECRET: '' },
+      stdio: 'ignore',
+    }));
+    await waitForHealth(port);
+
+    const socket = await connect(port);
+    socket.send(JSON.stringify({ type: 'host', requestId: 'no-secret-1', name: 'Guest', settings: { seed: 9 } }));
+    const session = await nextMessage(socket, (message) => message.type === 'session' || message.type === 'error');
+    expect(session.type).toBe('session');
+    expect(session.player.verifiedMember).toBe(false);
+  });
+
+  it('refuses a ticket that was signed for a different member', async () => {
+    const port = await availablePort();
+    children.push(spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, PORT: String(port), MEMBER_AUTH: 'enforce', IRON_DOMINION_INGEST_SECRET: RELAY_SECRET },
+      stdio: 'ignore',
+    }));
+    await waitForHealth(port);
+
+    const socket = await connect(port);
+    socket.send(JSON.stringify({
+      type: 'host',
+      requestId: 'replay-1',
+      name: 'Impostor',
+      settings: { seed: 11 },
+      memberId: 'member-2',
+      memberTicket: ticketFor('member-1'),
+    }));
+    const refusal = await nextMessage(socket, (message) => message.type === 'session' || message.type === 'error');
+    expect(refusal.error).toBe('member-required');
   });
 
   it('starts a match, rejects player spoofing, and preserves a reconnecting slot', async () => {

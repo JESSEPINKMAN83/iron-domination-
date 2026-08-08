@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
 // @ts-expect-error - plain ESM module shared with the relay
 import { createMemberVerifier, membershipDecision, resolveMemberAuthMode } from './memberAuth.mjs';
 
-const TOKEN = 'member-access-token-that-is-long-enough';
-
-function jsonResponse(payload: unknown, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(payload) };
-}
+const SECRET = 'shared-secret';
+const MEMBER_ID = 'member-1';
+const ticketFor = (memberId: string, secret = SECRET) =>
+  createHmac('sha256', secret).update(memberId).digest('base64url');
 
 describe('relay membership mode', () => {
   it('defaults to log so a rollout observes before it rejects', () => {
@@ -23,79 +23,70 @@ describe('relay membership mode', () => {
   });
 });
 
-describe('member verifier', () => {
-  it('verifies a token once and serves the rest from cache', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      jsonResponse({ member: { id: 'member-1', profile: { nickname: 'Iron Fox' } } }),
-    );
-    const verifier = createMemberVerifier({ fetch: fetchImpl });
-
-    await expect(verifier.verify(TOKEN)).resolves.toEqual({ ok: true, memberId: 'member-1', nickname: 'Iron Fox' });
-    await expect(verifier.verify(TOKEN)).resolves.toMatchObject({ ok: true, memberId: 'member-1' });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(verifier.stats()).toMatchObject({ checked: 1, verified: 1, cacheHits: 1 });
+describe('membership ticket verifier', () => {
+  it('accepts the ticket the Worker minted for that member', () => {
+    const verifier = createMemberVerifier({ secret: SECRET });
+    expect(verifier.verify(MEMBER_ID, ticketFor(MEMBER_ID))).toEqual({ ok: true, memberId: MEMBER_ID });
+    expect(verifier.stats()).toMatchObject({ checked: 1, verified: 1 });
   });
 
-  it('sends the token as the authorization header', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ member: { id: 'm' } }));
-    await createMemberVerifier({ fetch: fetchImpl }).verify(TOKEN);
-    const [, init] = fetchImpl.mock.calls[0]!;
-    expect((init as RequestInit).headers).toMatchObject({ authorization: TOKEN });
+  it('refuses a member id the player simply claimed, with no ticket to back it', () => {
+    const verifier = createMemberVerifier({ secret: SECRET });
+    expect(verifier.verify(MEMBER_ID, undefined)).toEqual({ ok: false, reason: 'missing-ticket' });
   });
 
-  it('rejects an unauthorized token and caches that briefly', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 401));
-    const verifier = createMemberVerifier({ fetch: fetchImpl });
-    await expect(verifier.verify(TOKEN)).resolves.toEqual({ ok: false, reason: 'invalid-token' });
-    await verifier.verify(TOKEN);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  it('refuses a valid ticket replayed against a different member', () => {
+    const verifier = createMemberVerifier({ secret: SECRET });
+    expect(verifier.verify('member-2', ticketFor(MEMBER_ID))).toEqual({ ok: false, reason: 'invalid-ticket' });
   });
 
-  it('re-checks a negative result once its short ttl lapses', async () => {
-    let clock = 0;
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 401));
-    const verifier = createMemberVerifier({ fetch: fetchImpl, now: () => clock });
-    await verifier.verify(TOKEN);
-    clock += 31_000;
-    await verifier.verify(TOKEN);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-  });
-
-  it('treats a missing token as a rejection without calling Wix', async () => {
-    const fetchImpl = vi.fn();
-    await expect(createMemberVerifier({ fetch: fetchImpl }).verify(undefined)).resolves.toEqual({
+  it('refuses a ticket signed with the wrong secret', () => {
+    const verifier = createMemberVerifier({ secret: SECRET });
+    expect(verifier.verify(MEMBER_ID, ticketFor(MEMBER_ID, 'some-other-secret'))).toEqual({
       ok: false,
-      reason: 'missing-token',
+      reason: 'invalid-ticket',
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('reports a transport failure as unavailable rather than invalid, and does not cache it', async () => {
-    const fetchImpl = vi.fn().mockRejectedValue(new Error('network down'));
-    const verifier = createMemberVerifier({ fetch: fetchImpl });
-    await expect(verifier.verify(TOKEN)).resolves.toEqual({ ok: false, reason: 'unavailable' });
-    await verifier.verify(TOKEN);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  it('refuses a truncated ticket rather than comparing a prefix', () => {
+    const verifier = createMemberVerifier({ secret: SECRET });
+    expect(verifier.verify(MEMBER_ID, ticketFor(MEMBER_ID).slice(0, 10))).toEqual({
+      ok: false,
+      reason: 'invalid-ticket',
+    });
+  });
+
+  it('reports unavailable when no secret is configured, so a missing env var cannot lock players out', () => {
+    const verifier = createMemberVerifier({});
+    expect(verifier.verify(MEMBER_ID, ticketFor(MEMBER_ID))).toEqual({ ok: false, reason: 'unavailable' });
+    expect(verifier.stats()).toMatchObject({ unconfigured: 1, checked: 0 });
+  });
+
+  it('makes no network call, so a Wix outage cannot reach the join path', () => {
+    // There is nothing to stub: verification is an HMAC over the member id.
+    const verifier = createMemberVerifier({ secret: SECRET });
+    for (let index = 0; index < 1000; index += 1) verifier.verify(MEMBER_ID, ticketFor(MEMBER_ID));
+    expect(verifier.stats()).toMatchObject({ verified: 1000, rejected: 0 });
   });
 });
 
 describe('membership decision', () => {
-  const invalid = { ok: false, reason: 'invalid-token' } as const;
-  const verified = { ok: true, memberId: 'member-1', nickname: 'Iron Fox' } as const;
+  const invalid = { ok: false, reason: 'invalid-ticket' } as const;
+  const verified = { ok: true, memberId: MEMBER_ID } as const;
 
   it('lets everyone through when the check is off', () => {
     expect(membershipDecision('off', invalid)).toMatchObject({ allow: true, identity: undefined });
   });
 
   it('never rejects in log mode, but records why', () => {
-    expect(membershipDecision('log', invalid)).toMatchObject({ allow: true, logged: 'invalid-token' });
+    expect(membershipDecision('log', invalid)).toMatchObject({ allow: true, logged: 'invalid-ticket' });
   });
 
-  it('rejects an invalid token only in enforce mode', () => {
+  it('rejects an invalid ticket only in enforce mode', () => {
     expect(membershipDecision('enforce', invalid)).toMatchObject({ allow: false });
   });
 
-  it('keeps multiplayer up when Wix is unreachable, even in enforce mode', () => {
+  it('keeps multiplayer up when the relay cannot check at all, even in enforce mode', () => {
     expect(membershipDecision('enforce', { ok: false, reason: 'unavailable' })).toMatchObject({
       allow: true,
       logged: 'unavailable',
@@ -106,7 +97,7 @@ describe('membership decision', () => {
     for (const mode of ['log', 'enforce'] as const) {
       expect(membershipDecision(mode, verified)).toMatchObject({
         allow: true,
-        identity: { memberId: 'member-1', nickname: 'Iron Fox' },
+        identity: { memberId: MEMBER_ID },
       });
     }
   });
