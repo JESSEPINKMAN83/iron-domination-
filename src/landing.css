@@ -287,6 +287,13 @@
   cursor: pointer;
 }
 .iron-landing__consent input { width: 15px; height: 15px; margin: 1px 0 0; flex: none; accent-color: #d4ae50; }
+.iron-landing__consent-note {
+  margin: 13px 0 0;
+  color: rgba(245, 241, 230, .82);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+}
 .iron-landing__error { margin: 10px 0 0; color: #ffb09f; font-size: 12px; }
 .iron-landing__fullscreen-hint { margin:10px auto 0; color:rgba(245,241,230,.68); font-size:10px; line-height:1.35; }
 
@@ -533,15 +540,3 @@
 }
 
 .iron-landing__commander { display: flex; align-items: center; gap: 8px; }
-.iron-landing__sign-out {
-  padding: 5px 9px;
-  border: 1px solid rgba(223, 189, 100, .26);
-  border-radius: 999px;
-  background: rgba(10, 14, 13, .6);
-  color: rgba(226, 233, 226, .62);
-  cursor: pointer;
-  font: 500 12px/1 'Teko', "Arial Narrow", Impact, sans-serif;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-.iron-landing__sign-out:hover { color: #f3dc9d; }
