@@ -730,3 +730,20 @@
 .war-operation__entry.is-multiplayer-intent { box-shadow: inset 0 0 0 1px rgba(240, 202, 108, .34); }
 .war-mode-card__actions.is-multiplayer-first { display: flex; flex-direction: column; gap: 10px; }
 .war-mode-card__actions.is-multiplayer-first .war-button--primary { order: -1; }
+
+.war-lobby__avatar { position: relative; display: flex; align-items: center; justify-self: center; }
+.war-lobby__avatar-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 50%;
+  background: #4f9d5c;
+  box-shadow: 0 0 0 2px rgba(9, 13, 12, .9);
+  color: #06120a;
+  font: 700 9px/1 ui-monospace, Menlo, monospace;
+}
+.war-lobby__player.is-ai .war-lobby__avatar { opacity: .6; }

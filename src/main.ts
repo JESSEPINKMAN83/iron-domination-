@@ -1,6 +1,6 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic, type LandingIntent } from './landing';
-import { createCommanderChip, currentCommander } from './identity/commander';
+import { createCommanderChip, currentCommander, renderLobbyAvatar } from './identity/commander';
 import { isMemberSignedIn, restoreMemberSession } from './identity/session';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
@@ -1760,6 +1760,8 @@ function createRoomLobbyView(
     const slot = document.createElement('div');
     slot.className = 'war-lobby__slot';
     slot.textContent = `P${index}`;
+    const avatar = document.createElement('div');
+    avatar.className = 'war-lobby__avatar';
     const identity = document.createElement('div');
     identity.className = 'war-lobby__identity';
     const nameInput = document.createElement('input');
@@ -1838,8 +1840,8 @@ function createRoomLobbyView(
       selectedArmy = player?.armyId ?? selectedArmy;
       update(latestRoom, session.player.index);
     };
-    row.append(slot, identity, assignmentCell, colorPicker, colorDisplay);
-    return { row, slot, nameInput, nameText, connection, assignment, colorPicker, colorButtons, colorDisplay, defaultColor: defaultColors[offset % defaultColors.length] };
+    row.append(slot, avatar, identity, assignmentCell, colorPicker, colorDisplay);
+    return { row, slot, avatar, nameInput, nameText, connection, assignment, colorPicker, colorButtons, colorDisplay, defaultColor: defaultColors[offset % defaultColors.length] };
   });
   players.append(tableHead, ...playerRows.map((view) => view.row));
 
@@ -2075,7 +2077,16 @@ function createRoomLobbyView(
       view.nameText.hidden = isLocal;
       if (isLocal && document.activeElement !== view.nameInput) view.nameInput.value = player?.name ?? session.player.name;
       view.nameInput.disabled = room.status !== 'waiting';
-      view.nameText.textContent = player?.name ?? `COMPUTER ${index}`;
+      const rowName = player?.name ?? `COMPUTER ${index}`;
+      view.nameText.textContent = rowName;
+      // A verified badge is only meaningful once the relay checks membership, so it
+      // is driven by the relay's flag rather than by anything the client asserts.
+      renderLobbyAvatar(view.avatar, {
+        name: rowName,
+        seed: player?.id ?? `ai-${index}`,
+        isAi,
+        verified: player?.verifiedMember === true,
+      });
       view.connection.textContent = player?.connected
         ? `${player.role === 'field-officer' ? 'FIELD OFFICER' : 'COMMANDER'} · ${player.ready ? 'READY' : `${player.pingMs ?? '...'}ms · NOT READY`}`
         : player ? 'DISCONNECTED · RECONNECT RESERVED' : `${room.ai.toUpperCase()} AI · READY`;

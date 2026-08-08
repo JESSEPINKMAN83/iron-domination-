@@ -1,3 +1,4 @@
+import { currentCommander } from '../identity/commander';
 import type { MapId, MapSize } from '../content/maps';
 import { MAP_PRESETS, MAP_SIZE_PRESETS } from '../content/maps';
 import type { Difficulty, Personality } from '../content/phase6';
@@ -82,6 +83,13 @@ function teamCard(army: ArmyDebriefStats, maxDamage: number, localSide: number):
   return root;
 }
 
+/** Names the player on their own debrief once they have an identity worth naming. */
+function commanderLine(win: boolean): string {
+  const base = win ? 'OPERATION COMPLETE · TOTAL DOMINANCE' : 'OPERATION FAILED · COMMAND REVIEW';
+  const commander = currentCommander();
+  return commander ? `${base} · COMMANDER ${commander.name.toUpperCase()}` : base;
+}
+
 function assessmentFor(local: ArmyDebriefStats, enemies: ArmyDebriefStats[]): Array<{ title: string; text: string; tone: string }> {
   const enemyDamage = enemies.reduce((total, army) => total + army.damageDealt, 0);
   const enemyKills = enemies.reduce((total, army) => total + army.unitKills + army.buildingKills, 0);
@@ -121,7 +129,7 @@ export function showOutcomeScreen(options: OutcomeScreenOptions): void {
   header.innerHTML = `
     <div class="battle-debrief__result-mark"><span>${win ? '✓' : '×'}</span></div>
     <div class="battle-debrief__result-copy">
-      <small>${win ? 'OPERATION COMPLETE · TOTAL DOMINANCE' : 'OPERATION FAILED · COMMAND REVIEW'}</small>
+      <small>${commanderLine(win)}</small>
       <h1>${win ? 'DECISIVE VICTORY' : 'FORCES DEFEATED'}</h1>
       <p>${win ? 'Every hostile command yard has fallen. The battlefield is under your control.' : 'Your command network has collapsed. Review the battle data and return stronger.'}</p>
     </div>
