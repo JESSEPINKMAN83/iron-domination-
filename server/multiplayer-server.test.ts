@@ -43,6 +43,24 @@ describe('multiplayer relay', () => {
     });
   });
 
+  it('always reports verifiedMember, so a relay deploy is observable without an account', async () => {
+    const port = await availablePort();
+    children.push(spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, PORT: String(port), MEMBER_AUTH: 'log' },
+      stdio: 'ignore',
+    }));
+    await waitForHealth(port);
+
+    const socket = await connect(port);
+    socket.send(JSON.stringify({ type: 'host', requestId: 'flag-1', name: 'Guest', settings: { seed: 3 } }));
+    const session = await nextMessage(socket, (message) => message.type === 'session');
+
+    // An omitted key would be indistinguishable from an older relay build.
+    expect(session.player).toHaveProperty('verifiedMember');
+    expect(session.player.verifiedMember).toBe(false);
+  });
+
   it('admits an unauthenticated host in log mode but refuses one in enforce mode', async () => {
     const logPort = await availablePort();
     children.push(spawn(process.execPath, ['server/multiplayer-server.mjs'], {
