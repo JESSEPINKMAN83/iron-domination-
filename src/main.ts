@@ -2709,6 +2709,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         client: multiplayer.client,
         session: multiplayer.session,
         onStatus: setNetworkStatus,
+        onMatchOutcome: (result) => concludeMatch(result),
         onSnapshotRestored: () => {
           for (const army of armies) {
             const restoredBase = commandBaseForTeam(sim, army.team);
@@ -3089,6 +3090,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           activeMatchExitGuard?.complete();
           multiplayer.client.forfeit(multiplayer.session.room.code, multiplayer.session.player.id);
           setNetworkStatus('You forfeited the match', true);
+          concludeMatch('defeat');
         }
       : undefined,
   });
@@ -3181,13 +3183,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   let outcome: 'victory' | 'defeat' | undefined;
   let matchTelemetry: MatchTelemetry | undefined;
-  const checkOutcome = (): void => {
-    if (durabilityPreview || debriefPreview || outcome || sim.tick < 60) return;
-    const alive = (team: number) => buildings(sim, team).filter((entity) => !entity.destroyed).length;
-    const hostileTeams = teams.filter((team) => areTeamsHostile(sim, localTeam, team));
-    if (isVictoryFromHostileBuildingCounts(hostileTeams.map(alive))) outcome = 'victory';
-    else if (alive(localTeam) === 0) outcome = 'defeat';
-    if (outcome) {
+  /**
+   * Ends the match once, from any cause. Building counts are the usual trigger, but a
+   * forfeit ends a match without destroying anything, and used to leave the player
+   * with a status line and no debrief at all.
+   */
+  const concludeMatch = (result: 'victory' | 'defeat'): void => {
+    if (durabilityPreview || debriefPreview || outcome) return;
+    outcome = result;
+    {
       activeMatchExitGuard?.complete();
       matchTelemetry?.end();
       const snapshot = matchSnapshot();
@@ -3206,6 +3210,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         multiplayer && lockstep ? () => lockstep.requestRematch() : undefined,
       );
     }
+  };
+  const checkOutcome = (): void => {
+    if (durabilityPreview || debriefPreview || outcome || sim.tick < 60) return;
+    const alive = (team: number) => buildings(sim, team).filter((entity) => !entity.destroyed).length;
+    const hostileTeams = teams.filter((team) => areTeamsHostile(sim, localTeam, team));
+    if (isVictoryFromHostileBuildingCounts(hostileTeams.map(alive))) concludeMatch('victory');
+    else if (alive(localTeam) === 0) concludeMatch('defeat');
   };
   lockstep?.connect();
   window.addEventListener('beforeunload', () => lockstep?.disconnect(), { once: true });
