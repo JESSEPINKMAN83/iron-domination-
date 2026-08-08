@@ -713,3 +713,20 @@
   .war-lobby__color-picker, .war-lobby__color-display { grid-column: 2; grid-row: 3; justify-self: end; }
   .war-lobby__team-select { min-height: 36px; font-size: 9px; }
 }
+
+.war-button.is-intent-highlight {
+  animation: war-intent-pulse 1.6s ease-out 2;
+  box-shadow: 0 0 0 2px rgba(240, 202, 108, .7), 0 0 26px rgba(240, 202, 108, .38);
+}
+@keyframes war-intent-pulse {
+  0% { box-shadow: 0 0 0 2px rgba(240, 202, 108, .85), 0 0 30px rgba(240, 202, 108, .5); }
+  100% { box-shadow: 0 0 0 2px rgba(240, 202, 108, 0), 0 0 30px rgba(240, 202, 108, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .war-button.is-intent-highlight { animation: none; }
+}
+
+.war-setup__header-aside { display: flex; align-items: center; gap: 14px; }
+.war-operation__entry.is-multiplayer-intent { box-shadow: inset 0 0 0 1px rgba(240, 202, 108, .34); }
+.war-mode-card__actions.is-multiplayer-first { display: flex; flex-direction: column; gap: 10px; }
+.war-mode-card__actions.is-multiplayer-first .war-button--primary { order: -1; }

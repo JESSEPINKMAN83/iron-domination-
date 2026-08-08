@@ -1,11 +1,12 @@
 import './landing.css';
 import { isMobileTouchDevice, isStandaloneMobileExperience } from './mobile/platform';
 import { submitToBackoffice } from './backoffice';
+import { identityEnabled } from './identity/flag';
+import { commanderName, createCommanderChip, currentCommander, rememberLocalCommander } from './identity/commander';
 
 const FORM_NAME = 'iron-dominion-beta';
 const BETA_SIGNUP_ENDPOINT = 'https://formspree.io/f/xjgnkega';
 const ACCESS_STORAGE_KEY = 'iron-dominion.beta-access.v1';
-const PROFILE_STORAGE_KEY = 'iron-dominion.beta-profile.v1';
 const LANDING_MUSIC_VOLUME = 0.32;
 const LANDING_MUSIC_ID = 'iron-menu-music';
 const LANDING_MUSIC_URL = '/assets/landing/home-theme.mp3';
@@ -19,6 +20,9 @@ let landingMusicFadeFrame: number | undefined;
 export interface LandingOptions {
   inviteRoom?: string;
 }
+
+/** Which path the player chose on the landing page. Multiplayer is the gated one. */
+export type LandingIntent = 'single' | 'multiplayer';
 
 interface BetaProfile {
   name: string;
@@ -161,29 +165,54 @@ export function hasBetaAccess(): boolean {
 function rememberBetaAccess(profile?: BetaProfile): void {
   try {
     window.localStorage.setItem(ACCESS_STORAGE_KEY, 'granted');
-    if (profile) window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
   } catch {
     // Access still works for this visit when browser storage is unavailable.
   }
+  if (profile) rememberLocalCommander(profile);
 }
 
 export function betaPlayerName(): string | undefined {
-  try {
-    const profile = JSON.parse(window.localStorage.getItem(PROFILE_STORAGE_KEY) ?? 'null') as Partial<BetaProfile> | null;
-    const name = typeof profile?.name === 'string' ? profile.name.trim() : '';
-    return name ? name.slice(0, 28) : undefined;
-  } catch {
-    return undefined;
-  }
+  return commanderName();
 }
 
-export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
+export function showLandingScreen(options: LandingOptions = {}): Promise<LandingIntent> {
   return new Promise((resolve) => {
+    const splitPaths = identityEnabled();
     const returningPlayer = hasBetaAccess();
     const inviteRoom = options.inviteRoom;
     const fullscreenHint = isMobileTouchDevice() && !isStandaloneMobileExperience()
       ? '<p class="iron-landing__fullscreen-hint">For true fullscreen on iPhone: tap Share → Add to Home Screen, then launch the game from its icon.</p>'
       : '';
+    const primaryIntent: LandingIntent = inviteRoom ? 'multiplayer' : 'single';
+    const signupFields = `
+          <div class="iron-landing__signup-panel" hidden>
+            <p class="iron-landing__signup-title">${splitPaths ? 'Create your commander account' : 'Request beta clearance'}</p>
+            <div class="iron-landing__fields">
+              <label>
+                <span>Name</span>
+                <input name="name" type="text" autocomplete="name" placeholder="Your name" required>
+              </label>
+              <label>
+                <span>Email</span>
+                <input name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+              </label>
+            </div>
+            <label class="iron-landing__consent">
+              <input name="release-updates" type="checkbox" value="yes">
+              <span>Email me occasional development updates and news about the official release.</span>
+            </label>
+            <p class="iron-landing__error" role="alert" hidden></p>
+            <button class="iron-landing__cta iron-landing__cta--submit" data-action="submit-signup" type="submit">${inviteRoom ? 'Sign up & join room' : 'Enter battlefield'}</button>
+          </div>`;
+    const splitActions = `
+        <div class="iron-landing__actions">
+          <button class="iron-landing__cta" data-action="choose-primary" type="button">${inviteRoom ? 'Join room' : 'Play now'}</button>
+          <button class="iron-landing__cta iron-landing__cta--ghost" data-action="choose-secondary" type="button">${inviteRoom ? 'Play single player' : 'Multiplayer'}</button>
+        </div>
+        ${returningPlayer ? '' : `
+        <form class="iron-landing__form" name="${FORM_NAME}" method="POST" action="${BETA_SIGNUP_ENDPOINT}" novalidate>${signupFields}
+        </form>`}
+        <p class="iron-landing__paths-note">Single player starts instantly · multiplayer needs a free account</p>`;
     const root = document.createElement('main');
     root.id = 'iron-landing';
     root.className = 'iron-landing';
@@ -211,7 +240,7 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
             ? 'Enter your details once. You will join the room automatically as soon as signup is complete.'
             : 'Iron Dominion is a hybrid strategy war game where you build your base, deploy armies, and switch into first-person mode to fight alongside your troops on the ground.'}
         </p>
-        ${returningPlayer ? `
+        ${splitPaths ? splitActions : returningPlayer ? `
           <div class="iron-landing__returning">
             <button class="iron-landing__cta" data-action="start-game" type="button">${inviteRoom ? 'Join room' : 'Play game'}</button>
           </div>
@@ -263,16 +292,50 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
     document.body.appendChild(root);
     startLandingMusic();
     setupLandingMusicControl(root);
-    const completeLanding = (): void => {
-      root.classList.add('is-setup-open');
-      resolve();
+    const showCommanderChip = (): void => {
+      const identity = currentCommander();
+      if (!identity || root.querySelector('.iron-landing__commander')) return;
+      const holder = document.createElement('div');
+      holder.className = 'iron-landing__commander';
+      holder.append(createCommanderChip(identity));
+      root.append(holder);
     };
+    if (splitPaths) showCommanderChip();
+    const completeLanding = (intent: LandingIntent): void => {
+      root.classList.add('is-setup-open');
+      resolve(intent);
+    };
+
+    if (splitPaths) {
+      const primary = root.querySelector<HTMLButtonElement>('[data-action="choose-primary"]')!;
+      const secondary = root.querySelector<HTMLButtonElement>('[data-action="choose-secondary"]')!;
+      const openAccountPanel = (): void => {
+        const panel = root.querySelector<HTMLElement>('.iron-landing__signup-panel')!;
+        panel.hidden = false;
+        root.querySelector<HTMLFormElement>('.iron-landing__form')?.classList.add('is-open');
+        root.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
+      };
+      const choose = (intent: LandingIntent): void => {
+        // Single player is never gated. Multiplayer needs an account unless one is already known.
+        if (intent === 'single' || returningPlayer) {
+          primary.disabled = true;
+          secondary.disabled = true;
+          completeLanding(intent);
+          return;
+        }
+        openAccountPanel();
+      };
+      primary.onclick = () => choose(primaryIntent);
+      secondary.onclick = () => choose(primaryIntent === 'single' ? 'multiplayer' : 'single');
+      if (!returningPlayer) bindSignupForm(root, 'multiplayer', inviteRoom, completeLanding);
+      return;
+    }
 
     if (returningPlayer) {
       const cta = root.querySelector<HTMLButtonElement>('[data-action="start-game"]')!;
       cta.onclick = () => {
         cta.disabled = true;
-        completeLanding();
+        completeLanding('single');
       };
       return;
     }
@@ -280,8 +343,6 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
     const form = root.querySelector<HTMLFormElement>('.iron-landing__form')!;
     const openSignup = root.querySelector<HTMLButtonElement>('[data-action="open-signup"]')!;
     const signupPanel = root.querySelector<HTMLElement>('.iron-landing__signup-panel')!;
-    const submitSignup = root.querySelector<HTMLButtonElement>('[data-action="submit-signup"]')!;
-    const error = root.querySelector<HTMLElement>('.iron-landing__error')!;
     openSignup.onclick = () => {
       openSignup.hidden = true;
       openSignup.setAttribute('aria-expanded', 'true');
@@ -289,7 +350,21 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
       form.classList.add('is-open');
       root.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
     };
-    form.onsubmit = async (event) => {
+    bindSignupForm(root, 'single', inviteRoom, completeLanding);
+  });
+}
+
+/** Shared signup submit: same Wix pipeline for both the legacy gate and the multiplayer path. */
+function bindSignupForm(
+  root: HTMLElement,
+  intent: LandingIntent,
+  inviteRoom: string | undefined,
+  completeLanding: (intent: LandingIntent) => void,
+): void {
+  const form = root.querySelector<HTMLFormElement>('.iron-landing__form')!;
+  const submitSignup = root.querySelector<HTMLButtonElement>('[data-action="submit-signup"]')!;
+  const error = root.querySelector<HTMLElement>('.iron-landing__error')!;
+  form.onsubmit = async (event) => {
       event.preventDefault();
       if (!form.reportValidity()) return;
       submitSignup.disabled = true;
@@ -323,12 +398,11 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<void> {
           if (!response.ok) throw new Error(`Signup failed (${response.status})`);
         }
         rememberBetaAccess({ name: signup.name, email: signup.email });
-        completeLanding();
+        completeLanding(intent);
       } catch {
         error.textContent = 'We could not save your beta signup. Please check your connection and try again.';
         error.hidden = false;
         submitSignup.disabled = false;
       }
     };
-  });
 }
