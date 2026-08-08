@@ -19,7 +19,7 @@
   inset: 0;
   z-index: 20;
   display: grid;
-  place-items: start center;
+  place-items: center;
   overflow: hidden;
   color: #f5f1e6;
   font-family: "Avenir Next Condensed", "Arial Narrow", Inter, ui-sans-serif, system-ui, sans-serif;
@@ -120,11 +120,13 @@
 }
 
 .iron-landing__hero {
-  width: min(1040px, calc(100vw - 40px));
+  /* Full width; the text column and the plates constrain themselves. */
+  width: 100%;
   max-height: 100vh;
-  padding: clamp(72px, 20.3vh, 192px) 20px 28px;
+  padding: clamp(36px, 7vh, 72px) 20px 30px;
   box-sizing: border-box;
-  overflow: auto;
+  /* Vertical scroll on short screens. */
+  overflow: hidden auto;
   text-align: center;
   animation: iron-hero-in 720ms cubic-bezier(.2, .8, .2, 1) both;
 }
@@ -187,18 +189,20 @@
   position: absolute;
   inset: 0;
   color: transparent;
+  /* Rivets punched through the plate, plus the scratches and brushing. The
+     layer is clipped to the glyphs, so rivets only land on the letterforms. */
   background:
-    radial-gradient(circle at 7px 9px, rgba(30, 29, 25, .48) 0 1px, transparent 1.8px),
-    radial-gradient(ellipse at 17px 11px, rgba(63, 59, 51, .38) 0 1.2px, transparent 2.2px),
+    radial-gradient(circle at 50% 50%, rgba(28, 27, 23, .62) 0 1.3px, transparent 2.1px),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, .5) 0 .9px, transparent 1.6px),
     radial-gradient(ellipse at 13px 23px, rgba(36, 34, 30, .42) 0 1px, transparent 2.5px),
     repeating-linear-gradient(112deg, transparent 0 19px, rgba(25, 24, 21, .14) 20px, transparent 21px 43px),
     repeating-linear-gradient(6deg, transparent 0 31px, rgba(255, 255, 255, .12) 32px, transparent 33px 59px);
-  background-size: 29px 31px, 43px 37px, 53px 47px, auto, auto;
+  background-position: 8px 7px, 6.7px 5.5px, 0 0, 0 0, 0 0;
+  background-size: 34px 37px, 34px 37px, 53px 47px, auto, auto;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-stroke: 0;
-  mix-blend-mode: multiply;
-  opacity: .62;
+  opacity: .78;
   pointer-events: none;
 }
 
@@ -326,8 +330,10 @@
     radial-gradient(ellipse 1% 7% at 18% 42%, rgba(84, 55, 12, .18) 0 70%, transparent 76%),
     radial-gradient(ellipse 2% 3% at 66% 28%, rgba(84, 55, 12, .12) 0 70%, transparent 76%),
     repeating-linear-gradient(108deg, transparent 0 25px, rgba(98, 66, 14, .06) 26px, transparent 27px 48px),
-    linear-gradient(180deg, #f4d77b 0%, #dab04c 48%, #bd8c2f 100%);
-  background-size: 100% 100%, 31px 29px, 47px 41px, 100% 100%, 100% 100%, auto, 100% 100%;
+    /* Molten gold: a wide band of yellows that drifts across the face. */
+    linear-gradient(112deg, #c8952f 0%, #e8bc57 18%, #fbe89d 32%, #f0cc69 44%, #d9a941 60%, #f7dd8d 76%, #dcae48 90%, #c08c2b 100%);
+  background-size: 100% 100%, 31px 29px, 47px 41px, 100% 100%, 100% 100%, auto, 260% 100%;
+  animation: iron-cta-molten 9s ease-in-out infinite alternate;
   box-shadow:
     inset 0 2px 0 rgba(255, 246, 193, .72),
     inset 0 -2px 0 rgba(92, 59, 11, .6),
@@ -336,29 +342,45 @@
     inset -7px 0 16px rgba(89, 56, 8, .16);
 }
 
-.iron-landing__cta::after {
-  content: '';
-  position: absolute;
-  top: 16px;
-  left: 22px;
-  width: 17px;
-  height: 27px;
-  background: repeating-linear-gradient(90deg, rgba(255, 244, 189, .94) 0 2px, transparent 2px 5px);
-  transform: skewY(-34deg);
-  opacity: .86;
+/* The drift only moves the molten layer; the rivets and scratches sit still. */
+@keyframes iron-cta-molten {
+  from { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0% 50%; }
+  to { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 100% 50%; }
+}
+
+/* Held under the cursor the plate breathes: the drift quickens and the glow
+   swells, so the button feels like it is idling rather than sitting inert. */
+@keyframes iron-cta-breathe {
+  0%, 100% {
+    transform: translateY(-2px) scale(1);
+    filter:
+      brightness(1.06)
+      drop-shadow(0 17px 24px rgba(0, 0, 0, .58))
+      drop-shadow(0 0 14px var(--cta-glow-soft));
+  }
+  50% {
+    transform: translateY(-3px) scale(1.014);
+    filter:
+      brightness(1.13)
+      drop-shadow(0 21px 30px rgba(0, 0, 0, .6))
+      drop-shadow(0 0 28px var(--cta-glow-strong));
+  }
+}
+
+.iron-landing__cta {
+  --cta-glow-soft: rgba(237, 188, 65, .26);
+  --cta-glow-strong: rgba(245, 205, 96, .5);
 }
 
 .iron-landing__cta:hover {
-  filter:
-    brightness(1.08)
-    drop-shadow(0 17px 24px rgba(0, 0, 0, .58))
-    drop-shadow(0 0 18px rgba(237, 188, 65, .3));
   transform: translateY(-2px);
+  animation: iron-cta-breathe 2.6s ease-in-out infinite;
 }
+.iron-landing__cta:hover::before { animation-duration: 3.4s; }
 
-.iron-landing__cta:active { transform: translateY(0); }
+.iron-landing__cta:active { transform: translateY(0); animation: none; }
 .iron-landing__cta:focus-visible { outline: 2px solid #fff1b2; outline-offset: 4px; }
-.iron-landing__cta:disabled { opacity: .68; cursor: wait; transform: none; }
+.iron-landing__cta:disabled { opacity: .68; cursor: wait; transform: none; animation: none; }
 .iron-landing__cta--submit { min-height: 64px; margin-top: 16px; font-size: 29px; }
 
 .iron-landing__actions {
@@ -369,16 +391,32 @@
   justify-content: center;
 }
 .iron-landing__actions .iron-landing__cta { min-width: min(300px, 100%); }
+/* Multiplayer reads as cold steel beside the gold single-player plate, so the
+   two doors are told apart by material rather than by one looking disabled. */
 .iron-landing__cta--ghost {
-  background: rgba(14, 18, 17, .62);
-  color: #f3dc9d;
-  box-shadow: inset 0 0 0 2px rgba(223, 189, 100, .5);
-  text-shadow: none;
-  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .5));
+  --cta-glow-soft: rgba(88, 172, 236, .24);
+  --cta-glow-strong: rgba(120, 195, 250, .44);
+  background: #0d1d2b;
+  color: #d3e9fb;
+  text-shadow: 0 1px 0 rgba(4, 15, 24, .8), 0 0 18px rgba(96, 178, 240, .38);
+  filter:
+    drop-shadow(0 14px 20px rgba(0, 0, 0, .54))
+    drop-shadow(0 0 10px rgba(88, 172, 236, .26));
 }
-.iron-landing__cta--ghost::before,
-.iron-landing__cta--ghost::after { opacity: .35; }
-.iron-landing__cta--ghost:hover { background: rgba(26, 32, 29, .78); color: #fff1b2; }
+.iron-landing__cta--ghost::before {
+  background:
+    radial-gradient(ellipse at 50% 105%, rgba(96, 178, 240, .3), transparent 36%),
+    radial-gradient(circle at 7px 8px, rgba(0, 0, 0, .16) 0 1px, transparent 1.7px),
+    repeating-linear-gradient(108deg, transparent 0 25px, rgba(0, 0, 0, .06) 26px, transparent 27px 48px),
+    linear-gradient(180deg, #2c4f6b 0%, #1d3a53 48%, #12283b 100%);
+  background-size: 100% 100%, 31px 29px, auto, 100% 100%;
+  /* Cold steel does not run molten. */
+  animation: none;
+  box-shadow:
+    inset 0 2px 0 rgba(138, 205, 255, .68),
+    inset 0 -2px 0 rgba(5, 16, 25, .74),
+    inset 0 0 0 2px rgba(0, 0, 0, .12);
+}
 .iron-landing__paths-note {
   margin: 14px 0 0;
   color: rgba(226, 233, 226, .66);
@@ -394,30 +432,58 @@
 }
 .iron-landing.is-setup-open { pointer-events: none; }
 
+/* The four pillars are cut from the same material as the signup panel and the
+   CTAs: smoked glass over the battlefield, a gold hairline, chamfered corners. */
 .iron-landing__doctrine {
   display: grid;
-  grid-template-columns: repeat(4, minmax(112px, 1fr));
-  gap: 28px;
-  width: min(610px, 100%);
-  margin: 42px auto 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(14px, 3vw, 40px);
+  width: min(760px, 100%);
+  margin: clamp(30px, 5vh, 56px) auto 0;
   padding: 0;
   list-style: none;
 }
 
+/* The gold edge is the plate's own background showing through a 1px gap around
+   the inner face, so it follows the chamfer instead of being cut by it. */
 .iron-landing__doctrine li {
+  position: relative;
+  isolation: isolate;
   display: grid;
-  grid-template-rows: 38px auto auto;
+  grid-template-rows: 58px auto auto;
   justify-items: center;
-  align-items: center;
-  color: #81795e;
+  align-content: center;
+  gap: 5px;
+  padding: 22px 10px 19px;
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+  background: rgba(221, 179, 76, .3);
+  backdrop-filter: blur(14px);
+  filter: drop-shadow(0 16px 30px rgba(0, 0, 0, .5));
+  transition: transform 160ms ease, background-color 160ms ease;
 }
 
-.iron-landing__doctrine img {
-  width: 38px;
-  height: 38px;
-  object-fit: contain;
-  filter: grayscale(1) sepia(1) saturate(.58) brightness(.86);
-  opacity: .7;
+.iron-landing__doctrine li::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 1px;
+  clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px);
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(245, 241, 230, .09), transparent 62%),
+    linear-gradient(180deg, rgba(9, 12, 12, .9) 0%, rgba(5, 8, 8, .82) 100%);
+  box-shadow: inset 0 1px 0 rgba(245, 241, 230, .12);
+}
+
+.iron-landing__doctrine li:hover {
+  transform: translateY(-3px);
+  background-color: rgba(233, 197, 103, .62);
+}
+
+.iron-landing__doctrine-icon {
+  width: 50px;
+  height: 50px;
+  color: #fff;
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, .7));
 }
 
 .iron-landing__doctrine strong,
@@ -426,28 +492,8 @@
   text-transform: uppercase;
 }
 
-.iron-landing__doctrine strong { margin-top: 8px; font-size: 18px; font-weight: 600; line-height: 1; letter-spacing: .12em; }
-.iron-landing__doctrine span { margin-top: 2px; font-size: 14px; line-height: 1; letter-spacing: .08em; }
-.iron-landing__doctrine .is-active { color: #f3e8c7; }
-
-.iron-landing__reticle {
-  position: relative;
-  width: 32px;
-  height: 32px;
-  border: 3px solid #f1cd68;
-  border-radius: 50%;
-  box-shadow: 0 0 12px rgba(241, 205, 104, .32);
-}
-
-.iron-landing__reticle::before,
-.iron-landing__reticle::after {
-  content: '';
-  position: absolute;
-  background: #f1cd68;
-}
-
-.iron-landing__reticle::before { width: 3px; height: 44px; left: 12px; top: -9px; }
-.iron-landing__reticle::after { width: 44px; height: 3px; left: -9px; top: 12px; }
+.iron-landing__doctrine strong { color: #f5f1e6; font-size: 22px; font-weight: 600; line-height: 1; letter-spacing: .12em; }
+.iron-landing__doctrine span { color: rgba(245, 241, 230, .56); font-size: 13px; line-height: 1; letter-spacing: .08em; }
 
 @keyframes iron-hero-in {
   from { opacity: 0; transform: translateY(16px); }
@@ -465,16 +511,23 @@
   .iron-landing__hero h1 { font-size: clamp(54px, 15.5vw, 76px); letter-spacing: -.025em; }
   .iron-landing__copy { font-size: clamp(18px, 5.5vw, 25px); letter-spacing: .025em; white-space: normal; }
   .iron-landing__fields { grid-template-columns: 1fr; }
-  .iron-landing__cta { width: min(100%, 360px); min-width: 0; min-height: 72px; font-size: 32px; }
-  .iron-landing__doctrine { grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 32px; }
-  .iron-landing__doctrine img { width: 28px; height: 28px; }
-  .iron-landing__doctrine strong { font-size: 15px; }
-  .iron-landing__doctrine span { font-size: 11px; }
+  .iron-landing__cta { width: min(100%, 320px); min-width: 0; min-height: 62px; padding: 12px 24px; font-size: 28px; }
+  .iron-landing__doctrine { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .iron-landing__doctrine li {
+    grid-template-rows: 38px auto auto;
+    padding: 13px 4px 11px;
+    clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+  }
+  .iron-landing__doctrine li::before {
+    clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+  }
+  .iron-landing__doctrine-icon { width: 32px; height: 32px; }
+  .iron-landing__doctrine strong { font-size: 15px; letter-spacing: .04em; }
+  .iron-landing__doctrine span { font-size: 10px; letter-spacing: .02em; }
 }
 
 @media (max-height: 720px) and (min-width: 561px) {
-  .iron-landing__hero { padding-top: 54px; }
-  .iron-landing__doctrine { margin-top: 28px; }
+  .iron-landing__hero { padding-top: 40px; }
 }
 
 @media (max-height: 520px) and (orientation: landscape) {
@@ -495,6 +548,7 @@
 @media (prefers-reduced-motion: reduce) {
   .iron-landing__hero { animation: none; }
   .iron-landing__cta { transition: none; }
+  .iron-landing__cta:hover, .iron-landing__cta::before { animation: none; }
   .iron-landing__music-toggle.is-playing .iron-landing__music-meter i { animation: none; height: 9px; }
 }
 
