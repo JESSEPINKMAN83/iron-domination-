@@ -1,4 +1,4 @@
-import { memberAccessToken } from '../identity/session';
+import { enlistedCommander } from '../identity/enlist';
 import type { Difficulty, Personality } from '../content/phase6';
 import type { CombatMode } from '../content/rules';
 
@@ -115,6 +115,16 @@ export class MultiplayerClient {
 
   constructor(readonly baseUrl: string) {}
 
+  /**
+   * The enlisted member id plus the Worker's signature over it. The relay recomputes
+   * that signature with the shared secret, so a claimed id is worth nothing on its
+   * own — and no Wix token ever has to exist in the browser to prove membership.
+   */
+  private membership(): { memberId?: string; memberTicket?: string } {
+    const commander = enlistedCommander();
+    return commander ? { memberId: commander.memberId, memberTicket: commander.ticket } : {};
+  }
+
   async host(settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; terrainRelief?: number; timeOfDay?: string; weather?: string; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; controllerCount?: number; controllerTeams?: number[]; playersPerArmy?: 1 | 2; armySides?: number[]; spawnSlots?: number[]; spawnPoints?: Array<{ x: number; z: number }>; name?: string; playerId?: string }): Promise<MultiplayerSession> {
     await this.ensureSocket();
     return this.request({
@@ -122,7 +132,7 @@ export class MultiplayerClient {
       settings,
       name: settings.name,
       playerId: settings.playerId,
-      memberToken: await memberAccessToken(),
+      ...this.membership(),
       engine: browserEngine(),
     });
   }
@@ -134,7 +144,7 @@ export class MultiplayerClient {
       code: normalizeRoomCode(code),
       name,
       playerId,
-      memberToken: await memberAccessToken(),
+      ...this.membership(),
       engine: browserEngine(),
     });
   }

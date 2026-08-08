@@ -20,3 +20,7 @@ services:
       # pass rate can be read before membership can refuse anyone.
       - key: MEMBER_AUTH
         value: log
+      # Same value the Worker signs enlistment tickets with. Without it the relay
+      # reports every check as unavailable, which never refuses anyone.
+      - key: IRON_DOMINION_INGEST_SECRET
+        sync: false

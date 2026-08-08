@@ -1,12 +1,11 @@
-import { cachedMemberProfile } from './session';
+import { enlistedCommander } from './enlist';
 
 const PROFILE_STORAGE_KEY = 'iron-dominion.beta-profile.v1';
 
 /**
  * How the player is presented in the game. `source` records where it came from:
- * a signed-in Wix member, or the locally stored signup profile when member auth
- * is unconfigured or the player is signed out. Every consumer renders the same
- * shape either way.
+ * an enlisted Wix member, or the locally stored signup profile for a player who
+ * only ever played single player. Every consumer renders the same shape either way.
  */
 export interface CommanderIdentity {
   name: string;
@@ -45,6 +44,11 @@ export function commanderName(): string | undefined {
   return name ? name.slice(0, 28) : undefined;
 }
 
+/** Prefills the enlist form for a player who already signed up before members existed. */
+export function commanderEmail(): string | undefined {
+  return storedProfile()?.email?.trim() || undefined;
+}
+
 function initialsFor(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
@@ -65,16 +69,13 @@ function identityFrom(name: string, key: string, source: CommanderIdentity['sour
 }
 
 /**
- * Prefers the signed-in Wix member, falling back to the locally stored signup
- * profile. Synchronous on purpose so render paths never await — the member profile
- * is fetched once during boot and cached.
+ * Prefers the enlisted member, falling back to the locally stored signup profile.
+ * Synchronous on purpose so render paths never await — enlistment is stored locally,
+ * so there is nothing to fetch.
  */
 export function currentCommander(): CommanderIdentity | undefined {
-  const member = cachedMemberProfile();
-  if (member) {
-    const name = member.nickname?.trim() || member.firstName?.trim() || member.loginEmail?.split('@')[0] || 'Commander';
-    return identityFrom(name.slice(0, 28), member.id, 'member');
-  }
+  const enlisted = enlistedCommander();
+  if (enlisted) return identityFrom(enlisted.name, enlisted.memberId, 'member');
   const name = commanderName();
   if (!name) return undefined;
   return identityFrom(name, storedProfile()?.email || name, 'local');

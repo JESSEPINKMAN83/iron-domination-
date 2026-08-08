@@ -12,7 +12,7 @@ const MAX_COMMANDS_PER_SECOND = Math.max(30, Number(process.env.MAX_COMMANDS_PER
 const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 const EXPOSE_ROOMS = process.env.EXPOSE_ROOMS === 'true';
 const MEMBER_AUTH_MODE = resolveMemberAuthMode(process.env.MEMBER_AUTH);
-const memberVerifier = createMemberVerifier();
+const memberVerifier = createMemberVerifier({ secret: process.env.IRON_DOMINION_INGEST_SECRET });
 const ALLOWED_ORIGINS = new Set(
   String(process.env.ALLOWED_ORIGINS ?? '')
     .split(',')
@@ -163,11 +163,11 @@ function routeSocket(socket, body) {
 /**
  * Resolves the membership of a host/join request. Returns the verified identity when
  * there is one, or false when the connection should be refused — which only ever
- * happens in enforce mode, and never because Wix was unreachable.
+ * happens in enforce mode, and never because the relay was unable to check.
  */
-async function resolveMembership(socket, body) {
+function resolveMembership(socket, body) {
   if (MEMBER_AUTH_MODE === 'off') return undefined;
-  const result = await memberVerifier.verify(body?.memberToken);
+  const result = memberVerifier.verify(body?.memberId, body?.memberTicket);
   const decision = membershipDecision(MEMBER_AUTH_MODE, result);
   if (decision.logged) {
     console.warn(
@@ -183,12 +183,12 @@ async function resolveMembership(socket, body) {
   return decision.identity;
 }
 
-async function handleHost(socket, body) {
-  const membership = await resolveMembership(socket, body);
+function handleHost(socket, body) {
+  const membership = resolveMembership(socket, body);
   if (membership === false) return;
   if (socket.readyState !== socket.OPEN) return;
   const room = createRoom(body.settings ?? body);
-  const host = addPlayer(room, membership?.nickname ?? body.name ?? body.settings?.name ?? 'Commander 1', body.playerId, body.engine);
+  const host = addPlayer(room, body.name ?? body.settings?.name ?? 'Commander 1', body.playerId, body.engine);
   if (membership?.memberId) host.memberId = membership.memberId;
   room.hostPlayerId = host.id;
   rooms.set(room.code, room);
@@ -197,15 +197,15 @@ async function handleHost(socket, body) {
   broadcast(room, roomState(room));
 }
 
-async function handleJoin(socket, body) {
-  const membership = await resolveMembership(socket, body);
+function handleJoin(socket, body) {
+  const membership = resolveMembership(socket, body);
   if (membership === false) return;
   if (socket.readyState !== socket.OPEN) return;
   const room = rooms.get(normalizeRoomCode(body.code));
   if (!room) return send(socket, { type: 'error', requestId: body.requestId, error: 'room-not-found' });
   const existing = typeof body.playerId === 'string' ? room.players.find((player) => player.id === body.playerId) : undefined;
   if (!existing && room.status !== 'waiting') return send(socket, { type: 'error', requestId: body.requestId, error: 'match-in-progress' });
-  const player = existing ?? addPlayer(room, membership?.nickname ?? body.name ?? `Commander ${room.players.length + 1}`, body.playerId, body.engine);
+  const player = existing ?? addPlayer(room, body.name ?? `Commander ${room.players.length + 1}`, body.playerId, body.engine);
   if (membership?.memberId) player.memberId = membership.memberId;
   player.connected = true;
   player.disconnectedAt = undefined;
