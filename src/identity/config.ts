@@ -1,14 +1,22 @@
 /**
- * Wix Headless OAuth client ID. Public by design — headless OAuth has no client
- * secret — so it ships in the bundle and is set at build time:
+ * Wix Headless OAuth client ID for the "Iron Dominion Game" client.
  *
- *   VITE_WIX_CLIENT_ID=... npm run build
+ * Committed on purpose: headless OAuth has no client secret and Wix documents the
+ * client ID as safe for frontend calls, so baking it in removes a whole class of
+ * "the deploy forgot the env var" failures. VITE_WIX_CLIENT_ID still overrides it
+ * for a different project or a staging client.
  *
- * While it is unset, member auth stays completely inert and the game falls back to
- * the local signup profile. That is the safety property: an unconfigured build
- * behaves exactly like the pre-member game rather than failing at runtime.
+ * Set it to an empty string to switch member auth off entirely: every entry point
+ * then falls back to the local signup profile, exactly like the pre-member game.
+ *
+ * Allowed authorization redirect URIs registered for this client:
+ *   https://throbbing-truth-af19.danireuven.workers.dev
+ *   http://localhost:5173
+ *   http://localhost:5180
  */
-const CLIENT_ID = String(import.meta.env?.VITE_WIX_CLIENT_ID ?? '').trim();
+const DEFAULT_CLIENT_ID = 'b44e4271-f0f3-49de-9494-8902632d240c';
+
+const CLIENT_ID = String(import.meta.env?.VITE_WIX_CLIENT_ID ?? DEFAULT_CLIENT_ID).trim();
 
 export function wixClientId(): string {
   return CLIENT_ID;
