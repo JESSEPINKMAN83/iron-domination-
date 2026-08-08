@@ -20,7 +20,8 @@ export interface FeedbackMatchMetadata {
 
 export type BackofficeSubmission =
   | { kind: 'signup'; name: string; email: string; releaseUpdates: boolean; source: string }
-  | { kind: 'feedback'; name: string; rating: number; message: string; page: string; match?: FeedbackMatchMetadata };
+  | { kind: 'feedback'; name: string; rating: number; message: string; page: string; match?: FeedbackMatchMetadata }
+  | { kind: 'player-stat'; memberId: string; nickname?: string; result: 'victory' | 'defeat'; playMinutes: number; aceShare?: number };
 
 const WIX_SUBMIT_ENDPOINT = '/api/wix-submit';
 const WIX_SUBMIT_TIMEOUT_MS = 8_000;

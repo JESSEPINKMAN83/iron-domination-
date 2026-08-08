@@ -1,3 +1,5 @@
+import { playerStatUpdate } from './identity/playerStats';
+import { submitToBackoffice } from './backoffice';
 import type { FeedbackMatchMetadata } from './backoffice';
 
 export type TelemetryEventName =
@@ -105,7 +107,17 @@ export function trackMatchTelemetry(
       ended = true;
       window.clearInterval(interval);
       window.removeEventListener('pagehide', onPageHide);
-      sendTelemetryEvent('match-end', matchMetadata(), featureAtEnd?.());
+      const finalMatch = matchMetadata();
+      sendTelemetryEvent('match-end', finalMatch, featureAtEnd?.());
+      // Aggregate the result against the member's own record. Returns undefined for
+      // single player, guests and unfinished matches, so most matches send nothing.
+      const stat = playerStatUpdate({
+        multiplayer: finalMatch.multiplayer === true,
+        status: finalMatch.status,
+        elapsedSeconds: finalMatch.elapsedSeconds,
+        aceShare: featureAtEnd?.()?.rankAceShare,
+      });
+      if (stat) void submitToBackoffice({ kind: 'player-stat', ...stat });
     },
   };
 }

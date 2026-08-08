@@ -251,6 +251,23 @@ function parseSubmission(body) {
     };
   }
 
+  if (body.kind === 'player-stat') {
+    // Aggregates for one member and one finished multiplayer match. No match id, no
+    // map, no timestamps beyond a duration: the Velo side folds this into running
+    // totals, so nothing here reconstructs what an identified player did and when.
+    const memberId = cleanText(body.memberId, 64);
+    const result = body.result === 'victory' || body.result === 'defeat' ? body.result : '';
+    if (!memberId || !result) return null;
+    return {
+      kind: 'player-stat',
+      memberId,
+      nickname: cleanText(body.nickname, 120) || undefined,
+      result,
+      playMinutes: finiteNumber(body.playMinutes, 0, 100_000, 1) ?? 0,
+      aceShare: finiteNumber(body.aceShare, 0, 1, 3),
+    };
+  }
+
   if (body.kind === 'feedback') {
     const name = cleanText(body.name, 120);
     const message = cleanText(body.message, 5000);
@@ -356,8 +373,9 @@ export async function handleWixSubmission(request, env = {}, executionContext) {
   const submission = parseSubmission(body);
   if (!submission) return jsonResponse(400, { error: 'invalid-submission' });
 
-  // Telemetry only needs the CMS ingest endpoint; forms and contacts need the API key.
-  if (submission.kind !== 'telemetry' && !config.apiKey) {
+  // Telemetry and player stats only need the CMS ingest endpoint; forms and contacts
+  // need the API key.
+  if (submission.kind !== 'telemetry' && submission.kind !== 'player-stat' && !config.apiKey) {
     return jsonResponse(503, { error: 'wix-not-configured' });
   }
 
@@ -365,7 +383,7 @@ export async function handleWixSubmission(request, env = {}, executionContext) {
     // The custom dashboard is the player-facing source of truth. Save it before
     // the slower Wix Forms API so delayed form copies cannot drop telemetry.
     await createCmsSubmission(config, submission);
-    if (submission.kind === 'telemetry') return jsonResponse(200, { ok: true });
+    if (submission.kind === 'telemetry' || submission.kind === 'player-stat') return jsonResponse(200, { ok: true });
     const formCopy = createWixFormCopy(config, submission).catch((error) => {
       console.error('[wix-form-copy]', error instanceof Error ? error.message : error);
     });
