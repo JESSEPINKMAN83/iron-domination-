@@ -81,6 +81,8 @@ export interface LockstepRuntimeOptions {
   onSnapshotRestored?: () => void;
   onTacticalPing?: (ping: TacticalPing) => void;
   onRematchStart?: () => void;
+  /** A forfeit ends the match without destroying anything, so the runtime reports it. */
+  onMatchOutcome?: (outcome: 'victory' | 'defeat') => void;
 }
 
 const DEFAULT_INPUT_DELAY_TICKS = 8;
@@ -259,6 +261,9 @@ export class LockstepRuntime {
           ? `${event.name || `Commander ${event.playerIndex}`} forfeited — victory`
           : `${event.name || `Player ${event.playerIndex}`} left; their teammate remains in command`;
       this.options.onStatus?.(message, true);
+      // A teammate leaving while their army fights on is not an outcome for anyone.
+      if (isLocal) this.options.onMatchOutcome?.('defeat');
+      else if (armyDefeated) this.options.onMatchOutcome?.('victory');
       return;
     }
     if (event.type === 'room-state' || event.type === 'match-start') {

@@ -716,6 +716,54 @@ describe('multiplayer lockstep commands', () => {
     expect(lockstep.canAdvance()).toBe(true);
   });
 
+  it('reports an outcome for every forfeit, so a debrief always follows', () => {
+    const hf = generateHeightfield(MAP01);
+    const outcomes: Array<{ label: string; result: string | undefined }> = [];
+
+    const run = (label: string, event: Record<string, unknown>) => {
+      const match = testMatch(hf);
+      let onEvent: ((event: unknown) => void) | undefined;
+      let result: string | undefined;
+      const client = {
+        connect: (_room: string, _playerId: string, handler: (event: unknown) => void) => {
+          onEvent = handler;
+        },
+        disconnect: () => undefined,
+        sendCommand: async () => undefined,
+      } as unknown as MultiplayerClient;
+      const lockstep = new LockstepRuntime({
+        sim: match.sim,
+        hf,
+        economies: { 1: match.economy1, 2: match.economy2 },
+        client,
+        session: sessionFor(1),
+        onMatchOutcome: (outcome) => {
+          result = outcome;
+        },
+      });
+      lockstep.connect();
+      onEvent?.(event);
+      outcomes.push({ label, result });
+    };
+
+    run('opponent forfeits', { type: 'player-forfeit', playerId: 'guest', playerIndex: 2, name: 'Guest' });
+    run('local player forfeits', { type: 'player-forfeit', playerId: 'host', playerIndex: 1, name: 'Host' });
+    // A teammate walking away while their army fights on ends nothing for anyone.
+    run('teammate leaves, army survives', {
+      type: 'player-forfeit',
+      playerId: 'guest',
+      playerIndex: 2,
+      name: 'Guest',
+      armyDefeated: false,
+    });
+
+    expect(outcomes).toEqual([
+      { label: 'opponent forfeits', result: 'victory' },
+      { label: 'local player forfeits', result: 'defeat' },
+      { label: 'teammate leaves, army survives', result: undefined },
+    ]);
+  });
+
   it('pauses the match and reports victory when an opponent forfeits', () => {
     const hf = generateHeightfield(MAP01);
     const match = testMatch(hf);
