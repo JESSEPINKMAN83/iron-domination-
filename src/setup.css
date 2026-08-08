@@ -29,7 +29,7 @@
 
 .war-setup__shell {
   width: min(1240px, 100%);
-  min-height: calc(100vh - 44px);
+  height: calc(100vh - 44px);
   margin: 0 auto;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -106,27 +106,33 @@
 .war-tab.is-active::after { transform: scaleX(1); }
 .war-tab:disabled { cursor: default; opacity: 0.48; }
 
-.war-setup__body { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(330px, 0.75fr); min-height: 0; }
-.war-config { min-width: 0; padding: 24px 28px 34px; border-right: 1px solid var(--war-line); }
-.war-context { min-width: 0; background: rgba(0, 0, 0, 0.13); }
+.war-setup__body { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(330px, 0.75fr); min-height: 0; align-items: stretch; }
+.war-config { min-width: 0; padding: 20px 24px 28px; border-right: 1px solid var(--war-line); overflow-y: auto; }
+/* Command column fills the body row; config scrolls inside it while the action
+   card stays pinned to the bottom of the viewport. */
+.war-context { min-width: 0; min-height: 0; background: rgba(0, 0, 0, 0.13); overflow: hidden; }
 .war-config__mode-note { margin: 0 0 18px; color: var(--war-dim); }
 .war-config.is-locked .war-section { opacity: 0.78; }
 .war-setup__body.is-join-entry { grid-template-columns: minmax(0, 1fr); }
 .war-setup__body.is-join-entry .war-context { width: min(570px, 100%); min-height: 510px; margin: 0 auto; border-left: 1px solid var(--war-line); border-right: 1px solid var(--war-line); }
 
-.war-section { padding: 0 0 26px; margin: 0 0 26px; border-bottom: 1px solid var(--war-line); }
+.war-section { padding: 0 0 20px; margin: 0 0 20px; border-bottom: 1px solid var(--war-line); }
 .war-section:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
-.war-section__heading { display: flex; gap: 13px; align-items: flex-start; margin-bottom: 17px; }
+.war-section__heading { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
 .war-section__index { min-width: 31px; padding: 4px 5px; color: var(--war-gold); border: 1px solid rgba(223, 189, 100, 0.46); font: 700 9px ui-monospace, monospace; text-align: center; letter-spacing: 0.1em; }
-.war-section h2 { font-size: 24px; }
-.war-section__heading p { margin: 6px 0 0; color: var(--war-muted); font-size: 12px; }
+.war-section h2 { font-size: 19px; }
+.war-section__heading p { display: none; }
 
-.war-battlefield { display: grid; grid-template-columns: minmax(300px, 1.08fr) minmax(280px, 1fr); gap: 20px; align-items: start; }
+/* Battlefield: config pickers sit above a larger map. */
+.war-battlefield { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+.war-battlefield__controls { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.war-settings-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.war-terrain-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: stretch; }
 .war-map-preview, .war-lobby__map {
   position: relative;
   width: 100%;
-  min-height: 0;
-  aspect-ratio: 1;
+  min-height: clamp(420px, 52vh, 620px);
+  aspect-ratio: auto;
   overflow: hidden;
   border: 1px solid rgba(223, 189, 100, .48);
   background: #07100f;
@@ -154,7 +160,7 @@
   mix-blend-mode: overlay;
   opacity: .55;
 }
-.tactical-map__canvas { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; display: block; filter: saturate(.94) contrast(1.08); }
+.tactical-map__canvas { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; display: block; filter: saturate(.94) contrast(1.08); image-rendering: pixelated; image-rendering: crisp-edges; }
 .tactical-map__grid {
   position: absolute;
   z-index: 2;
@@ -242,27 +248,65 @@
   .tactical-map__deployment small { font-size: 5px; }
 }
 .war-battlefield__controls { display: grid; gap: 14px; align-content: start; min-width: 0; }
-.war-settings-grid, .war-rules-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.war-rules-grid .war-field:last-child { grid-column: 1 / -1; }
+.war-rules-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.war-rules-grid .war-field:last-child { grid-column: auto; }
 
-.war-field, .war-input { min-width: 0; display: grid; gap: 7px; }
+.war-field, .war-input { min-width: 0; display: grid; gap: 5px; }
 .war-field__label, .war-input__label, .war-lobby__colors {
   color: #b9c1bc;
-  font: 700 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 700 8px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.war-choice-group { display: grid; grid-template-columns: repeat(var(--option-count), minmax(0, 1fr)); gap: 5px; min-width: 0; }
+.war-field__label { display: flex; align-items: center; gap: 6px; }
+.war-field__info {
+  position: relative;
+  width: 13px;
+  height: 13px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--war-dim);
+  border-radius: 50%;
+  color: var(--war-dim);
+  font: 700 8px/1 ui-monospace, monospace;
+  cursor: help;
+  user-select: none;
+}
+.war-field__info:hover { border-color: var(--war-gold); color: var(--war-gold-bright); }
+.war-field__info-text {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  min-width: 180px;
+  max-width: 240px;
+  padding: 8px 10px;
+  border: 1px solid var(--war-line-strong);
+  background: #0b1011;
+  color: var(--war-muted);
+  font: 500 10px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  z-index: 40;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+.war-field__info:hover .war-field__info-text,
+.war-field__info:focus-visible .war-field__info-text { opacity: 1; }
+.war-choice-group { display: grid; grid-template-columns: repeat(var(--option-count), minmax(0, 1fr)); gap: 4px; min-width: 0; }
 .war-choice {
   min-width: 0;
-  height: 38px;
-  padding: 0 8px;
+  height: 30px;
+  padding: 0 6px;
   overflow: hidden;
   border: 1px solid var(--war-line-strong);
   border-radius: 1px;
   color: #bec7c2;
   background: linear-gradient(180deg, #202728, #111616);
-  font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 700 9px ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.04em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -270,22 +314,23 @@
   transition: border-color 120ms ease, color 120ms ease, background 120ms ease, transform 120ms ease;
 }
 .war-choice:hover:not(:disabled) { border-color: rgba(223, 189, 100, 0.72); color: white; transform: translateY(-1px); }
-.war-choice.is-active { border-color: var(--war-gold); color: #151814; background: linear-gradient(180deg, #efd479, #a8873d); box-shadow: inset 0 1px rgba(255,255,255,.34); }
+.war-choice.is-active { border-color: rgba(237, 241, 235, 0.9); color: #151814; background: linear-gradient(180deg, #f2f4f0, #b9c0ba); box-shadow: inset 0 1px rgba(255,255,255,.34); }
 .war-field__description { min-height: 34px; color: var(--war-dim); font-size: 10px; line-height: 1.45; }
 
 .war-seed-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
-.war-ore-control { padding: 11px 12px 9px; display: grid; gap: 7px; border: 1px solid var(--war-line); background: rgba(0,0,0,.16); }
+.war-seed-row .war-button { min-height: 34px; height: 34px; padding: 0 12px; }
+.war-ore-control { padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; border: 1px solid var(--war-line); background: rgba(0,0,0,.16); }
 .war-ore-control__header, .war-ore-control__scale { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.war-ore-control__header { color: var(--war-dim); font: 700 9px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .11em; }
-.war-ore-control__header strong { color: var(--war-gold-bright); font-size: 10px; }
-.war-ore-control input[type="range"] { width: 100%; accent-color: var(--war-gold); cursor: pointer; }
+.war-ore-control__header { color: var(--war-dim); font: 700 8px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .11em; }
+.war-ore-control__header strong { color: #e8ece9; font-size: 10px; }
+.war-ore-control input[type="range"] { flex: 1; width: 100%; margin: 0; accent-color: #e8ece9; cursor: pointer; }
 .war-ore-control input[type="range"]:disabled { opacity: .45; cursor: not-allowed; }
 .war-ore-control__scale { color: #59645f; font: 700 7px ui-monospace, monospace; letter-spacing: .08em; }
 .war-input input, .war-input select {
   width: 100%;
   min-width: 0;
-  height: 40px;
-  padding: 0 11px;
+  height: 34px;
+  padding: 0 10px;
   border: 1px solid var(--war-line-strong);
   border-radius: 1px;
   outline: 0;
@@ -412,7 +457,9 @@
 .war-brief .war-history { grid-row: span 2; margin-top: 0; }
 .war-brief .war-aside__subheading { margin: 2px 0 -5px; }
 
-.war-operation { min-height: 100%; padding: 18px 20px; display: grid; gap: 10px; align-content: start; }
+.war-operation { min-height: 100%; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.war-context .war-operation { padding-bottom: 0; }
+.war-operation__config { display: grid; gap: 12px; align-content: start; min-width: 0; }
 .war-operation__entry { display: grid; gap: 13px; }
 .war-operation__entry h2 { margin-top: 7px; font-size: 31px; }
 .war-operation__entry > p { margin: -3px 0 5px; color: var(--war-muted); font-size: 12px; }
@@ -422,6 +469,37 @@
 .war-mode-card p { margin: 7px 0 0; color: var(--war-muted); font-size: 10px; }
 .war-mode-card__actions { display: grid; gap: 8px; }
 .war-operation > .war-multiplayer__advanced { margin-top: auto; }
+
+/* Command column: config scrolls, action card always pinned to the viewport bottom. */
+.war-context .war-operation {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.war-context .war-operation__entry { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; gap: 8px; }
+.war-context .war-operation__entry > div:first-child,
+.war-context .war-operation__entry > h2,
+.war-context .war-operation__entry > p { flex: 0 0 auto; }
+.war-context .war-operation__entry > h2 { font-size: 24px; }
+.war-context .war-operation__entry > p { margin: -2px 0 2px; font-size: 11px; }
+.war-context .war-operation__config { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; gap: 12px; align-content: start; padding: 4px 2px 12px; }
+.war-context .war-mode-card--primary { flex: 0 0 auto; margin-top: 0; box-shadow: 0 -18px 34px rgba(4, 7, 8, 0.85); }
+/* Plain sticky action bar: just the deploy buttons on a dark background. */
+.war-context .war-action-bar {
+  padding: 8px 0 0;
+  border: 0;
+  background: linear-gradient(transparent, rgba(5, 8, 9, 0.96) 30%);
+  box-shadow: none;
+  gap: 8px;
+}
+.war-context .war-action-bar .war-mode-card__actions { gap: 6px; }
+.war-context .war-action-bar .war-button { min-height: 40px; }
+.war-context .war-action-bar .war-button--primary { min-height: 46px; }
+.war-context .war-multiplayer__status,
+.war-context .war-multiplayer__advanced { flex: 0 0 auto; }
+.war-context .war-multiplayer__status,
+.war-context .war-multiplayer__advanced { flex: 0 0 auto; }
 
 .war-lobby {
   position: static;
@@ -503,6 +581,7 @@
   .war-battlefield { grid-template-columns: 1fr; }
   .war-map-preview { min-height: 190px; }
   .war-settings-grid, .war-rules-grid { grid-template-columns: 1fr; }
+  .war-terrain-row { grid-template-columns: 1fr; }
   .war-rules-grid .war-field:last-child { grid-column: auto; }
   .war-field__description { min-height: 0; }
   .war-army-row { grid-template-columns: 72px repeat(4, minmax(0,1fr)); gap: 3px; }
