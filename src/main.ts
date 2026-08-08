@@ -48,7 +48,15 @@ import { arsenalForUnit } from './content/unitArsenal';
 import { isFortressTower } from './content/fortress';
 import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phase6';
 import { COMBAT_MODE_DESCRIPTIONS, COMBAT_MODES, type CombatMode } from './content/rules';
-import { startPosition } from './content/startPositions';
+import {
+  armyStartPosition,
+  defaultSpawnPoints,
+  sanitizeSpawnPoints,
+  spawnPointsFromSlots,
+  startPosition,
+  type ArmySpawnPoints,
+  type SpawnPoint,
+} from './content/startPositions';
 import { Input } from './engine/input';
 import { GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
 import { FirstContactGate, findFirstVisibleHostileEntity } from './firstContact';
@@ -173,6 +181,7 @@ interface SkirmishSettings {
   armyCount: ArmyCount;
   armySides: ArmySides;
   spawnSlots: ArmySpawnSlots;
+  spawnPoints: ArmySpawnPoints;
 }
 
 type ArmyCount = 2 | 3 | 4;
@@ -280,8 +289,9 @@ function renderLobbyMapPreview(
   oreAmount: number,
   terrainRelief: number,
   deployments: TacticalMapDeployment[] = [],
+  onDeploymentMove?: (army: number, point: SpawnPoint) => void,
 ): void {
-  renderTacticalMap(root, { mapId: map.id, mapSize, seed, oreAmount, terrainRelief, deployments });
+  renderTacticalMap(root, { mapId: map.id, mapSize, seed, oreAmount, terrainRelief, deployments, onDeploymentMove });
 }
 
 function oreAmountLabel(value: unknown): string {
@@ -298,7 +308,11 @@ function terrainReliefLabel(value: unknown): string {
   return 'EXTREME';
 }
 
-function setupMapDeployments(armyCount: ArmyCount, armySides: ArmySides): TacticalMapDeployment[] {
+function setupMapDeployments(
+  armyCount: ArmyCount,
+  armySides: ArmySides,
+  spawnPoints: ArmySpawnPoints,
+): TacticalMapDeployment[] {
   const colors = Object.values(LOBBY_COLORS);
   return Array.from({ length: armyCount }, (_, offset) => {
     const army = offset + 1;
@@ -309,6 +323,7 @@ function setupMapDeployments(armyCount: ArmyCount, armySides: ArmySides): Tactic
       label: army === 1 ? 'YOU' : `AI ARMY ${army}`,
       detail: army === 1 ? 'COMMAND' : 'AI START',
       isLocal: army === 1,
+      point: spawnPoints[offset],
     };
   });
 }
@@ -432,6 +447,7 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
       armyCount: sanitizeArmyCount(parsed.armyCount),
       armySides: sanitizeArmySides(parsed.armySides),
       spawnSlots: sanitizeSpawnSlots(parsed.spawnSlots),
+      spawnPoints: sanitizeSpawnPoints(parsed.spawnPoints),
     };
   } catch {
     return {};
@@ -471,7 +487,26 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
     armyCount,
     armySides: sides ? sanitizeArmySides(sides.split(',')) : undefined,
     spawnSlots: spawns ? sanitizeSpawnSlots(spawns.split(',')) : undefined,
+    spawnPoints: parseSpawnPointsParam(params.get('spawnpts')),
   };
+}
+
+/** Spawn points travel in the share link as percentage pairs: `x,z,x,z,...`. */
+function parseSpawnPointsParam(value: string | null): ArmySpawnPoints | undefined {
+  if (!value) return undefined;
+  const parts = value.split(',').map(Number);
+  if (parts.length < 8 || parts.some((part) => !Number.isFinite(part))) return undefined;
+  return sanitizeSpawnPoints([0, 1, 2, 3].map((index) => ({
+    x: parts[index * 2] / 100,
+    z: parts[index * 2 + 1] / 100,
+  })));
+}
+
+function serializeSpawnPoints(points: ArmySpawnPoints, armyCount: number): string {
+  return points
+    .slice(0, armyCount)
+    .flatMap((point) => [Math.round(point.x * 100), Math.round(point.z * 100)])
+    .join(',');
 }
 
 function initialSettings(params: URLSearchParams): SkirmishSettings {
@@ -480,6 +515,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
   const armyCount = fromUrl.armyCount ?? stored.armyCount ?? 2;
   const armySides = fromUrl.armySides ?? stored.armySides ?? defaultArmySides();
   const mapId = fromUrl.mapId ?? stored.mapId ?? DEFAULT_MAP_ID;
+  const spawnSlots = fromUrl.spawnSlots ?? stored.spawnSlots ?? defaultSpawnSlots();
   return {
     mapId,
     mapSize: fromUrl.mapSize ?? stored.mapSize ?? DEFAULT_MAP_SIZE,
@@ -494,7 +530,10 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     combatMode: fromUrl.combatMode ?? stored.combatMode ?? 'assisted',
     armyCount,
     armySides: ensureOpposingSides(armyCount, armySides),
-    spawnSlots: fromUrl.spawnSlots ?? stored.spawnSlots ?? defaultSpawnSlots(),
+    spawnSlots,
+    // Falling back to the slot layout keeps the corner starts for anyone who
+    // has never dragged a marker.
+    spawnPoints: fromUrl.spawnPoints ?? stored.spawnPoints ?? spawnPointsFromSlots(spawnSlots),
   };
 }
 
@@ -641,6 +680,8 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     let syncMultiplayerSettings = (): void => {};
     let applyingRoomSettings = false;
     let multiplayerSpawnSlots = defaults.spawnSlots;
+    let currentSpawnPoints = defaults.spawnPoints;
+    let spawnDragLocked = false;
     let reliefCustomized = false;
     let previousMapId = defaults.mapId;
     const mapChoice = createSegmentedControl('Map', MAP_IDS, defaults.mapId, MAP_DESCRIPTIONS, mapChoiceLabel, (mapId) => {
@@ -778,6 +819,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       armyCount: armies.armyCount(),
       armySides: armies.armySides(),
       spawnSlots: multiplayerSpawnSlots,
+      spawnPoints: currentSpawnPoints,
     });
     const applyRoomSettings = (room: MultiplayerRoom, playerIndex: number): void => {
       applyingRoomSettings = true;
@@ -793,6 +835,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       weatherChoice.setValue(sanitizeWeather(room.weather) ?? 'clear');
       armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
       multiplayerSpawnSlots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
+      currentSpawnPoints = sanitizeSpawnPoints(room.spawnPoints) ?? spawnPointsFromSlots(multiplayerSpawnSlots);
       const roomPlayer = room.players.find((player) => player.index === playerIndex);
       armies.setPlayerIndex(roomPlayer?.armyId ?? playerIndex);
       const guestLocked = room.hostPlayerId ? roomPlayer?.id !== room.hostPlayerId : playerIndex !== 1;
@@ -809,6 +852,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       oreAmountInput.disabled = guestLocked;
       terrainReliefInput.disabled = guestLocked;
       config.classList.toggle('is-locked', guestLocked);
+      spawnDragLocked = guestLocked;
       refresh();
       applyingRoomSettings = false;
     };
@@ -934,7 +978,15 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
         mapSizeChoice.value(),
         oreAmount,
         terrainRelief,
-        setupMapDeployments(armies.armyCount(), armies.armySides()),
+        setupMapDeployments(armies.armyCount(), armies.armySides(), currentSpawnPoints),
+        spawnDragLocked
+          ? undefined
+          : (army, point) => {
+              const next = [...currentSpawnPoints] as ArmySpawnPoints;
+              next[army - 1] = point;
+              currentSpawnPoints = next;
+              refresh();
+            },
       );
       summaryValues.get('BATTLEFIELD')!.textContent = `${map.shortLabel} · ${MAP_SIZE_PRESETS[mapSizeChoice.value()].label} · ${terrainReliefLabel(terrainRelief)} RELIEF`;
       summaryValues.get('ENEMY')!.textContent = `${difficulty.value().toUpperCase()} · ${commander.value().toUpperCase()}`;
@@ -1947,6 +1999,7 @@ function createRoomLobbyView(
       controllerTeams: room.controllerTeams,
       armySides: room.armySides,
       spawnSlots: room.spawnSlots,
+      spawnPoints: room.spawnPoints,
       selectedArmy,
       players: room.players.map((player) => [player.index, player.armyId, player.role, player.name, player.color, player.connected]),
     });
@@ -1954,70 +2007,56 @@ function createRoomLobbyView(
     lastDeploymentSignature = signature;
     const oreAmount = sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT;
     const terrainRelief = sanitizeTerrainRelief(room.terrainRelief) ?? defaultTerrainRelief(mapId);
-    renderLobbyMapPreview(map, MAP_PRESETS[mapId], room.seed, mapSize, oreAmount, terrainRelief);
-    const overlay = document.createElement('div');
-    overlay.className = 'war-lobby__deployments';
     const slots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
+    const points = sanitizeSpawnPoints(room.spawnPoints) ?? spawnPointsFromSlots(slots);
     const roomHost = room.players.find((candidate) => candidate.id === room.hostPlayerId)
       ?? room.players.find((candidate) => candidate.index === 1);
     const hostArmyId = roomHost?.armyId ?? 1;
     const controllerCount = room.controllerCount ?? room.armyCount;
     const controllerTeams = room.controllerTeams ?? [1, 2, 3, 4];
     const teamLabels = Array.from(new Set(controllerTeams.slice(0, controllerCount)));
-    for (let spawnSlot = 1; spawnSlot <= 4; spawnSlot++) {
-      const armyOffset = slots.findIndex((slot) => slot === spawnSlot);
-      const armyIndex = armyOffset + 1;
-      const active = armyIndex > 0 && armyIndex <= room.armyCount;
-      const lobbyTeam = teamLabels[armyIndex - 1];
-      const controllerSlots = active
-        ? Array.from({ length: controllerCount }, (_, index) => index + 1).filter((index) => controllerTeams[index - 1] === lobbyTeam)
-        : [];
-      const armyPlayers = active ? room.players.filter((candidate) => candidate.armyId === armyIndex) : [];
+    const canPlace = isHost && room.status === 'waiting';
+    const deployments: TacticalMapDeployment[] = Array.from({ length: room.armyCount }, (_, offset) => {
+      const armyIndex = offset + 1;
+      const lobbyTeam = teamLabels[offset];
+      const controllerSlots = Array.from({ length: controllerCount }, (_, index) => index + 1)
+        .filter((index) => controllerTeams[index - 1] === lobbyTeam);
       const controllerNames = controllerSlots.map((index) => (
         room.players.find((candidate) => candidate.index === index)?.name ?? `COMPUTER ${index}`
       ));
-      const commander = armyPlayers.find((candidate) => candidate.role === 'commander');
-      const color = active ? commander?.color ?? (['jade', 'crimson', 'azure', 'amber'] as const)[armyIndex - 1] : undefined;
-      const point = startPosition(100, spawnSlot);
-      const marker = document.createElement('button');
-      marker.type = 'button';
-      marker.className = 'war-lobby__deployment';
-      marker.classList.toggle('is-active', active);
-      marker.classList.toggle('is-selected', active && selectedArmy === armyIndex);
-      marker.style.left = `${50 + point.x}%`;
-      marker.style.top = `${50 + point.z}%`;
-      marker.style.setProperty('--army-color', color ? LOBBY_COLORS[color] : '#63706b');
-      marker.disabled = !isHost || room.status !== 'waiting';
-      marker.setAttribute('aria-label', active ? `Army ${armyIndex} deployment position` : `Empty deployment position ${spawnSlot}`);
-      const relationship = armyIndex === hostArmyId
-        ? 'YOUR FORCE'
-        : 'ENEMY FORCE';
-      marker.innerHTML = active
-        ? `<span class="war-lobby__deployment-pin">${armyIndex}</span><strong>${escapeLobbyText(controllerNames.join(' + '))}</strong><small>${controllerSlots.length > 1 ? 'SHARED · ' : ''}${relationship}</small>`
-        : '<span class="war-lobby__deployment-pin">+</span><strong>OPEN POSITION</strong>';
-      marker.onclick = () => {
-        if (!isHost || room.status !== 'waiting') return;
-        if (active && selectedArmy === armyIndex) {
-          marker.blur();
-          return;
-        }
-        const movingArmy = Math.max(1, Math.min(room.armyCount, selectedArmy));
-        const next = [...slots] as ArmySpawnSlots;
-        const targetArmyOffset = slots.findIndex((slot) => slot === spawnSlot);
-        const previousSlot = next[movingArmy - 1];
-        next[movingArmy - 1] = spawnSlot;
-        if (targetArmyOffset >= 0) next[targetArmyOffset] = previousSlot;
-        client.updateSettings(room.code, session.player.id, { ...settings(), spawnSlots: next });
-        marker.blur();
+      const commander = room.players.find((candidate) => candidate.armyId === armyIndex && candidate.role === 'commander');
+      const color = commander?.color ?? (['jade', 'crimson', 'azure', 'amber'] as const)[offset];
+      return {
+        army: armyIndex,
+        side: room.armySides?.[offset] ?? armyIndex,
+        color: LOBBY_COLORS[color],
+        label: controllerNames.join(' + ') || `ARMY ${armyIndex}`,
+        detail: `${controllerSlots.length > 1 ? 'SHARED · ' : ''}${armyIndex === hostArmyId ? 'YOUR FORCE' : 'ENEMY FORCE'}`,
+        isLocal: armyIndex === hostArmyId,
+        point: points[offset],
       };
-      overlay.appendChild(marker);
-    }
-    map.appendChild(overlay);
+    });
+    renderLobbyMapPreview(
+      map,
+      MAP_PRESETS[mapId],
+      room.seed,
+      mapSize,
+      oreAmount,
+      terrainRelief,
+      deployments,
+      canPlace
+        ? (army, point) => {
+            const next = [...points] as ArmySpawnPoints;
+            next[army - 1] = point;
+            client.updateSettings(room.code, session.player.id, { ...settings(), spawnPoints: next });
+          }
+        : undefined,
+    );
     const mapTitle = battlefieldHeader.querySelector('strong');
     const mapHelp = battlefieldHeader.querySelector('p');
     if (mapTitle) mapTitle.textContent = `${MAP_PRESETS[mapId].label} · ${MAP_SIZE_PRESETS[mapSize].label} · ${oreFieldCount(mapId, mapSize, oreAmount)} ORE FIELDS`;
-    if (mapHelp) mapHelp.textContent = isHost
-      ? `Army ${selectedArmy} selected · click another deployment point to swap positions.`
+    if (mapHelp) mapHelp.textContent = canPlace
+      ? 'Drag a deployment marker to choose where each army starts.'
       : 'The host controls deployment positions. Your assigned army is highlighted.';
   };
 
@@ -2223,6 +2262,8 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
     armyCount: sanitizeArmyCount(room.armyCount) ?? 2,
     armySides: sanitizeArmySides(room.armySides) ?? defaultArmySides(),
     spawnSlots: sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots(),
+    spawnPoints: sanitizeSpawnPoints(room.spawnPoints)
+      ?? spawnPointsFromSlots(sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots()),
   };
 }
 
@@ -2517,7 +2558,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           ? AI_DIFFICULTY[aiDifficulty].startCredits
           : 4600;
     const economy = createEconomy(team, credits);
-    const start = startPosition(hf.size, settings.spawnSlots[team - 1] ?? team);
+    const start = armyStartPosition(hf.size, team, settings.spawnPoints);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
     const vision = new VisibilityGrid(hf, team);
     return { team, side: sim.rules.allianceSides[team] ?? team, economy, base, vision };
@@ -3904,6 +3945,7 @@ function copyMatchLink(settings: SkirmishSettings, status: HTMLElement): void {
   url.searchParams.set('armies', String(settings.armyCount));
   url.searchParams.set('sides', settings.armySides.slice(0, settings.armyCount).join(','));
   url.searchParams.set('spawns', settings.spawnSlots.slice(0, settings.armyCount).join(','));
+  url.searchParams.set('spawnpts', serializeSpawnPoints(settings.spawnPoints, settings.armyCount));
   const write = navigator.clipboard?.writeText(url.toString());
   if (!write) {
     status.textContent = url.toString();
