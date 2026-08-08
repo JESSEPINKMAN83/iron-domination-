@@ -120,14 +120,12 @@
 }
 
 .iron-landing__hero {
-  /* Full width so the doctrine rail can run edge to edge; the text column and
-     the plates constrain themselves. */
+  /* Full width; the text column and the plates constrain themselves. */
   width: 100%;
   max-height: 100vh;
   padding: clamp(36px, 7vh, 72px) 20px 30px;
   box-sizing: border-box;
-  /* Vertical scroll on short screens; horizontal clipped so the full-bleed
-     doctrine rail can overflow without producing a scrollbar. */
+  /* Vertical scroll on short screens. */
   overflow: hidden auto;
   text-align: center;
   animation: iron-hero-in 720ms cubic-bezier(.2, .8, .2, 1) both;
@@ -427,44 +425,31 @@
 }
 .iron-landing.is-setup-open { pointer-events: none; }
 
-/* The four pillars sit as bolted steel plates on a rail that runs the full
-   width of the screen, anchoring the hero to the ground. */
+/* The four pillars are steel plates bolted at the corners, standing on their
+   own rather than on a rail, with room to breathe between them. */
 .iron-landing__doctrine {
-  position: relative;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: clamp(12px, 2.2vw, 26px);
-  width: min(540px, 100%);
+  gap: clamp(14px, 3vw, 40px);
+  width: min(760px, 100%);
   margin: clamp(30px, 5vh, 56px) auto 0;
   padding: 0;
   list-style: none;
 }
 
-.iron-landing__doctrine::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 62%;
-  z-index: -1;
-  width: 100vw;
-  height: 11px;
-  transform: translateX(-50%);
-  background: linear-gradient(180deg, #b9bfbf 0%, #8f9696 34%, #5c6363 68%, #2d3232 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .62),
-    inset 0 -1px 0 rgba(0, 0, 0, .6),
-    0 6px 16px rgba(0, 0, 0, .58);
-}
-
 .iron-landing__doctrine li {
-  position: relative;
+  --bolt: radial-gradient(circle at center, rgba(255, 255, 255, .82) 0 1px, rgba(86, 93, 93, .95) 1.3px 2.3px, transparent 2.7px);
   display: grid;
-  grid-template-rows: 44px auto auto;
+  grid-template-rows: 58px auto auto;
   justify-items: center;
   align-content: center;
-  gap: 3px;
-  padding: 14px 8px 13px;
+  gap: 4px;
+  padding: 22px 10px 19px;
   background:
+    var(--bolt) 9px 9px / 8px 8px no-repeat,
+    var(--bolt) calc(100% - 9px) 9px / 8px 8px no-repeat,
+    var(--bolt) 9px calc(100% - 9px) / 8px 8px no-repeat,
+    var(--bolt) calc(100% - 9px) calc(100% - 9px) / 8px 8px no-repeat,
     repeating-linear-gradient(94deg, transparent 0 3px, rgba(255, 255, 255, .16) 3px 4px),
     linear-gradient(178deg, #eceeee 0%, #cfd4d4 44%, #a9b0b0 78%, #8d9494 100%);
   color: #262b2b;
@@ -472,15 +457,15 @@
     inset 0 1px 0 rgba(255, 255, 255, .9),
     inset 0 -2px 2px rgba(0, 0, 0, .3),
     inset 0 0 0 1px rgba(255, 255, 255, .5),
-    inset 0 0 0 4px rgba(126, 133, 133, .34),
-    0 10px 20px rgba(0, 0, 0, .52);
+    inset 0 0 0 5px rgba(126, 133, 133, .3),
+    0 12px 26px rgba(0, 0, 0, .55);
   transition: transform 160ms ease, filter 160ms ease;
 }
 .iron-landing__doctrine li:hover { transform: translateY(-3px); filter: brightness(1.06); }
 
 .iron-landing__doctrine-icon {
-  width: 36px;
-  height: 36px;
+  width: 50px;
+  height: 50px;
   color: #333a3a;
   filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .7));
 }
@@ -491,8 +476,8 @@
   text-transform: uppercase;
 }
 
-.iron-landing__doctrine strong { font-size: 19px; font-weight: 600; line-height: 1; letter-spacing: .1em; }
-.iron-landing__doctrine span { color: #545b5b; font-size: 12px; line-height: 1; letter-spacing: .06em; }
+.iron-landing__doctrine strong { font-size: 22px; font-weight: 600; line-height: 1; letter-spacing: .1em; }
+.iron-landing__doctrine span { color: #545b5b; font-size: 13px; line-height: 1; letter-spacing: .06em; }
 
 @keyframes iron-hero-in {
   from { opacity: 0; transform: translateY(16px); }
@@ -511,10 +496,10 @@
   .iron-landing__copy { font-size: clamp(18px, 5.5vw, 25px); letter-spacing: .025em; white-space: normal; }
   .iron-landing__fields { grid-template-columns: 1fr; }
   .iron-landing__cta { width: min(100%, 320px); min-width: 0; min-height: 62px; padding: 12px 24px; font-size: 28px; }
-  .iron-landing__doctrine { grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .iron-landing__doctrine li { grid-template-rows: 30px auto auto; padding: 10px 4px; }
-  .iron-landing__doctrine-icon { width: 26px; height: 26px; }
-  .iron-landing__doctrine strong { font-size: 14px; letter-spacing: .04em; }
+  .iron-landing__doctrine { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .iron-landing__doctrine li { grid-template-rows: 38px auto auto; padding: 13px 4px 11px; }
+  .iron-landing__doctrine-icon { width: 32px; height: 32px; }
+  .iron-landing__doctrine strong { font-size: 15px; letter-spacing: .04em; }
   .iron-landing__doctrine span { font-size: 10px; letter-spacing: .02em; }
 }
 
