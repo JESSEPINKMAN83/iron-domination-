@@ -1,6 +1,7 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic, type LandingIntent } from './landing';
 import { createCommanderChip, currentCommander } from './identity/commander';
+import { isMemberSignedIn, restoreMemberSession } from './identity/session';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
 import { sendTelemetryEvent, trackMatchTelemetry, approximatePathLength, summarizeUnitKinds, type MatchTelemetry } from './telemetry';
@@ -5174,7 +5175,14 @@ async function start(): Promise<void> {
   const localSetupPreview = !isPublicHost(location.hostname) && params.get('setup-preview') === '1';
   startLandingMusic();
   let intent: LandingIntent = inviteRoom ? 'multiplayer' : 'single';
-  if (!localSetupPreview && !(inviteRoom && hasBetaAccess())) intent = await showLandingScreen({ inviteRoom });
+  // Finishes a member sign-in that navigated the page away, and restores an existing
+  // session so the commander chip renders. Returns the intent the player had before
+  // the redirect, which is what lets "sign up, then join the room" survive a reload.
+  const resumedIntent = await restoreMemberSession();
+  if (resumedIntent) intent = resumedIntent.action;
+  else if (!localSetupPreview && !(inviteRoom && (isMemberSignedIn() || hasBetaAccess()))) {
+    intent = await showLandingScreen({ inviteRoom });
+  }
   const chosen = await showSetupScreen(settings, { intent });
   document.getElementById('iron-landing')?.remove();
   await boot(chosen);

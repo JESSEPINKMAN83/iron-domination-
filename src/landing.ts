@@ -3,6 +3,8 @@ import { isMobileTouchDevice, isStandaloneMobileExperience } from './mobile/plat
 import { submitToBackoffice } from './backoffice';
 import { identityEnabled } from './identity/flag';
 import { commanderName, createCommanderChip, currentCommander, rememberLocalCommander } from './identity/commander';
+import { memberAuthConfigured } from './identity/config';
+import { isMemberSignedIn } from './identity/session';
 
 const FORM_NAME = 'iron-dominion-beta';
 const BETA_SIGNUP_ENDPOINT = 'https://formspree.io/f/xjgnkega';
@@ -298,6 +300,18 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
       const holder = document.createElement('div');
       holder.className = 'iron-landing__commander';
       holder.append(createCommanderChip(identity));
+      if (identity.source === 'member') {
+        const signOut = document.createElement('button');
+        signOut.type = 'button';
+        signOut.className = 'iron-landing__sign-out';
+        signOut.textContent = 'Sign out';
+        signOut.onclick = async () => {
+          signOut.disabled = true;
+          const { signOutCommander } = await import('./identity/session');
+          await signOutCommander();
+        };
+        holder.append(signOut);
+      }
       root.append(holder);
     };
     if (splitPaths) showCommanderChip();
@@ -309,21 +323,51 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
     if (splitPaths) {
       const primary = root.querySelector<HTMLButtonElement>('[data-action="choose-primary"]')!;
       const secondary = root.querySelector<HTMLButtonElement>('[data-action="choose-secondary"]')!;
-      const openAccountPanel = (): void => {
+      const openLocalSignup = (): void => {
         const panel = root.querySelector<HTMLElement>('.iron-landing__signup-panel')!;
         panel.hidden = false;
         root.querySelector<HTMLFormElement>('.iron-landing__form')?.classList.add('is-open');
         root.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
       };
+      const openMemberSignIn = async (): Promise<void> => {
+        const hero = root.querySelector<HTMLElement>('.iron-landing__hero') ?? root;
+        primary.hidden = true;
+        secondary.hidden = true;
+        const { openAccountPanel } = await import('./identity/accountPanel');
+        openAccountPanel({
+          host: hero,
+          intent: { action: 'multiplayer', roomCode: inviteRoom },
+          onCancel: () => {
+            primary.hidden = false;
+            secondary.hidden = false;
+          },
+        });
+      };
       const choose = (intent: LandingIntent): void => {
-        // Single player is never gated. Multiplayer needs an account unless one is already known.
-        if (intent === 'single' || returningPlayer) {
+        // Single player is never gated. Multiplayer needs an account.
+        if (intent === 'single') {
           primary.disabled = true;
           secondary.disabled = true;
           completeLanding(intent);
           return;
         }
-        openAccountPanel();
+        if (memberAuthConfigured()) {
+          if (isMemberSignedIn()) {
+            primary.disabled = true;
+            secondary.disabled = true;
+            completeLanding(intent);
+            return;
+          }
+          void openMemberSignIn();
+          return;
+        }
+        if (returningPlayer) {
+          primary.disabled = true;
+          secondary.disabled = true;
+          completeLanding(intent);
+          return;
+        }
+        openLocalSignup();
       };
       primary.onclick = () => choose(primaryIntent);
       secondary.onclick = () => choose(primaryIntent === 'single' ? 'multiplayer' : 'single');
