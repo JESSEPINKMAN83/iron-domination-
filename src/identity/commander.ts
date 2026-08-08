@@ -1,10 +1,12 @@
+import { cachedMemberProfile } from './session';
+
 const PROFILE_STORAGE_KEY = 'iron-dominion.beta-profile.v1';
 
 /**
- * How the player is presented in the game. Today the source is the local signup
- * profile; once Wix Headless member auth lands this is filled from
- * `members.getCurrentMember()` and `source` becomes `'member'` — every consumer
- * renders the same shape either way.
+ * How the player is presented in the game. `source` records where it came from:
+ * a signed-in Wix member, or the locally stored signup profile when member auth
+ * is unconfigured or the player is signed out. Every consumer renders the same
+ * shape either way.
  */
 export interface CommanderIdentity {
   name: string;
@@ -58,16 +60,24 @@ function accentFor(key: string): string {
   return ACCENTS[hash % ACCENTS.length]!;
 }
 
+function identityFrom(name: string, key: string, source: CommanderIdentity['source']): CommanderIdentity {
+  return { name, initials: initialsFor(name), accent: accentFor(key.toLowerCase()), source };
+}
+
+/**
+ * Prefers the signed-in Wix member, falling back to the locally stored signup
+ * profile. Synchronous on purpose so render paths never await — the member profile
+ * is fetched once during boot and cached.
+ */
 export function currentCommander(): CommanderIdentity | undefined {
+  const member = cachedMemberProfile();
+  if (member) {
+    const name = member.nickname?.trim() || member.firstName?.trim() || member.loginEmail?.split('@')[0] || 'Commander';
+    return identityFrom(name.slice(0, 28), member.id, 'member');
+  }
   const name = commanderName();
   if (!name) return undefined;
-  const profile = storedProfile();
-  return {
-    name,
-    initials: initialsFor(name),
-    accent: accentFor(profile?.email?.toLowerCase() || name.toLowerCase()),
-    source: 'local',
-  };
+  return identityFrom(name, storedProfile()?.email || name, 'local');
 }
 
 /**
