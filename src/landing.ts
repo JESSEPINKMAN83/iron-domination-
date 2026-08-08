@@ -12,6 +12,39 @@ import {
 import { enlist, enlistedCommander } from './identity/enlist';
 
 const FORM_NAME = 'iron-dominion-beta';
+
+/**
+ * Line art rather than the in-game command icons: those are opaque dark
+ * thumbnails and cannot sit on the light steel plates.
+ */
+const DOCTRINE_ICONS = {
+  build: svgIcon(
+    '<path d="M3 20h18"/><path d="M5 20V9l6-4 6 4v11"/><path d="M11 5V2"/>' +
+    '<path d="M9 20v-5h4v5"/><path d="M8 11h2"/><path d="M14 11h2"/>',
+  ),
+  deploy: svgIcon(
+    '<circle cx="10" cy="4.4" r="2"/><path d="M10 6.6v4.6l-2.4 3.4L6 21"/>' +
+    '<path d="M10 11.2 13 14v7"/><path d="M9.4 8.4 16 5.6"/><path d="M14.6 4.2l2.6 3"/>',
+  ),
+  fight: svgIcon(
+    '<circle cx="12" cy="12" r="6.4"/><path d="M12 1.6v5"/><path d="M12 17.4v5"/>' +
+    '<path d="M1.6 12h5"/><path d="M17.4 12h5"/><circle cx="12" cy="12" r="1.3"/>',
+  ),
+  adapt: svgIcon(
+    '<path d="M2.6 17.4h16.8"/><circle cx="5.2" cy="17.4" r="1.7"/><circle cx="10" cy="17.4" r="1.7"/>' +
+    '<circle cx="14.8" cy="17.4" r="1.7"/><path d="M3.4 13.6h14.2v2.1H3.4z"/>' +
+    '<path d="M7 10.4h7.4v3.2H7z"/><path d="M14.4 11.6h6.6"/>',
+  ),
+} as const;
+
+function svgIcon(paths: string): string {
+  return (
+    '<svg class="iron-landing__doctrine-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    paths +
+    '</svg>'
+  );
+}
 const BETA_SIGNUP_ENDPOINT = 'https://formspree.io/f/xjgnkega';
 const ACCESS_STORAGE_KEY = 'iron-dominion.beta-access.v1';
 const LANDING_MUSIC_VOLUME = 0.32;
@@ -284,22 +317,10 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
         `}
         ${fullscreenHint}
         <ul class="iron-landing__doctrine" aria-label="Core game features">
-          <li>
-            <img src="/assets/ui/command-icons/command-yard.png" alt="">
-            <strong>Build</strong><span>Your base</span>
-          </li>
-          <li>
-            <img src="/assets/ui/command-icons/infantry.png" alt="">
-            <strong>Deploy</strong><span>Your army</span>
-          </li>
-          <li class="is-active">
-            <i class="iron-landing__reticle" aria-hidden="true"></i>
-            <strong>Fight</strong><span>On the ground</span>
-          </li>
-          <li>
-            <img src="/assets/ui/command-icons/siege-tank.png" alt="">
-            <strong>Adapt</strong><span>And conquer</span>
-          </li>
+          <li>${DOCTRINE_ICONS.build}<strong>Build</strong><span>Your base</span></li>
+          <li>${DOCTRINE_ICONS.deploy}<strong>Deploy</strong><span>Your army</span></li>
+          <li>${DOCTRINE_ICONS.fight}<strong>Fight</strong><span>On the ground</span></li>
+          <li>${DOCTRINE_ICONS.adapt}<strong>Adapt</strong><span>And conquer</span></li>
         </ul>
       </section>
     `;
