@@ -1,0 +1,106 @@
+const PROFILE_STORAGE_KEY = 'iron-dominion.beta-profile.v1';
+
+/**
+ * How the player is presented in the game. Today the source is the local signup
+ * profile; once Wix Headless member auth lands this is filled from
+ * `members.getCurrentMember()` and `source` becomes `'member'` — every consumer
+ * renders the same shape either way.
+ */
+export interface CommanderIdentity {
+  name: string;
+  initials: string;
+  accent: string;
+  source: 'local' | 'member';
+}
+
+const ACCENTS = ['#d2b15f', '#7fbf8a', '#79a9d8', '#d98d6a', '#b79ad8', '#6fc3c0', '#d8a0b4', '#c2c96f'];
+
+interface StoredProfile {
+  name?: string;
+  email?: string;
+}
+
+function storedProfile(): StoredProfile | undefined {
+  try {
+    const raw = window.localStorage.getItem(PROFILE_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as StoredProfile | null) : null;
+    return parsed ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function rememberLocalCommander(profile: { name: string; email: string }): void {
+  try {
+    window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  } catch {
+    // The name is simply unavailable next visit when storage is blocked.
+  }
+}
+
+export function commanderName(): string | undefined {
+  const name = storedProfile()?.name?.trim();
+  return name ? name.slice(0, 28) : undefined;
+}
+
+function initialsFor(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  const first = parts[0]?.[0] ?? '';
+  const second = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? '' : '';
+  return `${first}${second}`.toUpperCase() || '?';
+}
+
+/** Stable per identity, so a player keeps the same colour on every device. */
+function accentFor(key: string): string {
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) hash = (hash * 31 + key.charCodeAt(index)) % 100_003;
+  return ACCENTS[hash % ACCENTS.length]!;
+}
+
+export function currentCommander(): CommanderIdentity | undefined {
+  const name = commanderName();
+  if (!name) return undefined;
+  const profile = storedProfile();
+  return {
+    name,
+    initials: initialsFor(name),
+    accent: accentFor(profile?.email?.toLowerCase() || name.toLowerCase()),
+    source: 'local',
+  };
+}
+
+/**
+ * Monogram avatar: initials over a colour derived from the identity. Deliberately
+ * asset-free so it can never fail to load; a portrait picker can replace the inner
+ * content later without changing any call site.
+ */
+export function createCommanderAvatar(identity: CommanderIdentity, size = 40): HTMLElement {
+  const avatar = document.createElement('span');
+  avatar.className = 'commander-chip__avatar';
+  avatar.setAttribute('aria-hidden', 'true');
+  avatar.textContent = identity.initials;
+  avatar.style.cssText =
+    `width:${size}px;height:${size}px;flex:0 0 ${size}px;display:grid;place-items:center;border-radius:50%;` +
+    `background:radial-gradient(circle at 32% 28%,${identity.accent},rgba(12,16,15,.9));` +
+    `box-shadow:inset 0 0 0 1px rgba(255,255,255,.22),0 2px 10px rgba(0,0,0,.45);` +
+    `color:#12160f;font:800 ${Math.round(size * 0.4)}px/1 ui-monospace,Menlo,monospace;letter-spacing:.02em;`;
+  return avatar;
+}
+
+export function createCommanderChip(
+  identity: CommanderIdentity,
+  options: { size?: number; label?: string } = {},
+): HTMLElement {
+  const chip = document.createElement('div');
+  chip.className = 'commander-chip';
+  const text = document.createElement('span');
+  text.className = 'commander-chip__text';
+  const label = document.createElement('small');
+  label.textContent = options.label ?? 'COMMANDER';
+  const name = document.createElement('strong');
+  name.textContent = identity.name;
+  text.append(label, name);
+  chip.append(createCommanderAvatar(identity, options.size ?? 40), text);
+  return chip;
+}
