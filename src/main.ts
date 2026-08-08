@@ -1,5 +1,5 @@
 import { Color, Fog, MeshStandardMaterial } from 'three';
-import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic } from './landing';
+import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic, type LandingIntent } from './landing';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
 import { sendTelemetryEvent, trackMatchTelemetry, approximatePathLength, summarizeUnitKinds, type MatchTelemetry } from './telemetry';
@@ -620,7 +620,7 @@ function showLoadingOverlay(): HTMLDivElement {
   return el;
 }
 
-function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> {
+function showSetupScreen(defaults: SkirmishSettings, intent: LandingIntent = 'single'): Promise<SkirmishSettings> {
   return new Promise((resolve) => {
     const root = document.createElement('div');
     root.id = 'iron-setup';
@@ -1023,6 +1023,13 @@ function showSetupScreen(defaults: SkirmishSettings): Promise<SkirmishSettings> 
     document.body.appendChild(root);
     refresh();
     renderMode();
+    // A player who chose Multiplayer on the landing page arrives pointed at the
+    // online room entry rather than the local skirmish button.
+    if (intent === 'multiplayer' && mode === 'host') {
+      const online = root.querySelector<HTMLButtonElement>('.war-mode-card__actions .war-button--secondary');
+      online?.scrollIntoView({ block: 'nearest' });
+      online?.focus();
+    }
   });
 }
 
@@ -5174,8 +5181,9 @@ async function start(): Promise<void> {
   }
   const localSetupPreview = !isPublicHost(location.hostname) && params.get('setup-preview') === '1';
   startLandingMusic();
-  if (!localSetupPreview && !(inviteRoom && hasBetaAccess())) await showLandingScreen({ inviteRoom });
-  const chosen = await showSetupScreen(settings);
+  let intent: LandingIntent = inviteRoom ? 'multiplayer' : 'single';
+  if (!localSetupPreview && !(inviteRoom && hasBetaAccess())) intent = await showLandingScreen({ inviteRoom });
+  const chosen = await showSetupScreen(settings, intent);
   document.getElementById('iron-landing')?.remove();
   await boot(chosen);
 }
