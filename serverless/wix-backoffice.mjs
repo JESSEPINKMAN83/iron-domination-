@@ -223,6 +223,19 @@ function parseSubmission(body) {
     };
   }
 
+  if (body.kind === 'enlist') {
+    const name = cleanText(body.name, 120);
+    const email = cleanText(body.email, 254).toLowerCase();
+    if (!name || !validEmail(email)) return null;
+    return {
+      kind: 'enlist',
+      name,
+      email,
+      releaseUpdates: body.releaseUpdates === true,
+      source: cleanText(body.source, 200) || 'Iron Dominion multiplayer enlistment',
+    };
+  }
+
   if (body.kind === 'telemetry') {
     const event = [
       'session-start',
@@ -298,6 +311,72 @@ async function createContact(config, submission) {
   }
 }
 
+/**
+ * Creates the site member for an enlisting player, or returns the one that already
+ * exists for that email.
+ *
+ * Members are created with an admin API key and a login email only — no password is
+ * ever collected, sent, or stored, which is what keeps the game's own origin free of
+ * anything a phishing classifier could read as a credential form. Wix's documented
+ * upgrade path (Send Set Password Email) can make these members login-capable later
+ * without migrating anything.
+ */
+async function createMember(config, submission) {
+  const response = await fetchWithTimeout('https://www.wixapis.com/members/v1/members', {
+    method: 'POST',
+    headers: wixHeaders(config),
+    body: JSON.stringify({
+      member: {
+        loginEmail: submission.email,
+        profile: { nickname: submission.name },
+      },
+    }),
+  }, WIX_API_TIMEOUT_MS);
+
+  if (response.ok) {
+    const payload = await response.json();
+    const id = payload.member?.id;
+    if (id) return id;
+  } else if (response.status !== 409) {
+    const details = (await response.text()).slice(0, 500);
+    throw new Error(`Wix member request failed (${response.status}): ${details}`);
+  }
+
+  // 409 ALREADY_EXISTS: enlisting again — from a second device, or after clearing
+  // storage — is the same commander, so reuse the member instead of failing.
+  const found = await wixRequest(config, '/members/v1/members/query', {
+    method: 'POST',
+    body: JSON.stringify({
+      query: { filter: { loginEmail: submission.email }, paging: { limit: 1 } },
+      fieldsets: ['EXTENDED'],
+    }),
+  });
+  const existing = found.members?.[0]?.id;
+  if (!existing) throw new Error('Wix reported an existing member that no query could find');
+  return existing;
+}
+
+/**
+ * The relay's proof that a member id came from here. Signed with the same shared
+ * secret the CMS ingest uses, so the relay can verify membership with no network
+ * call and no Wix token in the browser.
+ */
+async function mintMemberTicket(secret, memberId) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(memberId));
+  const bytes = new Uint8Array(signature);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 async function createFormSubmission(config, formId, values) {
   await wixRequest(config, '/form-submission-service/v4/submissions', {
     method: 'POST',
@@ -327,6 +406,40 @@ async function createCmsSubmission(config, submission) {
     const details = (await response.text()).slice(0, 500);
     throw new Error(`Wix CMS request failed (${response.status}): ${details}`);
   }
+}
+
+/**
+ * An enlisted player is also a signup: recorded in the same dashboard and the same
+ * Wix form as everyone who ever asked for beta access, so there is one list to read.
+ */
+async function recordEnlistmentCopy(config, submission) {
+  const signup = {
+    kind: 'signup',
+    name: submission.name,
+    email: submission.email,
+    releaseUpdates: submission.releaseUpdates,
+    source: submission.source,
+  };
+  await createCmsSubmission(config, signup);
+  await createWixFormCopy(config, signup);
+}
+
+async function handleEnlist(config, submission, executionContext) {
+  // Without the shared secret there is no ticket, and a member the relay cannot
+  // verify is worse than a clear failure the player can retry.
+  if (!config.cmsSecret) return jsonResponse(503, { error: 'wix-not-configured' });
+
+  await createContact(config, submission);
+  const memberId = await createMember(config, submission);
+  const ticket = await mintMemberTicket(config.cmsSecret, memberId);
+
+  const copy = recordEnlistmentCopy(config, submission).catch((error) => {
+    console.error('[wix-enlist-copy]', error instanceof Error ? error.message : error);
+  });
+  if (executionContext?.waitUntil) executionContext.waitUntil(copy);
+  else await copy;
+
+  return jsonResponse(200, { ok: true, memberId, ticket });
 }
 
 async function createWixFormCopy(config, submission) {
@@ -362,6 +475,7 @@ export async function handleWixSubmission(request, env = {}, executionContext) {
   }
 
   try {
+    if (submission.kind === 'enlist') return await handleEnlist(config, submission, executionContext);
     // The custom dashboard is the player-facing source of truth. Save it before
     // the slower Wix Forms API so delayed form copies cannot drop telemetry.
     await createCmsSubmission(config, submission);
