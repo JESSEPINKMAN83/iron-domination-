@@ -35,7 +35,7 @@ export type SignInResult =
   | { status: 'redirecting' }
   | { status: 'verify-email'; stateToken: string }
   | { status: 'owner-approval' }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string; suggest?: 'login' | 'signup' };
 
 let cachedTokens: OAuthTokens | undefined;
 let cachedMember: MemberProfile | undefined;
@@ -140,15 +140,24 @@ async function beginRedirect(sessionToken: string, intent: PendingIntent): Promi
  */
 function describeError(error: unknown): SignInResult {
   if (error instanceof WixAuthError) {
+    // Keep the raw reason reachable: Wix's application error codes are generic
+    // (a failed login is -19999), so the message text is the only real signal, and
+    // guessing at it is how a useful error turns into a useless one.
+    console.warn('[identity]', error.code, error.message);
     const text = error.message.toLowerCase();
     if (text.includes('identity not found')) {
-      return { status: 'error', message: 'No account with that email. Create one instead.' };
+      return { status: 'error', message: 'No account with that email yet — create one.', suggest: 'signup' };
     }
-    if (text.includes('password')) {
-      return { status: 'error', message: 'Wrong email or password. Try again, or reset your password.' };
+    if (text.includes('already exists') || text.includes('already registered') || text.includes('taken')) {
+      return { status: 'error', message: 'That email already has an account — log in instead.', suggest: 'login' };
     }
-    if (text.includes('email')) return { status: 'error', message: 'That email address was not accepted.' };
     if (text.includes('captcha')) return { status: 'error', message: 'Security check failed. Reload and try again.' };
+    if (text.includes('password')) {
+      return text.includes('weak') || text.includes('short') || text.includes('length')
+        ? { status: 'error', message: 'Pick a longer password — at least 8 characters.' }
+        : { status: 'error', message: 'Wrong email or password. Try again, or reset your password.' };
+    }
+    // Anything unmapped shows Wix's own wording rather than a vague substitute.
     return { status: 'error', message: error.message };
   }
   return { status: 'error', message: 'We could not reach the account service. Check your connection and try again.' };

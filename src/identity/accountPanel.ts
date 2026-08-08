@@ -156,6 +156,12 @@ export function openAccountPanel(options: AccountPanelOptions): HTMLElement {
       intro.textContent = 'Your account is waiting for approval. You can play single player in the meantime.';
       return;
     }
+    // When Wix tells us the player is on the wrong tab, move them there and keep
+    // what they already typed rather than making them work it out.
+    if (result.suggest && result.suggest !== mode) {
+      mode = result.suggest;
+      render();
+    }
     say(result.message);
   };
 
