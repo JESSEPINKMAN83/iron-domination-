@@ -668,7 +668,9 @@ function publicPlayer(player) {
     rematchReady: player.rematchReady,
     // Presence only: whether the relay verified this player against Wix. The member
     // id itself stays server-side — clients have no reason to see each other's.
-    verifiedMember: Boolean(player.memberId) || undefined,
+    // Always emitted, false included: an omitted key is indistinguishable from an
+    // older relay, which made this deploy impossible to verify without an account.
+    verifiedMember: Boolean(player.memberId),
   };
 }
 
