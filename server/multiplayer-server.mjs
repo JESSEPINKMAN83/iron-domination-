@@ -666,6 +666,9 @@ function publicPlayer(player) {
     color: player.color,
     ready: player.ready,
     rematchReady: player.rematchReady,
+    // Presence only: whether the relay verified this player against Wix. The member
+    // id itself stays server-side — clients have no reason to see each other's.
+    verifiedMember: Boolean(player.memberId) || undefined,
   };
 }
 

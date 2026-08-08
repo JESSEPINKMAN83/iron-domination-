@@ -98,6 +98,52 @@ export function createCommanderAvatar(identity: CommanderIdentity, size = 40): H
   return avatar;
 }
 
+export interface LobbyAvatarOptions {
+  name: string;
+  seed: string;
+  isAi?: boolean;
+  verified?: boolean;
+  size?: number;
+}
+
+export interface LobbyAvatarModel {
+  identity: CommanderIdentity;
+  title: string;
+  badge: boolean;
+}
+
+/**
+ * The presentation of someone who is not the local player — a lobby opponent or an
+ * AI. Derived from a name plus a stable seed so two players never collide on a
+ * colour. Kept free of the DOM so it can be tested without a browser environment.
+ */
+export function lobbyAvatarModel(options: LobbyAvatarOptions): LobbyAvatarModel {
+  const verified = options.verified === true && !options.isAi;
+  return {
+    identity: options.isAi
+      ? { name: options.name, initials: 'AI', accent: '#8b948e', source: 'local' }
+      : identityFrom(options.name, options.seed, verified ? 'member' : 'local'),
+    title: options.isAi
+      ? 'Computer opponent'
+      : `${options.name} · ${verified ? 'verified account' : 'guest'}`,
+    badge: verified,
+  };
+}
+
+export function renderLobbyAvatar(host: HTMLElement, options: LobbyAvatarOptions): void {
+  const model = lobbyAvatarModel(options);
+  host.replaceChildren();
+  host.classList.toggle('is-verified', model.badge);
+  host.title = model.title;
+  host.append(createCommanderAvatar(model.identity, options.size ?? 30));
+  if (!model.badge) return;
+  const badge = document.createElement('span');
+  badge.className = 'war-lobby__avatar-badge';
+  badge.textContent = '✓';
+  badge.setAttribute('aria-label', 'Verified account');
+  host.append(badge);
+}
+
 export function createCommanderChip(
   identity: CommanderIdentity,
   options: { size?: number; label?: string } = {},

@@ -43,6 +43,8 @@ export interface MultiplayerPlayer {
   color?: MultiplayerColor;
   ready?: boolean;
   rematchReady?: boolean;
+  /** The relay verified this player's Wix membership. Display only. */
+  verifiedMember?: boolean;
 }
 
 export type MultiplayerColor = 'jade' | 'crimson' | 'azure' | 'amber';
