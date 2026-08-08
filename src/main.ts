@@ -3415,6 +3415,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
       unitView.update(alpha, dt, ctx.camera);
       selectionBar.updateWorldAnchors();
+      sidebar.animateResources(dt);
       if (sim.tick - lastUiRefreshTick >= 3) {
         lastUiRefreshTick = sim.tick;
         buildingView.setProducerHighlights(sidebar.producerHighlightIds());
