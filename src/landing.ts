@@ -329,19 +329,20 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
         root.querySelector<HTMLFormElement>('.iron-landing__form')?.classList.add('is-open');
         root.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
       };
+      // Straight to Wix's hosted login. The game never renders a password field, which
+      // is what got the origin flagged as deceptive when it did.
       const openMemberSignIn = async (): Promise<void> => {
-        const hero = root.querySelector<HTMLElement>('.iron-landing__hero') ?? root;
-        primary.hidden = true;
-        secondary.hidden = true;
-        const { openAccountPanel } = await import('./identity/accountPanel');
-        openAccountPanel({
-          host: hero,
-          intent: { action: 'multiplayer', roomCode: inviteRoom },
-          onCancel: () => {
-            primary.hidden = false;
-            secondary.hidden = false;
-          },
-        });
+        primary.disabled = true;
+        secondary.disabled = true;
+        const note = root.querySelector<HTMLElement>('.iron-landing__paths-note');
+        if (note) note.textContent = 'Taking you to sign in…';
+        const { startHostedLogin } = await import('./identity/session');
+        const result = await startHostedLogin({ action: 'multiplayer', roomCode: inviteRoom });
+        if (result.status === 'error') {
+          if (note) note.textContent = result.message;
+          primary.disabled = false;
+          secondary.disabled = false;
+        }
       };
       const choose = (intent: LandingIntent): void => {
         // Single player is never gated. Multiplayer needs an account.

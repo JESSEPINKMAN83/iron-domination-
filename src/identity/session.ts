@@ -1,17 +1,11 @@
 import { authRedirectUri, memberAuthConfigured, postLogoutUri, wixClientId } from './config';
 import {
-  createAuthorizeUrl,
+  createLoginUrl,
   createPkceChallenge,
   exchangeCodeForTokens,
   fetchCurrentMember,
-  loginMember,
-  registerMember,
   renewTokens,
-  sendRecoveryEmail,
-  verifyEmailCode,
   visitorTokens,
-  WixAuthError,
-  type AuthOutcome,
   type MemberProfile,
   type OAuthTokens,
 } from './wixAuth';
@@ -31,11 +25,7 @@ interface PendingAuth extends PendingIntent {
   state: string;
 }
 
-export type SignInResult =
-  | { status: 'redirecting' }
-  | { status: 'verify-email'; stateToken: string }
-  | { status: 'owner-approval' }
-  | { status: 'error'; message: string; suggest?: 'login' | 'signup' };
+export type SignInResult = { status: 'redirecting' } | { status: 'error'; message: string };
 
 let cachedTokens: OAuthTokens | undefined;
 let cachedMember: MemberProfile | undefined;
@@ -120,105 +110,26 @@ export async function currentMemberProfile(): Promise<MemberProfile | undefined>
   return cachedMember;
 }
 
-async function beginRedirect(sessionToken: string, intent: PendingIntent): Promise<SignInResult> {
-  const pkce = await createPkceChallenge();
-  const pending: PendingAuth = { ...intent, codeVerifier: pkce.verifier, state: pkce.state };
-  writeJson(window.sessionStorage, PENDING_KEY, pending);
-  const url = await createAuthorizeUrl(await visitorAccessToken(), {
-    clientId: wixClientId(),
-    sessionToken,
-    redirectUri: authRedirectUri(),
-    pkce,
-  });
-  location.href = url;
-  return { status: 'redirecting' };
-}
-
 /**
- * Wix returns generic application error codes here (a failed login is `-19999`), so
- * the message text is the only reliable signal to translate for a player.
+ * Sends the player to Wix's own login page. Nothing about the credential step happens
+ * on our origin — we hand out a PKCE challenge and get an authorization code back.
  */
-function describeError(error: unknown): SignInResult {
-  if (error instanceof WixAuthError) {
-    // Keep the raw reason reachable: Wix's application error codes are generic
-    // (a failed login is -19999), so the message text is the only real signal, and
-    // guessing at it is how a useful error turns into a useless one.
-    console.warn('[identity]', error.code, error.message);
-    const text = error.message.toLowerCase();
-    if (text.includes('identity not found')) {
-      return { status: 'error', message: 'No account with that email yet — create one.', suggest: 'signup' };
-    }
-    if (text.includes('already exists') || text.includes('already registered') || text.includes('taken')) {
-      return { status: 'error', message: 'That email already has an account — log in instead.', suggest: 'login' };
-    }
-    if (text.includes('captcha')) return { status: 'error', message: 'Security check failed. Reload and try again.' };
-    if (text.includes('password')) {
-      return text.includes('weak') || text.includes('short') || text.includes('length')
-        ? { status: 'error', message: 'Pick a longer password — at least 8 characters.' }
-        : { status: 'error', message: 'Wrong email or password. Try again, or reset your password.' };
-    }
-    // Anything unmapped shows Wix's own wording rather than a vague substitute.
-    return { status: 'error', message: error.message };
-  }
-  return { status: 'error', message: 'We could not reach the account service. Check your connection and try again.' };
-}
-
-async function completeOutcome(outcome: AuthOutcome, intent: PendingIntent): Promise<SignInResult> {
-  if (outcome.status === 'success') return beginRedirect(outcome.sessionToken, intent);
-  if (outcome.status === 'verify-email') return { status: 'verify-email', stateToken: outcome.stateToken };
-  if (outcome.status === 'owner-approval') return { status: 'owner-approval' };
-  return { status: 'error', message: outcome.message };
-}
-
-export async function signUpCommander(
-  input: { email: string; password: string; name?: string },
-  intent: PendingIntent,
-): Promise<SignInResult> {
+export async function startHostedLogin(intent: PendingIntent): Promise<SignInResult> {
+  if (!memberAuthConfigured()) return { status: 'error', message: 'Accounts are not configured for this build.' };
   try {
-    const outcome = await registerMember(await visitorAccessToken(), {
-      email: input.email,
-      password: input.password,
-      nickname: input.name,
-      firstName: input.name?.split(/\s+/)[0],
-    });
-    return await completeOutcome(outcome, intent);
-  } catch (error) {
-    return describeError(error);
-  }
-}
-
-export async function signInCommander(
-  input: { email: string; password: string },
-  intent: PendingIntent,
-): Promise<SignInResult> {
-  try {
-    return await completeOutcome(await loginMember(await visitorAccessToken(), input), intent);
-  } catch (error) {
-    return describeError(error);
-  }
-}
-
-export async function submitVerificationCode(
-  input: { code: string; stateToken: string },
-  intent: PendingIntent,
-): Promise<SignInResult> {
-  try {
-    return await completeOutcome(await verifyEmailCode(await visitorAccessToken(), input), intent);
-  } catch (error) {
-    return describeError(error);
-  }
-}
-
-export async function requestPasswordReset(email: string): Promise<boolean> {
-  try {
-    await sendRecoveryEmail(await visitorAccessToken(), {
+    const pkce = await createPkceChallenge();
+    const pending: PendingAuth = { ...intent, codeVerifier: pkce.verifier, state: pkce.state };
+    writeJson(window.sessionStorage, PENDING_KEY, pending);
+    const url = await createLoginUrl(await visitorAccessToken(), {
       clientId: wixClientId(),
-      email,
-      redirectUrl: postLogoutUri(),
+      redirectUri: authRedirectUri(),
+      pkce,
     });
-    return true;
+    location.href = url;
+    return { status: 'redirecting' };
   } catch {
-    return false;
+    clear(window.sessionStorage, PENDING_KEY);
+    return { status: 'error', message: 'We could not reach the sign-in service. Check your connection and try again.' };
   }
 }
 
@@ -229,18 +140,21 @@ export async function requestPasswordReset(email: string): Promise<boolean> {
  */
 export async function restoreMemberSession(): Promise<PendingIntent | undefined> {
   if (!memberAuthConfigured()) return undefined;
-  const params = new URLSearchParams(location.search);
-  const code = params.get('code');
-  const state = params.get('state');
+  // Wix returns the code in the fragment, which keeps it out of server logs and
+  // Referer headers. Query is still read so an older in-flight login can complete.
+  const fragment = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const query = new URLSearchParams(location.search);
+  const code = fragment.get('code') ?? query.get('code');
+  const state = fragment.get('state') ?? query.get('state');
   const pending = readJson<PendingAuth>(window.sessionStorage, PENDING_KEY);
 
   if (code && state && pending) {
     clear(window.sessionStorage, PENDING_KEY);
-    // Strip the auth params so a refresh cannot replay them.
-    params.delete('code');
-    params.delete('state');
-    const query = params.toString();
-    history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}`);
+    // Strip the auth values so a refresh cannot replay them.
+    query.delete('code');
+    query.delete('state');
+    const search = query.toString();
+    history.replaceState(null, '', `${location.pathname}${search ? `?${search}` : ''}`);
     if (state !== pending.state) return undefined;
     try {
       const tokens = await exchangeCodeForTokens({

@@ -1,5 +1,12 @@
 /**
- * Wix Headless member authentication over the REST API.
+ * Wix Headless member authentication over the REST API, using a Wix-hosted login
+ * page.
+ *
+ * The game deliberately never renders a password field. Chrome flagged the previous
+ * custom login panel as a deceptive site — an unbranded workers.dev origin asking
+ * for credentials that belong to another service is the textbook phishing shape, and
+ * players were shown a full "Dangerous" interstitial. Handing the credential step to
+ * Wix's own domain removes the signal at its source rather than appealing it.
  *
  * Deliberately dependency-free: every call here is documented plain JSON, so the
  * game bundle gains no SDK. This module touches no DOM and no storage — it is the
@@ -8,11 +15,7 @@
  *
  * Endpoints (see WIX_MEMBER_IDENTITY_PLAN.md for the flow):
  *   POST /oauth2/token                              visitor token, refresh, code exchange
- *   POST /_api/iam/authentication/v2/register       sign up
- *   POST /_api/iam/authentication/v2/login          sign in
- *   POST /_api/iam/verification/v1/auth/verify      email verification code
- *   POST /_api/redirects-api/v1/redirect-session    PKCE authorize + logout URLs
- *   POST /_api/iam/recovery/v1/send-email           password reset
+ *   POST /_api/redirects-api/v1/redirect-session    hosted login and logout URLs
  *   GET  /members/v1/members/my                     current member profile
  */
 
@@ -25,12 +28,6 @@ export interface OAuthTokens {
   /** Epoch milliseconds. */
   expiresAt: number;
 }
-
-export type AuthOutcome =
-  | { status: 'success'; sessionToken: string }
-  | { status: 'verify-email'; stateToken: string }
-  | { status: 'owner-approval' }
-  | { status: 'error'; code: string; message: string };
 
 export interface MemberProfile {
   id: string;
@@ -116,62 +113,17 @@ export async function renewTokens(refreshToken: string): Promise<OAuthTokens> {
   return toTokens(await post('/oauth2/token', { refresh_token: refreshToken, grantType: 'refresh_token' }));
 }
 
-/** Register and login share a response envelope, so they share the interpretation. */
-function readAuthOutcome(payload: any): AuthOutcome {
-  const state = String(payload?.state ?? '');
-  if (state === 'SUCCESS') return { status: 'success', sessionToken: String(payload.sessionToken ?? '') };
-  if (state === 'REQUIRE_EMAIL_VERIFICATION') return { status: 'verify-email', stateToken: String(payload.stateToken ?? '') };
-  if (state === 'REQUIRE_OWNER_APPROVAL') return { status: 'owner-approval' };
-  return { status: 'error', code: state || 'unknown_state', message: 'Unexpected authentication state.' };
-}
-
-export async function registerMember(
-  visitorAccessToken: string,
-  input: { email: string; password: string; nickname?: string; firstName?: string },
-): Promise<AuthOutcome> {
-  const profile: Record<string, string> = {};
-  if (input.firstName) profile.firstName = input.firstName;
-  if (input.nickname) profile.nickname = input.nickname;
-  const payload = await post(
-    '/_api/iam/authentication/v2/register',
-    { loginId: { email: input.email }, password: input.password, ...(Object.keys(profile).length ? { profile } : {}) },
-    visitorAccessToken,
-  );
-  return readAuthOutcome(payload);
-}
-
-export async function loginMember(
-  visitorAccessToken: string,
-  input: { email: string; password: string },
-): Promise<AuthOutcome> {
-  const payload = await post(
-    '/_api/iam/authentication/v2/login',
-    { loginId: { email: input.email }, password: input.password },
-    visitorAccessToken,
-  );
-  return readAuthOutcome(payload);
-}
-
-export async function verifyEmailCode(
-  visitorAccessToken: string,
-  input: { code: string; stateToken: string },
-): Promise<AuthOutcome> {
-  const payload = await post(
-    '/_api/iam/verification/v1/auth/verify',
-    { code: input.code, stateToken: input.stateToken },
-    visitorAccessToken,
-  );
-  return readAuthOutcome(payload);
-}
 
 /**
- * Full-page redirect authorization. The iframe (`web_message`) variant is avoided on
- * purpose: it breaks on mobile browsers that block third-party cookies, which is most
- * of them.
+ * URL of the Wix-hosted login page. No session token is involved: Wix collects the
+ * credentials on its own domain and returns an authorization code.
+ *
+ * `responseMode: 'fragment'` keeps the code out of the query string, so it never
+ * reaches a server log or a Referer header on the way back.
  */
-export async function createAuthorizeUrl(
+export async function createLoginUrl(
   visitorAccessToken: string,
-  input: { clientId: string; sessionToken: string; redirectUri: string; pkce: PkceChallenge },
+  input: { clientId: string; redirectUri: string; pkce: PkceChallenge },
 ): Promise<string> {
   const payload = await post(
     '/_api/redirects-api/v1/redirect-session',
@@ -181,11 +133,10 @@ export async function createAuthorizeUrl(
           clientId: input.clientId,
           codeChallenge: input.pkce.challenge,
           codeChallengeMethod: 'S256',
-          responseMode: 'query',
+          responseMode: 'fragment',
           responseType: 'code',
           scope: 'offline_access',
           state: input.pkce.state,
-          sessionToken: input.sessionToken,
           redirectUri: input.redirectUri,
         },
       },
@@ -193,7 +144,7 @@ export async function createAuthorizeUrl(
     visitorAccessToken,
   );
   const url = String(payload?.redirectSession?.fullUrl ?? '');
-  if (!url) throw new WixAuthError('Wix did not return an authorization URL.', 'no_authorize_url');
+  if (!url) throw new WixAuthError('Wix did not return a login URL.', 'no_login_url');
   return url;
 }
 
@@ -211,17 +162,6 @@ export async function exchangeCodeForTokens(input: {
       codeVerifier: input.codeVerifier,
       redirectUri: input.redirectUri,
     }),
-  );
-}
-
-export async function sendRecoveryEmail(
-  visitorAccessToken: string,
-  input: { clientId: string; email: string; redirectUrl: string },
-): Promise<void> {
-  await post(
-    '/_api/iam/recovery/v1/send-email',
-    { email: input.email, redirect: { url: input.redirectUrl, clientId: input.clientId } },
-    visitorAccessToken,
   );
 }
 
