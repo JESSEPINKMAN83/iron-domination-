@@ -337,8 +337,10 @@
     radial-gradient(ellipse 1% 7% at 18% 42%, rgba(84, 55, 12, .18) 0 70%, transparent 76%),
     radial-gradient(ellipse 2% 3% at 66% 28%, rgba(84, 55, 12, .12) 0 70%, transparent 76%),
     repeating-linear-gradient(108deg, transparent 0 25px, rgba(98, 66, 14, .06) 26px, transparent 27px 48px),
-    linear-gradient(180deg, #f4d77b 0%, #dab04c 48%, #bd8c2f 100%);
-  background-size: 100% 100%, 31px 29px, 47px 41px, 100% 100%, 100% 100%, auto, 100% 100%;
+    /* Molten gold: a wide band of yellows that drifts across the face. */
+    linear-gradient(112deg, #c8952f 0%, #e8bc57 18%, #fbe89d 32%, #f0cc69 44%, #d9a941 60%, #f7dd8d 76%, #dcae48 90%, #c08c2b 100%);
+  background-size: 100% 100%, 31px 29px, 47px 41px, 100% 100%, 100% 100%, auto, 260% 100%;
+  animation: iron-cta-molten 9s ease-in-out infinite alternate;
   box-shadow:
     inset 0 2px 0 rgba(255, 246, 193, .72),
     inset 0 -2px 0 rgba(92, 59, 11, .6),
@@ -347,29 +349,45 @@
     inset -7px 0 16px rgba(89, 56, 8, .16);
 }
 
-.iron-landing__cta::after {
-  content: '';
-  position: absolute;
-  top: 16px;
-  left: 22px;
-  width: 17px;
-  height: 27px;
-  background: repeating-linear-gradient(90deg, rgba(255, 244, 189, .94) 0 2px, transparent 2px 5px);
-  transform: skewY(-34deg);
-  opacity: .86;
+/* The drift only moves the molten layer; the rivets and scratches sit still. */
+@keyframes iron-cta-molten {
+  from { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0% 50%; }
+  to { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 100% 50%; }
+}
+
+/* Held under the cursor the plate breathes: the drift quickens and the glow
+   swells, so the button feels like it is idling rather than sitting inert. */
+@keyframes iron-cta-breathe {
+  0%, 100% {
+    transform: translateY(-2px) scale(1);
+    filter:
+      brightness(1.06)
+      drop-shadow(0 17px 24px rgba(0, 0, 0, .58))
+      drop-shadow(0 0 14px var(--cta-glow-soft));
+  }
+  50% {
+    transform: translateY(-3px) scale(1.014);
+    filter:
+      brightness(1.13)
+      drop-shadow(0 21px 30px rgba(0, 0, 0, .6))
+      drop-shadow(0 0 28px var(--cta-glow-strong));
+  }
+}
+
+.iron-landing__cta {
+  --cta-glow-soft: rgba(237, 188, 65, .26);
+  --cta-glow-strong: rgba(245, 205, 96, .5);
 }
 
 .iron-landing__cta:hover {
-  filter:
-    brightness(1.08)
-    drop-shadow(0 17px 24px rgba(0, 0, 0, .58))
-    drop-shadow(0 0 18px rgba(237, 188, 65, .3));
   transform: translateY(-2px);
+  animation: iron-cta-breathe 2.6s ease-in-out infinite;
 }
+.iron-landing__cta:hover::before { animation-duration: 3.4s; }
 
-.iron-landing__cta:active { transform: translateY(0); }
+.iron-landing__cta:active { transform: translateY(0); animation: none; }
 .iron-landing__cta:focus-visible { outline: 2px solid #fff1b2; outline-offset: 4px; }
-.iron-landing__cta:disabled { opacity: .68; cursor: wait; transform: none; }
+.iron-landing__cta:disabled { opacity: .68; cursor: wait; transform: none; animation: none; }
 .iron-landing__cta--submit { min-height: 64px; margin-top: 16px; font-size: 29px; }
 
 .iron-landing__actions {
@@ -383,6 +401,8 @@
 /* Multiplayer reads as cold steel beside the gold single-player plate, so the
    two doors are told apart by material rather than by one looking disabled. */
 .iron-landing__cta--ghost {
+  --cta-glow-soft: rgba(88, 172, 236, .24);
+  --cta-glow-strong: rgba(120, 195, 250, .44);
   background: #0d1d2b;
   color: #d3e9fb;
   text-shadow: 0 1px 0 rgba(4, 15, 24, .8), 0 0 18px rgba(96, 178, 240, .38);
@@ -397,18 +417,12 @@
     repeating-linear-gradient(108deg, transparent 0 25px, rgba(0, 0, 0, .06) 26px, transparent 27px 48px),
     linear-gradient(180deg, #2c4f6b 0%, #1d3a53 48%, #12283b 100%);
   background-size: 100% 100%, 31px 29px, auto, 100% 100%;
+  /* Cold steel does not run molten. */
+  animation: none;
   box-shadow:
     inset 0 2px 0 rgba(138, 205, 255, .68),
     inset 0 -2px 0 rgba(5, 16, 25, .74),
     inset 0 0 0 2px rgba(0, 0, 0, .12);
-}
-/* The gold plate's diagonal shine would read as a scratch on steel. */
-.iron-landing__cta--ghost::after { display: none; }
-.iron-landing__cta--ghost:hover {
-  filter:
-    brightness(1.1)
-    drop-shadow(0 17px 24px rgba(0, 0, 0, .58))
-    drop-shadow(0 0 18px rgba(88, 172, 236, .38));
 }
 .iron-landing__paths-note {
   margin: 14px 0 0;
@@ -541,6 +555,7 @@
 @media (prefers-reduced-motion: reduce) {
   .iron-landing__hero { animation: none; }
   .iron-landing__cta { transition: none; }
+  .iron-landing__cta:hover, .iron-landing__cta::before { animation: none; }
   .iron-landing__music-toggle.is-playing .iron-landing__music-meter i { animation: none; height: 9px; }
 }
 
