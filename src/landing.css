@@ -531,3 +531,17 @@
   .iron-landing__commander { top: 12px; left: 12px; }
   .commander-chip__text strong { max-width: 120px; font-size: 18px; }
 }
+
+.iron-landing__commander { display: flex; align-items: center; gap: 8px; }
+.iron-landing__sign-out {
+  padding: 5px 9px;
+  border: 1px solid rgba(223, 189, 100, .26);
+  border-radius: 999px;
+  background: rgba(10, 14, 13, .6);
+  color: rgba(226, 233, 226, .62);
+  cursor: pointer;
+  font: 500 12px/1 'Teko', "Arial Narrow", Impact, sans-serif;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.iron-landing__sign-out:hover { color: #f3dc9d; }

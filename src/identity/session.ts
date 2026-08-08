@@ -134,15 +134,22 @@ async function beginRedirect(sessionToken: string, intent: PendingIntent): Promi
   return { status: 'redirecting' };
 }
 
+/**
+ * Wix returns generic application error codes here (a failed login is `-19999`), so
+ * the message text is the only reliable signal to translate for a player.
+ */
 function describeError(error: unknown): SignInResult {
   if (error instanceof WixAuthError) {
-    const friendly: Record<string, string> = {
-      invalid_password: 'That password is not accepted. Use at least 8 characters.',
-      invalidPassword: 'Wrong email or password.',
-      invalidEmail: 'That email address does not look right.',
-      emailAlreadyExists: 'That email is already registered — log in instead.',
-    };
-    return { status: 'error', message: friendly[error.code] ?? error.message };
+    const text = error.message.toLowerCase();
+    if (text.includes('identity not found')) {
+      return { status: 'error', message: 'No account with that email. Create one instead.' };
+    }
+    if (text.includes('password')) {
+      return { status: 'error', message: 'Wrong email or password. Try again, or reset your password.' };
+    }
+    if (text.includes('email')) return { status: 'error', message: 'That email address was not accepted.' };
+    if (text.includes('captcha')) return { status: 'error', message: 'Security check failed. Reload and try again.' };
+    return { status: 'error', message: error.message };
   }
   return { status: 'error', message: 'We could not reach the account service. Check your connection and try again.' };
 }
