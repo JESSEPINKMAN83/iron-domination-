@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
+import { createMemberVerifier, membershipDecision, resolveMemberAuthMode } from './memberAuth.mjs';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const ROOM_TTL_MS = Math.max(1000, Number(process.env.ROOM_TTL_MS ?? 1000 * 60 * 45));
@@ -10,6 +11,8 @@ const RECONNECT_GRACE_MS = Math.max(1000, Number(process.env.RECONNECT_GRACE_MS 
 const MAX_COMMANDS_PER_SECOND = Math.max(30, Number(process.env.MAX_COMMANDS_PER_SECOND ?? 180));
 const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 const EXPOSE_ROOMS = process.env.EXPOSE_ROOMS === 'true';
+const MEMBER_AUTH_MODE = resolveMemberAuthMode(process.env.MEMBER_AUTH);
+const memberVerifier = createMemberVerifier();
 const ALLOWED_ORIGINS = new Set(
   String(process.env.ALLOWED_ORIGINS ?? '')
     .split(',')
@@ -156,9 +159,36 @@ function routeSocket(socket, body) {
   send(socket, { type: 'error', requestId: body?.requestId, error: 'unknown-message' });
 }
 
-function handleHost(socket, body) {
+/**
+ * Resolves the membership of a host/join request. Returns the verified identity when
+ * there is one, or false when the connection should be refused — which only ever
+ * happens in enforce mode, and never because Wix was unreachable.
+ */
+async function resolveMembership(socket, body) {
+  if (MEMBER_AUTH_MODE === 'off') return undefined;
+  const result = await memberVerifier.verify(body?.memberToken);
+  const decision = membershipDecision(MEMBER_AUTH_MODE, result);
+  if (decision.logged) {
+    console.warn(
+      `[member-auth] mode=${MEMBER_AUTH_MODE} type=${body?.type} outcome=${decision.logged} allowed=${decision.allow}`,
+    );
+  } else if (decision.identity) {
+    console.info(`[member-auth] mode=${MEMBER_AUTH_MODE} type=${body?.type} member=${decision.identity.memberId}`);
+  }
+  if (!decision.allow) {
+    send(socket, { type: 'error', requestId: body?.requestId, error: 'member-required' });
+    return false;
+  }
+  return decision.identity;
+}
+
+async function handleHost(socket, body) {
+  const membership = await resolveMembership(socket, body);
+  if (membership === false) return;
+  if (socket.readyState !== socket.OPEN) return;
   const room = createRoom(body.settings ?? body);
-  const host = addPlayer(room, body.name ?? body.settings?.name ?? 'Commander 1', body.playerId, body.engine);
+  const host = addPlayer(room, membership?.nickname ?? body.name ?? body.settings?.name ?? 'Commander 1', body.playerId, body.engine);
+  if (membership?.memberId) host.memberId = membership.memberId;
   room.hostPlayerId = host.id;
   rooms.set(room.code, room);
   attachSocket(room, host, socket);
@@ -166,12 +196,16 @@ function handleHost(socket, body) {
   broadcast(room, roomState(room));
 }
 
-function handleJoin(socket, body) {
+async function handleJoin(socket, body) {
+  const membership = await resolveMembership(socket, body);
+  if (membership === false) return;
+  if (socket.readyState !== socket.OPEN) return;
   const room = rooms.get(normalizeRoomCode(body.code));
   if (!room) return send(socket, { type: 'error', requestId: body.requestId, error: 'room-not-found' });
   const existing = typeof body.playerId === 'string' ? room.players.find((player) => player.id === body.playerId) : undefined;
   if (!existing && room.status !== 'waiting') return send(socket, { type: 'error', requestId: body.requestId, error: 'match-in-progress' });
-  const player = existing ?? addPlayer(room, body.name ?? `Commander ${room.players.length + 1}`, body.playerId, body.engine);
+  const player = existing ?? addPlayer(room, membership?.nickname ?? body.name ?? `Commander ${room.players.length + 1}`, body.playerId, body.engine);
+  if (membership?.memberId) player.memberId = membership.memberId;
   player.connected = true;
   player.disconnectedAt = undefined;
   player.engine = normalizeEngine(body.engine);

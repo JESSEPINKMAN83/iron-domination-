@@ -16,3 +16,7 @@ services:
         value: '180000'
       - key: MAX_COMMANDS_PER_SECOND
         value: '180'
+      # off | log | enforce — see server/memberAuth.mjs. Starts in log so the
+      # pass rate can be read before membership can refuse anyone.
+      - key: MEMBER_AUTH
+        value: log

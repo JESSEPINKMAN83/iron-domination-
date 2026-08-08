@@ -43,6 +43,40 @@ describe('multiplayer relay', () => {
     });
   });
 
+  it('admits an unauthenticated host in log mode but refuses one in enforce mode', async () => {
+    const logPort = await availablePort();
+    children.push(spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, PORT: String(logPort), MEMBER_AUTH: 'log' },
+      stdio: 'ignore',
+    }));
+    await waitForHealth(logPort);
+
+    const observed = await connect(logPort);
+    observed.send(JSON.stringify({ type: 'host', requestId: 'log-1', name: 'Host', settings: { seed: 7 } }));
+    const session = await nextMessage(observed, (message) => message.type === 'session' || message.type === 'error');
+    expect(session.type).toBe('session');
+
+    const enforcePort = await availablePort();
+    children.push(spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, PORT: String(enforcePort), MEMBER_AUTH: 'enforce' },
+      stdio: 'ignore',
+    }));
+    await waitForHealth(enforcePort);
+
+    const blocked = await connect(enforcePort);
+    blocked.send(JSON.stringify({ type: 'host', requestId: 'enforce-1', name: 'Host', settings: { seed: 7 } }));
+    const refusal = await nextMessage(blocked, (message) => message.type === 'session' || message.type === 'error');
+    expect(refusal.type).toBe('error');
+    expect(refusal.error).toBe('member-required');
+
+    const blockedJoin = await connect(enforcePort);
+    blockedJoin.send(JSON.stringify({ type: 'join', requestId: 'enforce-2', code: 'ABCD', name: 'Guest' }));
+    const joinRefusal = await nextMessage(blockedJoin, (message) => message.type === 'session' || message.type === 'error');
+    expect(joinRefusal.error).toBe('member-required');
+  });
+
   it('starts a match, rejects player spoofing, and preserves a reconnecting slot', async () => {
     const port = await availablePort();
     const child = spawn(process.execPath, ['server/multiplayer-server.mjs'], {

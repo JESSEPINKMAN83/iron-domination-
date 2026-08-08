@@ -1,3 +1,4 @@
+import { memberAccessToken } from '../identity/session';
 import type { Difficulty, Personality } from '../content/phase6';
 import type { CombatMode } from '../content/rules';
 
@@ -118,13 +119,21 @@ export class MultiplayerClient {
       settings,
       name: settings.name,
       playerId: settings.playerId,
+      memberToken: await memberAccessToken(),
       engine: browserEngine(),
     });
   }
 
   async join(code: string, name?: string, playerId?: string): Promise<MultiplayerSession> {
     await this.ensureSocket();
-    return this.request({ type: 'join', code: normalizeRoomCode(code), name, playerId, engine: browserEngine() });
+    return this.request({
+      type: 'join',
+      code: normalizeRoomCode(code),
+      name,
+      playerId,
+      memberToken: await memberAccessToken(),
+      engine: browserEngine(),
+    });
   }
 
   async sendCommand(roomCode: string, playerId: string, tick: number, command: unknown): Promise<void> {
