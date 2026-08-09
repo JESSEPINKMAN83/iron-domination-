@@ -12,6 +12,8 @@ import { issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, 
 
 export type UnitProducerType = 'infantry' | 'vehicles' | 'aircraft';
 export const MAX_PRODUCER_JOBS = 10;
+const COMMAND_YARD_HEALTH = 1680;
+const DEFAULT_STRUCTURE_HEALTH = 630;
 
 export interface LedgerEntry {
   tick: number;
@@ -78,7 +80,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
     name: 'Command Yard',
     transform: { x: p.x, z: p.z, rot: 0 },
     previousTransform: { x: p.x, z: p.z, rot: 0 },
-    health: { current: 2400, max: 2400 },
+    health: { current: COMMAND_YARD_HEALTH, max: COMMAND_YARD_HEALTH },
     team: { id: economy.team },
     vision: { radius: 110 },
     selectable: { selected: false, type: 'building', radius: 9 },
@@ -133,7 +135,9 @@ export function updatePlacement(
   const snapped = snapToGrid(hf, x, z);
   if (kind === 'wall') return updateWallPlacement(sim, hf, snapped.x, snapped.z, team, economy);
   const blocked = footprintBlocked(sim, hf, snapped.x, snapped.z, def.footprint);
-  const near = nearFriendlyStructure(sim, snapped.x, snapped.z, 92, team);
+  const near = kind === 'guard-tower' || kind === 'aa-tower'
+    ? nearFriendlyConstructionAnchor(sim, snapped.x, snapped.z, 92, team)
+    : nearFriendlyStructure(sim, snapped.x, snapped.z, 92, team);
   const valid = !blocked && near;
   return {
     kind,
@@ -183,7 +187,10 @@ function createPlacedStructure(
     name: def.label,
     transform: { x, y: groundY, z, rot: 0 },
     previousTransform: { x, y: groundY, z, rot: 0 },
-    health: { current: def.health ?? 900, max: def.health ?? 900 },
+    health: {
+      current: def.health ?? DEFAULT_STRUCTURE_HEALTH,
+      max: def.health ?? DEFAULT_STRUCTURE_HEALTH,
+    },
     team: { id: economy.team },
     vision: { radius: def.visionRadius ?? 90 },
     selectable: { selected: false, type: 'building', radius: Math.max(def.footprint.w, def.footprint.h) },
@@ -944,6 +951,19 @@ function existingWallAt(sim: GameSim, x: number, z: number, team: number): boole
 
 function nearFriendlyStructure(sim: GameSim, x: number, z: number, radius: number, team: number): boolean {
   return buildings(sim, team).some((entity) => entity.building?.complete && Math.hypot(entity.transform.x - x, entity.transform.z - z) <= radius);
+}
+
+/**
+ * Towers may protect a real base or forward production outpost, but towers and
+ * walls do not extend the construction grid themselves. This prevents cheap
+ * fortress chains from crawling all the way into an enemy command yard.
+ */
+function nearFriendlyConstructionAnchor(sim: GameSim, x: number, z: number, radius: number, team: number): boolean {
+  return buildings(sim, team).some((entity) => {
+    if (!entity.building?.complete) return false;
+    if (entity.building.kind === 'wall' || entity.building.kind === 'guard-tower' || entity.building.kind === 'aa-tower') return false;
+    return Math.hypot(entity.transform.x - x, entity.transform.z - z) <= radius;
+  });
 }
 
 function footprintRadius(hf: Heightfield, footprint: { w: number; h: number }): number {

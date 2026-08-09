@@ -110,6 +110,9 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     let turretGoalYaw: number | undefined;
     let engagementTarget: Entity | undefined;
     for (const weapon of weaponSlots(attacker)) {
+      // Secondary fortress salvos are a deliberate V-mode advantage. Leaving
+      // them on auto made unattended tower clusters disproportionately lethal.
+      if (isFortressTower(attacker) && weapon === attacker.weapons?.secondary) continue;
       const def = WEAPONS[weapon.kind as WeaponKind];
       if (!def) continue;
       // a unit can only auto-engage what it can see — no shelling into the fog
