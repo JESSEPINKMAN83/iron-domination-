@@ -1039,6 +1039,7 @@ describe('phase 4 combat simulation', () => {
     placement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 24, base.transform.z);
     const tower = placeStructure(sim, hf, economy, placement);
     expect(tower?.weapon?.kind).toBe('siegeMissile');
+    expect(tower?.weapon?.salvoCount).toBe(1);
     expect(tower?.weapons?.secondary?.kind).toBe('tankBomb');
     expect(tower?.weapons?.secondary?.salvoCount).toBe(4);
     expect(tower?.specialWeapon?.kind).toBe('annihilatorMissile');
@@ -1051,6 +1052,7 @@ describe('phase 4 combat simulation', () => {
 
     expect(enemy.health?.current).toBeLessThan(100);
     expect(sim.events.some((event) => event.kind === 'siegeMissile')).toBe(true);
+    expect(sim.events.some((event) => event.kind === 'tankBomb' && event.sourceTeamId === 1)).toBe(false);
   });
 
   it('gives autonomous unguided defense towers a bounded lead on moving targets', () => {

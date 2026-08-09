@@ -24,6 +24,32 @@ import {
 import { createGameSim, spawnTankAt, stepSim } from './world';
 
 describe('phase 3 economy and production', () => {
+  it('does not let defense towers extend the construction grid toward an enemy base', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5000);
+    const base = createInitialBase(sim, hf, economy);
+    expect(base.health?.max).toBe(1680);
+    expect(STRUCTURES.wall.health).toBe(294);
+
+    economy.readyStructure = 'guard-tower';
+    const firstPlacement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 60, base.transform.z, economy.team);
+    expect(firstPlacement.valid, firstPlacement.reason).toBe(true);
+    const firstTower = placeStructure(sim, hf, economy, firstPlacement);
+    expect(firstTower).toBeDefined();
+    expect(firstTower?.health?.max).toBe(500);
+
+    economy.readyStructure = 'power-plant';
+    const powerPlacement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 60, base.transform.z, economy.team);
+    expect(powerPlacement.valid, powerPlacement.reason).toBe(true);
+    const powerPlant = placeStructure(sim, hf, economy, powerPlacement);
+    expect(powerPlant?.health?.max).toBe(630);
+
+    const chainedPlacement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 120, base.transform.z, economy.team);
+    expect(chainedPlacement.valid).toBe(false);
+    expect(chainedPlacement.reason).toBe('Place near base');
+  });
+
   it('places a base on any map seed (regression: seed 490 broke boot with "no walkable base cell")', () => {
     // random-seed matches from the setup screen could put the base spawn in a large
     // water/cliff region beyond the radius-limited search, throwing during boot.

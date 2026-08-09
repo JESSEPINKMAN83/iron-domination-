@@ -41,7 +41,7 @@ export interface DifficultyDef {
 
 export const AI_PERSONALITY: Record<Personality, PersonalityDef> = {
   turtle: {
-    buildOrder: ['power-plant', 'refinery', 'power-plant', 'factory'],
+    buildOrder: ['power-plant', 'refinery', 'power-plant', 'factory', 'guard-tower', 'aa-tower'],
     targetRefineries: 3,
     targetFactories: 1,
     wantsBarracks: true,
@@ -61,7 +61,7 @@ export const AI_PERSONALITY: Record<Personality, PersonalityDef> = {
     maxSquads: 2,
   },
   balanced: {
-    buildOrder: ['power-plant', 'refinery', 'factory'],
+    buildOrder: ['power-plant', 'refinery', 'factory', 'guard-tower'],
     targetRefineries: 2,
     targetFactories: 2,
     wantsBarracks: true,

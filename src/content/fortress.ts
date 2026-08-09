@@ -32,7 +32,9 @@ export function createFortressWeapons(kind: FortressTowerKind): {
     kind: kind === 'aa-tower' ? 'aaMissile' : 'siegeMissile',
     range: kind === 'aa-tower' ? 320 : FORTRESS_TOWER.primaryRange,
     cooldown: 0,
-    salvoCount: 2,
+    // The ground fortress keeps its heavy multi-shot rack for manual V-mode
+    // control; unattended defense should delay an assault, not erase it.
+    salvoCount: kind === 'aa-tower' ? 2 : 1,
   };
   return {
     weapon: primary,
