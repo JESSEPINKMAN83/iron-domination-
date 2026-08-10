@@ -32,6 +32,7 @@ const SNIPER_SCOPE_FOV_WIDE = 30;
 const SNIPER_SCOPE_FOV_TIGHT = 11;
 const SQUAD_FOLLOW_REFRESH_TICKS = 12;
 const SQUAD_FOLLOW_MIN_DISTANCE = 14;
+const SQUAD_FOLLOW_HEADING_REFRESH = MathUtils.degToRad(8);
 export const MAX_DIRECT_CONTROL_SQUAD = 12;
 const TARGET_LOCK_SECONDS = 1;
 const FORTRESS_SCAN_SECONDS = 1.05;
@@ -80,6 +81,20 @@ export function selectDirectControlSquad(
   return { leader, squad: nearest };
 }
 
+/** Places V-mode wingmen behind the controlled unit instead of on top of it. */
+export function directControlFollowerAnchor(leader: Entity, followers: Entity[]): { x: number; z: number } {
+  const leaderRadius = leader.mover?.radius ?? leader.selectable?.radius ?? 2;
+  const followerRadius = followers.reduce(
+    (largest, entity) => Math.max(largest, entity.mover?.radius ?? entity.selectable?.radius ?? 2),
+    2,
+  );
+  const followDistance = Math.max(SQUAD_FOLLOW_MIN_DISTANCE, leaderRadius + followerRadius + 5);
+  return {
+    x: leader.transform.x - Math.sin(leader.transform.rot) * followDistance,
+    z: leader.transform.z - Math.cos(leader.transform.rot) * followDistance,
+  };
+}
+
 export function fortressTargetScanConeRatio(progress: number): number {
   return MathUtils.lerp(0.045, 0.21, MathUtils.clamp(progress, 0, 1));
 }
@@ -117,6 +132,7 @@ export class FirstPersonController {
   private squad: Entity[] = [];
   private squadIndex = 0;
   private nextSquadFollowTick = 0;
+  private lastSquadFollowYaw = Number.NaN;
   private lookYaw = 0;
   private lookPitch = 0;
   private transitionT = 0;
@@ -369,6 +385,7 @@ export class FirstPersonController {
     this.squad = squad;
     this.squadIndex = squad.indexOf(entity);
     this.nextSquadFollowTick = this.sim.tick + SQUAD_FOLLOW_REFRESH_TICKS;
+    this.lastSquadFollowYaw = Number.NaN;
     setSelected(this.sim, this.squad, false, this.localTeam);
     this.takeControl(entity);
     this.transitionT = 0;
@@ -403,6 +420,7 @@ export class FirstPersonController {
     this.squadIndex = nextIndex;
     this.hasSmoothFlightCenter = false;
     this.nextSquadFollowTick = this.sim.tick;
+    this.lastSquadFollowYaw = Number.NaN;
     this.toPose = this.poseFor(next, this.lookYaw, this.lookPitch, this.zoomedFov(62), 1, 1 / 60);
     setSelected(this.sim, this.squad, false, this.localTeam);
     this.callbacks.onPossessedChange?.(next);
@@ -1226,21 +1244,26 @@ export class FirstPersonController {
     const followers = this.squadFollowers();
     if (followers.length === 0) return;
     const leaderSpeed = this.possessed.velocity ? Math.hypot(this.possessed.velocity.x, this.possessed.velocity.z) : 0;
+    const headingChanged = !Number.isFinite(this.lastSquadFollowYaw) ||
+      Math.abs(MathUtils.euclideanModulo(this.possessed.transform.rot - this.lastSquadFollowYaw + Math.PI, Math.PI * 2) - Math.PI) >
+        SQUAD_FOLLOW_HEADING_REFRESH;
     const shouldRefresh = followers.some((entity) => {
       const dx = entity.transform.x - this.possessed!.transform.x;
       const dz = entity.transform.z - this.possessed!.transform.z;
       return Math.hypot(dx, dz) > SQUAD_FOLLOW_MIN_DISTANCE || leaderSpeed > 1.5 || entity.mover?.target === undefined;
-    });
+    }) || headingChanged;
     if (!shouldRefresh) return;
+    const anchor = directControlFollowerAnchor(this.possessed, followers);
+    this.lastSquadFollowYaw = this.possessed.transform.rot;
     if (this.commandSink) {
       this.commandSink.follow({
         leaderId: this.possessed.id,
         followerIds: followers.map((entity) => entity.id),
-        x: this.possessed.transform.x,
-        z: this.possessed.transform.z,
+        x: anchor.x,
+        z: anchor.z,
         faceYaw: this.possessed.transform.rot,
       });
-    } else issueMoveOrder(this.sim, followers, this.possessed.transform.x, this.possessed.transform.z, false, this.possessed.transform.rot);
+    } else issueMoveOrder(this.sim, followers, anchor.x, anchor.z, false, this.possessed.transform.rot);
   }
 
   private lookPose(position: Vector3, target: Vector3, fov: number, roll = 0): CameraPose {

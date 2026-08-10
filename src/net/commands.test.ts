@@ -5,7 +5,7 @@ import { buildings, createEconomy, createInitialBase, placeStructure, updatePlac
 import { generateHeightfield } from '../sim/heightfield';
 import { serializeMatchState } from '../sim/serialize';
 import { createGameSim, hashCriticalSimState, hashSim, spawnTankAt, type GameSim } from '../sim/world';
-import { LockstepRuntime } from './commands';
+import { hashMultiplayerState, LockstepRuntime } from './commands';
 import type { MultiplayerClient, MultiplayerSession } from './multiplayer';
 
 describe('multiplayer lockstep commands', () => {
@@ -602,7 +602,7 @@ describe('multiplayer lockstep commands', () => {
       session: sessionFor(1),
     });
     lockstep.connect();
-    const tickZeroHash = hashSim(match.sim);
+    const tickZeroHash = hashMultiplayerState(match.sim, [match.economy1, match.economy2]);
     lockstep.tick();
     match.sim.tick = 4;
     const entity = match.sim.world.entities[0];
@@ -658,7 +658,7 @@ describe('multiplayer lockstep commands', () => {
       playerId: 'guest',
       playerIndex: 2,
       tick: match.sim.tick,
-      command: { type: 'snapshot-applied', hash: hashSim(match.sim), tick: match.sim.tick },
+      command: { type: 'snapshot-applied', hash: hashMultiplayerState(match.sim, [match.economy1, match.economy2]), tick: match.sim.tick },
     });
     expect(sent.some((command) => isCommandType(command, 'snapshot-resume'))).toBe(true);
     expect(lockstep.canAdvance()).toBe(false);
@@ -701,7 +701,7 @@ describe('multiplayer lockstep commands', () => {
       playerId: 'host',
       playerIndex: 1,
       tick: host.sim.tick,
-      command: { type: 'match-snapshot', state: snapshot, hash: hashSim(host.sim), tick: host.sim.tick },
+      command: { type: 'match-snapshot', state: snapshot, hash: hashMultiplayerState(host.sim, [host.economy1, host.economy2]), tick: host.sim.tick },
     });
     expect(restored).toBe(1);
     expect(hashSim(guest.sim)).toBe(hashSim(host.sim));
@@ -711,7 +711,7 @@ describe('multiplayer lockstep commands', () => {
       playerId: 'host',
       playerIndex: 1,
       tick: host.sim.tick,
-      command: { type: 'snapshot-resume', hash: hashSim(host.sim), tick: host.sim.tick },
+      command: { type: 'snapshot-resume', hash: hashMultiplayerState(host.sim, [host.economy1, host.economy2]), tick: host.sim.tick },
     });
     expect(lockstep.canAdvance()).toBe(true);
   });

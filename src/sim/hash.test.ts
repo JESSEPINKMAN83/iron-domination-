@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
+import { createEconomy, createInitialBase, hashEconomy } from './economy';
 import { generateHeightfield } from './heightfield';
 import { createGameSim, hashCriticalSimState, hashSim, spawnTankAt, spawnVultureAt } from './world';
 
@@ -25,6 +26,12 @@ describe('hashSim sensitivity', () => {
     const h2 = hashSim(sim);
     if (tank.velocity) tank.velocity.x += 1;
     expect(hashSim(sim)).not.toBe(h2);
+    const h3 = hashSim(sim);
+    if (tank.mover) tank.mover.yawRate = 0.25;
+    expect(hashSim(sim)).not.toBe(h3);
+    const h4 = hashSim(sim);
+    if (tank.mover) tank.mover.turnaround = { targetYaw: Math.PI, direction: 1 };
+    expect(hashSim(sim)).not.toBe(h4);
   });
 
   it('reacts to turret yaw and weapon cooldown/target', () => {
@@ -60,6 +67,31 @@ describe('hashSim sensitivity', () => {
     const seeking = hashSim(sim);
     tank.harvester.state = 'to-node';
     expect(hashSim(sim)).not.toBe(seeking);
+  });
+
+  it('reacts to building construction and producer progress', () => {
+    const { sim, hf } = fresh();
+    const economy = createEconomy(1);
+    const base = createInitialBase(sim, hf, economy);
+    const initial = hashSim(sim);
+    base.building!.buildProgress = 0.5;
+    base.building!.complete = false;
+    expect(hashSim(sim)).not.toBe(initial);
+
+    const constructing = hashSim(sim);
+    base.producer!.queue.push({ kind: 'tank', label: 'Tank', remaining: 4, total: 8, cost: 800 });
+    expect(hashSim(sim)).not.toBe(constructing);
+  });
+
+  it('reacts to economy and production-line progress', () => {
+    const economy = createEconomy(1);
+    const initial = hashEconomy(economy);
+    economy.credits -= 100;
+    expect(hashEconomy(economy)).not.toBe(initial);
+
+    const spent = hashEconomy(economy);
+    economy.structureLine = { kind: 'power-plant', label: 'Power Plant', remaining: 5, total: 10, cost: 500 };
+    expect(hashEconomy(economy)).not.toBe(spent);
   });
 });
 

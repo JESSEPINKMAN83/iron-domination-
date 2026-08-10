@@ -24,6 +24,14 @@ const POSSESSION_BOOST_MULTIPLIER = 2;
 export const RTS_SPRINT_MULTIPLIER = 1.65;
 const BOOSTED_BUMP_MAX_HEIGHT_RANGE = 7.5;
 const BOOSTED_BUMP_MAX_STEP = 5.8;
+const SCOUT_TANK_TURN_RADIUS = 6.5;
+const SCOUT_TANK_COLLISION_RADIUS = 1.9;
+// Vehicle size still affects the arc, but the old cubic curve made a Mauler
+// take an enormous, gameplay-limiting U-turn. A gentler curve preserves the
+// visual weight difference without forcing heavy tanks into a huge detour.
+const TRACKED_TURN_SIZE_EXPONENT = 1.7;
+const TRACKED_TURNAROUND_START_ANGLE = Math.PI * 0.62;
+const TRACKED_TURNAROUND_FINISH_ANGLE = Math.PI * 0.055;
 const approach = (current: number, target: number, maxDelta: number): number => {
   const delta = target - current;
   if (Math.abs(delta) <= maxDelta) return target;
@@ -484,6 +492,7 @@ export function issueMoveOrder(
       ? rotateFormationOffset(tacticalLayout.offsets[i], faceYaw)
       : formationOffset(i % width, Math.floor(i / width), width, movers.length, spacing, faceYaw);
     if (entity.flight) {
+      entity.mover.turnaround = undefined;
       entity.mover.target = {
         x: clamp(targetX + offset.x, -sim.nav.size / 2, sim.nav.size / 2),
         z: clamp(targetZ + offset.z, -sim.nav.size / 2, sim.nav.size / 2),
@@ -508,6 +517,7 @@ export function issueMoveOrder(
       const requestedSlot = { x: entityTarget.x + offset.x, z: entityTarget.z + offset.z };
       const slot = connectedWalkableOrderPoint(sim, requestedSlot.x, requestedSlot.z, entityFlow);
       if (!slot) return;
+      prepareTrackedTurnaround(entity, slot.x, slot.z);
       if (faceYaw !== undefined) {
         entity.mover.target = { x: slot.x, z: slot.z };
         entity.mover.formationOffset = undefined;
@@ -584,6 +594,7 @@ export function stopEntities(entities: Entity[]): void {
     entity.mover.attackMove = false;
     entity.mover.sprint = undefined;
     entity.mover.attackTargetId = undefined;
+    entity.mover.turnaround = undefined;
     entity.mover.faceYaw = undefined;
     entity.mover.defenseAlert = undefined;
     entity.mover.tactic = undefined;
@@ -683,12 +694,22 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       mover.sprint = undefined;
       mover.attackTargetId = undefined;
       mover.tactic = undefined;
+      mover.turnaround = undefined;
       const throttle = Math.max(-1, Math.min(1, entity.playerControlled.throttle));
       const turn = Math.max(-1, Math.min(1, entity.playerControlled.turn));
       const boost = entity.playerControlled.boost ? POSSESSION_BOOST_MULTIPLIER : 1;
-      const turnRate = throttle === 0 ? 1.55 : 1.15;
-      transform.rot = normalizeAngle(transform.rot + turn * turnRate * dt);
       const driveSpeed = mover.speed * boost * (throttle < 0 ? 0.42 : 0.78) * combatRankSpeedMultiplier(entity);
+      const turnRate = throttle === 0 ? 1.55 : 1.15;
+      if (isTrackedGroundVehicle(entity)) {
+        // V-mode remains quick, but a tracked chassis now winds its angular
+        // velocity up and down over a few frames instead of snapping instantly.
+        // This also keeps terrain suspension stable during rapid A/D reversals.
+        mover.yawRate = approach(mover.yawRate ?? 0, turn * turnRate, turnRate * 14 * dt);
+        transform.rot = normalizeAngle(transform.rot + mover.yawRate * dt);
+      } else {
+        mover.yawRate = 0;
+        transform.rot = normalizeAngle(transform.rot + turn * turnRate * dt);
+      }
       desiredX = Math.sin(transform.rot) * driveSpeed * throttle;
       desiredZ = Math.cos(transform.rot) * driveSpeed * throttle;
       // real traverse speed — you feel the turret's weight chasing the crosshair
@@ -705,6 +726,8 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         mover.formationOffset = undefined;
         mover.flow = undefined;
         mover.sprint = undefined;
+        mover.turnaround = undefined;
+        mover.yawRate = 0;
         velocity.x = 0;
         velocity.z = 0;
         advanceTacticAfterArrival(sim, entity);
@@ -773,8 +796,27 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
     const desiredLen = Math.hypot(desiredX, desiredZ);
     if (desiredLen > 0 && !entity.playerControlled) {
-      desiredX = (desiredX / desiredLen) * desiredSpeed;
-      desiredZ = (desiredZ / desiredLen) * desiredSpeed;
+      const turnaround = isTrackedGroundVehicle(entity) ? mover.turnaround : undefined;
+      if (turnaround && orientToMovement) {
+        const remainingYaw = Math.abs(normalizeAngle(turnaround.targetYaw - transform.rot));
+        if (remainingYaw <= TRACKED_TURNAROUND_FINISH_ANGLE) {
+          mover.turnaround = undefined;
+          mover.yawRate = 0;
+          desiredX = (desiredX / desiredLen) * desiredSpeed;
+          desiredZ = (desiredZ / desiredLen) * desiredSpeed;
+        } else {
+          steerTrackedBody(entity, turnaround.direction, desiredSpeed, false, dt);
+          desiredX = Math.sin(transform.rot) * desiredSpeed;
+          desiredZ = Math.cos(transform.rot) * desiredSpeed;
+          orientToMovement = false;
+        }
+      } else {
+        desiredX = (desiredX / desiredLen) * desiredSpeed;
+        desiredZ = (desiredZ / desiredLen) * desiredSpeed;
+      }
+    }
+    if (!entity.playerControlled && isTrackedGroundVehicle(entity) && !mover.turnaround) {
+      mover.yawRate = approach(mover.yawRate ?? 0, 0, trackedAngularAcceleration(mover.radius) * dt);
     }
     const staggerRemaining = entity.impactMomentum?.stagger ?? 0;
     const staggerScale = staggerRemaining > 0 ? Math.max(0, Math.min(1, 1 - staggerRemaining / 0.38)) : 1;
@@ -835,6 +877,61 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
   }
 
   sim.tick++;
+}
+
+function isTrackedGroundVehicle(entity: Entity): entity is Entity & { mover: NonNullable<Entity['mover']> } {
+  return !!entity.mover && !entity.flight && entity.armor?.kind === 'heavy';
+}
+
+function prepareTrackedTurnaround(
+  entity: Entity & { mover: NonNullable<Entity['mover']> },
+  targetX: number,
+  targetZ: number,
+): void {
+  entity.mover.turnaround = undefined;
+  entity.mover.yawRate = 0;
+  if (!isTrackedGroundVehicle(entity)) return;
+  const dx = targetX - entity.transform.x;
+  const dz = targetZ - entity.transform.z;
+  if (Math.hypot(dx, dz) <= entity.mover.radius) return;
+  const targetYaw = Math.atan2(dx, dz);
+  const yawDelta = normalizeAngle(targetYaw - entity.transform.rot);
+  if (Math.abs(yawDelta) < TRACKED_TURNAROUND_START_ANGLE) return;
+  entity.mover.turnaround = {
+    targetYaw,
+    direction: yawDelta >= 0 ? 1 : -1,
+  };
+}
+
+function trackedMinimumTurnRadius(radius: number): number {
+  const sizeRatio = Math.max(0.5, radius) / SCOUT_TANK_COLLISION_RADIUS;
+  return SCOUT_TANK_TURN_RADIUS * Math.pow(sizeRatio, TRACKED_TURN_SIZE_EXPONENT);
+}
+
+function trackedPivotRate(radius: number): number {
+  return Math.max(1.25, Math.min(3.8, 3 * Math.pow(2.2 / Math.max(0.5, radius), 1.1)));
+}
+
+function trackedAngularAcceleration(radius: number): number {
+  // Reach the chassis-specific turn rate promptly; the radius, not input lag,
+  // should be what makes a heavy tank's turnaround feel larger.
+  return trackedPivotRate(radius) * 9;
+}
+
+function steerTrackedBody(
+  entity: Entity & { mover: NonNullable<Entity['mover']> },
+  turnInput: number,
+  travelSpeed: number,
+  pivoting: boolean,
+  dt: number,
+): void {
+  const { mover, transform } = entity;
+  const input = Math.max(-1, Math.min(1, turnInput));
+  const pivotRate = trackedPivotRate(mover.radius);
+  const movingRate = Math.min(pivotRate, Math.max(0.12, travelSpeed / trackedMinimumTurnRadius(mover.radius)));
+  const targetYawRate = input * (pivoting ? pivotRate : movingRate);
+  mover.yawRate = approach(mover.yawRate ?? 0, targetYawRate, trackedAngularAcceleration(mover.radius) * dt);
+  transform.rot = normalizeAngle(transform.rot + mover.yawRate * dt);
 }
 
 function stepDestroyedAircraft(
@@ -1299,9 +1396,18 @@ export function hashSim(sim: GameSim): number {
   const mix = (v: number) => {
     h = Math.imul(h ^ v, 0x01000193) >>> 0;
   };
+  const mixText = (value?: string): void => {
+    if (!value) {
+      mix(0);
+      return;
+    }
+    mix(value.length);
+    for (let index = 0; index < value.length; index++) mix(value.charCodeAt(index));
+  };
   const entities = Array.from(sim.world.entities).sort((a, b) => a.id - b.id);
   for (const entity of entities) {
     mix(entity.id);
+    mix(entity.team?.id ?? 0);
     mix(Math.round(entity.transform.x * 100));
     mix(Math.round((entity.transform.y ?? 0) * 100));
     mix(Math.round(entity.transform.z * 100));
@@ -1318,6 +1424,26 @@ export function hashSim(sim: GameSim): number {
       mix(Math.round((entity.impactMomentum.stagger ?? 0) * 1000));
     }
     if (entity.turret) mix(Math.round(entity.turret.yaw * 10000));
+    if (entity.building) {
+      mixText(entity.building.kind);
+      mix(Math.round(entity.building.buildProgress * 1000));
+      mix(entity.building.complete ? 1 : 0);
+    }
+    if (entity.producer) {
+      const active = entity.producer.active;
+      mix(active ? 1 : 0);
+      if (active) {
+        mixText(active.kind);
+        mix(Math.round(active.remaining * 1000));
+      }
+      mix(entity.producer.queue.length);
+      for (const job of entity.producer.queue) {
+        mixText(job.kind);
+        mix(Math.round(job.remaining * 1000));
+      }
+      mix(entity.producer.rally ? Math.round(entity.producer.rally.x * 10) : 0);
+      mix(entity.producer.rally ? Math.round(entity.producer.rally.z * 10) : 0);
+    }
     if (entity.mover) {
       mix(entity.mover.target ? Math.round(entity.mover.target.x * 10) : 0);
       mix(entity.mover.target ? Math.round(entity.mover.target.z * 10) : 0);
@@ -1326,6 +1452,13 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.holdPosition ? Math.round(entity.mover.holdPosition.x * 10) : 0);
       mix(entity.mover.holdPosition ? Math.round(entity.mover.holdPosition.z * 10) : 0);
       mix(entity.mover.attackTargetId ?? 0);
+      mix(Math.round((entity.mover.yawRate ?? 0) * 10000));
+      mix(entity.mover.turnaround ? Math.round(entity.mover.turnaround.targetYaw * 10000) : 0);
+      mix(entity.mover.turnaround?.direction ?? 0);
+      mix(entity.mover.attackMove ? 1 : 0);
+      mix(entity.mover.faceYaw === undefined ? 0 : Math.round(entity.mover.faceYaw * 10000));
+      mix(entity.mover.defenseAlert?.targetId ?? 0);
+      mix(entity.mover.defenseAlert ? Math.round(entity.mover.defenseAlert.ttl * 1000) : 0);
       mix(entity.mover.sprint ? 1 : 0);
       if (entity.mover.tactic) {
         mix(entity.mover.tactic.remaining.length);
@@ -1337,6 +1470,15 @@ export function hashSim(sim: GameSim): number {
         mix(end.kind === 'hold' ? 1 : end.kind === 'attack-move' ? 2 : 3);
         if (end.kind === 'attack') mix(end.targetId);
       }
+    }
+    if (entity.aiCombat) mix(entity.aiCombat.nextAcquireTick ?? 0);
+    if (entity.playerControlled) {
+      mix(Math.round(entity.playerControlled.throttle * 1000));
+      mix(Math.round(entity.playerControlled.turn * 1000));
+      mix(Math.round(entity.playerControlled.aimYaw * 10000));
+      mix(Math.round((entity.playerControlled.climb ?? 0) * 1000));
+      mix(Math.round((entity.playerControlled.strafe ?? 0) * 1000));
+      mix(entity.playerControlled.boost ? 1 : 0);
     }
     if (entity.weapon) {
       mix(Math.round(entity.weapon.cooldown * 1000));
@@ -1380,6 +1522,7 @@ export function hashSim(sim: GameSim): number {
       for (const cell of entity.structureDamage.cells) mix(cell);
     }
     if (entity.health) mix(Math.round(entity.health.current * 100));
+    mix(entity.destroyed ? Math.round(entity.destroyed.remaining * 1000) : 0);
     if (entity.cargo) {
       mix(entity.cargo.capacity);
       mix(Math.round(entity.cargo.amount * 100));

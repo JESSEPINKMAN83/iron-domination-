@@ -66,6 +66,46 @@ export function createEconomy(team = 1, initialCredits = 4600): EconomyState {
   };
 }
 
+/** Stable hash of simulation-affecting economy state for multiplayer checks. */
+export function hashEconomy(economy: EconomyState): number {
+  let hash = 0x811c9dc5 >>> 0;
+  const mix = (value: number): void => {
+    hash = Math.imul(hash ^ value, 0x01000193) >>> 0;
+  };
+  const mixText = (value?: string): void => {
+    if (!value) {
+      mix(0);
+      return;
+    }
+    mix(value.length);
+    for (let index = 0; index < value.length; index++) mix(value.charCodeAt(index));
+  };
+  const mixJob = (job?: ProductionJob): void => {
+    if (!job) {
+      mix(0);
+      return;
+    }
+    mix(1);
+    mixText(job.kind);
+    mix(Math.round(job.remaining * 1000));
+    mix(Math.round(job.total * 1000));
+    mix(Math.round(job.cost * 100));
+  };
+
+  mix(economy.team);
+  mix(Math.round(economy.credits * 100));
+  mix(Math.round(economy.incomeMultiplier * 1000));
+  mix(Math.round(economy.powerProduced * 100));
+  mix(Math.round(economy.powerUsed * 100));
+  mixJob(economy.structureLine);
+  mixText(economy.readyStructure);
+  for (const refineryId of Object.keys(economy.harvesterReplacementTimers).map(Number).sort((a, b) => a - b)) {
+    mix(refineryId);
+    mix(Math.round((economy.harvesterReplacementTimers[refineryId] ?? 0) * 1000));
+  }
+  return hash >>> 0;
+}
+
 export function createInitialBase(sim: GameSim, hf: Heightfield, economy: EconomyState, atX?: number, atZ?: number): Entity {
   const fallback = startPosition(hf.size, economy.team === 2 ? 2 : 1);
   const x = atX ?? fallback.x;

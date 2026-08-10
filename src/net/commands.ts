@@ -5,6 +5,7 @@ import {
   cancelStructureBuild,
   cancelUnitQueue,
   enterReadyStructurePlacement,
+  hashEconomy,
   issueHarvesterReturnOrder,
   issueHarvestOrder,
   placeStructure,
@@ -59,6 +60,7 @@ export type NetCommand =
   | { type: 'possess-fire'; id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number }
   | { type: 'possess-follow'; leaderId: number; followerIds: number[]; x: number; z: number; faceYaw: number }
   | { type: 'possess-release'; id: number }
+  | { type: 'tick-ready' }
   | { type: 'sim-hash'; hash: number }
   | { type: 'snapshot-request'; hash: number; expectedHash: number; tick: number }
   | { type: 'match-snapshot'; state: SerializedMatchState; hash: number; tick: number }
@@ -85,6 +87,18 @@ export interface LockstepRuntimeOptions {
   onMatchOutcome?: (outcome: 'victory' | 'defeat') => void;
 }
 
+export function hashMultiplayerState(
+  sim: GameSim,
+  economies: Iterable<EconomyState>,
+  criticalOnly = false,
+): number {
+  let hash = criticalOnly ? hashCriticalSimState(sim) : hashSim(sim);
+  for (const economy of Array.from(economies).sort((a, b) => a.team - b.team)) {
+    hash = Math.imul((hash ^ hashEconomy(economy)) >>> 0, 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
+
 const DEFAULT_INPUT_DELAY_TICKS = 8;
 const FULL_HASH_INTERVAL_TICKS = 30 * 5;
 const CRITICAL_HASH_INTERVAL_TICKS = 30;
@@ -105,6 +119,10 @@ export class LockstepRuntime {
   private recoveryResumeTimer?: ReturnType<typeof setTimeout>;
   private lateRemoteCommandTick?: number;
   private readonly possessionOwners = new Map<number, number>();
+  private readonly readyPlayersByTick = new Map<number, Set<number>>();
+  private barrierEnabled = false;
+  private barrierWaitStartedAt?: number;
+  private barrierWaitingShown = false;
 
   constructor(private readonly options: LockstepRuntimeOptions) {}
 
@@ -132,6 +150,8 @@ export class LockstepRuntime {
 
   connect(): void {
     this.connected = true;
+    this.barrierEnabled = this.options.session.room.players.filter((player) => player.connected).length > 1;
+    this.primeTickBarrier(this.options.sim.tick);
     this.options.onStatus?.('Multiplayer connected');
     this.options.client.connect(
       this.options.session.room.code,
@@ -152,7 +172,7 @@ export class LockstepRuntime {
             this.recoveryPending = true;
             this.roomPaused = true;
             void this.send(
-              { type: 'snapshot-request', hash: hashSim(this.options.sim), expectedHash: 0, tick: this.options.sim.tick },
+              { type: 'snapshot-request', hash: this.currentHash(), expectedHash: 0, tick: this.options.sim.tick },
               this.options.sim.tick,
             );
             this.options.onStatus?.('Reconnected — synchronizing with host');
@@ -171,11 +191,27 @@ export class LockstepRuntime {
   }
 
   canAdvance(): boolean {
-    return this.connected && !this.roomPaused;
+    if (!this.connected || this.roomPaused) return false;
+    if (!this.barrierEnabled) return true;
+    const ready = this.readyPlayersByTick.get(this.options.sim.tick);
+    const waiting = this.requiredPlayerIndexes().some((playerIndex) => !ready?.has(playerIndex));
+    if (!waiting) {
+      if (this.barrierWaitingShown) this.options.onStatus?.(`Network synchronized at tick ${this.options.sim.tick}`);
+      this.barrierWaitStartedAt = undefined;
+      this.barrierWaitingShown = false;
+      return true;
+    }
+    this.barrierWaitStartedAt ??= Date.now();
+    if (!this.barrierWaitingShown && Date.now() - this.barrierWaitStartedAt >= 500) {
+      this.barrierWaitingShown = true;
+      this.options.onStatus?.(`Waiting for player input at tick ${this.options.sim.tick}`);
+    }
+    return false;
   }
 
   tick(): void {
     const tick = this.options.sim.tick;
+    this.pruneTickBarrier(tick);
     const due: QueuedCommand[] = [];
     for (let i = 0; i < this.queue.length; ) {
       const queued = this.queue[i];
@@ -196,7 +232,7 @@ export class LockstepRuntime {
       return;
     }
     const criticalOnly = hasActivePossession(this.options.sim);
-    this.rememberHash(tick, criticalOnly ? hashCriticalSimState(this.options.sim) : hashSim(this.options.sim));
+    this.rememberHash(tick, this.currentHash(criticalOnly));
     for (const queued of due) {
       if (queued.command.type === 'sim-hash') this.apply(queued.playerIndex, queued.command, queued.tick);
     }
@@ -205,6 +241,7 @@ export class LockstepRuntime {
       this.lastHashSent = tick;
       void this.send({ type: 'sim-hash', hash: this.hashHistory.get(tick)! }, tick);
     }
+    this.closeTickPacket(tick + (this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS));
   }
 
   issue(command: NetCommand): boolean {
@@ -308,7 +345,7 @@ export class LockstepRuntime {
           this.recoveryPending = true;
           this.roomPaused = true;
           void this.send(
-            { type: 'snapshot-request', hash: hashSim(this.options.sim), expectedHash: 0, tick: this.options.sim.tick },
+            { type: 'snapshot-request', hash: this.currentHash(), expectedHash: 0, tick: this.options.sim.tick },
             this.options.sim.tick,
           );
           this.options.onStatus?.('Reconnected — synchronizing with host');
@@ -333,6 +370,10 @@ export class LockstepRuntime {
     const command = event.command as NetCommand;
     if (!isNetCommand(command)) return;
     if (event.playerId === this.options.session.player.id) return;
+    if (command.type === 'tick-ready') {
+      this.markTickReady(event.tick, event.playerIndex);
+      return;
+    }
     const key = `${event.playerId}:${event.tick}:${JSON.stringify(command)}`;
     if (this.seen.has(key)) return;
     this.seen.add(key);
@@ -383,9 +424,10 @@ export class LockstepRuntime {
     }
     if (command.type === 'snapshot-applied') {
       if (!this.isHost || !this.recoveryPending) return;
-      const localHash = hashSim(this.options.sim);
+      const localHash = this.currentHash();
       if (localHash === command.hash && this.options.sim.tick === command.tick) {
         void this.send({ type: 'snapshot-resume', hash: localHash, tick: command.tick }, command.tick);
+        this.primeTickBarrier(command.tick);
         this.scheduleHostRecoveryResume(command.tick);
       } else {
         this.sendRecoverySnapshot(`Recovery acknowledgement differed — retrying snapshot (${localHash} vs ${command.hash})`);
@@ -394,7 +436,7 @@ export class LockstepRuntime {
     }
     if (command.type === 'snapshot-resume') {
       if (this.isHost || !this.recoveryPending) return;
-      const localHash = hashSim(this.options.sim);
+      const localHash = this.currentHash();
       if (localHash !== command.hash || this.options.sim.tick !== command.tick) return;
       this.recoveryPending = false;
       this.roomPaused = this.peerMissing;
@@ -526,7 +568,7 @@ export class LockstepRuntime {
   }
 
   private handleLateRemoteCommand(commandTick: number): void {
-    const localHash = hashSim(this.options.sim);
+    const localHash = this.currentHash();
     if (this.isHost) {
       this.sendRecoverySnapshot(`Late network command for tick ${commandTick} — resynchronizing combat state`);
       return;
@@ -542,11 +584,12 @@ export class LockstepRuntime {
     this.lateRemoteCommandTick = undefined;
     this.queue.length = 0;
     this.hashHistory.clear();
-    this.rememberHash(this.options.sim.tick, hashSim(this.options.sim));
+    this.resetTickBarrier();
+    this.rememberHash(this.options.sim.tick, this.currentHash());
     const state = serializeMatchState(this.options.sim, Object.values(this.options.economies));
     this.recoveryPending = true;
     this.roomPaused = true;
-    void this.send({ type: 'match-snapshot', state, hash: hashSim(this.options.sim), tick: this.options.sim.tick }, this.options.sim.tick);
+    void this.send({ type: 'match-snapshot', state, hash: this.currentHash(), tick: this.options.sim.tick }, this.options.sim.tick);
     this.options.onStatus?.(message, true);
   }
 
@@ -560,12 +603,14 @@ export class LockstepRuntime {
     this.queue.length = 0;
     this.lateRemoteCommandTick = undefined;
     this.hashHistory.clear();
-    this.rememberHash(this.options.sim.tick, hashSim(this.options.sim));
+    this.resetTickBarrier();
+    this.rememberHash(this.options.sim.tick, this.currentHash());
     this.recoveryPending = true;
     this.roomPaused = true;
     this.options.onSnapshotRestored?.();
-    const localHash = hashSim(this.options.sim);
+    const localHash = this.currentHash();
     void this.send({ type: 'snapshot-applied', hash: localHash, tick: this.options.sim.tick }, this.options.sim.tick);
+    this.primeTickBarrier(this.options.sim.tick);
     this.options.onStatus?.(
       localHash === expectedHash ? `Snapshot applied at tick ${state.sim.tick} — waiting for host` : `Recovered snapshot hash differs: ${localHash} vs ${expectedHash}`,
       localHash !== expectedHash,
@@ -581,6 +626,51 @@ export class LockstepRuntime {
       this.roomPaused = this.peerMissing;
       this.options.onStatus?.(`Match synchronized at tick ${tick}`);
     }, delayMs);
+  }
+
+  private currentHash(criticalOnly = false): number {
+    return hashMultiplayerState(this.options.sim, Object.values(this.options.economies), criticalOnly);
+  }
+
+  private requiredPlayerIndexes(): number[] {
+    return this.options.session.room.players
+      .filter((player) => player.connected)
+      .map((player) => player.index)
+      .sort((a, b) => a - b);
+  }
+
+  private markTickReady(tick: number, playerIndex: number): void {
+    if (!this.barrierEnabled || tick < this.options.sim.tick) return;
+    let ready = this.readyPlayersByTick.get(tick);
+    if (!ready) {
+      ready = new Set<number>();
+      this.readyPlayersByTick.set(tick, ready);
+    }
+    ready.add(playerIndex);
+  }
+
+  private closeTickPacket(tick: number): void {
+    if (!this.barrierEnabled) return;
+    this.markTickReady(tick, this.localPlayerIndex);
+    void this.send({ type: 'tick-ready' }, tick);
+  }
+
+  private primeTickBarrier(startTick: number): void {
+    if (!this.barrierEnabled) return;
+    const delay = this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS;
+    for (let tick = startTick; tick < startTick + delay; tick++) this.closeTickPacket(tick);
+  }
+
+  private pruneTickBarrier(currentTick: number): void {
+    for (const tick of this.readyPlayersByTick.keys()) {
+      if (tick < currentTick) this.readyPlayersByTick.delete(tick);
+    }
+  }
+
+  private resetTickBarrier(): void {
+    this.readyPlayersByTick.clear();
+    this.barrierWaitStartedAt = undefined;
+    this.barrierWaitingShown = false;
   }
 
   private clearRecoveryResumeTimer(): void {

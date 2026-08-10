@@ -6,6 +6,7 @@ import { identityEnabled } from './identity/flag';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
 import { sendTelemetryEvent, trackMatchTelemetry, approximatePathLength, summarizeUnitKinds, type MatchTelemetry } from './telemetry';
+import { secureRandomUuid } from './crypto';
 import { summarizeCombatRankShares } from './sim/combatRank';
 import { installActiveMatchExitGuard, type ActiveMatchExitGuard } from './activeMatchExitGuard';
 import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHowToPlayWidget } from './howToPlay';
@@ -3271,7 +3272,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastContactVisualTick = sim.tick;
   let renderFrame = 0;
   let deferredEffectDt = 0;
-  const fallbackMatchId = `${multiplayerMode ? `mp-${multiplayer!.session.room.code}` : 'sp'}-${crypto.randomUUID()}`;
+  const fallbackMatchId = `${multiplayerMode ? `mp-${multiplayer!.session.room.code}` : 'sp'}-${secureRandomUuid()}`;
   const matchTelemetryMetadata = (): FeedbackMatchMetadata => {
     const room = multiplayer?.session.room;
     const player = room?.players.find((candidate) => candidate.id === multiplayer?.session.player.id) ?? multiplayer?.session.player;
@@ -3360,7 +3361,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       }
       if (sim.tick % 3 === 0) {
         for (const entity of sim.world.entities) {
-          if (entity.selectable?.type === 'tank' && !entity.destroyed) scatter.crushNear(entity.transform.x, entity.transform.z, 3.6);
+          if (entity.selectable?.type !== 'tank' || entity.destroyed) continue;
+          const crushRadius = Math.max(2.6, (entity.collider?.radius ?? entity.mover?.radius ?? 2.2) + 1.4);
+          scatter.crushNear(entity.transform.x, entity.transform.z, crushRadius, sim.tick / SIM_HZ);
         }
       }
       groundTrails?.sample(sim.world.entities, sim.tick / SIM_HZ, ctx.visualQuality);
@@ -3480,7 +3483,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       ctx.setFastMotionMode((multiplayerMode || mobileTouch) && firstPerson.flying);
       unitView.setVisualQuality(ctx.visualQuality);
       combatView.setVisualQuality(ctx.visualQuality);
-      scatter.updateGroundEffects(time, ctx.visualQuality);
+      scatter.updateGroundEffects(time, ctx.visualQuality, (sim.tick + alpha) / SIM_HZ);
       groundTrails?.update(sim.tick / SIM_HZ + alpha / SIM_HZ, ctx.visualQuality);
       if (firstPerson.active) firstPerson.update(dt, alpha);
       else {

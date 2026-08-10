@@ -42,12 +42,7 @@ export interface Heightfield {
   oreFields: OreField[];
 }
 
-function terrace(n: number, steps: number, blend: number): number {
-  const s = n * steps;
-  const base = Math.floor(s);
-  const f = s - base;
-  return (base + smoothstep(0.5 - blend, 0.5 + blend, f)) / steps;
-}
+const MAX_WALKABLE_EDGE_GRADE = 0.82;
 
 function sampleHeightData(heights: Float32Array, samples: number, cellSize: number, x: number, z: number): number {
   const half = ((samples - 1) * cellSize) / 2;
@@ -100,7 +95,7 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
   const half = size / 2;
   const reliefScale = Math.max(0.5, Math.min(1.5, (cfg.terrainRelief ?? 100) / 100));
 
-  // --- heights: rolling continent + terraced plateaus (cliffs) + detail, basins for lakes ---
+  // --- heights: rolling continent + broad mountain shelves + detail, basins for lakes ---
   const heights = new Float32Array(samples * samples);
   let maxHeight = 0;
   for (let gy = 0; gy < samples; gy++) {
@@ -110,7 +105,10 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
       const continent = fbm2(wx * 0.0011 + 3.7, wz * 0.0011 - 8.2, seed, 4);
       const plate = fbm2(wx * 0.0019 + 41.3, wz * 0.0019 + 17.9, seed ^ 0x51bd, 3);
       const mask = smoothstep(0.34, 0.62, continent);
-      const rolling = (fbm2(wx * 0.016, wz * 0.016, seed ^ 0x9e37, 4) - 0.5) * 3.0;
+      // Keep local ground undulation broad enough to drive across. Large-scale
+      // features provide the drama; high-frequency noise must not create tiny,
+      // visually shallow trenches with cliff-grade edges.
+      const rolling = (fbm2(wx * 0.009, wz * 0.009, seed ^ 0x9e37, 3) - 0.5) * 2.2;
       const basin = smoothstep(0.4, 0.22, continent);
       const noisyLake = smoothstep(0.3, 0.16, fbm2(wx * 0.0031 - 19.7, wz * 0.0031 + 73.4, seed ^ 0xa17e, 3));
       const basinA = smoothstep(size * 0.16, size * 0.07, Math.hypot(wx + size * 0.24, wz - size * 0.16));
@@ -119,7 +117,7 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
       let h =
         4.0 +
         continent * 8.0 +
-        terrace(plate, 4, 0.02) * 34.0 * mask +
+        plate * 34.0 * mask +
         rolling -
         basin * 18.0 -
         lakePocket * 9.0;
@@ -133,11 +131,11 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
         const diagonalGates = smoothstep(0.2, 0.035, Math.abs(Math.cos(angle * 2)));
         const brokenRim = innerRim * outerRim * (1 - diagonalGates * 0.72);
         const outerPlateau = smoothstep(size * 0.42, size * 0.22, r);
-        // Broad, terraced sandstone shelves split by two navigable washes. The
+        // Broad sandstone shelves split by two navigable washes. The
         // relief slider changes the tactical height difference without adding
         // extra geometry or runtime simulation cost.
         const mesaNoise = fbm2(wx * 0.00145 + 12.7, wz * 0.00145 - 31.2, seed ^ 0xd35e, 4);
-        const mesaShelf = terrace(smoothstep(0.44, 0.67, mesaNoise), 4, 0.09);
+        const mesaShelf = smoothstep(0.44, 0.67, mesaNoise);
         const primaryWashDistance = Math.abs(wz - Math.sin(wx * 0.0062 + 0.6) * size * 0.075);
         const crossingWashDistance = Math.abs(wx + Math.sin(wz * 0.0054 - 1.1) * size * 0.06);
         const primaryWash = smoothstep(size * 0.12, size * 0.035, primaryWashDistance);
@@ -270,7 +268,10 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
     }
   }
 
-  // --- walkability: cliffs (large rise within a cell) and water block movement ---
+  // --- walkability: true cliff edges and water block movement ---
+  // Use the four physical cell edges rather than the full corner range. The old
+  // min/max comparison treated a smooth diagonal hillside as a cliff because it
+  // added the rise across both axes.
   const walkable = new Uint8Array(cells * cells);
   for (let cy = 0; cy < cells; cy++) {
     for (let cx = 0; cx < cells; cx++) {
@@ -279,10 +280,14 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
       const h10 = heights[i00 + 1];
       const h01 = heights[i00 + samples];
       const h11 = heights[i00 + samples + 1];
-      const hMin = Math.min(h00, h10, h01, h11);
-      const hMax = Math.max(h00, h10, h01, h11);
       const center = (h00 + h10 + h01 + h11) / 4;
-      const blocked = hMax - hMin > cellSize * 0.85 || center < waterLevel + 0.25;
+      const maxEdgeRise = Math.max(
+        Math.abs(h10 - h00),
+        Math.abs(h01 - h00),
+        Math.abs(h11 - h10),
+        Math.abs(h11 - h01),
+      );
+      const blocked = maxEdgeRise > cellSize * MAX_WALKABLE_EDGE_GRADE || center < waterLevel + 0.25;
       walkable[cy * cells + cx] = blocked ? 0 : 1;
     }
   }

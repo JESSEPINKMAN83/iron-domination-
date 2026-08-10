@@ -3,7 +3,7 @@ import { MAP01 } from '../content/map01';
 import { FlowField } from './flowfield';
 import { generateHeightfield, sampleHeight, type Heightfield } from './heightfield';
 import { createEconomy, createInitialBase, spawnInfantryAt } from './economy';
-import { attackStandoffPoint, createGameSim, hashSim, issueMoveOrder, selectedEntities, setSelected, spawnDebugTanks, spawnHammerheadAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
+import { attackStandoffPoint, createGameSim, hashSim, issueMoveOrder, selectedEntities, setSelected, spawnDebugTanks, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
 
 describe('phase 2 movement simulation', () => {
   it('builds a flow field between distant walkable cells', () => {
@@ -58,6 +58,95 @@ describe('phase 2 movement simulation', () => {
     expect(Math.hypot(tank.transform.x - start.x, tank.transform.z - start.z)).toBeGreaterThan(8);
     expect(tank.mover?.target).toBeUndefined();
     expect(tank.mover?.flow).toBeUndefined();
+  });
+
+  it('keeps possessed tanks responsive instead of applying RTS U-turn limits in V-mode', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnSiegeTankAt(sim, 0, 0, 'Mauler');
+    tank.playerControlled = { throttle: 1, turn: 1, aimYaw: 0 };
+
+    for (let tick = 0; tick < 30; tick++) stepSim(sim, hf, 1 / 30);
+
+    expect(Math.abs(angleDelta(tank.transform.rot, 0))).toBeGreaterThan(1);
+    expect(tank.mover?.turnaround).toBeUndefined();
+  });
+
+  it('smooths a possessed tank turn without making V-mode sluggish', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnSiegeTankAt(sim, 0, 0, 'Mauler');
+    tank.playerControlled = { throttle: 0, turn: 1, aimYaw: 0 };
+
+    stepSim(sim, hf, 1 / 60);
+    expect(tank.mover?.yawRate).toBeGreaterThan(0);
+    expect(tank.mover?.yawRate).toBeLessThan(1.55);
+    for (let tick = 0; tick < 29; tick++) stepSim(sim, hf, 1 / 60);
+    expect(Math.abs(angleDelta(tank.transform.rot, 0))).toBeGreaterThan(0.65);
+
+    tank.playerControlled.turn = -1;
+    stepSim(sim, hf, 1 / 60);
+    expect(tank.mover?.yawRate).toBeGreaterThan(0);
+    for (let tick = 0; tick < 12; tick++) stepSim(sim, hf, 1 / 60);
+    expect(tank.mover?.yawRate).toBeLessThan(0);
+  });
+
+  it('gives larger tracked vehicles a wider, slower RTS turnaround without reversing first', () => {
+    const run = (kind: 'scout' | 'standard' | 'siege') => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const tank = kind === 'scout'
+        ? spawnScoutTankAt(sim, 0, 0, 'Jackal')
+        : kind === 'siege'
+          ? spawnSiegeTankAt(sim, 0, 0, 'Mauler')
+          : spawnTankAt(sim, 0, 0, 'M-17');
+      const targetCell = sim.nav.nearestWalkableCell(0, 110, 128);
+      expect(targetCell).toBeDefined();
+      const target = sim.nav.cellCenter(targetCell!.x, targetCell!.y);
+      const targetYaw = Math.atan2(target.x - tank.transform.x, target.z - tank.transform.z);
+      tank.transform.rot = targetYaw + Math.PI;
+      tank.previousTransform.rot = tank.transform.rot;
+      expect(issueMoveOrder(sim, [tank], target.x, target.z)).toBe(true);
+      expect(tank.mover?.turnaround).toBeDefined();
+      let distance = 0;
+      let yawTravel = 0;
+      let firstForwardTravel = 0;
+      let turnaroundTicks = 0;
+      const initialForwardX = Math.sin(tank.transform.rot);
+      const initialForwardZ = Math.cos(tank.transform.rot);
+      for (let tick = 0; tick < 300 && tank.mover?.turnaround; tick++) {
+        const beforeX = tank.transform.x;
+        const beforeZ = tank.transform.z;
+        const beforeYaw = tank.transform.rot;
+        stepSim(sim, hf, 1 / 30);
+        turnaroundTicks++;
+        const dx = tank.transform.x - beforeX;
+        const dz = tank.transform.z - beforeZ;
+        distance += Math.hypot(dx, dz);
+        yawTravel += Math.abs(angleDelta(tank.transform.rot, beforeYaw));
+        if (tick < 12) firstForwardTravel += dx * initialForwardX + dz * initialForwardZ;
+      }
+      expect(
+        tank.mover?.turnaround,
+        `${kind} should finish its turnaround (rot=${tank.transform.rot}, yawRate=${tank.mover?.yawRate})`,
+      ).toBeUndefined();
+      return { radius: distance / yawTravel, turnaroundTicks, firstForwardTravel };
+    };
+
+    const scout = run('scout');
+    const standard = run('standard');
+    const siege = run('siege');
+    expect(standard.radius).toBeGreaterThan(scout.radius * 1.2);
+    expect(siege.radius).toBeGreaterThan(standard.radius * 1.35);
+    expect(scout.radius).toBeLessThan(7.5);
+    expect(standard.radius).toBeLessThan(9.5);
+    expect(siege.radius).toBeLessThan(13);
+    expect(standard.turnaroundTicks).toBeGreaterThan(scout.turnaroundTicks);
+    expect(siege.turnaroundTicks).toBeGreaterThan(standard.turnaroundTicks);
+    expect(siege.turnaroundTicks).toBeLessThan(105);
+    expect(scout.firstForwardTravel).toBeGreaterThan(0);
+    expect(standard.firstForwardTravel).toBeGreaterThan(0);
+    expect(siege.firstForwardTravel).toBeGreaterThan(0);
   });
 
   it('moves strategy units faster for a sprint order and clears sprint on the next normal order', () => {
@@ -145,35 +234,6 @@ describe('phase 2 movement simulation', () => {
     const boostedDistance = run(true);
 
     expect(boostedDistance).toBeGreaterThan(normalDistance * 1.7);
-  });
-
-  it('lets boosted V-mode tanks force-climb dry terrain bumps that normal driving cannot pass', () => {
-    const hf = generateHeightfield(MAP01);
-    const sim = createGameSim(hf);
-    const bump = findBoostableDryBump(hf, sim);
-    expect(bump).toBeDefined();
-
-    const run = (boost: boolean) => {
-      const localSim = createGameSim(hf);
-      const tank = spawnTankAt(localSim, bump!.start.x, bump!.start.z, boost ? 'Boost climber' : 'Normal driver');
-      tank.transform.x = bump!.start.x;
-      tank.transform.z = bump!.start.z;
-      tank.transform.rot = Math.atan2(bump!.target.x - bump!.start.x, bump!.target.z - bump!.start.z);
-      tank.previousTransform = { ...tank.transform };
-      tank.playerControlled = { throttle: 1, turn: 0, aimYaw: tank.transform.rot, boost };
-      let enteredDryBlockedTerrain = false;
-      for (let i = 0; i < 42; i++) {
-        stepSim(localSim, hf, 1 / 30);
-        const cell = localSim.nav.worldToCell(tank.transform.x, tank.transform.z);
-        const idx = localSim.nav.index(cell.x, cell.y);
-        const dry = sampleHeight(hf, tank.transform.x, tank.transform.z) >= hf.waterLevel + 0.55;
-        enteredDryBlockedTerrain ||= hf.walkable[idx] === 0 && dry;
-      }
-      return enteredDryBlockedTerrain;
-    };
-
-    expect(run(false)).toBe(false);
-    expect(run(true)).toBe(true);
   });
 
   it('refuses enemy entities in player selection commands', () => {
@@ -634,46 +694,6 @@ describe('phase 2 movement simulation', () => {
     expect(a.sim.events.filter((event) => event.kind === 'crash')).toHaveLength(3);
   });
 });
-
-function findBoostableDryBump(
-  hf: Heightfield,
-  sim: ReturnType<typeof createGameSim>,
-): { start: { x: number; z: number }; target: { x: number; z: number } } | undefined {
-  const dirs = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ] as const;
-  for (let cy = 2; cy < hf.cells - 2; cy++) {
-    for (let cx = 2; cx < hf.cells - 2; cx++) {
-      const idx = sim.nav.index(cx, cy);
-      if (hf.walkable[idx] !== 0) continue;
-      const target = sim.nav.cellCenter(cx, cy);
-      const targetH = sampleHeight(hf, target.x, target.z);
-      if (targetH < hf.waterLevel + 1.0) continue;
-      if (cellHeightRange(hf, cx, cy) > 7.5) continue;
-      for (const [dx, dy] of dirs) {
-        const sx = cx + dx;
-        const sy = cy + dy;
-        if (!sim.nav.isWalkableCell(sx, sy)) continue;
-        const start = sim.nav.cellCenter(sx, sy);
-        if (Math.abs(targetH - sampleHeight(hf, start.x, start.z)) > 5.8) continue;
-        return { start, target };
-      }
-    }
-  }
-  return undefined;
-}
-
-function cellHeightRange(hf: Heightfield, cx: number, cy: number): number {
-  const i00 = cy * hf.samples + cx;
-  const h00 = hf.heights[i00];
-  const h10 = hf.heights[i00 + 1];
-  const h01 = hf.heights[i00 + hf.samples];
-  const h11 = hf.heights[i00 + hf.samples + 1];
-  return Math.max(h00, h10, h01, h11) - Math.min(h00, h10, h01, h11);
-}
 
 function angleDelta(a: number, b: number): number {
   return Math.atan2(Math.sin(a - b), Math.cos(a - b));

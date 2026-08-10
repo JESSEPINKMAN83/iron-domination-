@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Heightfield } from '../sim/heightfield';
-import { groundClutterTargetCount, VEGETATION_COUNTS } from './scatter';
+import {
+  CRUSHED_VEGETATION_FADE_SECONDS,
+  CRUSHED_VEGETATION_HOLD_SECONDS,
+  crushedVegetationOpacity,
+  groundClutterTargetCount,
+  VEGETATION_COUNTS,
+} from './scatter';
 
 function treeTotal(kind: keyof typeof VEGETATION_COUNTS): number {
   const counts = VEGETATION_COUNTS[kind];
@@ -13,6 +19,18 @@ describe('ground clutter budget', () => {
   it('uses one tuft per 25 square metres without exceeding the 6000-instance budget', () => {
     expect(groundClutterTargetCount({ size: 100 } as Heightfield)).toBe(400);
     expect(groundClutterTargetCount({ size: 1024 } as Heightfield)).toBe(6000);
+  });
+});
+
+describe('crushed vegetation lifecycle', () => {
+  it('holds for ten seconds, fades for five, then disappears', () => {
+    expect(CRUSHED_VEGETATION_HOLD_SECONDS).toBe(10);
+    expect(CRUSHED_VEGETATION_FADE_SECONDS).toBe(5);
+    expect(crushedVegetationOpacity(9.99)).toBe(1);
+    expect(crushedVegetationOpacity(10)).toBe(1);
+    expect(crushedVegetationOpacity(12.5)).toBeCloseTo(0.5);
+    expect(crushedVegetationOpacity(15)).toBe(0);
+    expect(crushedVegetationOpacity(30)).toBe(0);
   });
 });
 

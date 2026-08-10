@@ -62,6 +62,38 @@ describe('heightfield generation', () => {
     }
   });
 
+  it('keeps high-relief mountains broad and mostly climbable instead of creating thin cliff seams', () => {
+    for (const mapId of ['highlands', 'crater-oasis', 'frostbite-pass'] as const) {
+      const hf = generateHeightfield({ ...mapConfig(mapId, 'medium', 100, 150), seed: 619337 });
+      const dryEdgeRises: number[] = [];
+      let dryCells = 0;
+      let walkableDryCells = 0;
+      for (let cy = 0; cy < hf.cells; cy++) {
+        for (let cx = 0; cx < hf.cells; cx++) {
+          const i00 = cy * hf.samples + cx;
+          const h00 = hf.heights[i00];
+          const h10 = hf.heights[i00 + 1];
+          const h01 = hf.heights[i00 + hf.samples];
+          const h11 = hf.heights[i00 + hf.samples + 1];
+          const center = (h00 + h10 + h01 + h11) / 4;
+          if (center < hf.waterLevel + 0.25) continue;
+          dryCells++;
+          if (hf.walkable[cy * hf.cells + cx] !== 0) walkableDryCells++;
+          dryEdgeRises.push(Math.max(
+            Math.abs(h10 - h00),
+            Math.abs(h01 - h00),
+            Math.abs(h11 - h10),
+            Math.abs(h11 - h01),
+          ));
+        }
+      }
+      dryEdgeRises.sort((a, b) => a - b);
+      const p99EdgeRise = dryEdgeRises[Math.floor((dryEdgeRises.length - 1) * 0.99)];
+      expect(walkableDryCells / dryCells, `${mapId} dry walkability`).toBeGreaterThan(0.95);
+      expect(p99EdgeRise, `${mapId} 99th-percentile edge rise`).toBeLessThan(hf.cellSize * 1.3);
+    }
+  });
+
   it('uses ridgelines as direct-fire cover while allowing fire over them', () => {
     const samples = 9;
     const cells = samples - 1;
@@ -109,12 +141,11 @@ describe('heightfield generation', () => {
     expect(a).not.toBe(b);
   });
 
-  it('produces both walkable and blocked cells (cliffs/water block movement)', () => {
+  it('does not invent cliff barriers across a compact dry battlefield', () => {
     const hf = generateHeightfield(cfg);
     let walkableCount = 0;
     for (let i = 0; i < hf.walkable.length; i++) walkableCount += hf.walkable[i];
-    expect(walkableCount).toBeGreaterThan(0);
-    expect(walkableCount).toBeLessThan(hf.walkable.length);
+    expect(walkableCount).toBe(hf.walkable.length);
   });
 
   it('places visible water basins that block movement', () => {

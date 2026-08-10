@@ -55,6 +55,10 @@ export interface TacticPlan {
 export interface Mover {
   speed: number;
   radius: number;
+  /** tracked-vehicle body yaw velocity; persisted so turns accelerate and settle instead of snapping */
+  yawRate?: number;
+  /** explicit RTS U-turn phase used when a new move order starts substantially behind a tracked vehicle */
+  turnaround?: { targetYaw: number; direction: -1 | 1 };
   /** player-issued rapid transit order; cleared on arrival, stop, possession, or the next normal order */
   sprint?: boolean;
   target?: { x: number; z: number };
