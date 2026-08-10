@@ -1,11 +1,58 @@
 import { describe, expect, it } from 'vitest';
 import {
+  groundVehicleTerrainAttitude,
   groundVehicleImpactPose,
   impactReactionProfile,
   infantryImpactPose,
   shouldKeepDetailedUnitInPerformanceMode,
   unitDamageStage,
 } from './unitView';
+import type { Heightfield } from '../sim/heightfield';
+
+function planarHeightfield(slopeX: number, slopeZ: number): Heightfield {
+  const cells = 16;
+  const cellSize = 2;
+  const samples = cells + 1;
+  const size = cells * cellSize;
+  const half = size / 2;
+  const heights = new Float32Array(samples * samples);
+  for (let z = 0; z < samples; z++) {
+    for (let x = 0; x < samples; x++) {
+      heights[z * samples + x] = (x * cellSize - half) * slopeX + (z * cellSize - half) * slopeZ;
+    }
+  }
+  return {
+    kind: 'highlands', cells, cellSize, samples, size, waterLevel: -100, maxHeight: 100,
+    heights, walkable: new Uint8Array(cells * cells).fill(1), splat: new Uint8Array(samples * samples * 4), oreFields: [],
+  };
+}
+
+describe('ground vehicle terrain attitude', () => {
+  it('pitches the nose uphill and follows cross-slope roll', () => {
+    const uphill = groundVehicleTerrainAttitude(planarHeightfield(0, 0.5), 0, 0, 0, 2.2);
+    expect(uphill.pitch).toBeLessThan(-0.4);
+    expect(uphill.roll).toBeCloseTo(0, 5);
+
+    const crossSlope = groundVehicleTerrainAttitude(planarHeightfield(0.4, 0), 0, 0, 0, 2.2);
+    expect(crossSlope.pitch).toBeCloseTo(0, 5);
+    expect(crossSlope.roll).toBeGreaterThan(0.35);
+    expect(crossSlope.y).toBeCloseTo(0, 5);
+  });
+
+  it('uses vehicle heading when deciding which end is uphill', () => {
+    const attitude = groundVehicleTerrainAttitude(planarHeightfield(0.5, 0), 0, 0, Math.PI / 2, 2.2);
+    expect(attitude.pitch).toBeLessThan(-0.4);
+    expect(attitude.roll).toBeCloseTo(0, 5);
+  });
+
+  it('keeps extreme traversable slopes within a stable visual tilt', () => {
+    const forward = groundVehicleTerrainAttitude(planarHeightfield(0, 2), 0, 0, 0, 2.2);
+    const sideways = groundVehicleTerrainAttitude(planarHeightfield(2, 0), 0, 0, 0, 2.2);
+
+    expect(Math.abs(forward.pitch)).toBeLessThanOrEqual(Math.PI * (32 / 180) + 1e-8);
+    expect(Math.abs(sideways.roll)).toBeLessThanOrEqual(Math.PI * (32 / 180) + 1e-8);
+  });
+});
 
 describe('performance-mode unit detail', () => {
   const base = {

@@ -51,13 +51,14 @@ export class NetworkTickDriver implements TickDriver {
   frame(frameDt: number): TickFrame {
     this.accumulator = Math.min(this.accumulator + frameDt, SIM_DT * this.maxTicksPerFrame);
     if (!this.canAdvance()) return { ticks: 0, alpha: 0 };
-    let ticks = 0;
-    while (this.accumulator >= SIM_DT && ticks < this.maxTicksPerFrame) {
-      if (!this.canAdvance()) break;
-      ticks++;
-      this.accumulator -= SIM_DT;
-    }
-    return { ticks, alpha: this.accumulator / SIM_DT };
+    if (this.accumulator < SIM_DT) return { ticks: 0, alpha: this.accumulator / SIM_DT };
+    // The lockstep barrier is evaluated against the current simulation tick.
+    // GameLoop calls frame() before it executes callbacks, so returning a batch
+    // here would authorize every tick using only the first tick's readiness.
+    // One network tick per render frame lets the next frame re-check the barrier;
+    // accumulated time is retained, so a foregrounded tab still catches up.
+    this.accumulator -= SIM_DT;
+    return { ticks: 1, alpha: Math.min(0.999, this.accumulator / SIM_DT) };
   }
 }
 

@@ -13,6 +13,7 @@ import {
   Euler,
   Group,
   IcosahedronGeometry,
+  InstancedBufferAttribute,
   InstancedMesh,
   Material,
   Matrix4,
@@ -28,6 +29,8 @@ import type { MacroTintMap } from './textures';
 
 const MAX_GROUND_TUFTS = 6000;
 const BUILDING_CONTACT_RESERVE = 512;
+export const CRUSHED_VEGETATION_HOLD_SECONDS = 10;
+export const CRUSHED_VEGETATION_FADE_SECONDS = 5;
 
 interface ScatterOptions {
   macroTint?: MacroTintMap;
@@ -307,18 +310,30 @@ function woodlandAffinity(kind: Heightfield['kind'], x: number, z: number, seed:
 
 interface CrushableTree {
   mesh: InstancedMesh;
+  opacity: InstancedBufferAttribute;
   index: number;
   x: number;
   y: number;
   z: number;
   rotY: number;
   scale: number;
-  crushed: boolean;
+  kind: 'tree' | 'bush';
+  contactIndex: number;
+  contactY: number;
+  contactRadius: number;
+  crushedAt?: number;
+  removed: boolean;
+}
+
+export function crushedVegetationOpacity(ageSeconds: number): number {
+  if (ageSeconds <= CRUSHED_VEGETATION_HOLD_SECONDS) return 1;
+  return Math.max(0, 1 - (ageSeconds - CRUSHED_VEGETATION_HOLD_SECONDS) / CRUSHED_VEGETATION_FADE_SECONDS);
 }
 
 export class ScatterView {
   readonly group = new Group();
   private readonly trees: CrushableTree[] = [];
+  private readonly activeCrushed: CrushableTree[] = [];
   private readonly treeGrid = new Map<string, CrushableTree[]>();
   private readonly matrix = new Matrix4();
   private readonly quat = new Quaternion();
@@ -346,7 +361,7 @@ export class ScatterView {
     this.group.add(mesh);
   }
 
-  updateGroundEffects(timeSeconds: number, qualityTier: number): void {
+  updateGroundEffects(timeSeconds: number, qualityTier: number, simTimeSeconds?: number): void {
     const uniforms = this.grassMaterial?.userData.groundUniforms as { time: { value: number } } | undefined;
     if (uniforms) uniforms.time.value = timeSeconds;
     if (this.grassMesh) {
@@ -354,6 +369,7 @@ export class ScatterView {
       this.grassMesh.count = qualityTier === 1 ? Math.ceil(this.grassFullCount * 0.55) : this.grassFullCount;
     }
     if (this.contactMesh) this.contactMesh.visible = qualityTier < 2;
+    if (simTimeSeconds !== undefined) this.updateCrushedVegetation(simTimeSeconds);
   }
 
   syncBuildingContacts(entities: Iterable<ContactEntity>, hf: Heightfield): void {
@@ -385,7 +401,7 @@ export class ScatterView {
     else this.treeGrid.set(key, [tree]);
   }
 
-  crushNear(x: number, z: number, radius: number): number {
+  crushNear(x: number, z: number, radius: number, simTimeSeconds = 0): number {
     let crushed = 0;
     const minX = Math.floor((x - radius) / this.gridSize);
     const maxX = Math.floor((x + radius) / this.gridSize);
@@ -397,12 +413,13 @@ export class ScatterView {
         const bucket = this.treeGrid.get(`${gx}:${gz}`);
         if (!bucket) continue;
         for (const tree of bucket) {
-          if (tree.crushed) continue;
+          if (tree.crushedAt !== undefined || tree.removed) continue;
           const d2 = (tree.x - x) ** 2 + (tree.z - z) ** 2;
           if (d2 > r2) continue;
-          tree.crushed = true;
+          tree.crushedAt = simTimeSeconds;
           crushed++;
           this.applyCrushedTree(tree);
+          this.activeCrushed.push(tree);
         }
       }
     }
@@ -410,15 +427,55 @@ export class ScatterView {
   }
 
   private applyCrushedTree(tree: CrushableTree): void {
-    const fallSide = tree.index % 2 === 0 ? 1 : -1;
-    this.quat.setFromEuler(new Euler(Math.PI * 0.47 * fallSide, tree.rotY, Math.PI * 0.08 * fallSide, 'YXZ'));
-    this.pos.set(tree.x, tree.y + 0.12, tree.z);
-    this.scale.set(tree.scale * 1.04, tree.scale * 0.72, tree.scale * 1.04);
+    if (tree.kind === 'tree') {
+      const fallSide = tree.index % 2 === 0 ? 1 : -1;
+      this.quat.setFromEuler(new Euler(Math.PI * 0.47 * fallSide, tree.rotY, Math.PI * 0.08 * fallSide, 'YXZ'));
+      this.pos.set(tree.x, tree.y + 0.12, tree.z);
+      this.scale.set(tree.scale * 1.04, tree.scale * 0.72, tree.scale * 1.04);
+    } else {
+      this.quat.setFromEuler(new Euler(0, tree.rotY, 0));
+      this.pos.set(tree.x, tree.y + 0.04, tree.z);
+      this.scale.set(tree.scale * 1.12, tree.scale * 0.16, tree.scale * 1.12);
+    }
     this.matrix.compose(this.pos, this.quat, this.scale);
     tree.mesh.setMatrixAt(tree.index, this.matrix);
     tree.mesh.setColorAt(tree.index, this.crushedColor);
     tree.mesh.instanceMatrix.needsUpdate = true;
     if (tree.mesh.instanceColor) tree.mesh.instanceColor.needsUpdate = true;
+  }
+
+  private updateCrushedVegetation(simTimeSeconds: number): void {
+    for (let index = this.activeCrushed.length - 1; index >= 0; index--) {
+      const tree = this.activeCrushed[index];
+      if (tree.crushedAt === undefined || tree.removed) {
+        this.activeCrushed.splice(index, 1);
+        continue;
+      }
+      const opacity = crushedVegetationOpacity(Math.max(0, simTimeSeconds - tree.crushedAt));
+      tree.opacity.setX(tree.index, opacity);
+      tree.opacity.needsUpdate = true;
+      this.updateContactFade(tree, opacity);
+      if (opacity > 0) continue;
+      this.quat.identity();
+      this.pos.set(tree.x, tree.y, tree.z);
+      this.scale.setScalar(0);
+      this.matrix.compose(this.pos, this.quat, this.scale);
+      tree.mesh.setMatrixAt(tree.index, this.matrix);
+      tree.mesh.instanceMatrix.needsUpdate = true;
+      tree.removed = true;
+      this.activeCrushed.splice(index, 1);
+    }
+  }
+
+  private updateContactFade(tree: CrushableTree, opacity: number): void {
+    if (!this.contactMesh) return;
+    this.quat.identity();
+    this.pos.set(tree.x, tree.contactY, tree.z);
+    const radius = tree.contactRadius * opacity;
+    this.scale.set(radius, radius, radius);
+    this.matrix.compose(this.pos, this.quat, this.scale);
+    this.contactMesh.setMatrixAt(tree.contactIndex, this.matrix);
+    this.contactMesh.instanceMatrix.needsUpdate = true;
   }
 
   private gridKey(x: number, z: number): string {
@@ -436,6 +493,7 @@ export function buildScatter(
   const rng = mulberry32(seed);
   const kind = hf.kind;
   const defs = scatterDefs(kind, rng);
+  enableScatterInstanceFade(material);
 
   const view = new ScatterView();
   const contactTransforms: ContactTransform[] = [];
@@ -446,6 +504,7 @@ export function buildScatter(
   for (const def of defs) {
     const targetCount = Math.round(def.count * mapAreaScale);
     const list: InstanceTransform[] = [];
+    const contactIndices: number[] = [];
     let guard = 0;
     while (list.length < targetCount && guard++ < targetCount * 80) {
       const x = (rng() * 2 - 1) * bound;
@@ -479,21 +538,30 @@ export function buildScatter(
         scale: def.scaleMin + rng() * (def.scaleMax - def.scaleMin),
         tint,
       });
+      contactIndices.push(contactTransforms.length);
       contactTransforms.push({ x, y: h + 0.07, z, radius: def.isTree ? 0.62 : 0.48 });
     }
     const mesh = registry.register(def.name, def.geometry, material, list);
+    const opacity = new InstancedBufferAttribute(new Float32Array(list.length).fill(1), 1);
+    mesh.geometry.setAttribute('instanceOpacity', opacity);
     view.addMesh(mesh);
-    if (def.isTree) {
+    const crushableKind = def.isTree ? 'tree' : def.name.includes('shrub') ? 'bush' : undefined;
+    if (crushableKind) {
       list.forEach((inst, index) => {
         view.addTree({
           mesh,
+          opacity,
           index,
           x: inst.x,
           y: inst.y,
           z: inst.z,
           rotY: inst.rotY,
           scale: inst.scale,
-          crushed: false,
+          kind: crushableKind,
+          contactIndex: contactIndices[index],
+          contactY: inst.y + 0.22,
+          contactRadius: def.isTree ? 0.62 : 0.48,
+          removed: false,
         });
       });
     }
@@ -517,6 +585,27 @@ export function buildScatter(
     view.setContactLayer(contactMesh, contactTransforms.length, contactCapacity);
   }
   return view;
+}
+
+function enableScatterInstanceFade(material: Material): void {
+  if (material.userData.scatterInstanceFade) return;
+  material.userData.scatterInstanceFade = true;
+  const previousCompile = material.onBeforeCompile;
+  const previousCacheKey = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile?.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float instanceOpacity;\nvarying float vInstanceOpacity;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvInstanceOpacity = instanceOpacity;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vInstanceOpacity;')
+      .replace('#include <dithering_fragment>', `
+        float vegetationFadeNoise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        if (vegetationFadeNoise > vInstanceOpacity) discard;
+        #include <dithering_fragment>`);
+  };
+  material.customProgramCacheKey = () => `${previousCacheKey()}|scatter-instance-fade-v1`;
+  material.needsUpdate = true;
 }
 
 export function groundClutterTargetCount(hf: Heightfield): number {

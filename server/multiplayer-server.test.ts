@@ -383,6 +383,23 @@ describe('multiplayer relay', () => {
     const events = await Promise.all(starts);
     expect(events.every((event) => event.room.armyCount === 2)).toBe(true);
     expect(events[0].room.armySides).toEqual([1, 2, 3, 4]);
+
+    const relayedTickPackets = clients.map((client, clientIndex) => collectMessages(
+      client,
+      (message) => message.type === 'command' && message.tick === 4 && message.command?.type === 'tick-ready' && message.playerId !== sessions[clientIndex].player.id,
+      3,
+    ));
+    for (let index = 0; index < clients.length; index++) {
+      clients[index].send(JSON.stringify({
+        type: 'command',
+        roomCode,
+        playerId: sessions[index].player.id,
+        tick: 4,
+        command: { type: 'tick-ready' },
+      }));
+    }
+    const received = await Promise.all(relayedTickPackets);
+    expect(received.every((messages) => new Set(messages.map((message) => message.playerId)).size === 3)).toBe(true);
   }, 5000);
 
   it('assigns four players to two shared armies with Commander and Field Officer seats', async () => {
@@ -524,6 +541,34 @@ function nextMessage(socket: WebSocket, predicate: (message: RelayMessage) => bo
       if (!predicate(message)) return;
       cleanup();
       resolve(message);
+    };
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      socket.off('message', onMessage);
+    };
+    socket.on('message', onMessage);
+  });
+}
+
+function collectMessages(
+  socket: WebSocket,
+  predicate: (message: RelayMessage) => boolean,
+  count: number,
+  timeoutMs = 1000,
+): Promise<RelayMessage[]> {
+  return new Promise((resolve, reject) => {
+    const messages: RelayMessage[] = [];
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`message timeout (${messages.length}/${count})`));
+    }, timeoutMs);
+    const onMessage = (raw: WebSocket.RawData): void => {
+      const message = JSON.parse(String(raw)) as RelayMessage;
+      if (!predicate(message)) return;
+      messages.push(message);
+      if (messages.length < count) return;
+      cleanup();
+      resolve(messages);
     };
     const cleanup = (): void => {
       clearTimeout(timeout);

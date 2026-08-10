@@ -118,6 +118,48 @@ interface FriendlyGlowMesh {
   count: number;
 }
 
+export interface GroundVehicleTerrainAttitude {
+  y: number;
+  pitch: number;
+  roll: number;
+}
+
+// Keep traversable extreme terrain playable without making a tracked vehicle
+// look as though it is falling onto its side. The softened suspension still
+// communicates the grade, but caps the visual chassis angle at 32 degrees.
+const MAX_GROUND_VEHICLE_TILT = Math.PI * (32 / 180);
+
+/** Samples the chassis footprint so vehicles follow the slope instead of clipping through it. */
+export function groundVehicleTerrainAttitude(
+  hf: Heightfield,
+  x: number,
+  z: number,
+  yaw: number,
+  radius: number,
+): GroundVehicleTerrainAttitude {
+  const safeRadius = Math.max(0.8, radius);
+  const halfLength = Math.max(1.35, safeRadius * 1.3);
+  const halfWidth = Math.max(0.95, safeRadius * 0.82);
+  const forwardX = Math.sin(yaw);
+  const forwardZ = Math.cos(yaw);
+  const rightX = Math.cos(yaw);
+  const rightZ = -Math.sin(yaw);
+  const front = sampleHeight(hf, x + forwardX * halfLength, z + forwardZ * halfLength);
+  const rear = sampleHeight(hf, x - forwardX * halfLength, z - forwardZ * halfLength);
+  const right = sampleHeight(hf, x + rightX * halfWidth, z + rightZ * halfWidth);
+  const left = sampleHeight(hf, x - rightX * halfWidth, z - rightZ * halfWidth);
+  const center = sampleHeight(hf, x, z);
+  const clampTilt = (angle: number): number => Math.max(-MAX_GROUND_VEHICLE_TILT, Math.min(MAX_GROUND_VEHICLE_TILT, angle));
+  return {
+    // On convex ridges, use the higher axle pair so the hull belly cannot cut
+    // through the ground while the front and rear suspension remain planted.
+    y: Math.max(center, (front + rear) * 0.5, (right + left) * 0.5),
+    // Three.js positive X rotation lowers local +Z, hence the negative uphill pitch.
+    pitch: clampTilt(-Math.atan2(front - rear, halfLength * 2)),
+    roll: clampTilt(Math.atan2(right - left, halfWidth * 2)),
+  };
+}
+
 type LowDetailKind = 'infantry' | 'vehicle' | 'aircraft';
 
 interface LowDetailMesh {
@@ -471,6 +513,7 @@ export class UnitView {
   private readonly rotorWashes = new Map<Entity, { mesh: Mesh; material: MeshBasicMaterial }>();
   private readonly damageOverlays = new Map<Entity, UnitDamageOverlay>();
   private readonly hitReactions = new Map<Entity, UnitHitReaction>();
+  private readonly groundAttitudes = new Map<Entity, GroundVehicleTerrainAttitude>();
   private readonly airShadowMaterial = new MeshBasicMaterial({ color: 0x020403, transparent: true, opacity: 0.26, depthWrite: false });
   private readonly wrecked = new Set<Entity>();
   private hiddenEntity?: Entity;
@@ -696,6 +739,7 @@ export class UnitView {
     this.refs.delete(entity);
     this.entitiesById.delete(entity.id);
     this.hitReactions.delete(entity);
+    this.groundAttitudes.delete(entity);
     const ring = this.selectedRings.get(entity);
     if (ring) {
       this.group.remove(ring); // ring geometry is shared — do not dispose
@@ -876,7 +920,15 @@ export class UnitView {
       const z = lerp(entity.previousTransform.z, entity.transform.z, alpha);
       const rot = lerpAngle(entity.previousTransform.rot, entity.transform.rot, alpha);
       const groundY = sampleHeight(this.hf, x, z);
-      const y = entity.flight ? lerp(entity.previousTransform.y ?? entity.transform.y ?? groundY, entity.transform.y ?? groundY, alpha) : groundY + 0.35;
+      let y = entity.flight ? lerp(entity.previousTransform.y ?? entity.transform.y ?? groundY, entity.transform.y ?? groundY, alpha) : groundY + 0.35;
+      if (this.isGroundVehicle(entity)) {
+        // Terrain pitch and roll are chassis-local. YXZ applies heading first,
+        // so turning on a hillside cannot rotate an uphill pitch around a
+        // world-space axis and tip the tank onto its edge.
+        obj.rotation.order = 'YXZ';
+        const attitude = this.updateGroundAttitude(entity, x, z, rot, dt);
+        y = attitude.y + 0.35;
+      }
       obj.position.set(x, y, z);
       obj.rotation.y = rot;
       if (updateDetails && !entity.destroyed) this.updateFriendlyGlow(entity, x, y, z, glowTime);
@@ -957,9 +1009,13 @@ export class UnitView {
       const z = lerp(entity.previousTransform.z, entity.transform.z, alpha);
       const rot = lerpAngle(entity.previousTransform.rot, entity.transform.rot, alpha);
       const groundY = sampleHeight(this.hf, x, z);
-      const y = entity.flight
+      let y = entity.flight
         ? lerp(entity.previousTransform.y ?? entity.transform.y ?? groundY, entity.transform.y ?? groundY, alpha)
         : groundY + 0.35;
+      const terrainAttitude = this.isGroundVehicle(entity)
+        ? this.updateGroundAttitude(entity, x, z, rot, dt)
+        : undefined;
+      if (terrainAttitude) y = terrainAttitude.y + 0.35;
       const dx = x - camera.position.x;
       const dy = y - camera.position.y;
       const dz = z - camera.position.z;
@@ -986,6 +1042,7 @@ export class UnitView {
         obj.visible = true;
         this.updateUpgradeVisuals(entity);
         obj.position.set(x, y, z);
+        if (terrainAttitude) obj.rotation.order = 'YXZ';
         obj.rotation.y = rot;
         this.applyPose(entity, obj, dt);
         this.applyHitReaction(entity, obj, dt);
@@ -993,7 +1050,7 @@ export class UnitView {
         const turret = this.refs.get(entity)?.turretPivot;
         if (turret && entity.turret) turret.rotation.y = entity.turret.yaw - rot;
       } else {
-        this.addLowDetailInstance(entity, x, y, z, rot);
+        this.addLowDetailInstance(entity, x, y, z, rot, terrainAttitude);
       }
       ring.position.set(x, groundY + 0.08, z);
       ring.visible = this.selectionOverlayVisible && !entity.destroyed && selected;
@@ -1013,14 +1070,26 @@ export class UnitView {
     }
   }
 
-  private addLowDetailInstance(entity: Entity, x: number, y: number, z: number, rot: number): void {
+  private addLowDetailInstance(
+    entity: Entity,
+    x: number,
+    y: number,
+    z: number,
+    rot: number,
+    terrainAttitude?: GroundVehicleTerrainAttitude,
+  ): void {
     const kind: LowDetailKind = entity.flight ? 'aircraft' : entity.selectable?.type === 'infantry' ? 'infantry' : 'vehicle';
     const proxy = this.lowDetailMeshes[factionId(entity.team?.id)][kind];
     if (proxy.count >= MAX_LOW_DETAIL_UNITS) return;
     const radius = Math.max(0.65, entity.selectable?.radius ?? 1.5);
     const destroyedScale = entity.destroyed ? 0.32 : 1;
     this.lowDetailTransform.position.set(x, y + (kind === 'infantry' ? 0.85 : kind === 'vehicle' ? 0.62 : 0), z);
-    this.lowDetailTransform.rotation.set(0, rot, entity.destroyed ? Math.PI * 0.38 : 0);
+    this.lowDetailTransform.rotation.set(
+      terrainAttitude?.pitch ?? 0,
+      rot,
+      (terrainAttitude?.roll ?? 0) + (entity.destroyed ? Math.PI * 0.38 : 0),
+      terrainAttitude ? 'YXZ' : 'XYZ',
+    );
     if (kind === 'infantry') this.lowDetailTransform.scale.set(0.78, 1.75 * destroyedScale, 0.78);
     else if (kind === 'aircraft') this.lowDetailTransform.scale.set(radius * 1.55, 0.75 * destroyedScale, radius * 1.15);
     else this.lowDetailTransform.scale.set(radius * 1.35, Math.max(0.55, radius * 0.58) * destroyedScale, radius * 1.75);
@@ -1050,6 +1119,34 @@ export class UnitView {
     for (const [upgradeId, visual] of this.refs.get(entity)?.upgradeVisuals ?? []) {
       visual.visible = hasUnitUpgrade(entity, upgradeId);
     }
+  }
+
+  private isGroundVehicle(entity: Entity): boolean {
+    const type = entity.selectable?.type;
+    return !entity.flight && (type === 'tank' || type === 'harvester' || (type === 'infantry' && hasUnitUpgrade(entity, 'combat-bike')));
+  }
+
+  private updateGroundAttitude(entity: Entity, x: number, z: number, yaw: number, dt: number): GroundVehicleTerrainAttitude {
+    const target = groundVehicleTerrainAttitude(
+      this.hf,
+      x,
+      z,
+      yaw,
+      entity.mover?.radius ?? entity.selectable?.radius ?? 1.8,
+    );
+    const current = this.groundAttitudes.get(entity);
+    if (!current) {
+      this.groundAttitudes.set(entity, target);
+      return target;
+    }
+    const tiltBlend = 1 - Math.exp(-Math.max(0, dt) * 24);
+    current.pitch += (target.pitch - current.pitch) * tiltBlend;
+    current.roll += (target.roll - current.roll) * tiltBlend;
+    // Clearance follows the footprint directly. The previous error-based lift
+    // interpreted a fast yaw turn as a sudden suspension impact, which made
+    // V-mode tanks jump and pivot around one track on steep terrain.
+    current.y = target.y;
+    return current;
   }
 
   private applyHitReaction(entity: Entity, obj: Object3D, dt: number): void {
@@ -1176,18 +1273,20 @@ export class UnitView {
           rig.muzzleFlash.visible = false;
           if (rig.backBlast) rig.backBlast.visible = false;
         }
-      } else if (!this.wrecked.has(entity)) {
+      } else {
         // tanks become scorched husks that persist
-        this.wrecked.add(entity);
-        obj.traverse((child) => {
-          if (child instanceof Mesh) child.material = this.wreckMaterial;
-        });
-        obj.rotation.z = 0.09;
-        const turret = refs?.turretPivot;
-        if (turret) {
-          turret.rotation.x = 0.14;
-          turret.position.y = -0.12;
+        if (!this.wrecked.has(entity)) {
+          this.wrecked.add(entity);
+          obj.traverse((child) => {
+            if (child instanceof Mesh) child.material = this.wreckMaterial;
+          });
+          const turret = refs?.turretPivot;
+          if (turret) {
+            turret.rotation.x = 0.14;
+            turret.position.y = -0.12;
+          }
         }
+        obj.rotation.z += 0.09;
       }
       return;
     }
@@ -1210,8 +1309,9 @@ export class UnitView {
     }
 
     if (entity.selectable?.type === 'harvester') {
-      obj.rotation.x = 0;
-      obj.rotation.z = 0;
+      const terrain = this.groundAttitudes.get(entity);
+      obj.rotation.x = terrain?.pitch ?? 0;
+      obj.rotation.z = terrain?.roll ?? 0;
       const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
       const maxSpeed = Math.max(1, entity.mover?.speed ?? 12);
       const speedT = Math.min(1, speed / maxSpeed);
@@ -1220,8 +1320,8 @@ export class UnitView {
           ? Math.atan2(entity.velocity.x, entity.velocity.z)
           : entity.transform.rot;
         const slip = Math.atan2(Math.sin(moveYaw - entity.transform.rot), Math.cos(moveYaw - entity.transform.rot));
-        obj.rotation.x = Math.sin(performance.now() * 0.0075 + entity.id * 0.7) * 0.009 * speedT;
-        obj.rotation.z = Math.max(-0.055, Math.min(0.055, -slip * 0.1));
+        obj.rotation.x += Math.sin(performance.now() * 0.0075 + entity.id * 0.7) * 0.009 * speedT;
+        obj.rotation.z += Math.max(-0.055, Math.min(0.055, -slip * 0.1));
         obj.position.y += Math.sin(performance.now() * 0.011 + entity.id) * 0.018 * speedT;
         this.emitTankDust(entity, speed, dt);
       }
@@ -1261,8 +1361,9 @@ export class UnitView {
     }
 
     if (!isInfantry) {
-      obj.rotation.x = 0;
-      obj.rotation.z = 0;
+      const terrain = this.groundAttitudes.get(entity);
+      obj.rotation.x = terrain?.pitch ?? 0;
+      obj.rotation.z = terrain?.roll ?? 0;
       const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
       const maxSpeed = Math.max(1, entity.mover?.speed ?? 12);
       const speedT = Math.min(1, speed / maxSpeed);
@@ -1271,8 +1372,8 @@ export class UnitView {
           ? Math.atan2(entity.velocity.x, entity.velocity.z)
           : entity.transform.rot;
         const slip = Math.atan2(Math.sin(moveYaw - entity.transform.rot), Math.cos(moveYaw - entity.transform.rot));
-        obj.rotation.x = Math.sin(performance.now() * 0.009 + entity.id * 0.7) * 0.012 * speedT;
-        obj.rotation.z = Math.max(-0.075, Math.min(0.075, -slip * 0.13));
+        obj.rotation.x += Math.sin(performance.now() * 0.009 + entity.id * 0.7) * 0.012 * speedT;
+        obj.rotation.z += Math.max(-0.075, Math.min(0.075, -slip * 0.13));
         obj.position.y += Math.sin(performance.now() * 0.014 + entity.id) * 0.025 * speedT;
         this.emitTankDust(entity, speed, dt);
       }
@@ -1309,8 +1410,9 @@ export class UnitView {
     const rig = this.soldierRigs.get(entity);
     const anim = this.anims.get(entity);
     if (!rig || !anim) return;
-    obj.rotation.x = 0;
-    obj.rotation.z = 0;
+    const bikeTerrain = hasUnitUpgrade(entity, 'combat-bike') ? this.groundAttitudes.get(entity) : undefined;
+    obj.rotation.x = bikeTerrain?.pitch ?? 0;
+    obj.rotation.z = bikeTerrain?.roll ?? 0;
     const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
     const onCombatBike = hasUnitUpgrade(entity, 'combat-bike');
     rig.combatBike.visible = onCombatBike;
@@ -1359,7 +1461,7 @@ export class UnitView {
       anim.bikeSpeed += (speed - anim.bikeSpeed) * Math.min(1, dt * 4.5);
       // Lean the complete rider/bike assembly; leaning only the wheels made the
       // rider appear unnaturally locked upright during high-speed turns.
-      obj.rotation.z = anim.bikeLean;
+      obj.rotation.z += anim.bikeLean;
       rig.combatBike.rotation.z = 0;
       rig.bikeSteering.rotation.y = anim.bikeSteer;
       rig.bikeSteering.rotation.z = -anim.bikeSteer * 0.08;

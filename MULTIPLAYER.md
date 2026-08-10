@@ -125,3 +125,6 @@ For a deploy-ready setup:
   is not authoritative anti-cheat and every client holds the complete simulation state.
 - A production host should provide HTTPS/WSS, process restarts, logs, uptime monitoring, and a
   non-sleeping instance if instant room creation matters.
+
+The current automated and office release gate is documented in
+`MULTIPLAYER_STABILITY_PLAN.md`.

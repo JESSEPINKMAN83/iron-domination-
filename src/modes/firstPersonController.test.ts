@@ -2,6 +2,7 @@ import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import type { Entity } from '../sim/components';
 import {
+  directControlFollowerAnchor,
   fortressOpticalFov,
   fortressTargetScanConeRatio,
   fortressTargetScanRingSize,
@@ -87,6 +88,25 @@ describe('direct-control squads', () => {
     const result = selectDirectControlSquad([destroyed, eligible], 0);
 
     expect(result).toEqual({ leader: eligible, squad: [eligible] });
+  });
+
+  it('keeps wingmen behind the leader instead of ordering them onto its position', () => {
+    const leader = {
+      id: 1,
+      transform: { x: 20, z: 30, rot: 0 },
+      mover: { speed: 12, radius: 3 },
+    } as Entity;
+    const follower = {
+      id: 2,
+      transform: { x: 0, z: 0, rot: 0 },
+      mover: { speed: 12, radius: 3 },
+    } as Entity;
+
+    expect(directControlFollowerAnchor(leader, [follower])).toEqual({ x: 20, z: 16 });
+    leader.transform.rot = Math.PI / 2;
+    const turned = directControlFollowerAnchor(leader, [follower]);
+    expect(turned.x).toBeCloseTo(6);
+    expect(turned.z).toBeCloseTo(30);
   });
 });
 

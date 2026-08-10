@@ -1,6 +1,7 @@
 import { enlistedCommander } from '../identity/enlist';
 import type { Difficulty, Personality } from '../content/phase6';
 import type { CombatMode } from '../content/rules';
+import { secureRandomUuid } from '../crypto';
 
 export interface MultiplayerRoom {
   code: string;
@@ -312,7 +313,7 @@ export class MultiplayerClient {
   }
 
   private request(payload: Record<string, unknown>): Promise<MultiplayerSession> {
-    const requestId = crypto.randomUUID();
+    const requestId = secureRandomUuid();
     const message = { ...payload, requestId };
     return new Promise((resolve, reject) => {
       const timeout = window.setTimeout(() => {

@@ -1,4 +1,5 @@
 import type { FeedbackMatchMetadata } from './backoffice';
+import { secureRandomUuid } from './crypto';
 
 export type TelemetryEventName =
   | 'session-start'
@@ -44,7 +45,7 @@ export function telemetryPlayerId(): string {
   } catch {
     // Storage unavailable: the id below still identifies this visit.
   }
-  cachedPlayerId = stored && /^[0-9a-f-]{36}$/.test(stored) ? stored : crypto.randomUUID();
+  cachedPlayerId = stored && /^[0-9a-f-]{36}$/.test(stored) ? stored : secureRandomUuid();
   if (cachedPlayerId !== stored) {
     try {
       window.localStorage.setItem(PLAYER_ID_STORAGE_KEY, cachedPlayerId);
