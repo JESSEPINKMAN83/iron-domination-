@@ -82,6 +82,8 @@ export type MultiplayerEvent =
 export interface MultiplayerSession {
   room: MultiplayerRoom;
   player: MultiplayerPlayer;
+  /** The page reclaimed an in-progress slot and must request a fresh host snapshot after boot. */
+  rejoinedAfterRefresh?: boolean;
 }
 
 export function shouldLaunchLocalSkirmish(room: MultiplayerRoom, localPlayerId: string): boolean {
@@ -276,6 +278,7 @@ export class MultiplayerClient {
         code: previous.room.code,
         name: previous.player.name,
         playerId: previous.player.id,
+        ...this.membership(),
         engine: browserEngine(),
       });
       this.lastSession = session;
@@ -290,6 +293,7 @@ export class MultiplayerClient {
             type: 'resume-room',
             room: previous.room,
             player: previous.player,
+            ...this.membership(),
             engine: browserEngine(),
           });
           this.lastSession = session;

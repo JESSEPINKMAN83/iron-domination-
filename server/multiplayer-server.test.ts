@@ -155,6 +155,62 @@ describe('multiplayer relay', () => {
     expect(refusal.error).toBe('member-required');
   });
 
+  it('lets a verified member reclaim their reserved player slot in enforce mode', async () => {
+    const port = await availablePort();
+    children.push(spawn(process.execPath, ['server/multiplayer-server.mjs'], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PORT: String(port),
+        MEMBER_AUTH: 'enforce',
+        IRON_DOMINION_INGEST_SECRET: RELAY_SECRET,
+        RECONNECT_GRACE_MS: '1000',
+      },
+      stdio: 'ignore',
+    }));
+    await waitForHealth(port);
+
+    const original = await connect(port);
+    original.send(JSON.stringify({
+      type: 'host',
+      requestId: 'member-host',
+      name: 'Member Host',
+      settings: { seed: 17 },
+      memberId: 'member-1',
+      memberTicket: ticketFor('member-1'),
+    }));
+    const hosted = await nextMessage(original, (message) => message.type === 'session');
+    original.close();
+
+    const intruder = await connect(port);
+    intruder.send(JSON.stringify({
+      type: 'join',
+      requestId: 'member-intruder',
+      code: hosted.room.code,
+      playerId: hosted.player.id,
+      memberId: 'member-2',
+      memberTicket: ticketFor('member-2'),
+    }));
+    const rejected = await nextMessage(intruder, (message) => message.type === 'session' || message.type === 'error');
+    expect(rejected.error).toBe('member-mismatch');
+    intruder.close();
+
+    const replacement = await connect(port);
+    replacement.send(JSON.stringify({
+      type: 'join',
+      requestId: 'member-rejoin',
+      code: hosted.room.code,
+      playerId: hosted.player.id,
+      memberId: 'member-1',
+      memberTicket: ticketFor('member-1'),
+    }));
+    const rejoined = await nextMessage(replacement, (message) => message.type === 'session' || message.type === 'error');
+
+    expect(rejoined.type).toBe('session');
+    expect(rejoined.player.id).toBe(hosted.player.id);
+    expect(rejoined.player.verifiedMember).toBe(true);
+  });
+
   it('starts a match, rejects player spoofing, and preserves a reconnecting slot', async () => {
     const port = await availablePort();
     const child = spawn(process.execPath, ['server/multiplayer-server.mjs'], {

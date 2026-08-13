@@ -667,6 +667,40 @@ describe('multiplayer lockstep commands', () => {
     vi.useRealTimers();
   });
 
+  it('requests a host snapshot after reclaiming a match during page refresh', () => {
+    const hf = generateHeightfield(MAP01);
+    const match = testMatch(hf);
+    const sent: unknown[] = [];
+    const session = sessionFor(2);
+    session.rejoinedAfterRefresh = true;
+    const client = {
+      connect: (
+        _room: string,
+        _playerId: string,
+        _handler: (event: unknown) => void,
+        _onError: () => void,
+        onOpen?: () => void,
+      ) => onOpen?.(),
+      disconnect: () => undefined,
+      sendCommand: async (_room: string, _playerId: string, _tick: number, command: unknown) => {
+        sent.push(command);
+      },
+    } as unknown as MultiplayerClient;
+    const lockstep = new LockstepRuntime({
+      sim: match.sim,
+      hf,
+      economies: { 1: match.economy1, 2: match.economy2 },
+      client,
+      session,
+    });
+
+    lockstep.connect();
+
+    expect(sent.some((command) => isCommandType(command, 'snapshot-request'))).toBe(true);
+    expect(lockstep.canAdvance()).toBe(false);
+    expect(session.rejoinedAfterRefresh).toBe(false);
+  });
+
   it('guest stays paused after applying a host snapshot until the host resumes the match', () => {
     const hf = generateHeightfield(MAP01);
     const host = testMatch(hf);
