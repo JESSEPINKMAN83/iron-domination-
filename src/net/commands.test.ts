@@ -634,12 +634,17 @@ describe('multiplayer lockstep commands', () => {
         sent.push(command);
       },
     } as unknown as MultiplayerClient;
+    const session = sessionFor(1);
+    session.room.players = [
+      { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
+      { id: 'guest', index: 2, armyId: 2, role: 'commander', name: 'Guest', connected: true },
+    ];
     const lockstep = new LockstepRuntime({
       sim: match.sim,
       hf,
       economies: { 1: match.economy1, 2: match.economy2 },
       client,
-      session: sessionFor(1),
+      session,
     });
     lockstep.connect();
     onEvent?.({
@@ -718,12 +723,17 @@ describe('multiplayer lockstep commands', () => {
       disconnect: () => undefined,
       sendCommand: async () => undefined,
     } as unknown as MultiplayerClient;
+    const session = sessionFor(2);
+    session.room.players = [
+      { id: 'host', index: 1, armyId: 1, role: 'commander', name: 'Host', connected: true },
+      { id: 'guest', index: 2, armyId: 2, role: 'commander', name: 'Guest', connected: true },
+    ];
     const lockstep = new LockstepRuntime({
       sim: guest.sim,
       hf,
       economies: { 1: guest.economy1, 2: guest.economy2 },
       client,
-      session: sessionFor(2),
+      session,
       onSnapshotRestored: () => {
         restored++;
       },
