@@ -430,6 +430,9 @@ export class LockstepRuntime {
       if (!this.isHost || !this.recoveryPending) return;
       const localHash = this.currentHash();
       if (localHash === command.hash && this.options.sim.tick === command.tick) {
+        // The acknowledgement proves this peer restored the host's exact tick. Mark
+        // it ready explicitly in case its tick-ready packet raced this handshake.
+        this.markTickReady(command.tick, playerIndex);
         void this.send({ type: 'snapshot-resume', hash: localHash, tick: command.tick }, command.tick);
         this.primeTickBarrier(command.tick);
         this.scheduleHostRecoveryResume(command.tick);
@@ -442,6 +445,8 @@ export class LockstepRuntime {
       if (this.isHost || !this.recoveryPending) return;
       const localHash = this.currentHash();
       if (localHash !== command.hash || this.options.sim.tick !== command.tick) return;
+      // A matching resume packet likewise proves the host is ready at this tick.
+      this.markTickReady(command.tick, playerIndex);
       this.recoveryPending = false;
       this.roomPaused = this.peerMissing;
       this.options.onStatus?.(`Match synchronized at tick ${command.tick}`);

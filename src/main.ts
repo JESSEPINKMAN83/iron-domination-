@@ -541,6 +541,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
 
 function reloadWithSettings(settings: SkirmishSettings, autostart: boolean): void {
   saveSkirmishSettings(settings);
+  clearActiveMultiplayerMatch(window.sessionStorage);
   if (autostart) window.sessionStorage.setItem(AUTOSTART_STORAGE_KEY, '1');
   else window.sessionStorage.removeItem(AUTOSTART_STORAGE_KEY);
   activeMatchExitGuard?.allowNextUnload();
@@ -3143,6 +3144,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           concludeMatch('defeat');
         }
       : undefined,
+    reconnect: multiplayerMode
+      ? () => {
+          activeMatchExitGuard?.allowNextUnload();
+          window.location.reload();
+        }
+      : undefined,
   });
   let mobileControls: MobileGameControls | undefined;
   const firstPerson = new FirstPersonController(
@@ -3756,6 +3763,7 @@ function createGameMenu(
     save?: () => StoredMatchSave;
     load?: () => boolean;
     forfeit?: () => void;
+    reconnect?: () => void;
   },
 ): void {
   const wrap = document.createElement('div');
@@ -3782,6 +3790,7 @@ function createGameMenu(
       save: options.save,
       load: options.load,
       forfeit: options.forfeit,
+      reconnect: options.reconnect,
       onAtmosphereChange: options.onAtmosphereChange,
       onClose: () => options.setPaused(false),
       onHelp: () => openHowToPlay(),
@@ -3814,6 +3823,7 @@ function showMatchMenu(
     save?: () => StoredMatchSave;
     load?: () => boolean;
     forfeit?: () => void;
+    reconnect?: () => void;
     onAtmosphereChange?: (timeOfDay: TimeOfDay, weather: Weather) => void;
     onClose: () => void;
     onHelp: () => void;
@@ -3926,7 +3936,12 @@ function showMatchMenu(
         close();
       })
     : undefined;
-  const restart = dialogButton('Restart match', () => reloadWithSettings(settings, true));
+  const reconnectButton = options.reconnect
+    ? dialogButton('Reconnect to match', options.reconnect)
+    : undefined;
+  const restart = options.reconnect
+    ? undefined
+    : dialogButton('Restart match', () => reloadWithSettings(settings, true));
   const setup = dialogButton('Back to setup', () => reloadWithSettings(settings, false));
   panel.append(title, status);
   if (snapshot) panel.append(details);
@@ -3935,7 +3950,9 @@ function showMatchMenu(
   if (saveButton) panel.append(saveButton);
   if (loadButton) panel.append(loadButton);
   if (forfeitButton) panel.append(forfeitButton);
-  panel.append(restart, setup);
+  if (reconnectButton) panel.append(reconnectButton);
+  if (restart) panel.append(restart);
+  panel.append(setup);
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
 }
