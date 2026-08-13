@@ -83,6 +83,7 @@ export interface LockstepRuntimeOptions {
   onSnapshotRestored?: () => void;
   onTacticalPing?: (ping: TacticalPing) => void;
   onRematchStart?: () => void;
+  onRoomClosed?: () => void;
   /** A forfeit ends the match without destroying anything, so the runtime reports it. */
   onMatchOutcome?: (outcome: 'victory' | 'defeat') => void;
 }
@@ -149,6 +150,8 @@ export class LockstepRuntime {
   }
 
   connect(): void {
+    const rejoinedAfterRefresh = this.options.session.rejoinedAfterRefresh === true;
+    this.options.session.rejoinedAfterRefresh = false;
     this.connected = true;
     this.barrierEnabled = this.options.session.room.players.filter((player) => player.connected).length > 1;
     this.primeTickBarrier(this.options.sim.tick);
@@ -165,7 +168,7 @@ export class LockstepRuntime {
       },
       () => {
         this.connected = true;
-        if (this.connectionInterrupted) {
+        if (this.connectionInterrupted || rejoinedAfterRefresh) {
           this.connectionInterrupted = false;
           if (this.isHost) this.sendRecoverySnapshot('Reconnected — synchronizing match state');
           else {
@@ -359,6 +362,7 @@ export class LockstepRuntime {
       this.clearRecoveryResumeTimer();
       this.connected = false;
       this.roomPaused = true;
+      this.options.onRoomClosed?.();
       this.options.onStatus?.(roomClosedMessage(event.reason, this.localTeam), true);
       return;
     }

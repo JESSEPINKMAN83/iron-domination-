@@ -205,6 +205,9 @@ function handleJoin(socket, body) {
   if (!room) return send(socket, { type: 'error', requestId: body.requestId, error: 'room-not-found' });
   const existing = typeof body.playerId === 'string' ? room.players.find((player) => player.id === body.playerId) : undefined;
   if (!existing && room.status !== 'waiting') return send(socket, { type: 'error', requestId: body.requestId, error: 'match-in-progress' });
+  if (existing?.memberId && membership?.memberId !== existing.memberId) {
+    return send(socket, { type: 'error', requestId: body.requestId, error: 'member-mismatch' });
+  }
   const player = existing ?? addPlayer(room, body.name ?? `Commander ${room.players.length + 1}`, body.playerId, body.engine);
   if (membership?.memberId) player.memberId = membership.memberId;
   player.connected = true;
@@ -235,9 +238,12 @@ function handleResumeRoom(socket, body) {
       playerId: requestedPlayer.id,
     });
   }
+  const membership = resolveMembership(socket, body);
+  if (membership === false) return;
   const room = restoreRoom(snapshot);
   const host = room.players.find((player) => player.id === room.hostPlayerId);
   if (!host) return send(socket, { type: 'error', requestId: body.requestId, error: 'invalid-resume' });
+  if (membership?.memberId) host.memberId = membership.memberId;
   rooms.set(room.code, room);
   attachSocket(room, host, socket);
   send(socket, { type: 'session', requestId: body.requestId, room: publicRoom(room), player: publicPlayer(host) });

@@ -76,6 +76,7 @@ import { RtsController } from './modes/rtsController';
 import { MobileGameControls } from './mobile/gameControls';
 import { isMobileTouchDevice, MobileLandscapeGate } from './mobile/platform';
 import { LockstepRuntime } from './net/commands';
+import { clearActiveMultiplayerMatch, readActiveMultiplayerMatch, rememberActiveMultiplayerMatch } from './net/activeMatch';
 import { multiplayerInviteUrl, roomFromInvite } from './net/invite';
 import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, shouldLaunchLocalSkirmish, waitForMultiplayerServer, type MultiplayerEvent, type MultiplayerRoom, type MultiplayerSession, type TacticalPingKind } from './net/multiplayer';
 import { AssetPipeline } from './render/assets';
@@ -863,6 +864,11 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       saveSkirmishSettings(settings);
       if (matchMode === 'multiplayer' && multiplayerClient && multiplayerSession) {
         pendingMultiplayer = { client: multiplayerClient, session: multiplayerSession };
+        rememberActiveMultiplayerMatch(window.sessionStorage, {
+          server: multiplayerClient.baseUrl,
+          roomCode: multiplayerSession.room.code,
+          playerId: multiplayerSession.player.id,
+        });
       } else {
         pendingMultiplayer = undefined;
         multiplayerClient?.disconnect();
@@ -2771,6 +2777,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         onRematchStart: () => {
           if (multiplayer) restartMultiplayerMatch(multiplayer.client, multiplayer.session);
         },
+        onRoomClosed: () => clearActiveMultiplayerMatch(window.sessionStorage),
       })
     : undefined;
   const canManageArmy = !multiplayerMode || multiplayer.session.player.role !== 'field-officer';
@@ -3236,6 +3243,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     outcome = result;
     {
       activeMatchExitGuard?.complete();
+      if (multiplayerMode) clearActiveMultiplayerMatch(window.sessionStorage);
       matchTelemetry?.end();
       const snapshot = matchSnapshot();
       recordMatchHistory({
@@ -5243,9 +5251,29 @@ async function start(): Promise<void> {
   if (rematch) {
     const client = new MultiplayerClient(rematch.server);
     const session = await client.join(rematch.roomCode, undefined, rematch.playerId);
+    rememberActiveMultiplayerMatch(window.sessionStorage, {
+      server: client.baseUrl,
+      roomCode: session.room.code,
+      playerId: session.player.id,
+    });
     pendingMultiplayer = { client, session };
     await boot(settingsFromRoom(session.room));
     return;
+  }
+  const activeMatch = readActiveMultiplayerMatch(window.sessionStorage);
+  if (activeMatch) {
+    try {
+      await waitForMultiplayerServer(activeMatch.server);
+      const client = new MultiplayerClient(activeMatch.server);
+      const session = await client.join(activeMatch.roomCode, undefined, activeMatch.playerId);
+      if (session.room.status !== 'in-game') throw new Error('match-not-running');
+      session.rejoinedAfterRefresh = true;
+      pendingMultiplayer = { client, session };
+      await boot(settingsFromRoom(session.room));
+      return;
+    } catch {
+      clearActiveMultiplayerMatch(window.sessionStorage);
+    }
   }
   const hasAutostartParams = shouldAutostartFromUrl(params);
   const autostart = window.sessionStorage.getItem(AUTOSTART_STORAGE_KEY) === '1';
