@@ -1347,18 +1347,23 @@ function applyImpactPhysics(sim: GameSim, target: Entity, dealt: number, impact:
   if (!target.flight) {
     const existing = target.impactMomentum;
     const carry = existing ? 0.62 : 0;
-    const physicalScale = target.playerControlled ? 1 : 0.12;
-    const stagger = target.armor?.kind === 'infantry' && force > 0.18
+    const infantry = target.armor?.kind === 'infantry';
+    const physicalScale = target.playerControlled ? 1 : infantry ? 0.12 : 0.85;
+    const throwBoost = infantry ? 1 : 1.55;
+    const stagger = infantry && force > 0.18
       ? Math.min(1.28, 0.34 + force * 0.9)
       : 0;
     // Preserve a small velocity kick for existing movement/combat consumers;
-    // the momentum layer below carries the readable, slower recoil.
+    // the momentum layer below carries the readable throw away from the strike.
     target.velocity.x += response.directionX * response.impulseSpeed * 0.18;
     target.velocity.z += response.directionZ * response.impulseSpeed * 0.18;
     target.impactMomentum = {
-      x: Math.max(-8, Math.min(8, response.directionX * response.impulseSpeed * physicalScale + (existing?.x ?? 0) * carry)),
-      z: Math.max(-8, Math.min(8, response.directionZ * response.impulseSpeed * physicalScale + (existing?.z ?? 0) * carry)),
-      yaw: Math.max(-1.25, Math.min(1.25, response.angularImpulse * 0.56 * physicalScale + (existing?.yaw ?? 0) * carry)),
+      x: Math.max(-8, Math.min(8, response.directionX * response.impulseSpeed * physicalScale * throwBoost + (existing?.x ?? 0) * carry)),
+      z: Math.max(-8, Math.min(8, response.directionZ * response.impulseSpeed * physicalScale * throwBoost + (existing?.z ?? 0) * carry)),
+      // Yaw impulse used to corkscrew tanks in place. Knockback is linear; roll/pitch is visual.
+      yaw: infantry
+        ? Math.max(-1.25, Math.min(1.25, response.angularImpulse * 0.56 * physicalScale + (existing?.yaw ?? 0) * carry))
+        : 0,
       ttl: Math.max(existing?.ttl ?? 0, 0.72 + force * 0.48, stagger),
       stagger: Math.max(existing?.stagger ?? 0, stagger),
     };

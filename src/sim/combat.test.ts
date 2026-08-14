@@ -521,6 +521,93 @@ describe('phase 4 combat simulation', () => {
     expect(Math.hypot(nearby.velocity?.x ?? 0, nearby.velocity?.z ?? 0)).toBeGreaterThan(0);
   });
 
+  it('throws a tank away from a missile without spinning the hull in place', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const attacker = spawnTankAt(sim, -40, 0, 'A');
+    const target = spawnTankAt(sim, 28, 0, 'B', 2);
+    target.weapon = undefined;
+    target.weapons = undefined;
+    target.transform.rot = 0;
+    target.previousTransform.rot = 0;
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    attacker.turret!.yaw = Math.PI / 2;
+    expect(issueMoveOrder(sim, [target], 28, 90)).toBe(true);
+
+    expect(manualFireAt(sim, attacker, target.transform.x, target.transform.z, 'primary')).toBe(true);
+    for (let i = 0; i < 50; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    const reaction = sim.events.find((event) => event.kind === 'impact-reaction' && event.targetId === target.id);
+    expect(reaction).toBeDefined();
+    expect(target.impactMomentum).toBeDefined();
+    expect(target.impactMomentum?.x ?? 0).toBeGreaterThan(0.4);
+
+    const startX = target.transform.x;
+    const startRot = target.transform.rot;
+    let accumulatedYaw = 0;
+    let prevRot = startRot;
+    for (let i = 0; i < 24; i++) {
+      stepSim(sim, hf, 1 / 30);
+      const delta = Math.atan2(Math.sin(target.transform.rot - prevRot), Math.cos(target.transform.rot - prevRot));
+      accumulatedYaw += Math.abs(delta);
+      prevRot = target.transform.rot;
+    }
+
+    expect(target.transform.x - startX).toBeGreaterThan(0.55);
+    expect(accumulatedYaw).toBeLessThan(Math.PI * 0.75);
+    expect(Math.abs(Math.atan2(Math.sin(target.transform.rot - startRot), Math.cos(target.transform.rot - startRot)))).toBeLessThan(Math.PI * 0.55);
+  });
+
+  it('throws a tank in opposite directions for left and right flank hits', () => {
+    const strike = (attackerX: number, aimYaw: number): number => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      sim.rules.autoCombat = false;
+      const attacker = spawnTankAt(sim, attackerX, 0, 'A');
+      const target = spawnTankAt(sim, 28, 0, 'B', 2);
+      target.weapon = undefined;
+      target.weapons = undefined;
+      target.transform.rot = 0;
+      target.previousTransform.rot = 0;
+      attacker.playerControlled = { throttle: 0, turn: 0, aimYaw };
+      attacker.turret!.yaw = aimYaw;
+      expect(manualFireAt(sim, attacker, target.transform.x, target.transform.z, 'primary')).toBe(true);
+      for (let i = 0; i < 50; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+      return target.impactMomentum?.x ?? 0;
+    };
+
+    const fromLeft = strike(-40, Math.PI / 2);
+    const fromRight = strike(96, -Math.PI / 2);
+    expect(fromLeft).toBeGreaterThan(0.4);
+    expect(fromRight).toBeLessThan(-0.4);
+  });
+
+  it('slides a destroyed tank away from the killing missile instead of spinning in place', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const attacker = spawnTankAt(sim, -40, 0, 'A');
+    const target = spawnTankAt(sim, 28, 0, 'B', 2);
+    target.weapon = undefined;
+    target.weapons = undefined;
+    target.health!.current = 6;
+    attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    attacker.turret!.yaw = Math.PI / 2;
+
+    expect(manualFireAt(sim, attacker, target.transform.x, target.transform.z, 'primary')).toBe(true);
+    for (let i = 0; i < 50; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+
+    expect(target.destroyed).toBeDefined();
+    expect(target.impactMomentum).toBeDefined();
+    const startX = target.transform.x;
+    const startRot = target.transform.rot;
+    for (let i = 0; i < 24; i++) stepSim(sim, hf, 1 / 30);
+
+    expect(target.transform.x - startX).toBeGreaterThan(0.4);
+    expect(Math.abs(Math.atan2(Math.sin(target.transform.rot - startRot), Math.cos(target.transform.rot - startRot)))).toBeLessThan(0.35);
+  });
+
   it('destabilizes a surviving aircraft after a direct air-to-air hit', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

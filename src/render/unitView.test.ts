@@ -100,16 +100,75 @@ describe('unitDamageStage', () => {
 });
 
 describe('groundVehicleImpactPose', () => {
-  it('rocks a surviving vehicle briefly and returns it exactly upright', () => {
-    const weak = groundVehicleImpactPose(0.25, 0.3);
-    const strong = groundVehicleImpactPose(1, 0.3);
+  const sideHit = {
+    zone: 'left' as const,
+    localSide: 1,
+    localForward: 0,
+  };
 
-    expect(weak.angle).toBeGreaterThan(0);
-    expect(strong.angle).toBeGreaterThan(weak.angle);
-    expect(strong.angle).toBeLessThanOrEqual(Math.PI / 15);
-    expect(groundVehicleImpactPose(1, 0)).toEqual({ angle: 0, lift: 0 });
-    expect(groundVehicleImpactPose(1, 1).angle).toBeCloseTo(0, 10);
-    expect(groundVehicleImpactPose(1, 1).lift).toBeCloseTo(0, 10);
+  it('rocks a surviving vehicle and returns it upright without yawing', () => {
+    const weak = groundVehicleImpactPose({ progress: 0.2, force: 0.25, ...sideHit });
+    const strong = groundVehicleImpactPose({ progress: 0.2, force: 1, intensity: 1.2, ...sideHit });
+
+    expect(Math.abs(weak.roll)).toBeGreaterThan(0);
+    expect(Math.abs(strong.roll)).toBeGreaterThan(Math.abs(weak.roll));
+    expect(Math.abs(strong.roll)).toBeLessThan(Math.PI);
+    expect(Math.abs(groundVehicleImpactPose({ progress: 0, force: 1, ...sideHit }).pitch)).toBeCloseTo(0, 10);
+    expect(Math.abs(groundVehicleImpactPose({ progress: 0, force: 1, ...sideHit }).roll)).toBeCloseTo(0, 10);
+    expect(groundVehicleImpactPose({ progress: 0, force: 1, ...sideHit }).lift).toBeCloseTo(0, 10);
+    expect(groundVehicleImpactPose({ progress: 1, force: 1, intensity: 1.2, ...sideHit }).roll).toBeCloseTo(0, 10);
+    expect(groundVehicleImpactPose({ progress: 1, force: 1, intensity: 1.2, ...sideHit }).pitch).toBeCloseTo(0, 10);
+  });
+
+  it('can flip a tank onto its side from a fatal high-speed side strike', () => {
+    const pose = groundVehicleImpactPose({
+      progress: 1,
+      force: 0.9,
+      intensity: 1.2,
+      killed: true,
+      ...sideHit,
+    });
+    expect(pose.flip).toBe(true);
+    expect(Math.abs(pose.roll)).toBeGreaterThan(Math.PI * 0.45);
+    expect(Math.abs(pose.roll)).toBeLessThan(Math.PI);
+    expect(Math.abs(pose.pitch)).toBeLessThan(0.4);
+  });
+
+  it('rolls opposite ways for left and right flank hits', () => {
+    const left = groundVehicleImpactPose({
+      progress: 0.25,
+      force: 1,
+      intensity: 1.2,
+      zone: 'left',
+      localSide: 1,
+      localForward: 0,
+    });
+    const right = groundVehicleImpactPose({
+      progress: 0.25,
+      force: 1,
+      intensity: 1.2,
+      zone: 'right',
+      localSide: -1,
+      localForward: 0,
+    });
+    expect(left.roll).toBeLessThan(0);
+    expect(right.roll).toBeGreaterThan(0);
+  });
+
+  it('never completes extra revolutions while tumbling', () => {
+    for (const killed of [false, true]) {
+      for (const t of [0, 0.15, 0.35, 0.55, 0.8, 1]) {
+        const pose = groundVehicleImpactPose({
+          progress: t,
+          force: 1,
+          intensity: 1.5,
+          killed,
+          ...sideHit,
+        });
+        expect(Math.abs(pose.roll)).toBeLessThanOrEqual(Math.PI);
+        expect(Math.abs(pose.pitch)).toBeLessThanOrEqual(Math.PI);
+      }
+    }
   });
 });
 

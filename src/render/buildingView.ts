@@ -14,8 +14,11 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  Path,
   PlaneGeometry,
   RingGeometry,
+  Shape,
+  ShapeGeometry,
   SphereGeometry,
   SRGBColorSpace,
   Vector3,
@@ -266,6 +269,7 @@ export class BuildingView {
           radiusScale: 1.12,
           outerAdd: 1.1,
           renderOrder: 32,
+          skirts: false,
         });
         this.producerGlows.set(entity, producerGlow);
         this.group.add(producerGlow.root);
@@ -791,28 +795,25 @@ export class BuildingView {
     glow.root.visible = selected;
     if (!selected) return;
     const pulse = 0.5 + 0.5 * Math.sin(this.sim.tick * 0.16 + entity.id * 0.7);
-    const lift = 0.08;
-    glow.root.position.set(entity.transform.x, groundY + lift, entity.transform.z);
-    glow.fillMaterial.opacity = 0.24 + pulse * 0.16;
-    glow.ringMaterial.opacity = 0.68 + pulse * 0.24;
-    const scale = 1 + pulse * 0.055;
-    glow.fill.scale.set(scale, scale, 1);
-    glow.ring.scale.set(1 + pulse * 0.04, 1 + pulse * 0.04, 1);
+    glow.root.position.set(entity.transform.x, groundY, entity.transform.z);
+    glow.ringMaterial.opacity = 0.72 + pulse * 0.22;
+    glow.skirtMaterial.opacity = 0.34 + pulse * 0.28;
   }
 
   private updateProducerGlow(entity: Entity, groundY: number): void {
     const glow = this.producerGlows.get(entity);
     if (!glow) return;
-    const highlighted = this.producerHighlightIds.has(entity.id) && !entity.destroyed && entity.building?.complete;
+    const highlighted =
+      this.producerHighlightIds.has(entity.id) &&
+      !entity.destroyed &&
+      entity.building?.complete &&
+      entity.building.kind !== 'command-yard';
     glow.root.visible = !!highlighted;
     if (!highlighted) return;
     const pulse = 0.5 + 0.5 * Math.sin(this.sim.tick * 0.22 + entity.id * 0.41);
-    glow.root.position.set(entity.transform.x, groundY + 0.13, entity.transform.z);
-    glow.fillMaterial.opacity = 0.14 + pulse * 0.1;
-    glow.ringMaterial.opacity = 0.58 + pulse * 0.28;
-    const scale = 1.02 + pulse * 0.055;
-    glow.fill.scale.set(scale, scale, 1);
-    glow.ring.scale.set(1.02 + pulse * 0.035, 1.02 + pulse * 0.035, 1);
+    glow.root.position.set(entity.transform.x, groundY, entity.transform.z);
+    glow.ringMaterial.opacity = 0.52 + pulse * 0.24;
+    glow.skirtMaterial.opacity = 0.22 + pulse * 0.2;
   }
 }
 
@@ -939,10 +940,10 @@ interface DamageCell {
 
 interface SelectionGlow {
   root: Group;
-  fill: Mesh;
   ring: Mesh;
-  fillMaterial: MeshBasicMaterial;
+  skirts: Mesh[];
   ringMaterial: MeshBasicMaterial;
+  skirtMaterial: MeshBasicMaterial;
 }
 
 function structureDamageFor(entity: Entity): StructureDamage {
@@ -2152,48 +2153,129 @@ function createRefineryDock(width: number, depth: number, buildingHeight: number
   return { root, pump, hose, statusMaterial };
 }
 
+export interface BuildingSelectionFootprint {
+  wallHalfW: number;
+  wallHalfD: number;
+  ringHalfW: number;
+  ringHalfD: number;
+  ringWidth: number;
+  skirtHeight: number;
+  cornerRadius: number;
+}
+
+/** Ground-contact selection outline: visual foundation, not the circumcircle. */
+export function buildingSelectionFootprint(
+  footprint: { w: number; h: number },
+  cellSize: number,
+  kind?: string,
+  options: { radiusScale?: number; outerAdd?: number } = {},
+): BuildingSelectionFootprint {
+  const foundationScale = kind === 'guard-tower' || kind === 'aa-tower' ? 1.02 : 1.06;
+  const wallHalfW = Math.max(0.6, footprint.w * cellSize * foundationScale);
+  const wallHalfD = Math.max(0.6, footprint.h * cellSize * foundationScale);
+  const extra = ((options.radiusScale ?? 1) - 1) * Math.max(wallHalfW, wallHalfD) * 0.18 + (options.outerAdd ?? 0) * 0.12;
+  const gap = 0.07 + extra;
+  const ringWidth = (kind === 'wall' ? 0.39 : 0.51) + extra * 0.35;
+  return {
+    wallHalfW,
+    wallHalfD,
+    ringHalfW: wallHalfW + gap + ringWidth,
+    ringHalfD: wallHalfD + gap + ringWidth,
+    ringWidth,
+    skirtHeight: kind === 'wall' ? 0.4 : 0.58,
+    cornerRadius: Math.min(0.18, wallHalfW * 0.06, wallHalfD * 0.06),
+  };
+}
+
+function addRoundedRect(path: Path, halfW: number, halfD: number, radius: number): void {
+  const r = Math.min(radius, halfW, halfD);
+  path.moveTo(-halfW + r, -halfD);
+  path.lineTo(halfW - r, -halfD);
+  path.quadraticCurveTo(halfW, -halfD, halfW, -halfD + r);
+  path.lineTo(halfW, halfD - r);
+  path.quadraticCurveTo(halfW, halfD, halfW - r, halfD);
+  path.lineTo(-halfW + r, halfD);
+  path.quadraticCurveTo(-halfW, halfD, -halfW, halfD - r);
+  path.lineTo(-halfW, -halfD + r);
+  path.quadraticCurveTo(-halfW, -halfD, -halfW + r, -halfD);
+}
+
+function createFootprintRingGeometry(halfW: number, halfD: number, ringWidth: number, corner: number): ShapeGeometry {
+  const outer = new Shape();
+  addRoundedRect(outer, halfW, halfD, corner);
+  const hole = new Path();
+  addRoundedRect(hole, Math.max(0.15, halfW - ringWidth), Math.max(0.15, halfD - ringWidth), Math.max(0, corner - ringWidth));
+  outer.holes.push(hole);
+  return new ShapeGeometry(outer);
+}
+
+function glowMaterial(color: number, opacity: number): MeshBasicMaterial {
+  return new MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    depthTest: true,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+    side: DoubleSide,
+    blending: AdditiveBlending,
+  });
+}
+
 function createSelectionGlow(
   entity: Entity,
   cellSize: number,
-  options: { color?: number; radiusScale?: number; outerAdd?: number; renderOrder?: number } = {},
+  options: { color?: number; radiusScale?: number; outerAdd?: number; renderOrder?: number; skirts?: boolean } = {},
 ): SelectionGlow {
   const root = new Group();
   root.visible = false;
-  root.rotation.x = -Math.PI / 2;
-  root.renderOrder = options.renderOrder ?? 34;
+  const order = options.renderOrder ?? 34;
+  root.renderOrder = order;
   const team = FACTION[factionId(entity.team?.id)];
   const accent = options.color ?? team.lightBar;
-  const radius = Math.hypot(entity.building!.footprint.w * cellSize, entity.building!.footprint.h * cellSize) * (options.radiusScale ?? 1);
-  const fillMaterial = new MeshBasicMaterial({
-    color: accent,
-    transparent: true,
-    opacity: 0.24,
-    depthWrite: false,
-    depthTest: true,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-    side: DoubleSide,
-    blending: AdditiveBlending,
-  });
-  const ringMaterial = new MeshBasicMaterial({
-    color: accent,
-    transparent: true,
-    opacity: 0.58,
-    depthWrite: false,
-    depthTest: true,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-    side: DoubleSide,
-    blending: AdditiveBlending,
-  });
-  const fill = new Mesh(new CircleGeometry(radius * 0.92, 64), fillMaterial);
-  const ring = new Mesh(new RingGeometry(radius * 0.94, radius + (options.outerAdd ?? 0.7), 72), ringMaterial);
-  fill.renderOrder = options.renderOrder ?? 34;
-  ring.renderOrder = (options.renderOrder ?? 34) + 1;
-  root.add(fill, ring);
-  return { root, fill, ring, fillMaterial, ringMaterial };
+  const footprint = buildingSelectionFootprint(entity.building!.footprint, cellSize, entity.building?.kind, options);
+  const ringMaterial = glowMaterial(accent, 0.7);
+  const skirtMaterial = glowMaterial(accent, 0.4);
+  const ring = new Mesh(
+    createFootprintRingGeometry(footprint.ringHalfW, footprint.ringHalfD, footprint.ringWidth, footprint.cornerRadius),
+    ringMaterial,
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.05;
+  ring.renderOrder = order + 1;
+  ring.castShadow = false;
+  ring.receiveShadow = false;
+  root.add(ring);
+
+  const skirts: Mesh[] = [];
+  if (options.skirts !== false) {
+    const skirtY = footprint.skirtHeight * 0.42;
+    const front = new Mesh(sharedPlaneGeometry, skirtMaterial);
+    front.scale.set(footprint.wallHalfW * 2 * 0.98, footprint.skirtHeight, 1);
+    front.position.set(0, skirtY, footprint.wallHalfD + 0.05);
+    const back = new Mesh(sharedPlaneGeometry, skirtMaterial);
+    back.scale.set(footprint.wallHalfW * 2 * 0.98, footprint.skirtHeight, 1);
+    back.position.set(0, skirtY, -(footprint.wallHalfD + 0.05));
+    back.rotation.y = Math.PI;
+    const right = new Mesh(sharedPlaneGeometry, skirtMaterial);
+    right.scale.set(footprint.wallHalfD * 2 * 0.98, footprint.skirtHeight, 1);
+    right.position.set(footprint.wallHalfW + 0.05, skirtY, 0);
+    right.rotation.y = Math.PI / 2;
+    const left = new Mesh(sharedPlaneGeometry, skirtMaterial);
+    left.scale.set(footprint.wallHalfD * 2 * 0.98, footprint.skirtHeight, 1);
+    left.position.set(-(footprint.wallHalfW + 0.05), skirtY, 0);
+    left.rotation.y = -Math.PI / 2;
+    skirts.push(front, back, right, left);
+    for (const skirt of skirts) {
+      skirt.renderOrder = order + 2;
+      skirt.castShadow = false;
+      skirt.receiveShadow = false;
+      root.add(skirt);
+    }
+  }
+  return { root, ring, skirts, ringMaterial, skirtMaterial };
 }
 
 function createBuildingHealthBar(

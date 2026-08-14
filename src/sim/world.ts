@@ -671,6 +671,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     const entity = movers[i];
     if (entity.destroyed) {
       if (entity.flight) stepDestroyedAircraft(sim, hf, entity, dt);
+      else stepDestroyedGroundVehicle(sim, hf, entity, dt);
       continue;
     }
     const { transform, velocity, mover } = entity;
@@ -679,6 +680,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     let desiredZ = 0;
     let desiredSpeed = mover.speed * (mover.sprint ? RTS_SPRINT_MULTIPLIER : 1) * combatRankSpeedMultiplier(entity);
     let orientToMovement = false;
+    const thrown = isImpactThrown(entity);
 
     if (entity.flight) {
       stepFlightEntity(sim, hf, entity, maxMoverRadius, dt);
@@ -797,7 +799,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     const desiredLen = Math.hypot(desiredX, desiredZ);
     if (desiredLen > 0 && !entity.playerControlled) {
       const turnaround = isTrackedGroundVehicle(entity) ? mover.turnaround : undefined;
-      if (turnaround && orientToMovement) {
+      if (turnaround && orientToMovement && !thrown) {
         const remainingYaw = Math.abs(normalizeAngle(turnaround.targetYaw - transform.rot));
         if (remainingYaw <= TRACKED_TURNAROUND_FINISH_ANGLE) {
           mover.turnaround = undefined;
@@ -824,59 +826,108 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       desiredX *= staggerScale;
       desiredZ *= staggerScale;
     }
+    if (thrown && entity.armor?.kind !== 'infantry') {
+      const throwMag = Math.hypot(entity.impactMomentum!.x, entity.impactMomentum!.z);
+      const throwScale = Math.min(1, Math.max(0, (throwMag - 0.7) / 1.4));
+      desiredX *= 1 - throwScale * 0.88;
+      desiredZ *= 1 - throwScale * 0.88;
+    }
     const movementDamping = entity.armor?.kind === 'infantry' && staggerScale < 1 ? 14 : 8;
     velocity.x += (desiredX - velocity.x) * Math.min(1, dt * movementDamping);
     velocity.z += (desiredZ - velocity.z) * Math.min(1, dt * movementDamping);
 
-    const momentum = entity.impactMomentum;
-    const nextX = transform.x + (velocity.x + (momentum?.x ?? 0)) * dt;
-    const nextZ = transform.z + (velocity.z + (momentum?.z ?? 0)) * dt;
-    const cell = sim.nav.worldToCell(nextX, nextZ);
-    if (sim.nav.isWalkableCell(cell.x, cell.y) || boostedTerrainPassable(sim, hf, entity, nextX, nextZ)) {
-      transform.x = nextX;
-      transform.z = nextZ;
-    } else {
-      const xCell = sim.nav.worldToCell(nextX, transform.z);
-      const zCell = sim.nav.worldToCell(transform.x, nextZ);
-      if (sim.nav.isWalkableCell(xCell.x, xCell.y) || boostedTerrainPassable(sim, hf, entity, nextX, transform.z)) {
-        transform.x = nextX;
-        velocity.z = 0;
-        if (momentum) momentum.z = 0;
-      } else if (sim.nav.isWalkableCell(zCell.x, zCell.y) || boostedTerrainPassable(sim, hf, entity, transform.x, nextZ)) {
-        transform.z = nextZ;
-        velocity.x = 0;
-        if (momentum) momentum.x = 0;
-      } else {
-        velocity.x = 0;
-        velocity.z = 0;
-        if (momentum) {
-          momentum.x = 0;
-          momentum.z = 0;
-        }
-      }
-    }
-
-    if (momentum) {
-      const decay = Math.exp(-3.25 * dt);
-      momentum.x *= decay;
-      momentum.z *= decay;
-      momentum.yaw *= Math.exp(-4.6 * dt);
-      momentum.ttl -= dt;
-      if (momentum.stagger !== undefined) momentum.stagger = Math.max(0, momentum.stagger - dt);
-      if (
-        momentum.ttl <= 0 ||
-        (Math.hypot(momentum.x, momentum.z) < 0.025 && Math.abs(momentum.yaw) < 0.008 && (momentum.stagger ?? 0) <= 0)
-      ) {
-        entity.impactMomentum = undefined;
-      }
-    }
+    integrateGroundDisplacement(sim, hf, entity, dt);
+    decayImpactMomentum(entity, dt, entity.armor?.kind === 'infantry' ? 3.25 : 2.55);
 
     const speed = Math.hypot(velocity.x, velocity.z);
-    if (!entity.playerControlled && orientToMovement && speed > 0.05) transform.rot = Math.atan2(velocity.x, velocity.z);
+    if (!entity.playerControlled && orientToMovement && speed > 0.05 && !thrown) {
+      const moveYaw = Math.atan2(velocity.x, velocity.z);
+      transform.rot = entity.impactMomentum
+        ? slewAngle(transform.rot, moveYaw, 2.8, dt)
+        : moveYaw;
+    }
     transform.y = sampleHeight(hf, transform.x, transform.z);
   }
 
   sim.tick++;
+}
+
+function isImpactThrown(entity: Entity): boolean {
+  const momentum = entity.impactMomentum;
+  return !!momentum && Math.hypot(momentum.x, momentum.z) > 0.12;
+}
+
+function decayImpactMomentum(entity: Entity, dt: number, horizontalDecay: number): void {
+  const momentum = entity.impactMomentum;
+  if (!momentum) return;
+  momentum.x *= Math.exp(-horizontalDecay * dt);
+  momentum.z *= Math.exp(-horizontalDecay * dt);
+  momentum.yaw *= Math.exp(-4.6 * dt);
+  momentum.ttl -= dt;
+  if (momentum.stagger !== undefined) momentum.stagger = Math.max(0, momentum.stagger - dt);
+  if (
+    momentum.ttl <= 0 ||
+    (Math.hypot(momentum.x, momentum.z) < 0.025 && Math.abs(momentum.yaw) < 0.008 && (momentum.stagger ?? 0) <= 0)
+  ) {
+    entity.impactMomentum = undefined;
+  }
+}
+
+function integrateGroundDisplacement(
+  sim: GameSim,
+  hf: Heightfield,
+  entity: With<Entity, 'transform' | 'velocity' | 'mover'>,
+  dt: number,
+): void {
+  const { transform, velocity } = entity;
+  const momentum = entity.impactMomentum;
+  const nextX = transform.x + (velocity.x + (momentum?.x ?? 0)) * dt;
+  const nextZ = transform.z + (velocity.z + (momentum?.z ?? 0)) * dt;
+  const cell = sim.nav.worldToCell(nextX, nextZ);
+  if (sim.nav.isWalkableCell(cell.x, cell.y) || boostedTerrainPassable(sim, hf, entity, nextX, nextZ)) {
+    transform.x = nextX;
+    transform.z = nextZ;
+    return;
+  }
+  const xCell = sim.nav.worldToCell(nextX, transform.z);
+  const zCell = sim.nav.worldToCell(transform.x, nextZ);
+  if (sim.nav.isWalkableCell(xCell.x, xCell.y) || boostedTerrainPassable(sim, hf, entity, nextX, transform.z)) {
+    transform.x = nextX;
+    velocity.z = 0;
+    if (momentum) momentum.z = 0;
+  } else if (sim.nav.isWalkableCell(zCell.x, zCell.y) || boostedTerrainPassable(sim, hf, entity, transform.x, nextZ)) {
+    transform.z = nextZ;
+    velocity.x = 0;
+    if (momentum) momentum.x = 0;
+  } else {
+    velocity.x = 0;
+    velocity.z = 0;
+    if (momentum) {
+      momentum.x = 0;
+      momentum.z = 0;
+    }
+  }
+}
+
+function stepDestroyedGroundVehicle(
+  sim: GameSim,
+  hf: Heightfield,
+  entity: With<Entity, 'transform' | 'previousTransform' | 'velocity' | 'mover'>,
+  dt: number,
+): void {
+  const { transform, velocity } = entity;
+  const dampVel = Math.exp(-5.2 * dt);
+  velocity.x *= dampVel;
+  velocity.z *= dampVel;
+  const momentum = entity.impactMomentum;
+  if (Math.hypot(velocity.x, velocity.z) < 0.02 && Math.hypot(momentum?.x ?? 0, momentum?.z ?? 0) < 0.02) {
+    entity.impactMomentum = undefined;
+    transform.y = sampleHeight(hf, transform.x, transform.z);
+    return;
+  }
+  integrateGroundDisplacement(sim, hf, entity, dt);
+  decayImpactMomentum(entity, dt, 2.55);
+  transform.y = sampleHeight(hf, transform.x, transform.z);
 }
 
 function isTrackedGroundVehicle(entity: Entity): entity is Entity & { mover: NonNullable<Entity['mover']> } {

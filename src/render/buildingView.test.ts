@@ -5,6 +5,7 @@ import {
   BUILDING_HEALTH_REVEAL_TICKS,
   blockDressKind,
   buildingHealthBarVisible,
+  buildingSelectionFootprint,
   detailWoundFromGrid,
   projectBuildingHitBounds,
 } from './buildingView';
@@ -69,6 +70,30 @@ describe('building damage dressing ladder', () => {
     const east = detailWoundFromGrid(damage, 8, 2, 0, 16, 12, 6);
     expect(west).toBeGreaterThan(east);
     expect(west).toBeGreaterThanOrEqual(160);
+  });
+});
+
+describe('building selection footprint', () => {
+  it('follows the rectangular ground contact instead of a circumcircle', () => {
+    const cellSize = 2;
+    const yard = buildingSelectionFootprint({ w: 5, h: 5 }, cellSize, 'command-yard');
+    const factory = buildingSelectionFootprint({ w: 8, h: 7 }, cellSize, 'factory');
+    const oldCircle = Math.hypot(5 * cellSize, 5 * cellSize);
+
+    expect(yard.wallHalfW).toBeCloseTo(yard.wallHalfD, 5);
+    expect(yard.ringHalfW).toBeLessThan(oldCircle);
+    expect(factory.wallHalfW / factory.wallHalfD).toBeCloseTo(8 / 7, 2);
+    expect(factory.ringHalfW).toBeGreaterThan(yard.ringHalfW);
+    expect(yard.ringHalfW - yard.wallHalfW).toBeLessThan(1.2);
+    expect(yard.ringWidth).toBeCloseTo(0.51, 2);
+  });
+
+  it('keeps wall-base lights just outside the visual foundation', () => {
+    const tower = buildingSelectionFootprint({ w: 4, h: 4 }, 2, 'guard-tower');
+    const yard = buildingSelectionFootprint({ w: 5, h: 5 }, 2, 'command-yard');
+    expect(tower.wallHalfW).toBeLessThan(yard.wallHalfW);
+    expect(tower.skirtHeight).toBeGreaterThan(0.3);
+    expect(yard.ringHalfW).toBeGreaterThan(yard.wallHalfW);
   });
 });
 
