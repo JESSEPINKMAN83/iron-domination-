@@ -13,41 +13,45 @@ import { enlist, enlistedCommander } from './identity/enlist';
 
 const FORM_NAME = 'iron-dominion-beta';
 
-/**
- * Line art rather than the in-game command icons: those are opaque dark
- * thumbnails and cannot sit on the light steel plates.
- */
+/** Tactical two-tone marks built for the landing cards' smoked-steel surface. */
 const DOCTRINE_ICONS = {
   build: svgIcon(
-    '<path d="M3 20h18"/><path d="M5 20V9l6-4 6 4v11"/><path d="M11 5V2"/>' +
-    '<path d="M9 20v-5h4v5"/><path d="M8 11h2"/><path d="M14 11h2"/>',
+    '<path class="iron-landing__doctrine-accent" d="M13 48h38l-4 7H17z"/>' +
+    '<path d="M16 48V25l8-5v8l8-5 8 5v-8l8 5v23"/>' +
+    '<path d="M12 48h40M24 20v-7M40 20v-7M21 13h6M37 13h6"/>' +
+    '<path d="M27 48V37h10v11M20 32h5M39 32h5"/>',
   ),
   deploy: svgIcon(
-    '<circle cx="10" cy="4.4" r="2"/><path d="M10 6.6v4.6l-2.4 3.4L6 21"/>' +
-    '<path d="M10 11.2 13 14v7"/><path d="M9.4 8.4 16 5.6"/><path d="M14.6 4.2l2.6 3"/>',
+    '<path class="iron-landing__doctrine-accent" d="M32 9c-11 0-19 7-21 17 6-4 10-4 15 0 4-4 8-4 12 0 5-4 9-4 15 0C51 16 43 9 32 9z"/>' +
+    '<path d="M11 26c2-10 10-17 21-17s19 7 21 17c-6-4-10-4-15 0-4-4-8-4-12 0-5-4-9-4-15 0z"/>' +
+    '<path d="M26 26l4 15M38 26l-4 15M32 9v32"/>' +
+    '<path d="M24 43h16v11H24zM28 47h8M32 43v11"/>',
   ),
   fight: svgIcon(
-    '<circle cx="12" cy="12" r="6.4"/><path d="M12 1.6v5"/><path d="M12 17.4v5"/>' +
-    '<path d="M1.6 12h5"/><path d="M17.4 12h5"/><circle cx="12" cy="12" r="1.3"/>',
+    '<circle class="iron-landing__doctrine-accent" cx="32" cy="32" r="9"/>' +
+    '<circle cx="32" cy="32" r="19"/><circle cx="32" cy="32" r="9"/>' +
+    '<path d="M32 7v11M32 46v11M7 32h11M46 32h11"/>' +
+    '<path d="M32 27v10M27 32h10"/>',
   ),
   adapt: svgIcon(
-    '<path d="M2.6 17.4h16.8"/><circle cx="5.2" cy="17.4" r="1.7"/><circle cx="10" cy="17.4" r="1.7"/>' +
-    '<circle cx="14.8" cy="17.4" r="1.7"/><path d="M3.4 13.6h14.2v2.1H3.4z"/>' +
-    '<path d="M7 10.4h7.4v3.2H7z"/><path d="M14.4 11.6h6.6"/>',
+    '<path class="iron-landing__doctrine-accent" d="M14 40h34l5 8H18z"/>' +
+    '<path d="M14 40h34l5 8H18zM21 40l4-10h17l6 10M30 30v-6h10l6 6M40 24l9-4"/>' +
+    '<circle cx="23" cy="48" r="4"/><circle cx="33" cy="48" r="4"/><circle cx="43" cy="48" r="4"/>' +
+    '<path d="M13 24c3-7 10-12 18-13M13 24l-1-8M13 24l8-2M51 15c2 5 2 10 0 15M51 15l-7 4M51 15l5 7"/>',
   ),
 } as const;
 
 function svgIcon(paths: string): string {
   return (
-    '<svg class="iron-landing__doctrine-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-    'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    paths +
+    '<svg class="iron-landing__doctrine-icon" viewBox="0 0 64 64" fill="none" aria-hidden="true">' +
+    '<path class="iron-landing__doctrine-brackets" d="M17 6H8v9M47 6h9v9M17 58H8v-9M47 58h9v-9"/>' +
+    '<g class="iron-landing__doctrine-mark">' + paths + '</g>' +
     '</svg>'
   );
 }
 const BETA_SIGNUP_ENDPOINT = 'https://formspree.io/f/xjgnkega';
 const ACCESS_STORAGE_KEY = 'iron-dominion.beta-access.v1';
-const LANDING_MUSIC_VOLUME = 0.32;
+const LANDING_MUSIC_VOLUME = 0.16;
 const LANDING_MUSIC_ID = 'iron-menu-music';
 const LANDING_MUSIC_URL = '/assets/landing/home-theme.mp3';
 

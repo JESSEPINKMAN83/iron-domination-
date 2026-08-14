@@ -3,6 +3,7 @@ import './missionBriefing.css';
 export type MissionBriefingOptions = {
   enemyCount?: number;
   audioUrl?: string;
+  narrationVolume?: number;
   backingAudioUrl?: string;
   backingVolume?: number;
   portraitUrl?: string;
@@ -43,7 +44,7 @@ export function showMissionBriefing(options: MissionBriefingOptions): MissionBri
 
   const audio = new Audio(options.audioUrl ?? DEFAULT_AUDIO_URL);
   audio.preload = 'auto';
-  audio.volume = 0.75;
+  audio.volume = clampAudioVolume(options.narrationVolume ?? 0.75);
   const backingAudio = options.backingAudioUrl ? new Audio(options.backingAudioUrl) : undefined;
   if (backingAudio) {
     backingAudio.preload = 'auto';
