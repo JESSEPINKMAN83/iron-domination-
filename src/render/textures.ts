@@ -283,6 +283,73 @@ export function createDetailNormalTexture(source: CanvasTexture, strength = 1.8)
   return texture;
 }
 
+export type HullPanelStyle = 'steel' | 'concrete' | 'rust' | 'deck';
+
+const HULL_PANEL: Record<HullPanelStyle, { seed: number; fill: string; blotch: string[]; speckle: string[] }> = {
+  steel: { seed: 811, fill: '#6e7678', blotch: ['#7a8284', '#636b6d', '#5c6466'], speckle: ['#8a9294', '#5a6264', '#747c7e'] },
+  concrete: { seed: 823, fill: '#7a7d74', blotch: ['#8a8d82', '#6c6f66', '#5f625a'], speckle: ['#94978c', '#686b62', '#7e8178'] },
+  rust: { seed: 839, fill: '#6a5a48', blotch: ['#7a6852', '#5a4b3c', '#4e4034'], speckle: ['#8a7460', '#4a3c30', '#6e5c4a'] },
+  deck: { seed: 857, fill: '#4e5c60', blotch: ['#5a6a6e', '#425054', '#3a464a'], speckle: ['#6a7a7e', '#384448', '#546468'] },
+};
+
+/**
+ * Riveted plates for building hulls. Painted as a 2×2 sheet so each damage-block
+ * face (UV 0–1) reads as a few plates instead of a noisy grid.
+ */
+export function createHullPanelTexture(style: HullPanelStyle = 'steel'): CanvasTexture {
+  const palette = HULL_PANEL[style];
+  return makeTexture(256, palette.seed, (ctx, rng, s) => {
+    ctx.fillStyle = palette.fill;
+    ctx.fillRect(0, 0, s, s);
+    blotches(ctx, rng, s, 10, palette.blotch, 20, 50, 0.18);
+    speckle(ctx, rng, s, 4000, palette.speckle);
+
+    const cols = 2;
+    const rows = 2;
+    const pad = 10;
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const x = col * (s / cols) + pad;
+        const y = row * (s / rows) + pad;
+        const w = s / cols - pad * 2;
+        const h = s / rows - pad * 2;
+        ctx.strokeStyle = 'rgba(20, 22, 23, 0.55)';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, y, w, h);
+        ctx.strokeStyle = 'rgba(230, 236, 238, 0.22)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+        const rivets: Array<[number, number]> = [
+          [x + 8, y + 8],
+          [x + w - 8, y + 8],
+          [x + 8, y + h - 8],
+          [x + w - 8, y + h - 8],
+          [x + w / 2, y + 8],
+          [x + w / 2, y + h - 8],
+        ];
+        for (const [rx, ry] of rivets) {
+          ctx.fillStyle = 'rgba(210, 216, 218, 0.58)';
+          ctx.beginPath();
+          ctx.arc(rx, ry, 3.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(30, 32, 33, 0.45)';
+          ctx.beginPath();
+          ctx.arc(rx + 0.6, ry + 0.6, 1.1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (rng() > 0.45) {
+          ctx.fillStyle = 'rgba(18, 20, 21, 0.16)';
+          ctx.fillRect(x + w * 0.18, y + h * 0.42, w * 0.64, 3);
+        }
+      }
+    }
+  });
+}
+
+export function createSteelPanelTexture(): CanvasTexture {
+  return createHullPanelTexture('steel');
+}
+
 export function createOreTexture(): CanvasTexture {
   return makeTexture(256, 404, (ctx, rng, s) => {
     // darker mineral bed so the amber veins read as glowing seams

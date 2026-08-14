@@ -12,6 +12,10 @@ describe('match startup routing', () => {
     expect(shouldAutostartFromUrl(new URLSearchParams('relief=150'))).toBe(true);
   });
 
+  it('does not autostart production matches from the local building showcase query', () => {
+    expect(shouldAutostartFromUrl(new URLSearchParams('building-showcase=1'))).toBe(false);
+  });
+
   it('does not autostart for unrelated tracking parameters', () => {
     expect(shouldAutostartFromUrl(new URLSearchParams('utm_source=invite'))).toBe(false);
   });

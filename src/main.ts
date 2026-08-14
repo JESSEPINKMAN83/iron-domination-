@@ -2550,7 +2550,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const sim = createGameSim(hf);
   sim.rules.autoCombat = settings.combatMode !== 'manual';
   sim.rules.autoDefense = settings.combatMode !== 'manual';
-  if (durabilityPreview) {
+  if (durabilityPreview || buildingShowcase) {
     sim.rules.autoCombat = false;
     sim.rules.autoDefense = false;
   }
@@ -2600,12 +2600,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   } else if (durabilityPreview && !loadedFromSave) {
     const hostileArmy = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
     if (hostileArmy) seedTestStartBase(sim, hf, hostileArmy.economy, hostileArmy.base);
-  } else if (testStart && !multiplayerMode && !loadedFromSave) {
+  } else if ((testStart || buildingShowcase) && !multiplayerMode && !loadedFromSave) {
     seedTestStartBase(sim, hf, economy, localBase);
   }
   const isVisibleToPlayer = lineupStart ? () => true : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
-    if (durabilityPreview || impactMovementDemo || battleStaging || !aiTeams.has(army.team)) continue;
+    if (durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
@@ -2906,6 +2906,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       clearFacingPreview: () => orderMarkers.clearFacingPreview(),
       showTargetHover: (target) => orderMarkers.showTargetHover(target),
       clearTargetHover: () => orderMarkers.clearTargetHover(),
+      inspectHover: (target) => buildingView.setHovered(target),
       tryRally: (x, z) => {
         const selected = selectedEntities(sim, localTeam);
         if (selected.length !== 1) return false;
@@ -3619,17 +3620,18 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   if (buildingShowcase) {
     window.setTimeout(() => {
-      const showcaseKinds: StructureKind[] =
+      const showcaseKinds = new Set(
         buildingShowcaseParam === 'defense'
           ? ['wall', 'guard-tower', 'aa-tower']
           : buildingShowcaseParam === 'industry'
             ? ['power-plant', 'refinery', 'factory']
-            : ['power-plant', 'refinery', 'barracks', 'factory', 'helipad'];
+            : ['command-yard', 'power-plant', 'refinery', 'barracks', 'factory', 'helipad', 'wall', 'guard-tower', 'aa-tower'],
+      );
       const showcaseBuildings = Array.from(sim.world.entities).filter(
         (entity) =>
           entity.team?.id === localTeam &&
           entity.building &&
-          showcaseKinds.includes(entity.building.kind as StructureKind),
+          showcaseKinds.has(entity.building.kind),
       );
       const focusX =
         showcaseBuildings.length > 0
@@ -3643,7 +3645,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         focusX,
         focusZ,
         { x: focusX + 74, z: focusZ + 86 },
-        buildingShowcaseParam === 'defense' ? 72 : buildingShowcaseParam === 'industry' ? 82 : 108,
+        buildingShowcaseParam === 'defense' ? 72 : buildingShowcaseParam === 'industry' ? 82 : 128,
       );
     }, 120);
   }
@@ -5292,7 +5294,8 @@ async function start(): Promise<void> {
       clearActiveMultiplayerMatch(window.sessionStorage);
     }
   }
-  const hasAutostartParams = shouldAutostartFromUrl(params);
+  const hasAutostartParams = shouldAutostartFromUrl(params)
+    || (!isPublicHost(location.hostname) && params.has('building-showcase'));
   const autostart = window.sessionStorage.getItem(AUTOSTART_STORAGE_KEY) === '1';
   window.sessionStorage.removeItem(AUTOSTART_STORAGE_KEY);
   if (hasAutostartParams || autostart) {
