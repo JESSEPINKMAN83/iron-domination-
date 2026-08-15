@@ -11,6 +11,7 @@ import { summarizeCombatRankShares } from './sim/combatRank';
 import { installActiveMatchExitGuard, type ActiveMatchExitGuard } from './activeMatchExitGuard';
 import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHowToPlayWidget } from './howToPlay';
 import { showMissionBriefing } from './missionBriefing';
+import { markOpeningBriefingSeen, shouldShowOpeningBriefing } from './openingBriefing';
 import './setup.css';
 import './mobile.css';
 import './durabilityPreview.css';
@@ -3352,6 +3353,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     showMissionBriefing({
       variant: 'hostile',
       audioUrl: '/assets/audio/enemy-first-contact.mp3',
+      narrationVolume: 0.375,
       backingAudioUrl: '/assets/audio/enemy-first-contact-war-drums.mp3',
       backingVolume: 0.5,
       portraitUrl: '/assets/briefing/general-varek-drahn.webp',
@@ -3625,7 +3627,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
-    showMissionBriefing({ enemyCount: hostileArmyCount });
+    const memberId = enlistedCommander()?.memberId;
+    if (shouldShowOpeningBriefing(window.localStorage, memberId)) {
+      showMissionBriefing({ enemyCount: hostileArmyCount, narrationVolume: 0.18 });
+      markOpeningBriefingSeen(window.localStorage, memberId);
+    }
     if (!isPublicHost(location.hostname) && params.get('first-contact-preview') === '1' && firstContactGate.triggerNow()) {
       window.setTimeout(showEnemyFirstContact, 250);
     }
