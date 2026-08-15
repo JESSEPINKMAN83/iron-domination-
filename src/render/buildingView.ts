@@ -797,7 +797,7 @@ export class BuildingView {
     const pulse = 0.5 + 0.5 * Math.sin(this.sim.tick * 0.16 + entity.id * 0.7);
     glow.root.position.set(entity.transform.x, groundY, entity.transform.z);
     glow.ringMaterial.opacity = 0.72 + pulse * 0.22;
-    glow.skirtMaterial.opacity = 0.34 + pulse * 0.28;
+    if (glow.skirtMaterial) glow.skirtMaterial.opacity = 0.34 + pulse * 0.28;
   }
 
   private updateProducerGlow(entity: Entity, groundY: number): void {
@@ -813,7 +813,7 @@ export class BuildingView {
     const pulse = 0.5 + 0.5 * Math.sin(this.sim.tick * 0.22 + entity.id * 0.41);
     glow.root.position.set(entity.transform.x, groundY, entity.transform.z);
     glow.ringMaterial.opacity = 0.52 + pulse * 0.24;
-    glow.skirtMaterial.opacity = 0.22 + pulse * 0.2;
+    if (glow.skirtMaterial) glow.skirtMaterial.opacity = 0.22 + pulse * 0.2;
   }
 }
 
@@ -943,7 +943,7 @@ interface SelectionGlow {
   ring: Mesh;
   skirts: Mesh[];
   ringMaterial: MeshBasicMaterial;
-  skirtMaterial: MeshBasicMaterial;
+  skirtMaterial?: MeshBasicMaterial;
 }
 
 function structureDamageFor(entity: Entity): StructureDamage {
@@ -2237,7 +2237,7 @@ function createSelectionGlow(
   const accent = options.color ?? team.lightBar;
   const footprint = buildingSelectionFootprint(entity.building!.footprint, cellSize, entity.building?.kind, options);
   const ringMaterial = glowMaterial(accent, 0.7);
-  const skirtMaterial = glowMaterial(accent, 0.4);
+  const skirtMaterial = options.skirts === false ? undefined : glowMaterial(accent, 0.4);
   const ring = new Mesh(
     createFootprintRingGeometry(footprint.ringHalfW, footprint.ringHalfD, footprint.ringWidth, footprint.cornerRadius),
     ringMaterial,
@@ -2250,7 +2250,7 @@ function createSelectionGlow(
   root.add(ring);
 
   const skirts: Mesh[] = [];
-  if (options.skirts !== false) {
+  if (skirtMaterial) {
     const skirtY = footprint.skirtHeight * 0.42;
     const front = new Mesh(sharedPlaneGeometry, skirtMaterial);
     front.scale.set(footprint.wallHalfW * 2 * 0.98, footprint.skirtHeight, 1);
