@@ -127,6 +127,20 @@
   letter-spacing: 0.04em;
 }
 
+.durability-lab__stage {
+  padding: 8px 15px 10px;
+  color: #f0d478;
+  border-bottom: 1px solid rgba(229, 189, 85, 0.18);
+  font: 800 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.durability-lab__target.is-active {
+  border-color: #f0cc67;
+  background: rgba(229, 189, 85, 0.14);
+}
+
 .durability-lab__target.is-destroyed {
   border-color: rgba(217, 82, 66, 0.62);
   opacity: 0.58;

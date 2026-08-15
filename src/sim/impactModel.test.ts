@@ -23,6 +23,11 @@ describe('directional impact model', () => {
     expect(response.zone).toBe('right');
     expect(response.directionX).toBeLessThan(-0.99);
     expect(response.angularImpulse).toBeLessThan(0);
+
+    const fromLeft = directionalImpactResponse({ ...BASE, fromX: -16 });
+    expect(fromLeft.zone).toBe('left');
+    expect(fromLeft.directionX).toBeGreaterThan(0.99);
+    expect(fromLeft.angularImpulse).toBeGreaterThan(0);
   });
 
   it('makes a top strike more vertical and less horizontal', () => {

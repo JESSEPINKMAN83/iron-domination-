@@ -44,6 +44,7 @@ export interface OrderFeedback {
   clearFacingPreview?(): void;
   showTargetHover?(target: Entity): void;
   clearTargetHover?(): void;
+  inspectHover?(target?: Entity): void;
   tryRally?(x: number, z: number): boolean;
   selectionChanged?(entities: Entity[]): void;
 }
@@ -317,13 +318,18 @@ export class RtsController {
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (p) this.placement.preview(p.x, p.z);
       this.orderFeedback?.clearTargetHover?.();
+      this.orderFeedback?.inspectHover?.(undefined);
       return;
     }
     if (!this.pointerDown) {
-      if (e.pointerType !== 'touch') this.updateTargetHover(e);
+      if (e.pointerType !== 'touch') {
+        this.updateInspectHover(e);
+        this.updateTargetHover(e);
+      }
       return;
     }
     this.orderFeedback?.clearTargetHover?.();
+    this.orderFeedback?.inspectHover?.(undefined);
     if (this.pointerDown.button === 2 && this.rightCameraLookCandidate) {
       const dx = e.clientX - this.pointerDown.x;
       const dy = e.clientY - this.pointerDown.y;
@@ -667,6 +673,11 @@ export class RtsController {
 
   private isAttackMoveQueued(): boolean {
     return this.attackMoveQueued;
+  }
+
+  private updateInspectHover(e: PointerEvent): void {
+    const hit = this.entityAt(e.clientX, e.clientY);
+    this.orderFeedback?.inspectHover?.(hit?.building && !hit.destroyed ? hit : undefined);
   }
 
   private updateTargetHover(e: PointerEvent): void {

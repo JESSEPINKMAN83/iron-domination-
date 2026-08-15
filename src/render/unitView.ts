@@ -28,6 +28,7 @@ import {
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Entity } from '../sim/components';
 import { escortDroneLocalPosition } from '../sim/combat';
+import type { ImpactZone } from '../sim/impactModel';
 import type { CombatEvent } from '../sim/world';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { factionId, FACTION, type FactionId } from './palette';
@@ -256,10 +257,10 @@ export function impactReactionProfile(
   }
   return {
     intensity,
-    duration: 0.34 + intensity * 0.4,
-    shove: 0.08 + intensity * 1.62,
-    lift: 0.015 + intensity * 0.34,
-    angular: Math.min(0.44, 0.025 + intensity * 0.27),
+    duration: 0.46 + intensity * 0.52 + (killed ? 0.38 : 0),
+    shove: 0.05 + intensity * 0.34,
+    lift: 0.03 + intensity * 0.48,
+    angular: Math.min(0.55, 0.04 + intensity * 0.32),
   };
 }
 
@@ -379,13 +380,100 @@ function smoothRange(edge0: number, edge1: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
-export function groundVehicleImpactPose(force: number, progress: number): { angle: number; lift: number } {
-  const safeForce = Math.max(0, Math.min(1, force));
+export interface GroundVehicleImpactInput {
+  progress: number;
+  force: number;
+  intensity?: number;
+  zone: ImpactZone;
+  localSide: number;
+  localForward: number;
+  killed?: boolean;
+}
+
+export interface GroundVehicleImpactPose {
+  pitch: number;
+  roll: number;
+  lift: number;
+  shove: number;
+  flip: boolean;
+}
+
+/** One punch that peaks quickly and returns to 0. Never crosses into extra revolutions. */
+function punchEnvelope(progress: number): number {
   const t = Math.max(0, Math.min(1, progress));
-  const settle = Math.sin(t * Math.PI) * Math.exp(-t * 2.8);
+  if (t <= 0 || t >= 1) return 0;
+  const peakAt = 0.2;
+  if (t < peakAt) {
+    const q = t / peakAt;
+    return q * q * (3 - 2 * q);
+  }
+  const q = (t - peakAt) / (1 - peakAt);
+  return (1 - q) * (1 - q) * (1 + 0.28 * q);
+}
+
+/** Ease to 1 and stay there — used for a single flip that settles on its side or roof. */
+function flipEnvelope(progress: number): number {
+  const q = Math.max(0, Math.min(1, progress / 0.42));
+  return 1 - (1 - q) ** 3;
+}
+
+/**
+ * Tank hit pose: throw-axis roll/pitch, optional one-time flip, no yaw carousel.
+ * Surviving hulls rock and recover. Fatal hits with enough lever can rest inverted.
+ */
+export function groundVehicleImpactPose(input: GroundVehicleImpactInput): GroundVehicleImpactPose {
+  const t = Math.max(0, Math.min(1, input.progress));
+  const force = Math.max(0, Math.min(1.35, input.force));
+  const intensity = Math.max(0, Math.min(1.6, input.intensity ?? force));
+  const killed = input.killed === true;
+  const throwSide = input.localSide >= 0 ? 1 : -1;
+  // Tip away from the struck flank: a right-side hit throws left and lifts the right side.
+  const side = -throwSide;
+  const pitchSign = -Math.sign(input.localForward || 1);
+  const sideHit = input.zone === 'left' || input.zone === 'right';
+  const endHit = input.zone === 'front' || input.zone === 'rear';
+  const topHit = input.zone === 'top';
+  const canFlip = !topHit
+    && (sideHit || endHit)
+    && intensity >= (killed ? 0.5 : 0.94)
+    && force >= (killed ? 0.34 : 0.7);
+
+  if (killed) {
+    const q = flipEnvelope(t);
+    const roll = side * (canFlip && sideHit ? Math.PI * 0.58 : 0.14);
+    const pitch = pitchSign * (canFlip && endHit ? Math.PI * 0.58 : canFlip ? 0.16 : 0.08);
+    const launch = Math.sin(Math.min(1, t * 1.55) * Math.PI);
+    return {
+      pitch: pitch * q,
+      roll: roll * q,
+      lift: launch * (0.16 + force * 0.5) * (1 - q * 0.72),
+      shove: q * 0.28,
+      flip: canFlip,
+    };
+  }
+
+  const punch = punchEnvelope(t);
+  let maxRoll = 0.14 + intensity * 0.36;
+  let maxPitch = 0.1 + intensity * 0.26;
+  if (canFlip) {
+    maxRoll = sideHit ? 1.72 : 0.28;
+    maxPitch = endHit ? 1.55 : 0.22;
+  }
+  if (topHit) {
+    maxRoll *= 0.32;
+    maxPitch *= 0.38;
+  } else if (sideHit) {
+    maxPitch *= 0.2;
+  } else if (endHit) {
+    maxRoll *= 0.2;
+  }
+  const compression = topHit ? Math.sin(Math.min(1, t * 2.2) * Math.PI) * Math.exp(-t * 2.8) : 0;
   return {
-    angle: Math.min(Math.PI / 15, (0.025 + safeForce * 0.18) * settle),
-    lift: (0.02 + safeForce * 0.12) * settle,
+    pitch: pitchSign * maxPitch * punch,
+    roll: side * maxRoll * punch,
+    lift: (0.03 + force * 0.4) * punch - compression * 0.16,
+    shove: punch * 0.5,
+    flip: false,
   };
 }
 
@@ -513,6 +601,7 @@ export class UnitView {
   private readonly rotorWashes = new Map<Entity, { mesh: Mesh; material: MeshBasicMaterial }>();
   private readonly damageOverlays = new Map<Entity, UnitDamageOverlay>();
   private readonly hitReactions = new Map<Entity, UnitHitReaction>();
+  private readonly wreckTilts = new Map<Entity, { pitch: number; roll: number }>();
   private readonly groundAttitudes = new Map<Entity, GroundVehicleTerrainAttitude>();
   private readonly airShadowMaterial = new MeshBasicMaterial({ color: 0x020403, transparent: true, opacity: 0.26, depthWrite: false });
   private readonly wrecked = new Set<Entity>();
@@ -739,6 +828,7 @@ export class UnitView {
     this.refs.delete(entity);
     this.entitiesById.delete(entity.id);
     this.hitReactions.delete(entity);
+    this.wreckTilts.delete(entity);
     this.groundAttitudes.delete(entity);
     const ring = this.selectedRings.get(entity);
     if (ring) {
@@ -831,9 +921,12 @@ export class UnitView {
       const profile = impactReactionProfile(force, event.impactKind, unitVisualKind(entity), event.killed);
       const duration = isAircraft ? Math.max(profile.duration, 0.62 + force * 0.82) : profile.duration;
       const existing = this.hitReactions.get(entity);
-      const localAngle = Math.atan2(dirX, dirZ) - entity.transform.rot;
-      const localSide = Math.sin(localAngle);
-      const localForward = Math.cos(localAngle);
+      const forwardX = Math.sin(entity.transform.rot);
+      const forwardZ = Math.cos(entity.transform.rot);
+      const rightX = Math.cos(entity.transform.rot);
+      const rightZ = -Math.sin(entity.transform.rot);
+      const localSide = dirX * rightX + dirZ * rightZ;
+      const localForward = dirX * forwardX + dirZ * forwardZ;
       const hitCount = Math.min(4, (existing?.hitCount ?? 0) + 1);
       const salvoBoost = 1 + (hitCount - 1) * 0.16;
       this.hitReactions.set(entity, {
@@ -854,6 +947,18 @@ export class UnitView {
         intensity: Math.min(1.6, profile.intensity + (existing?.intensity ?? 0) * 0.3),
         killed: event.killed,
       });
+      if (event.killed && !entity.flight && entity.selectable?.type !== 'infantry') {
+        const rest = groundVehicleImpactPose({
+          progress: 1,
+          force,
+          intensity: profile.intensity,
+          zone: event.impactZone ?? (Math.abs(localSide) > Math.abs(localForward) ? (localSide >= 0 ? 'left' : 'right') : (localForward >= 0 ? 'rear' : 'front')),
+          localSide,
+          localForward,
+          killed: true,
+        });
+        this.wreckTilts.set(entity, { pitch: rest.pitch, roll: rest.roll });
+      }
     }
   }
 
@@ -1192,24 +1297,21 @@ export class UnitView {
       obj.position.x += reaction.dirX * arc * reaction.force * 1.1;
       obj.position.z += reaction.dirZ * arc * reaction.force * 1.1;
     } else {
-      const settle = arc * Math.exp(-t * 1.35);
-      const angle = reaction.angular * settle;
-      if (reaction.zone === 'top') {
-        const compression = Math.sin(Math.min(1, t * 2.2) * Math.PI) * Math.exp(-t * 2.8);
-        obj.position.y += reaction.lift * (arc * 0.34 - compression * 0.2);
-        obj.rotation.x += -localForward * angle * 0.42;
-        obj.rotation.z += localSide * angle * 0.5;
-      } else if (reaction.zone === 'left' || reaction.zone === 'right') {
-        obj.rotation.z += reaction.sign * angle * 1.08;
-        obj.rotation.x += -localForward * angle * 0.18;
-        obj.position.y += reaction.lift * arc * 0.72;
-      } else {
-        obj.rotation.x += -Math.sign(localForward || 1) * angle;
-        obj.rotation.z += localSide * angle * 0.22;
-        obj.position.y += reaction.lift * arc * 0.62;
-      }
-      obj.position.x += reaction.dirX * arc * reaction.shove;
-      obj.position.z += reaction.dirZ * arc * reaction.shove;
+      const pose = groundVehicleImpactPose({
+        progress: t,
+        force: reaction.force,
+        intensity: reaction.intensity,
+        zone: reaction.zone,
+        localSide,
+        localForward,
+        killed: reaction.killed,
+      });
+      obj.rotation.x += pose.pitch;
+      obj.rotation.z += pose.roll;
+      obj.position.y += pose.lift;
+      obj.position.x += reaction.dirX * pose.shove * Math.min(0.85, reaction.shove);
+      obj.position.z += reaction.dirZ * pose.shove * Math.min(0.85, reaction.shove);
+      if (t >= 1 && reaction.killed) this.wreckTilts.set(entity, { pitch: pose.pitch, roll: pose.roll });
     }
     if (t >= 1) this.hitReactions.delete(entity);
   }
@@ -1286,7 +1388,16 @@ export class UnitView {
             turret.position.y = -0.12;
           }
         }
-        obj.rotation.z += 0.09;
+        const terrain = this.groundAttitudes.get(entity);
+        const liveHit = this.hitReactions.get(entity);
+        if (liveHit) {
+          obj.rotation.x = terrain?.pitch ?? 0;
+          obj.rotation.z = terrain?.roll ?? 0;
+        } else {
+          const wreck = this.wreckTilts.get(entity);
+          obj.rotation.x = (terrain?.pitch ?? 0) + (wreck?.pitch ?? 0.1);
+          obj.rotation.z = (terrain?.roll ?? 0) + (wreck?.roll ?? 0.12);
+        }
       }
       return;
     }
