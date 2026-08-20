@@ -45,6 +45,12 @@ import {
   type MapAtmosphere,
 } from './content/maps';
 import { STRUCTURES, type StructureKind, type UnitKind } from './content/phase3';
+import {
+  ARMY_DOCTRINES,
+  ARMY_DOCTRINE_IDS,
+  sanitizeArmyDoctrine,
+  type ArmyDoctrineId,
+} from './content/armyDoctrines';
 import { WEAPONS, type WeaponKind } from './content/phase4';
 import { arsenalForUnit } from './content/unitArsenal';
 import { isFortressTower } from './content/fortress';
@@ -124,8 +130,14 @@ import {
   spawnInfantryAt,
   startStructureBuild,
   stepEconomy,
+  upgradeIntelligence,
   updatePlacement,
 } from './sim/economy';
+import {
+  discoverEnemyStructures,
+  knownStrategicTargets,
+  launchStrategicMissile,
+} from './sim/strategicWarfare';
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
 import { damageForArmor, issueAttackOrder } from './sim/combat';
 import { directionalImpactResponse } from './sim/impactModel';
@@ -183,6 +195,7 @@ interface SkirmishSettings {
   aiStyle: Personality;
   debug: boolean;
   combatMode: CombatMode;
+  armyDoctrine: ArmyDoctrineId;
   armyCount: ArmyCount;
   armySides: ArmySides;
   spawnSlots: ArmySpawnSlots;
@@ -449,6 +462,7 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
       aiStyle: PERSONALITIES.includes(parsed.aiStyle as Personality) ? parsed.aiStyle : undefined,
       debug: parsed.debug === true,
       combatMode: COMBAT_MODES.includes(parsed.combatMode as CombatMode) ? parsed.combatMode : undefined,
+      armyDoctrine: sanitizeArmyDoctrine(parsed.armyDoctrine),
       armyCount: sanitizeArmyCount(parsed.armyCount),
       armySides: sanitizeArmySides(parsed.armySides),
       spawnSlots: sanitizeSpawnSlots(parsed.spawnSlots),
@@ -474,6 +488,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
   const ai = params.get('ai');
   const aiStyle = params.get('ai-style');
   const combat = params.get('combat');
+  const armyDoctrine = sanitizeArmyDoctrine(params.get('army'));
   const armyCount = sanitizeArmyCount(params.get('armies'));
   const sides = params.get('sides');
   const spawns = params.get('spawns');
@@ -489,6 +504,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
     aiStyle: PERSONALITIES.includes(aiStyle as Personality) ? (aiStyle as Personality) : undefined,
     debug: params.get('debug') === 'armies' ? true : undefined,
     combatMode: COMBAT_MODES.includes(combat as CombatMode) ? (combat as CombatMode) : undefined,
+    armyDoctrine,
     armyCount,
     armySides: sides ? sanitizeArmySides(sides.split(',')) : undefined,
     spawnSlots: spawns ? sanitizeSpawnSlots(spawns.split(',')) : undefined,
@@ -533,6 +549,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     aiStyle: fromUrl.aiStyle ?? stored.aiStyle ?? 'balanced',
     debug: fromUrl.debug ?? stored.debug ?? false,
     combatMode: fromUrl.combatMode ?? stored.combatMode ?? 'assisted',
+    armyDoctrine: fromUrl.armyDoctrine ?? stored.armyDoctrine ?? 'iron-legion',
     armyCount,
     armySides: ensureOpposingSides(armyCount, armySides),
     spawnSlots,
@@ -710,6 +727,17 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     const difficulty = createSegmentedControl('Difficulty', DIFFICULTIES, defaults.ai, DIFFICULTY_DESCRIPTIONS, undefined, () => refresh());
     const commander = createSegmentedControl('Enemy commander', PERSONALITIES, defaults.aiStyle, PERSONALITY_DESCRIPTIONS, undefined, () => refresh());
     const combatMode = createSegmentedControl('Combat mode', COMBAT_MODES, defaults.combatMode, COMBAT_MODE_DESCRIPTIONS, undefined, () => refresh());
+    const armyDoctrineDescriptions = Object.fromEntries(
+      ARMY_DOCTRINE_IDS.map((id) => [id, `${ARMY_DOCTRINES[id].specialty} — ${ARMY_DOCTRINES[id].description}`]),
+    ) as Record<ArmyDoctrineId, string>;
+    const armyDoctrine = createSegmentedControl(
+      'Army doctrine',
+      ARMY_DOCTRINE_IDS,
+      defaults.armyDoctrine,
+      armyDoctrineDescriptions,
+      (id) => ARMY_DOCTRINES[id].label,
+      () => refresh(),
+    );
     const armies = createArmySetupControl(defaults.armyCount, defaults.armySides, () => refresh());
 
     const mapPreview = document.createElement('div');
@@ -795,7 +823,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
 
     const rules = document.createElement('div');
     rules.className = 'war-rules-grid';
-    rules.append(difficulty.root, commander.root, combatMode.root);
+    rules.append(armyDoctrine.root, difficulty.root, commander.root, combatMode.root);
     const rulesSection = createSetupSection('02', 'BATTLE RULES', '', rules);
     rulesSection.classList.add('war-section--rules');
 
@@ -822,6 +850,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       aiStyle: commander.value(),
       debug: defaults.debug,
       combatMode: combatMode.value(),
+      armyDoctrine: armyDoctrine.value(),
       armyCount: armies.armyCount(),
       armySides: armies.armySides(),
       spawnSlots: multiplayerSpawnSlots,
@@ -832,6 +861,8 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       difficulty.setValue(room.ai);
       commander.setValue(room.aiStyle);
       combatMode.setValue(room.combatMode ?? 'assisted');
+      armyDoctrine.setValue('iron-legion');
+      armyDoctrine.setDisabled(true);
       mapChoice.setValue(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID);
       mapSizeChoice.setValue(sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE);
       seedInput.value = String(room.seed);
@@ -1090,7 +1121,7 @@ function createSetupSection(index: string, title: string, description: string, c
 
 function createSegmentedControl<T extends string>(
   label: string,
-  values: T[],
+  values: readonly T[],
   initial: T,
   descriptions: Record<T, string>,
   format: (value: T) => string = (value) => value.toUpperCase(),
@@ -2270,6 +2301,7 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
     aiStyle: room.aiStyle,
     debug: false,
     combatMode: room.combatMode ?? 'assisted',
+    armyDoctrine: 'iron-legion',
     armyCount: sanitizeArmyCount(room.armyCount) ?? 2,
     armySides: sanitizeArmySides(room.armySides) ?? defaultArmySides(),
     spawnSlots: sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots(),
@@ -2495,6 +2527,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const lineupStart = startMode === 'lineup' || weaponsLab;
   const impactMovementDemo =
     startMode === 'impact-demo' && !multiplayerMode && !isPublicHost(location.hostname);
+  const missileDoctrinePreview =
+    startMode === 'missile-test' && !multiplayerMode && !isPublicHost(location.hostname);
   const debriefPreview =
     startMode === 'debrief-preview' && !multiplayerMode && !isPublicHost(location.hostname);
   const cinematicWar =
@@ -2516,7 +2550,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const collectorPreview =
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
-  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview;
+  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview || missileDoctrinePreview;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   const impactPreview =
@@ -2575,7 +2609,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         : aiTeams.has(team)
           ? AI_DIFFICULTY[aiDifficulty].startCredits
           : 4600;
-    const economy = createEconomy(team, credits);
+    const doctrine = !multiplayerMode && isLocal
+      ? missileDoctrinePreview ? 'missile-command' : settings.armyDoctrine
+      : 'iron-legion';
+    const economy = createEconomy(team, credits, doctrine);
     const start = armyStartPosition(hf.size, team, settings.spawnPoints);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
     const vision = new VisibilityGrid(hf, team);
@@ -2585,6 +2622,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const economy = localArmy.economy;
   let localBase = localArmy.base;
   const playerVision = localArmy.vision;
+  const strategicKnownTargetIds = new Set<number>();
   let loadedFromSave = false;
   if (savedMatch) {
     try {
@@ -2605,7 +2643,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       console.warn('[save] failed to load saved match', err);
     }
   }
-  if (largeBattleScenario && !loadedFromSave) {
+  if (missileDoctrinePreview && !loadedFromSave) {
+    for (const army of armies) seedTestStartBase(sim, hf, army.economy, army.base);
+    seedMissileDoctrinePreview(sim, hf, armies, localTeam);
+  } else if (largeBattleScenario && !loadedFromSave) {
     for (const army of armies) seedCinematicBase(sim, hf, army.economy, army.base);
   } else if ((durabilityPreview || destructionPreview) && !loadedFromSave) {
     const hostileArmy = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
@@ -2613,7 +2654,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   } else if ((testStart || buildingShowcase) && !multiplayerMode && !loadedFromSave) {
     seedTestStartBase(sim, hf, economy, localBase);
   }
-  const isVisibleToPlayer = lineupStart || destructionPreview ? () => true : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
+  const isStrategicIntelVisible = (x: number, z: number): boolean => {
+    for (const id of strategicKnownTargetIds) {
+      const target = sim.byId.get(id);
+      if (!target || target.destroyed) continue;
+      if (Math.hypot(target.transform.x - x, target.transform.z - z) <= (target.collider?.radius ?? 5) + 3) return true;
+    }
+    return false;
+  };
+  const isVisibleToPlayer = lineupStart || destructionPreview
+    ? () => true
+    : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z) || isStrategicIntelVisible(x, z);
   for (const army of armies) {
     if (durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || !aiTeams.has(army.team)) continue;
     const hints = armies
@@ -2852,6 +2903,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       localTeam,
     );
   }
+  if (missileDoctrinePreview) {
+    window.setTimeout(() => {
+      const focusBuilding = buildings(sim, localTeam).find((entity) => entity.building?.kind === 'strategic-silo')
+        ?? buildings(sim, localTeam).find((entity) => entity.building?.kind === 'intelligence-center');
+      if (!focusBuilding) return;
+      const focusX = focusBuilding.transform.x;
+      const focusZ = focusBuilding.transform.z;
+      rig.focusOn(focusX, focusZ, { x: focusX + 54, z: focusZ + 66 }, 72);
+    }, 140);
+  }
   const tacticalPing = {
     isActive: () => tacticalPingKind !== undefined,
     confirm: (x: number, z: number) => {
@@ -3009,6 +3070,18 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     orderMap: (x, z, attackGround) => attackGround ? controller.attackGroundAt(x, z) : controller.orderSelectedTo(x, z),
     radarYaw: () => rig.yawRadians,
     radarViewport: () => rig.getGroundViewportFootprint(),
+    upgradeIntelligence: () => {
+      const upgraded = upgradeIntelligence(sim, economy);
+      if (upgraded) discoverEnemyStructures(sim, economy, strategicKnownTargetIds);
+      return upgraded;
+    },
+    strategicTargets: () => knownStrategicTargets(sim, strategicKnownTargetIds),
+    launchStrategicMissile: (targetId) => {
+      const result = launchStrategicMissile(sim, economy, strategicKnownTargetIds, targetId);
+      if (result.ok) audio.playUi('order');
+      else audio.playUi('error');
+      return { ok: result.ok, reason: result.reason };
+    },
   });
   const selectionBar = new SelectionBar(sim, {
     selectEntities: (entities) => {
@@ -3420,6 +3493,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         fogView.refresh();
       }
       const events = tickResult.events;
+      if (sim.tick % SIM_HZ === 0 && economy.doctrine === 'missile-command') {
+        const discoveries = discoverEnemyStructures(sim, economy, strategicKnownTargetIds);
+        if (discoveries.length > 0) {
+          sidebar.notify(`INTELLIGENCE CONTACT · ${discoveries[0].building?.label?.toUpperCase() ?? 'ENEMY STRUCTURE'}`);
+        }
+      }
       destructionPanel?.simTick(sim.tick);
       debriefTracker.recordEvents(events);
       if (impactDemoScene) {
@@ -3503,6 +3582,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       firstPerson.handleCombatEvents(events);
       audio.handleCombatEvents(events, firstPerson.possessedEntity?.id);
       for (const event of events) {
+        if (event.kind === 'strategic-missile-intercepted') {
+          sidebar.notify(event.sourceTeamId === localTeam ? 'MISSILE DEFENSE INTERCEPT' : 'STRATEGIC MISSILE INTERCEPTED');
+        }
         if (event.kind === 'rank-up' && event.sourceTeamId === localTeam) {
           audio.playUi('build');
           showRankUpToast(event.targetLabel ?? 'Veteran');
@@ -5293,6 +5375,61 @@ function seedTestStartBase(sim: ReturnType<typeof createGameSim>, hf: ReturnType
   economy.readyStructure = undefined;
   economy.selectedStructure = undefined;
   economy.placement = undefined;
+}
+
+function seedMissileDoctrinePreview(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  armies: ArmyRuntime[],
+  localTeam: number,
+): void {
+  const local = armies.find((army) => army.team === localTeam);
+  if (!local) return;
+  local.economy.doctrine = 'missile-command';
+  local.economy.intelligenceLevel = 1;
+  // The regular test base intentionally runs close to its power ceiling. Give
+  // this focused scenario enough generation to operate both strategic systems.
+  placePreviewStructure(sim, hf, local.economy, local.base, 'power-plant', [
+    { x: -82, z: -34 }, { x: 82, z: -34 }, { x: -86, z: 34 },
+  ]);
+  placePreviewStructure(sim, hf, local.economy, local.base, 'power-plant', [
+    { x: 82, z: 34 }, { x: -88, z: 0 }, { x: 88, z: 0 },
+  ]);
+  placePreviewStructure(sim, hf, local.economy, local.base, 'intelligence-center', [
+    { x: -62, z: -52 }, { x: 54, z: -58 }, { x: -72, z: 8 },
+  ]);
+  placePreviewStructure(sim, hf, local.economy, local.base, 'strategic-silo', [
+    { x: 66, z: 48 }, { x: -70, z: 52 }, { x: 74, z: -42 },
+  ]);
+  for (const army of armies) {
+    if (!areTeamsHostile(sim, localTeam, army.team)) continue;
+    placePreviewStructure(sim, hf, army.economy, army.base, 'missile-defense', [
+      { x: 58, z: 46 }, { x: -58, z: -46 }, { x: 66, z: -12 },
+    ]);
+  }
+  local.economy.credits = Math.max(local.economy.credits, 15000);
+}
+
+function placePreviewStructure(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  economy: ReturnType<typeof createEconomy>,
+  base: ReturnType<typeof createInitialBase>,
+  kind: StructureKind,
+  offsets: Array<{ x: number; z: number }>,
+): Entity | undefined {
+  economy.readyStructure = kind;
+  const placement = findValidTestPlacement(sim, hf, economy, base.transform.x, base.transform.z, kind, offsets);
+  if (!placement) {
+    economy.readyStructure = undefined;
+    return undefined;
+  }
+  const placed = placeStructure(sim, hf, economy, placement);
+  if (placed?.building) placed.building.buildProgress = 1;
+  economy.readyStructure = undefined;
+  economy.selectedStructure = undefined;
+  economy.placement = undefined;
+  return placed;
 }
 
 function initialPlacementPoint(

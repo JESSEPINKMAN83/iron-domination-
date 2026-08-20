@@ -2,7 +2,16 @@ import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { isFortressTower } from '../content/fortress';
 import type { Entity } from '../sim/components';
-import { MAX_PRODUCER_JOBS, buildings, canBuildStructure, canQueueUnit, type EconomyState } from '../sim/economy';
+import {
+  MAX_PRODUCER_JOBS,
+  buildings,
+  canBuildStructure,
+  canQueueUnit,
+  canUpgradeIntelligence,
+  hasStructure,
+  type EconomyState,
+} from '../sim/economy';
+import { STRATEGIC_MISSILE_COST, strategicLaunchReadiness } from '../sim/strategicWarfare';
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { selectedEntities, type GameSim } from '../sim/world';
@@ -30,6 +39,9 @@ export interface SidebarActions {
   radarYaw(): number;
   radarViewport(): { x: number; z: number }[];
   beginTacticalPing?(kind: TacticalPingKind): void;
+  upgradeIntelligence(): boolean;
+  strategicTargets(): Entity[];
+  launchStrategicMissile(targetId: number): { ok: boolean; reason: string };
 }
 
 interface CardState {
@@ -406,6 +418,10 @@ export class Sidebar {
     this.drawRadar();
   }
 
+  notify(text: string): void {
+    this.flash(text);
+  }
+
   producerHighlightIds(): number[] {
     if (this.activeTab === 'buildings' || this.activeTab === 'defense') {
       return buildings(this.sim, this.economy.team)
@@ -451,7 +467,10 @@ export class Sidebar {
     this.body.appendChild(this.economySummary());
 
     if (this.activeTab === 'buildings') {
-      for (const def of Object.values(STRUCTURES).filter((structure) => structure.tab === 'structures')) {
+      if (this.economy.doctrine === 'missile-command') this.body.appendChild(this.strategicOperationsPanel());
+      for (const def of Object.values(STRUCTURES).filter(
+        (structure) => structure.tab === 'structures' && (!structure.doctrine || structure.doctrine === this.economy.doctrine),
+      )) {
         this.body.appendChild(
           this.card(def.kind, def.label, def.cost, 'STRUCTURE', this.structureCardState(def.kind), () => this.actions.buildStructure(def.kind), () =>
             this.actions.cancelStructure(),
@@ -495,6 +514,87 @@ export class Sidebar {
       );
     }
     this.body.appendChild(this.productionSummary(this.activeTab));
+  }
+
+  private strategicOperationsPanel(): HTMLDivElement {
+    const panel = document.createElement('div');
+    panel.style.cssText =
+      'grid-column:1/-1;display:grid;gap:8px;padding:10px;border:1px solid rgba(240,213,106,.48);' +
+      'background:linear-gradient(145deg,rgba(25,20,13,.96),rgba(8,13,13,.96));box-shadow:inset 0 0 18px rgba(0,0,0,.48);';
+    const title = document.createElement('div');
+    title.style.cssText = 'display:flex;justify-content:space-between;gap:8px;color:#f0d56a;font-weight:900;letter-spacing:.08em;';
+    title.innerHTML = `<span>MISSILE COMMAND</span><span>INTEL LV ${this.economy.intelligenceLevel}/3</span>`;
+    panel.appendChild(title);
+
+    if (!hasStructure(this.sim, 'intelligence-center', this.economy.team)) {
+      const copy = document.createElement('div');
+      copy.style.cssText = 'color:#aebbc4;font-size:10px;line-height:1.45;';
+      copy.textContent = 'Build an Intelligence Center to begin identifying enemy structures.';
+      panel.appendChild(copy);
+      return panel;
+    }
+
+    const upgradeCheck = canUpgradeIntelligence(this.sim, this.economy);
+    const upgrade = document.createElement('button');
+    upgrade.type = 'button';
+    upgrade.disabled = !upgradeCheck.ok;
+    upgrade.textContent = upgradeCheck.cost > 0
+      ? `UPGRADE INTELLIGENCE · $${upgradeCheck.cost}`
+      : 'INTELLIGENCE MAXIMUM';
+    upgrade.title = upgradeCheck.ok ? 'Reveal more enemy structures' : upgradeCheck.reason;
+    upgrade.style.cssText = strategicButtonCss(upgradeCheck.ok);
+    upgrade.onclick = () => {
+      if (!this.actions.upgradeIntelligence()) {
+        this.flash(upgradeCheck.reason || 'Upgrade unavailable');
+        return;
+      }
+      this.flash(`INTELLIGENCE LEVEL ${this.economy.intelligenceLevel}`);
+      this.lastBodyKey = '';
+      this.renderBody();
+    };
+    panel.appendChild(upgrade);
+
+    if (!hasStructure(this.sim, 'strategic-silo', this.economy.team)) {
+      const copy = document.createElement('div');
+      copy.style.cssText = 'color:#aebbc4;font-size:10px;line-height:1.45;';
+      copy.textContent = 'Build a Strategic Missile Silo after intelligence contacts are available.';
+      panel.appendChild(copy);
+      return panel;
+    }
+
+    const targets = this.actions.strategicTargets();
+    const readiness = strategicLaunchReadiness(this.sim, this.economy);
+    const status = document.createElement('div');
+    status.style.cssText = `font-size:10px;color:${readiness.ready ? '#9cf3b1' : '#d2b15f'};`;
+    status.textContent = readiness.ready ? `SILO READY · WARHEAD $${STRATEGIC_MISSILE_COST}` : readiness.reason.toUpperCase();
+    panel.appendChild(status);
+    if (targets.length === 0) {
+      const copy = document.createElement('div');
+      copy.style.cssText = 'color:#aebbc4;font-size:10px;';
+      copy.textContent = 'Scanning for enemy structures…';
+      panel.appendChild(copy);
+      return panel;
+    }
+    const grid = document.createElement('div');
+    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;';
+    for (const target of targets) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.disabled = !readiness.ready;
+      const hp = target.health ? Math.max(0, Math.round((target.health.current / target.health.max) * 100)) : 100;
+      button.textContent = `T${target.team?.id ?? '?'} · ${target.building?.label ?? target.name} · ${hp}%`;
+      button.title = readiness.ready ? `Launch strategic missile for $${STRATEGIC_MISSILE_COST}` : readiness.reason;
+      button.style.cssText = strategicButtonCss(readiness.ready) + 'min-height:42px;text-align:left;white-space:normal;line-height:1.25;';
+      button.onclick = () => {
+        const result = this.actions.launchStrategicMissile(target.id);
+        this.flash(result.ok ? `MISSILE AWAY · ${target.building?.label?.toUpperCase()}` : result.reason.toUpperCase());
+        this.lastBodyKey = '';
+        this.renderBody();
+      };
+      grid.appendChild(button);
+    }
+    panel.appendChild(grid);
+    return panel;
   }
 
   private card(
@@ -975,6 +1075,9 @@ export class Sidebar {
       this.activeTab,
       this.economy.powerProduced,
       this.economy.powerUsed,
+      this.economy.doctrine,
+      this.economy.intelligenceLevel,
+      Math.ceil(this.economy.strategicMissileCooldown),
       `${line?.kind ?? ''}`,
       this.economy.readyStructure ?? '',
       this.economy.selectedStructure ?? '',
@@ -1431,6 +1534,15 @@ function smallButtonCss(active: boolean): string {
     'height:23px;border-radius:2px;border:1px solid #4b5552;font:10px ui-monospace,Menlo,monospace;letter-spacing:0;padding:0 6px;' +
     `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
     `color:${active ? '#141614' : '#d7e0e7'};cursor:pointer;`
+  );
+}
+
+function strategicButtonCss(enabled: boolean): string {
+  return (
+    'min-height:32px;padding:6px 8px;border-radius:3px;border:1px solid rgba(240,213,106,.5);' +
+    'font:800 9px ui-monospace,Menlo,monospace;letter-spacing:.04em;' +
+    `background:${enabled ? 'linear-gradient(180deg,#5a4822,#261f12)' : 'linear-gradient(180deg,#292b28,#151817)'};` +
+    `color:${enabled ? '#fff2b3' : '#737d78'};cursor:${enabled ? 'pointer' : 'default'};`
   );
 }
 

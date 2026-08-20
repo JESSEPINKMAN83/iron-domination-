@@ -91,6 +91,7 @@ export function restoreEconomyState(target: EconomyState, sim: GameSim, state: S
   const { pendingSpawnedIds, ...rest } = state;
   const restored = rest as EconomyState;
   target.team = restored.team;
+  target.doctrine = restored.doctrine ?? 'iron-legion';
   target.credits = restored.credits;
   target.incomeMultiplier = restored.incomeMultiplier;
   target.powerProduced = restored.powerProduced;
@@ -102,6 +103,8 @@ export function restoreEconomyState(target: EconomyState, sim: GameSim, state: S
   target.primaryProducerIds = clonePlain(restored.primaryProducerIds);
   target.placement = clonePlain(restored.placement);
   target.harvesterReplacementTimers = clonePlain(restored.harvesterReplacementTimers);
+  target.intelligenceLevel = restored.intelligenceLevel ?? (target.doctrine === 'missile-command' ? 1 : 0);
+  target.strategicMissileCooldown = restored.strategicMissileCooldown ?? 0;
   target.pendingSpawned = pendingSpawnedIds.map((id) => sim.byId.get(id)).filter((entity): entity is Entity => entity !== undefined);
 }
 

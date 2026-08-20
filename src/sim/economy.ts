@@ -3,6 +3,7 @@ import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, type Fortr
 import { startPosition } from '../content/startPositions';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
 import { WEAPONS } from '../content/phase4';
+import type { ArmyDoctrineId } from '../content/armyDoctrines';
 import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
@@ -25,6 +26,7 @@ export interface LedgerEntry {
 export interface EconomyState {
   /** which team this economy belongs to (player = 1) */
   team: number;
+  doctrine: ArmyDoctrineId;
   credits: number;
   /** difficulty handicap applied to ore income (AI tiers use this) */
   incomeMultiplier: number;
@@ -38,6 +40,8 @@ export interface EconomyState {
   placement?: PlacementState;
   pendingSpawned: Entity[];
   harvesterReplacementTimers: Record<number, number>;
+  intelligenceLevel: number;
+  strategicMissileCooldown: number;
 }
 
 export interface PlacementState {
@@ -52,9 +56,10 @@ export interface PlacementState {
 
 const WALL_CHAIN_MAX_SEGMENTS = 28;
 
-export function createEconomy(team = 1, initialCredits = 4600): EconomyState {
+export function createEconomy(team = 1, initialCredits = 4600, doctrine: ArmyDoctrineId = 'iron-legion'): EconomyState {
   return {
     team,
+    doctrine,
     credits: initialCredits,
     incomeMultiplier: 1,
     powerProduced: 0,
@@ -63,6 +68,8 @@ export function createEconomy(team = 1, initialCredits = 4600): EconomyState {
     primaryProducerIds: {},
     pendingSpawned: [],
     harvesterReplacementTimers: {},
+    intelligenceLevel: doctrine === 'missile-command' ? 1 : 0,
+    strategicMissileCooldown: 0,
   };
 }
 
@@ -93,10 +100,13 @@ export function hashEconomy(economy: EconomyState): number {
   };
 
   mix(economy.team);
+  mixText(economy.doctrine);
   mix(Math.round(economy.credits * 100));
   mix(Math.round(economy.incomeMultiplier * 1000));
   mix(Math.round(economy.powerProduced * 100));
   mix(Math.round(economy.powerUsed * 100));
+  mix(economy.intelligenceLevel);
+  mix(Math.round(economy.strategicMissileCooldown * 1000));
   mixJob(economy.structureLine);
   mixText(economy.readyStructure);
   for (const refineryId of Object.keys(economy.harvesterReplacementTimers).map(Number).sort((a, b) => a - b)) {
@@ -144,6 +154,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
 
 export function canBuildStructure(sim: GameSim, economy: EconomyState, kind: StructureKind): { ok: boolean; reason: string } {
   const def = STRUCTURES[kind];
+  if (def.doctrine && def.doctrine !== economy.doctrine) return { ok: false, reason: 'Missile Command doctrine only' };
   if (economy.structureLine || economy.readyStructure) return { ok: false, reason: 'Structure line busy' };
   if (economy.credits < def.cost) return { ok: false, reason: 'Insufficient credits' };
   if (def.requires && !hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}` };
@@ -385,6 +396,7 @@ export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState
   const spawned: Entity[] = economy.pendingSpawned.splice(0);
   const powered = economy.powerProduced >= economy.powerUsed;
   const productionScale = powered ? 1 : 0.45;
+  economy.strategicMissileCooldown = Math.max(0, economy.strategicMissileCooldown - dt * productionScale);
 
   const structureJob = economy.structureLine;
   if (structureJob) {
@@ -439,6 +451,37 @@ export function buildings(sim: GameSim, team?: number): Entity[] {
 
 export function hasStructure(sim: GameSim, kind: StructureKind, team = 1): boolean {
   return buildings(sim, team).some((entity) => entity.building?.kind === kind && entity.building.complete);
+}
+
+export const MAX_INTELLIGENCE_LEVEL = 3;
+
+export function intelligenceUpgradeCost(currentLevel: number): number {
+  if (currentLevel <= 1) return 650;
+  if (currentLevel === 2) return 1100;
+  return 0;
+}
+
+export function canUpgradeIntelligence(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
+  const cost = intelligenceUpgradeCost(economy.intelligenceLevel);
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Missile Command doctrine only', cost };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
+  if (economy.intelligenceLevel >= MAX_INTELLIGENCE_LEVEL) return { ok: false, reason: 'Maximum intelligence level', cost: 0 };
+  if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
+  return { ok: true, reason: '', cost };
+}
+
+export function upgradeIntelligence(sim: GameSim, economy: EconomyState): boolean {
+  const check = canUpgradeIntelligence(sim, economy);
+  if (!check.ok) return false;
+  spend(economy, sim.tick, `Intelligence level ${economy.intelligenceLevel + 1}`, check.cost);
+  economy.intelligenceLevel++;
+  return true;
+}
+
+export function spendCredits(economy: EconomyState, tick: number, label: string, amount: number): boolean {
+  if (!Number.isFinite(amount) || amount < 0 || economy.credits < amount) return false;
+  spend(economy, tick, label, amount);
+  return true;
 }
 
 export function recomputePower(sim: GameSim, economy: EconomyState): void {

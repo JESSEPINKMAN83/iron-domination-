@@ -1,6 +1,18 @@
 import type { WeaponKind } from './phase4';
+import type { ArmyDoctrineId } from './armyDoctrines';
 
-export type StructureKind = 'power-plant' | 'refinery' | 'barracks' | 'factory' | 'helipad' | 'wall' | 'guard-tower' | 'aa-tower';
+export type StructureKind =
+  | 'power-plant'
+  | 'refinery'
+  | 'barracks'
+  | 'factory'
+  | 'helipad'
+  | 'intelligence-center'
+  | 'strategic-silo'
+  | 'wall'
+  | 'guard-tower'
+  | 'aa-tower'
+  | 'missile-defense';
 export type UnitKind =
   | 'infantry'
   | 'sniper'
@@ -29,6 +41,7 @@ export interface StructureDef {
   weaponKind?: WeaponKind;
   weaponRange?: number;
   visionRadius?: number;
+  doctrine?: ArmyDoctrineId;
 }
 
 export interface UnitDef {
@@ -100,6 +113,34 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     requires: 'factory',
     producer: 'aircraft',
   },
+  'intelligence-center': {
+    kind: 'intelligence-center',
+    label: 'Intelligence Center',
+    tab: 'structures',
+    cost: 700,
+    buildTime: 6,
+    health: 560,
+    footprint: { w: 5, h: 5 },
+    powerProduced: 0,
+    powerUsed: 12,
+    requires: 'power-plant',
+    visionRadius: 135,
+    doctrine: 'missile-command',
+  },
+  'strategic-silo': {
+    kind: 'strategic-silo',
+    label: 'Strategic Missile Silo',
+    tab: 'structures',
+    cost: 1500,
+    buildTime: 11,
+    health: 820,
+    footprint: { w: 7, h: 7 },
+    powerProduced: 0,
+    powerUsed: 25,
+    requires: 'intelligence-center',
+    visionRadius: 80,
+    doctrine: 'missile-command',
+  },
   wall: {
     kind: 'wall',
     label: 'Wall Segment',
@@ -145,6 +186,20 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     weaponKind: 'aaMissile',
     weaponRange: 320,
     visionRadius: 300,
+  },
+  'missile-defense': {
+    kind: 'missile-defense',
+    label: 'Missile Defense Battery',
+    tab: 'defense',
+    cost: 900,
+    buildTime: 8,
+    health: 540,
+    footprint: { w: 4, h: 4 },
+    powerProduced: 0,
+    powerUsed: 10,
+    requires: 'power-plant',
+    blocksMovement: true,
+    visionRadius: 190,
   },
 };
 

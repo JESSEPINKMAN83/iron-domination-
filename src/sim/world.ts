@@ -112,6 +112,8 @@ export interface Projectile {
   };
   teamId: number;
   attackerId: number;
+  /** Long-range silo round eligible for dedicated missile-defense interception. */
+  strategic?: boolean;
 }
 
 export interface ResourceNode {
@@ -1596,6 +1598,7 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round(projectile.toZ * 100));
     mix(Math.round(projectile.elapsed * 1000));
     mix(projectile.manualAim ? 1 : 0);
+    mix(projectile.strategic ? 1 : 0);
     mix(projectile.attackerId);
   }
   for (const node of sim.resourceNodes) {

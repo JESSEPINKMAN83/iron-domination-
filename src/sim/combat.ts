@@ -827,6 +827,10 @@ function absoluteProjectileTargetY(sim: GameSim, target: Entity | undefined, x: 
 function stepProjectiles(sim: GameSim, dt: number): void {
   for (let i = sim.projectiles.length - 1; i >= 0; i--) {
     const projectile = sim.projectiles[i];
+    if (projectile.strategic && interceptStrategicMissile(sim, projectile)) {
+      sim.projectiles.splice(i, 1);
+      continue;
+    }
     projectile.elapsed += dt;
     if (projectile.homing) {
       projectile.homing.remainingLifetime -= dt;
@@ -963,6 +967,63 @@ function stepProjectiles(sim: GameSim, dt: number): void {
     impactProjectile(sim, projectile, projectile.toX, projectile.toY, projectile.toZ, directTarget);
     sim.projectiles.splice(i, 1);
   }
+}
+
+const MISSILE_DEFENSE_RADIUS = 170;
+const MISSILE_DEFENSE_FIRE_INTERVAL_TICKS = 12;
+
+function interceptStrategicMissile(sim: GameSim, projectile: GameSim['projectiles'][number]): boolean {
+  const px = projectile.x ?? projectile.fromX;
+  const py = projectile.y ?? projectile.fromY ?? sampleHeight(sim.nav.heightfield, px, projectile.z ?? projectile.fromZ) + 8;
+  const pz = projectile.z ?? projectile.fromZ;
+  for (const defense of sim.buildingsQuery) {
+    if (
+      defense.destroyed ||
+      !defense.building?.complete ||
+      defense.building.kind !== 'missile-defense' ||
+      defense.team?.id === undefined ||
+      !areTeamsHostile(sim, projectile.teamId, defense.team.id)
+    ) continue;
+    if ((sim.tick + defense.id * 7) % MISSILE_DEFENSE_FIRE_INTERVAL_TICKS !== 0) continue;
+    if (Math.hypot(defense.transform.x - px, defense.transform.z - pz) > MISSILE_DEFENSE_RADIUS) continue;
+    const target = projectile.directTargetId ? entityById(sim, projectile.directTargetId) : undefined;
+    sim.events.push({
+      kind: 'siegeMissile-impact',
+      weaponKind: 'strategicMissile',
+      fromX: px,
+      fromY: py,
+      fromZ: pz,
+      toX: px,
+      toY: py,
+      toZ: pz,
+      sourceTeamId: defense.team.id,
+      targetId: target?.id,
+      targetLabel: 'Strategic missile intercepted',
+      targetType: 'aircraft',
+      damage: 0,
+      killed: false,
+      trajectory: 'flat',
+      impactScale: 1.35,
+    });
+    sim.events.push({
+      kind: 'strategic-missile-intercepted',
+      weaponKind: 'strategicMissile',
+      fromX: defense.transform.x,
+      fromY: (defense.transform.y ?? 0) + 4,
+      fromZ: defense.transform.z,
+      toX: px,
+      toY: py,
+      toZ: pz,
+      sourceTeamId: defense.team.id,
+      targetId: target?.id,
+      targetLabel: target?.building?.label ?? target?.name,
+      targetType: 'aircraft',
+      damage: 0,
+      killed: false,
+    });
+    return true;
+  }
+  return false;
 }
 
 function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][number], x: number, y: number | undefined, z: number, directTarget?: Entity): void {

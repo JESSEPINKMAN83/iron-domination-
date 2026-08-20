@@ -22,7 +22,8 @@ export type WeaponKind =
   | 'clusterGrenade'
   | 'railShot'
   | 'swarmRocket'
-  | 'annihilatorMissile';
+  | 'annihilatorMissile'
+  | 'strategicMissile';
 
 export type ProjectileKind = 'grenade' | 'kineticShell' | 'artilleryShell' | 'atRocket' | 'scoutMissile' | 'tankMissile' | 'siegeMissile' | 'agMissile' | 'aaMissile';
 
@@ -307,5 +308,16 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
     vs: { infantry: 0.85, light: 1.15, heavy: 1.05, building: 0.82, air: 0 },
     projectile: { kind: 'siegeMissile', speed: 104, trajectory: 'flat', impactRadius: 4.8 },
+  },
+  strategicMissile: {
+    kind: 'strategicMissile',
+    label: 'Long-Range Strategic Missile',
+    damage: 460,
+    cooldown: 30,
+    range: 1800,
+    splashRadius: 18,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 0.8, light: 0.9, heavy: 0.95, building: 1, air: 0 },
+    projectile: { kind: 'siegeMissile', speed: 42, trajectory: 'homing', impactRadius: 7 },
   },
 };
