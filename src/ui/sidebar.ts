@@ -137,9 +137,9 @@ export class Sidebar {
     this.root = document.createElement('div');
     this.root.className = 'game-sidebar';
     this.root.style.cssText =
-      'position:fixed;top:10px;right:10px;width:322px;max-height:calc(100vh - 20px);display:flex;flex-direction:column;gap:7px;' +
+      'position:fixed;top:10px;right:10px;width:322px;max-height:calc(100vh - 78px);display:flex;flex-direction:column;gap:7px;' +
       'font:12px/1.35 ui-monospace,Menlo,monospace;color:#e0e7dd;background:linear-gradient(180deg,rgba(31,35,36,.96),rgba(10,13,14,.93));' +
-      'border:2px solid #1b1f20;border-top-color:#596260;border-left-color:#596260;border-radius:3px;padding:10px;z-index:12;' +
+      'box-sizing:border-box;border:2px solid #1b1f20;border-top-color:#596260;border-left-color:#596260;border-radius:3px;padding:10px;z-index:12;' +
       'box-shadow:inset 0 0 0 1px rgba(210,177,95,.25),0 12px 30px rgba(0,0,0,.38);';
     this.root.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
@@ -501,11 +501,11 @@ export class Sidebar {
   private renderBody(): void {
     this.body.replaceChildren();
     const selected = this.selectedBuilding();
-    if (selected) this.body.appendChild(this.selectedBuildingStrip(selected));
     if (selected?.building?.kind === 'strategic-silo') {
       this.body.appendChild(this.strategicOperationsPanel());
       return;
     }
+    if (selected) this.body.appendChild(this.selectedBuildingStrip(selected));
     const selectedHarvester = this.selectedHarvester();
     if (selectedHarvester) this.body.appendChild(this.selectedHarvesterStrip(selectedHarvester));
     this.body.appendChild(this.economySummary());
@@ -589,7 +589,7 @@ export class Sidebar {
   private strategicOperationsPanel(): HTMLDivElement {
     const panel = document.createElement('div');
     panel.style.cssText =
-      'grid-column:1/-1;display:grid;gap:9px;padding:10px;border:1px solid rgba(240,213,106,.48);' +
+      'grid-column:1/-1;display:grid;gap:6px;padding:8px;border:1px solid rgba(240,213,106,.48);' +
       'background:linear-gradient(145deg,rgba(25,20,13,.96),rgba(8,13,13,.96));box-shadow:inset 0 0 18px rgba(0,0,0,.48);';
     const title = document.createElement('div');
     title.style.cssText = 'display:flex;justify-content:space-between;gap:8px;color:#f0d56a;font-weight:900;letter-spacing:.08em;';
@@ -778,7 +778,7 @@ export class Sidebar {
     }
 
     const readiness = strategicLaunchReadiness(this.sim, this.economy);
-    const targets = this.actions.strategicTargets().filter((target) => target.team?.id === enemyTeam);
+    const targets = this.actions.strategicTargets().filter((target) => target.team?.id === enemyTeam && !!target.building);
     const launchPanel = document.createElement('div');
     launchPanel.style.cssText = `display:grid;gap:6px;padding:8px;border:2px solid ${accent}99;background:linear-gradient(180deg,${accent}1f,rgba(6,9,9,.98));`;
     const launchHeading = document.createElement('div');
@@ -803,21 +803,19 @@ export class Sidebar {
     };
     launchPanel.append(launchHeading, accuracyCopy, blind);
 
-    if (targets.length > 0) {
+    if (targets.length > 0 && !this.strategicTargeting) {
       const chooseTarget = document.createElement('button');
       chooseTarget.type = 'button';
-      chooseTarget.textContent = this.strategicTargeting
-        ? 'CLOSE TARGET GALLERY'
-        : `CHOOSE REVEALED TARGET · ${targets.length} AVAILABLE`;
+      chooseTarget.textContent = `CHOOSE REVEALED BUILDING · ${targets.length} AVAILABLE`;
       chooseTarget.title = 'Open revealed building targets';
-      chooseTarget.style.cssText = strategicThemedButtonCss(true, accent, this.strategicTargeting) + 'min-height:38px;font-size:9px;';
+      chooseTarget.style.cssText = strategicThemedButtonCss(true, accent) + 'min-height:36px;font-size:9px;';
       chooseTarget.onclick = () => {
-        this.strategicTargeting = !this.strategicTargeting;
+        this.strategicTargeting = true;
         this.strategicUpgradeMode = undefined;
         this.strategicTargetTypeIndex = 0;
         this.strategicTargetSiteIndex = 0;
         const firstTarget = this.strategicTargetGroups(targets)[0]?.targets[0];
-        this.setStrategicPreviewTarget(this.strategicTargeting ? firstTarget : undefined, this.strategicTargeting);
+        this.setStrategicPreviewTarget(firstTarget, true);
         this.lastBodyKey = '';
         this.renderBody();
       };
@@ -850,10 +848,10 @@ export class Sidebar {
     const hp = target.health ? Math.max(0, Math.round((target.health.current / target.health.max) * 100)) : 100;
 
     const gallery = document.createElement('div');
-    gallery.style.cssText = `display:grid;gap:7px;padding:8px;border:1px solid ${accent}aa;background:linear-gradient(155deg,${accent}22,rgba(5,9,9,.96));box-shadow:inset 0 0 18px ${accent}18;`;
+    gallery.style.cssText = `display:grid;gap:5px;padding:7px;border:1px solid ${accent}aa;background:linear-gradient(155deg,${accent}22,rgba(5,9,9,.96));box-shadow:inset 0 0 18px ${accent}18;`;
 
     const typeNav = document.createElement('div');
-    typeNav.style.cssText = 'display:grid;grid-template-columns:34px 1fr 34px;align-items:center;gap:6px;';
+    typeNav.style.cssText = 'display:grid;grid-template-columns:30px minmax(0,1fr) 30px 24px;align-items:center;gap:5px;';
     const previousType = this.strategicGalleryArrow('◀', groups.length > 1, accent, 'Previous building type', () => {
       this.strategicTargetTypeIndex = (this.strategicTargetTypeIndex - 1 + groups.length) % groups.length;
       this.strategicTargetSiteIndex = 0;
@@ -873,10 +871,22 @@ export class Sidebar {
       this.lastBodyKey = '';
       this.renderBody();
     });
-    typeNav.append(previousType, typeCopy, nextType);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '×';
+    close.title = 'Close target gallery';
+    close.setAttribute('aria-label', 'Close target gallery');
+    close.style.cssText = strategicThemedButtonCss(true, accent) + 'min-width:24px;min-height:30px;padding:0;font-size:15px;';
+    close.onclick = () => {
+      this.strategicTargeting = false;
+      this.setStrategicPreviewTarget(undefined);
+      this.lastBodyKey = '';
+      this.renderBody();
+    };
+    typeNav.append(previousType, typeCopy, nextType, close);
 
     const icon = document.createElement('div');
-    icon.style.cssText = `position:relative;height:132px;border:2px solid ${accent};background:#0c1111;overflow:hidden;box-shadow:inset 0 0 24px ${accent}2e,0 0 12px ${accent}22;`;
+    icon.style.cssText = `position:relative;height:104px;border:2px solid ${accent};background:#0c1111;overflow:hidden;box-shadow:inset 0 0 20px ${accent}2e,0 0 10px ${accent}22;`;
     const fallback = document.createElement('div');
     fallback.style.cssText = `position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,${accent}33,#090d0d);color:${accent};font-size:34px;font-weight:900;z-index:1;`;
     fallback.textContent = initials(group.label);
@@ -890,31 +900,34 @@ export class Sidebar {
     lockBadge.textContent = 'TARGET LOCK';
     icon.append(fallback, img, lockBadge);
 
-    const siteNav = document.createElement('div');
-    siteNav.style.cssText = 'display:grid;grid-template-columns:34px 1fr 34px;align-items:center;gap:6px;';
-    const previousSite = this.strategicGalleryArrow('◀', group.targets.length > 1, accent, 'Previous site of this type', () => {
-      this.strategicTargetSiteIndex = (this.strategicTargetSiteIndex - 1 + group.targets.length) % group.targets.length;
-      this.setStrategicPreviewTarget(group.targets[this.strategicTargetSiteIndex], true);
-      this.lastBodyKey = '';
-      this.renderBody();
-    });
-    const siteCopy = document.createElement('div');
-    siteCopy.style.cssText = 'text-align:center;color:#d9e1df;font-size:9px;line-height:1.45;';
-    siteCopy.innerHTML = `<strong style="color:#fff">SITE ${this.strategicTargetSiteIndex + 1} / ${group.targets.length}</strong> · ${hp}% HP<br><span style="color:${accent}">HIGHLIGHTED ON BATTLEFIELD + RADAR</span>`;
-    const nextSite = this.strategicGalleryArrow('▶', group.targets.length > 1, accent, 'Next site of this type', () => {
-      this.strategicTargetSiteIndex = (this.strategicTargetSiteIndex + 1) % group.targets.length;
-      this.setStrategicPreviewTarget(group.targets[this.strategicTargetSiteIndex], true);
-      this.lastBodyKey = '';
-      this.renderBody();
-    });
-    siteNav.append(previousSite, siteCopy, nextSite);
+    const siteSelector = document.createElement('div');
+    siteSelector.style.cssText = `display:grid;grid-template-columns:repeat(${group.targets.length},minmax(0,1fr));gap:4px;`;
+    for (const [index, site] of group.targets.entries()) {
+      const siteButton = document.createElement('button');
+      const active = index === this.strategicTargetSiteIndex;
+      siteButton.type = 'button';
+      siteButton.textContent = group.targets.length === 1 ? 'SITE 1' : `${index + 1}`;
+      siteButton.title = `Target ${group.label} site ${index + 1}`;
+      siteButton.setAttribute('aria-label', `Target ${group.label} site ${index + 1}${active ? ', selected' : ''}`);
+      siteButton.style.cssText = strategicThemedButtonCss(true, accent, active) + 'min-height:28px;padding:3px;font-size:9px;';
+      siteButton.onclick = () => {
+        this.strategicTargetSiteIndex = index;
+        this.setStrategicPreviewTarget(site, true);
+        this.lastBodyKey = '';
+        this.renderBody();
+      };
+      siteSelector.appendChild(siteButton);
+    }
+    const targetStatus = document.createElement('div');
+    targetStatus.style.cssText = 'text-align:center;color:#d9e1df;font-size:8px;line-height:1.2;';
+    targetStatus.innerHTML = `<strong style="color:#fff">SITE ${this.strategicTargetSiteIndex + 1}</strong> · ${hp}% HP · <span style="color:${accent}">LOCKED</span>`;
 
     const launch = document.createElement('button');
     launch.type = 'button';
     launch.disabled = !enabled;
     launch.title = enabled ? `${accuracy.label.toLowerCase()} accuracy${accuracy.radius ? ` within about ${accuracy.radius}m` : ''}` : reason;
     launch.textContent = `LAUNCH AT ${group.label.toUpperCase()} · SITE ${this.strategicTargetSiteIndex + 1} · $${STRATEGIC_MISSILE_COST}`;
-    launch.style.cssText = strategicThemedButtonCss(enabled, accent, true) + 'min-height:44px;font-size:10px;';
+    launch.style.cssText = strategicThemedButtonCss(enabled, accent, true) + 'min-height:38px;font-size:9px;';
     launch.onclick = () => {
       const result = this.actions.launchStrategicMissile(target.id);
       if (result.ok) {
@@ -927,7 +940,7 @@ export class Sidebar {
       this.renderBody();
     };
 
-    gallery.append(typeNav, icon, siteNav, launch);
+    gallery.append(typeNav, icon, siteSelector, targetStatus, launch);
     return gallery;
   }
 
@@ -937,7 +950,7 @@ export class Sidebar {
     button.disabled = !enabled;
     button.textContent = label;
     button.title = title;
-    button.style.cssText = strategicThemedButtonCss(enabled, accent) + 'min-width:34px;min-height:34px;padding:0;font-size:14px;';
+    button.style.cssText = strategicThemedButtonCss(enabled, accent) + 'min-width:30px;min-height:30px;padding:0;font-size:13px;';
     button.onclick = action;
     return button;
   }
