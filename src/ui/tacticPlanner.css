@@ -21,7 +21,7 @@
   border: 2px solid #1b1f20;
   border-top-color: #596260;
   border-left-color: #596260;
-  border-radius: 3px;
+  border-radius: 4px;
   background: linear-gradient(180deg, rgba(24, 31, 31, 0.97), rgba(8, 12, 12, 0.96));
   color: #e0e7dd;
   box-shadow: inset 0 0 0 1px rgba(210, 177, 95, 0.22), 0 18px 48px rgba(0, 0, 0, 0.55);
@@ -76,6 +76,7 @@
   position: relative;
   aspect-ratio: 1;
   border: 1px solid #4b5552;
+  border-radius: 4px;
   background: #0b1110;
   overflow: hidden;
 }
@@ -164,7 +165,7 @@
 
 .iron-tactic__side {
   display: grid;
-  grid-template-rows: auto minmax(120px, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(120px, 1fr);
   gap: 8px;
   min-height: 0;
 }
@@ -179,6 +180,7 @@
 .iron-tactic__units {
   overflow: auto;
   border: 1px solid #3d4743;
+  border-radius: 4px;
   background: #0b1110;
   padding: 6px;
   display: grid;
@@ -193,6 +195,7 @@
   align-items: center;
   padding: 6px 7px;
   border: 1px solid #2c3532;
+  border-radius: 4px;
   background: #151c1b;
   color: #eef3e9;
   font-size: 12px;
@@ -201,6 +204,42 @@
 
 .iron-tactic__unit input {
   accent-color: #d2b15f;
+}
+
+.iron-tactic__delay {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #3d4743;
+  border-radius: 4px;
+  background: #0b1110;
+  color: #d7e0dc;
+  font-size: 11px;
+}
+
+.iron-tactic__delay output {
+  min-width: 42px;
+  color: #f0d56a;
+  font-size: 14px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.iron-tactic__delay input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  accent-color: #d2b15f;
+}
+
+.iron-tactic__delay small {
+  grid-column: 1 / -1;
+  color: #7f8d88;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .iron-tactic__end-actions,
@@ -229,7 +268,7 @@
 .iron-tactic__execute {
   padding: 9px 8px;
   border: 1px solid #4b5552;
-  border-radius: 2px;
+  border-radius: 4px;
   background: linear-gradient(180deg, #26302f, #121817);
   color: #eef3e9;
   cursor: pointer;
@@ -267,6 +306,6 @@
   }
 
   .iron-tactic__side {
-    grid-template-rows: auto 140px auto auto auto;
+    grid-template-rows: auto 140px;
   }
 }

@@ -24,7 +24,7 @@ export interface HudStats {
 
 const PANEL_CSS =
   'position:fixed;padding:10px 12px;font:11px/1.6 ui-monospace,Menlo,monospace;color:#cfd8e3;' +
-  'background:rgba(8,12,16,.72);border:1px solid rgba(255,255,255,.08);border-radius:6px;' +
+  'background:rgba(8,12,16,.72);border:1px solid rgba(255,255,255,.08);border-radius:4px;' +
   'pointer-events:none;white-space:pre;z-index:10;';
 
 export class Hud {
@@ -101,7 +101,7 @@ export class Hud {
     this.modeBanner.style.cssText =
       'position:fixed;left:50%;top:12px;transform:translate(-50%,-135%);opacity:0;z-index:13;pointer-events:none;' +
       'min-width:260px;padding:10px 18px;text-align:center;font:12px/1.25 ui-monospace,Menlo,monospace;color:#f0f3e8;' +
-      'background:linear-gradient(180deg,rgba(30,40,40,.94),rgba(8,12,13,.88));border:1px solid rgba(240,213,106,.58);border-radius:3px;' +
+      'background:linear-gradient(180deg,rgba(30,40,40,.94),rgba(8,12,13,.88));border:1px solid rgba(240,213,106,.58);border-radius:4px;' +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 10px 28px rgba(0,0,0,.42),0 0 18px rgba(240,213,106,.16);' +
       'transition:transform 260ms cubic-bezier(.2,.8,.2,1),opacity 180ms ease;';
     const mobileTouch = typeof document !== 'undefined' && document.documentElement.classList.contains('mobile-touch-device');
@@ -356,10 +356,10 @@ function updateReloadNode(frame: HTMLDivElement, slot: 'primary' | 'secondary', 
 function reticleReloadMarkup(): string {
   const track =
     'position:absolute;top:50%;width:3px;height:20px;transform:translateY(-50%);' +
-    'overflow:hidden;border-radius:2px;background:rgba(4,9,9,.68);' +
+    'overflow:hidden;border-radius:4px;background:rgba(4,9,9,.68);' +
     'box-shadow:0 0 0 1px rgba(0,0,0,.48);transition:opacity 100ms ease;';
   const fill =
-    'position:absolute;left:0;right:0;bottom:0;height:100%;border-radius:2px;' +
+    'position:absolute;left:0;right:0;bottom:0;height:100%;border-radius:4px;' +
     'background:currentColor;opacity:.94;transition:height 50ms linear,opacity 100ms ease,box-shadow 100ms ease;';
   return `
     <span data-reticle-reload="primary" aria-hidden="true" style="${track}right:calc(100% + 9px)">

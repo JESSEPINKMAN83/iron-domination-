@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { startPosition } from '../content/startPositions';
-import { mapOrientationForPlayer } from './tacticPlanner';
+import {
+  MAX_TACTIC_START_DELAY_SECONDS,
+  clampTacticStartDelaySeconds,
+  formatTacticStartDelay,
+  mapOrientationForPlayer,
+} from './tacticPlanner';
 import { worldToMapPercent } from './tacticalMap';
 
 describe('tactic planner map orientation', () => {
@@ -32,5 +37,20 @@ describe('tactic planner map orientation', () => {
       : worldToMapPercent(worldSize, foe.x, foe.z).y;
     expect(youY).toBeGreaterThan(foeY);
     expect(youY).toBeGreaterThan(50);
+  });
+});
+
+describe('tactic planner start delay', () => {
+  it('clamps the countdown between immediate and five minutes', () => {
+    expect(clampTacticStartDelaySeconds(-10)).toBe(0);
+    expect(clampTacticStartDelaySeconds(75)).toBe(75);
+    expect(clampTacticStartDelaySeconds(999)).toBe(MAX_TACTIC_START_DELAY_SECONDS);
+    expect(clampTacticStartDelaySeconds(Number.NaN)).toBe(0);
+  });
+
+  it('formats the countdown as minutes and seconds', () => {
+    expect(formatTacticStartDelay(0)).toBe('0:00');
+    expect(formatTacticStartDelay(65)).toBe('1:05');
+    expect(formatTacticStartDelay(300)).toBe('5:00');
   });
 });

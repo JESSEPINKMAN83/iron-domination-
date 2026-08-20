@@ -22,6 +22,7 @@ export type TacticExecutePayload = {
   entityIds: number[];
   waypoints: Array<{ x: number; z: number }>;
   endAction: TacticEndAction;
+  startDelaySeconds: number;
   selectionCount: number;
   plannerDurationMs: number;
 };
@@ -29,6 +30,18 @@ export type TacticExecutePayload = {
 type EndMode = 'hold' | 'attack-move' | 'attack';
 
 const ENEMY_PICK_RADIUS = 28;
+export const MAX_TACTIC_START_DELAY_SECONDS = 5 * 60;
+const TACTIC_START_DELAY_STEP_SECONDS = 5;
+
+export function clampTacticStartDelaySeconds(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(MAX_TACTIC_START_DELAY_SECONDS, Math.round(value)));
+}
+
+export function formatTacticStartDelay(seconds: number): string {
+  const total = clampTacticStartDelaySeconds(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
 
 export class TacticPlanner {
   private overlay?: HTMLDivElement;
@@ -45,6 +58,7 @@ export class TacticPlanner {
   private selectedIds = new Set<number>();
   private waypoints: Array<{ x: number; z: number }> = [];
   private endMode: EndMode = 'hold';
+  private startDelaySeconds = 0;
   private attackTargetId?: number;
   private onKeyDown?: (event: KeyboardEvent) => void;
   private lastDynamicRefreshAt = 0;
@@ -73,6 +87,7 @@ export class TacticPlanner {
     this.selectedIds = new Set(eligible.map((entity) => entity.id));
     this.waypoints = [];
     this.endMode = 'hold';
+    this.startDelaySeconds = 0;
     this.attackTargetId = undefined;
     this.openedAt = performance.now();
     this.lastDynamicRefreshAt = 0;
@@ -126,6 +141,22 @@ export class TacticPlanner {
           <aside class="iron-tactic__side">
             <div class="iron-tactic__section-title">Units in plan</div>
             <div class="iron-tactic__units" data-tactic-units></div>
+            <div class="iron-tactic__section-title">Start delay</div>
+            <label class="iron-tactic__delay">
+              <span>Wait before movement</span>
+              <output data-tactic-delay-output>0:00</output>
+              <input
+                type="range"
+                min="0"
+                max="${MAX_TACTIC_START_DELAY_SECONDS}"
+                step="${TACTIC_START_DELAY_STEP_SECONDS}"
+                value="0"
+                data-tactic-delay
+                aria-label="Tactic start delay"
+                aria-valuetext="Immediate"
+              />
+              <small>Immediate — up to 5:00</small>
+            </label>
             <div class="iron-tactic__section-title">End action</div>
             <div class="iron-tactic__end-actions" role="group" aria-label="End action">
               <button type="button" data-end="hold" class="is-active">Hold</button>
@@ -168,6 +199,12 @@ export class TacticPlanner {
       this.syncChrome();
     });
     this.executeBtn.addEventListener('click', () => this.execute());
+
+    const delayInput = overlay.querySelector<HTMLInputElement>('[data-tactic-delay]')!;
+    delayInput.addEventListener('input', () => {
+      this.startDelaySeconds = clampTacticStartDelaySeconds(Number(delayInput.value));
+      this.syncChrome();
+    });
 
     for (const button of Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-end]'))) {
       button.addEventListener('click', () => {
@@ -260,6 +297,7 @@ export class TacticPlanner {
       entityIds: [...this.selectedIds],
       waypoints: this.waypoints.map((point) => ({ ...point })),
       endAction,
+      startDelaySeconds: this.startDelaySeconds,
       selectionCount: this.candidates.length,
       plannerDurationMs: Math.round(performance.now() - this.openedAt),
     };
@@ -346,10 +384,21 @@ export class TacticPlanner {
       (this.endMode !== 'attack' || this.attackTargetId !== undefined);
     if (this.executeBtn) this.executeBtn.disabled = !canExecute;
 
+    const delayLabel = formatTacticStartDelay(this.startDelaySeconds);
+    const delayInput = this.overlay.querySelector<HTMLInputElement>('[data-tactic-delay]');
+    const delayOutput = this.overlay.querySelector<HTMLOutputElement>('[data-tactic-delay-output]');
+    if (delayInput) {
+      delayInput.value = String(this.startDelaySeconds);
+      delayInput.setAttribute('aria-valuetext', this.startDelaySeconds === 0 ? 'Immediate' : delayLabel);
+    }
+    if (delayOutput) delayOutput.value = delayLabel;
+    if (this.executeBtn) this.executeBtn.textContent = this.startDelaySeconds === 0 ? 'Execute tactic' : 'Schedule tactic';
+
     if (this.statusEl) {
       const parts = [
         `${this.waypoints.length}/${MAX_TACTIC_WAYPOINTS} path points`,
         `${this.selectedIds.size} units`,
+        this.startDelaySeconds === 0 ? 'start: now' : `start in ${delayLabel}`,
       ];
       if (this.endMode === 'attack') {
         parts.push(this.attackTargetId !== undefined ? `target #${this.attackTargetId}` : 'click an enemy on the map');

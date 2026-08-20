@@ -84,7 +84,7 @@
     padding: 0 3px;
     overflow: hidden;
     border: 1px solid rgba(151,164,157,.23);
-    border-radius: 3px;
+    border-radius: 4px;
     color: #8e9a95;
     background: #111718;
     font: 700 8px/1 ui-monospace,Menlo,monospace;
@@ -128,7 +128,7 @@
     padding: 12px;
     scroll-margin-top: 8px;
     border: 1px solid rgba(151,164,157,.25);
-    border-radius: 5px;
+    border-radius: 4px;
     background: rgba(13,18,19,.9);
   }
   .war-section:last-child { margin-bottom: 9px; padding-bottom: 12px; border-bottom: 1px solid rgba(151,164,157,.25); }
@@ -246,7 +246,7 @@
   .war-tab span { font-size: 14px; }
   .war-tab small { font-size: 6px; }
   .war-mobile-steps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 2px; padding: 4px max(8px,env(safe-area-inset-right)) 4px max(8px,env(safe-area-inset-left)); background: #0a0f10; border-bottom: 1px solid var(--war-line); }
-  .war-mobile-steps button { height: 27px; border: 1px solid rgba(151,164,157,.24); border-radius: 3px; color: #8e9a95; background: #111718; font: 700 7px/1 ui-monospace,Menlo,monospace; }
+  .war-mobile-steps button { height: 27px; border: 1px solid rgba(151,164,157,.24); border-radius: 4px; color: #8e9a95; background: #111718; font: 700 7px/1 ui-monospace,Menlo,monospace; }
   .war-mobile-steps button.is-active { border-color: rgba(223,189,100,.7); color: #f0d56a; background: rgba(223,189,100,.09); }
   .war-setup__body, .war-setup__body.is-join-entry {
     display: flex;
@@ -314,7 +314,7 @@
     align-items: center;
     padding: 6px;
     border: 1px solid rgba(223,189,100,.38);
-    border-radius: 5px;
+    border-radius: 4px;
     background: rgba(7,11,11,.95);
     box-shadow: 0 8px 28px rgba(0,0,0,.56);
     backdrop-filter: blur(12px);
@@ -347,7 +347,7 @@
     border:1px solid rgba(174,190,181,.58);
     border-top-color:rgba(238,242,225,.75);
     border-left-color:rgba(238,242,225,.75);
-    border-radius:3px;
+    border-radius:4px;
     background:linear-gradient(180deg,rgba(39,49,48,.95),rgba(12,18,17,.96));
     color:#eef3e9;
     font:700 10px/1 ui-monospace,Menlo,monospace;
@@ -558,7 +558,7 @@
     padding:0 3px;
     overflow:hidden;
     border:1px solid rgba(211,226,216,.14);
-    border-radius:6px;
+    border-radius:4px;
     background:rgba(26,37,35,.64);
     color:#e5eadf;
     font:700 8px/1 Inter,ui-sans-serif,system-ui,sans-serif;
@@ -573,7 +573,7 @@
     max-height:118px;
     justify-self:center;
     object-fit:contain;
-    border-radius:6px;
+    border-radius:4px;
     touch-action:none;
   }
   .mobile-touch-device .game-sidebar__first-person-status { display:none !important; }
