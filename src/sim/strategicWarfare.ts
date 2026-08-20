@@ -10,7 +10,7 @@ import {
 import { sampleHeight } from './heightfield';
 import { areTeamsHostile, entityById, type CombatEvent, type GameSim } from './world';
 
-export const STRATEGIC_MISSILE_COST = 350;
+export const STRATEGIC_MISSILE_COST = 225;
 export const STRATEGIC_MISSILE_COOLDOWN = 30;
 
 export interface IntelligenceProgram {
@@ -21,10 +21,10 @@ export interface IntelligenceProgram {
 }
 
 export const INTELLIGENCE_PROGRAMS: Record<IntelligenceCategory, IntelligenceProgram> = {
-  economy: { category: 'economy', label: 'Ore Operations', description: 'Reveal refineries and resource infrastructure.', cost: 250 },
-  power: { category: 'power', label: 'Power Grid', description: 'Reveal enemy power plants.', cost: 350 },
-  military: { category: 'military', label: 'Military Sites', description: 'Reveal production and defensive structures.', cost: 550 },
-  command: { category: 'command', label: 'Command Center', description: 'Reveal the enemy Command Yard.', cost: 900 },
+  economy: { category: 'economy', label: 'Ore Operations', description: 'Reveal refineries and ore collectors.', cost: 100 },
+  power: { category: 'power', label: 'Power Grid', description: 'Reveal enemy power plants.', cost: 150 },
+  military: { category: 'military', label: 'Military Sites', description: 'Reveal production and defensive structures.', cost: 250 },
+  command: { category: 'command', label: 'Command Center', description: 'Reveal the enemy Command Yard.', cost: 400 },
 };
 
 export interface StrategicAccuracy {
@@ -54,8 +54,8 @@ export function strategicAccuracy(level: number): StrategicAccuracy {
 
 export function strategicWarhead(level: number): StrategicWarhead {
   if (level <= 1) return { level: 1, label: 'STANDARD', damageScale: 1, impactScale: 1 };
-  if (level === 2) return { level: 2, label: 'HEAVY', damageScale: 1.5, impactScale: 1.35 };
-  return { level: 3, label: 'DEVASTATOR', damageScale: 2.15, impactScale: 1.8 };
+  if (level === 2) return { level: 2, label: 'HEAVY', damageScale: 1.65, impactScale: 1.4 };
+  return { level: 3, label: 'DEVASTATOR', damageScale: 2.5, impactScale: 1.9 };
 }
 
 export function enemyIntelligenceCategories(economy: EconomyState, enemyTeam: number): IntelligenceCategory[] {
@@ -121,7 +121,6 @@ export function strategicLaunchReadiness(
   economy: EconomyState,
 ): { ready: boolean; reason: string; cooldown: number } {
   if (economy.doctrine !== 'missile-command') return { ready: false, reason: 'Missile Command doctrine only', cooldown: 0 };
-  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ready: false, reason: 'Build an Intelligence Center', cooldown: 0 };
   if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ready: false, reason: 'Build a Missile Silo', cooldown: 0 };
   if (economy.powerProduced < economy.powerUsed) return { ready: false, reason: 'Insufficient power', cooldown: economy.strategicMissileCooldown };
   if (economy.strategicMissileCooldown > 0) {

@@ -5415,7 +5415,7 @@ function seedMissileDoctrinePreview(
   placePreviewStructure(sim, hf, local.economy, local.base, 'intelligence-center', [
     { x: -62, z: -52 }, { x: 54, z: -58 }, { x: -72, z: 8 },
   ]);
-  placePreviewStructure(sim, hf, local.economy, local.base, 'strategic-silo', [
+  const missileSilo = placePreviewStructure(sim, hf, local.economy, local.base, 'strategic-silo', [
     { x: 66, z: 48 }, { x: -70, z: 52 }, { x: 74, z: -42 },
   ]);
   for (const army of armies) {
@@ -5425,6 +5425,7 @@ function seedMissileDoctrinePreview(
     ]);
   }
   local.economy.credits = Math.max(local.economy.credits, 15000);
+  if (missileSilo) setSelected(sim, [missileSilo], false, localTeam);
 }
 
 function placePreviewStructure(

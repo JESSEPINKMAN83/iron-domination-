@@ -34,6 +34,7 @@ import {
 } from './radarTransform';
 import { unitDisplayName } from './unitDisplayName';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
+import { FACTION, factionId } from '../render/palette';
 
 type Tab = 'buildings' | 'defense' | 'infantry' | 'vehicles' | 'aircraft';
 
@@ -118,6 +119,7 @@ export class Sidebar {
   private firstPersonMode = false;
   private strategicTargeting = false;
   private strategicEnemyTeam?: number;
+  private strategicUpgradeMode?: 'intelligence' | 'warhead';
 
   constructor(
     private readonly sim: GameSim,
@@ -226,11 +228,15 @@ export class Sidebar {
     const selectedId = selected?.id;
     if (selectedId !== this.lastSelectedBuildingId) {
       this.lastSelectedBuildingId = selectedId;
+      this.strategicEnemyTeam = undefined;
+      this.strategicTargeting = false;
+      this.strategicUpgradeMode = undefined;
       if (context && this.activeTab !== context) {
         this.activeTab = context;
         this.renderTabs();
         this.lastBodyKey = '';
       }
+      this.tabs.style.display = selected?.building?.kind === 'strategic-silo' ? 'none' : 'grid';
     }
 
     const possessed = this.firstPersonMode ? this.possessedUnit() : undefined;
@@ -489,12 +495,15 @@ export class Sidebar {
     this.body.replaceChildren();
     const selected = this.selectedBuilding();
     if (selected) this.body.appendChild(this.selectedBuildingStrip(selected));
+    if (selected?.building?.kind === 'strategic-silo') {
+      this.body.appendChild(this.strategicOperationsPanel());
+      return;
+    }
     const selectedHarvester = this.selectedHarvester();
     if (selectedHarvester) this.body.appendChild(this.selectedHarvesterStrip(selectedHarvester));
     this.body.appendChild(this.economySummary());
 
     if (this.activeTab === 'buildings') {
-      if (this.economy.doctrine === 'missile-command') this.body.appendChild(this.strategicOperationsPanel());
       for (const def of Object.values(STRUCTURES).filter(
         (structure) => structure.tab === 'structures' && (!structure.doctrine || structure.doctrine === this.economy.doctrine),
       )) {
@@ -546,20 +555,12 @@ export class Sidebar {
   private strategicOperationsPanel(): HTMLDivElement {
     const panel = document.createElement('div');
     panel.style.cssText =
-      'grid-column:1/-1;display:grid;gap:8px;padding:10px;border:1px solid rgba(240,213,106,.48);' +
+      'grid-column:1/-1;display:grid;gap:9px;padding:10px;border:1px solid rgba(240,213,106,.48);' +
       'background:linear-gradient(145deg,rgba(25,20,13,.96),rgba(8,13,13,.96));box-shadow:inset 0 0 18px rgba(0,0,0,.48);';
     const title = document.createElement('div');
     title.style.cssText = 'display:flex;justify-content:space-between;gap:8px;color:#f0d56a;font-weight:900;letter-spacing:.08em;';
-    title.innerHTML = `<span>MISSILE COMMAND</span><span>WARHEAD LV ${this.economy.strategicMissileLevel}/3</span>`;
+    title.innerHTML = `<span>MISSILE SILO CONTROL</span><span>WARHEAD ${this.economy.strategicMissileLevel}/3</span>`;
     panel.appendChild(title);
-
-    if (!hasStructure(this.sim, 'intelligence-center', this.economy.team)) {
-      const copy = document.createElement('div');
-      copy.style.cssText = 'color:#aebbc4;font-size:10px;line-height:1.45;';
-      copy.textContent = 'Build an Intelligence Center to investigate specific enemy systems.';
-      panel.appendChild(copy);
-      return panel;
-    }
 
     const enemyTeams = Array.from(new Set(
       buildings(this.sim)
@@ -569,22 +570,35 @@ export class Sidebar {
     if (!this.strategicEnemyTeam || !enemyTeams.includes(this.strategicEnemyTeam)) {
       this.strategicEnemyTeam = undefined;
       this.strategicTargeting = false;
+      this.strategicUpgradeMode = undefined;
     }
+    if (enemyTeams.length === 1) this.strategicEnemyTeam = enemyTeams[0];
     if (this.strategicEnemyTeam === undefined) {
+      if (enemyTeams.length === 0) {
+        panel.appendChild(this.emptyState('NO ENEMY ARMIES', 'No hostile army is available for strategic targeting.'));
+        return panel;
+      }
       const heading = document.createElement('div');
-      heading.style.cssText = 'font-size:10px;color:#fff;font-weight:900;letter-spacing:.08em;';
-      heading.textContent = '1 · CHOOSE ENEMY ARMY';
+      heading.style.cssText = 'font-size:10px;color:#fff;font-weight:900;letter-spacing:.08em;text-align:center;';
+      heading.textContent = 'CHOOSE ENEMY ARMY';
       panel.appendChild(heading);
       const armies = document.createElement('div');
-      armies.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;';
+      armies.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;';
       for (const team of enemyTeams) {
         const known = enemyIntelligenceCategories(this.economy, team).length;
+        const accent = `#${FACTION[factionId(team)].accent.toString(16).padStart(6, '0')}`;
         const button = document.createElement('button');
         button.type = 'button';
-        button.textContent = `ARMY ${team}\n${known ? `${known} INTEL FILE${known === 1 ? '' : 'S'}` : 'NO INTELLIGENCE'}`;
-        button.style.cssText = strategicButtonCss(true) + 'min-height:48px;white-space:pre-line;';
+        button.innerHTML =
+          `<span style="font-size:20px;line-height:1">ARMY ${team}</span>` +
+          `<span style="font-size:8px;color:rgba(255,255,255,.8)">${known ? `${known} INTEL FILE${known === 1 ? '' : 'S'}` : 'NO INTELLIGENCE'}</span>`;
+        button.style.cssText =
+          `aspect-ratio:1;display:grid;place-content:center;gap:9px;border-radius:4px;border:2px solid ${accent};` +
+          `background:linear-gradient(145deg,${accent}cc,${accent}55 48%,#101414 49%);color:#fff;` +
+          'font:900 10px ui-monospace,Menlo,monospace;letter-spacing:.06em;cursor:pointer;text-shadow:0 2px 3px #000;box-shadow:inset 0 0 18px rgba(0,0,0,.45);';
         button.onclick = () => {
           this.strategicEnemyTeam = team;
+          this.strategicUpgradeMode = undefined;
           this.lastBodyKey = '';
           this.renderBody();
         };
@@ -595,124 +609,183 @@ export class Sidebar {
     }
 
     const enemyTeam = this.strategicEnemyTeam;
+    const accent = `#${FACTION[factionId(enemyTeam)].accent.toString(16).padStart(6, '0')}`;
     const enemyHeader = document.createElement('div');
-    enemyHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;color:#fff;font-size:11px;font-weight:900;';
-    enemyHeader.textContent = `TARGET: ARMY ${enemyTeam}`;
-    const changeArmy = document.createElement('button');
-    changeArmy.type = 'button';
-    changeArmy.textContent = 'CHANGE ARMY';
-    changeArmy.style.cssText = strategicButtonCss(true) + 'padding:4px 7px;min-height:24px;';
-    changeArmy.onclick = () => {
-      this.strategicEnemyTeam = undefined;
-      this.strategicTargeting = false;
-      this.lastBodyKey = '';
-      this.renderBody();
-    };
-    enemyHeader.appendChild(changeArmy);
+    enemyHeader.style.cssText = `display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 8px;border-left:4px solid ${accent};background:${accent}20;color:#fff;font-size:11px;font-weight:900;`;
+    const enemyLabel = document.createElement('span');
+    enemyLabel.innerHTML = `<span style="color:${accent}">●</span> TARGET ARMY ${enemyTeam}`;
+    enemyHeader.appendChild(enemyLabel);
+    if (enemyTeams.length > 1) {
+      const changeArmy = document.createElement('button');
+      changeArmy.type = 'button';
+      changeArmy.textContent = 'CHANGE ARMY';
+      changeArmy.style.cssText = strategicButtonCss(true) + 'padding:4px 7px;min-height:24px;';
+      changeArmy.onclick = () => {
+        this.strategicEnemyTeam = undefined;
+        this.strategicTargeting = false;
+        this.strategicUpgradeMode = undefined;
+        this.lastBodyKey = '';
+        this.renderBody();
+      };
+      enemyHeader.appendChild(changeArmy);
+    }
     panel.appendChild(enemyHeader);
 
     const purchasedIntel = enemyIntelligenceCategories(this.economy, enemyTeam);
     const accuracy = strategicAccuracy(enemyIntelligenceLevel(this.economy, enemyTeam));
-    const intelHeading = document.createElement('div');
-    intelHeading.style.cssText = 'font-size:10px;color:#d2b15f;font-weight:900;';
-    intelHeading.textContent = `2 · CHOOSE INTELLIGENCE · ${accuracy.label} ACCURACY${accuracy.radius ? ` ±${accuracy.radius}M` : ''}`;
-    panel.appendChild(intelHeading);
-    const intelGrid = document.createElement('div');
-    intelGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;';
-    for (const program of Object.values(INTELLIGENCE_PROGRAMS)) {
-      const purchased = purchasedIntel.includes(program.category);
-      const enabled = !purchased && this.economy.credits >= program.cost;
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.disabled = purchased || !enabled;
-      button.textContent = purchased ? `${program.label.toUpperCase()} · REVEALED` : `${program.label.toUpperCase()} · $${program.cost}`;
-      button.title = purchased ? 'Already revealed for this army' : program.description;
-      button.style.cssText = strategicButtonCss(enabled || purchased) + 'min-height:38px;text-align:left;white-space:normal;line-height:1.2;';
-      button.onclick = () => {
-        const result = this.actions.purchaseIntelligence(enemyTeam, program.category);
-        this.flash(result.ok ? `${program.label.toUpperCase()} REVEALED · ARMY ${enemyTeam}` : result.reason.toUpperCase());
-        this.lastBodyKey = '';
-        this.renderBody();
-      };
-      intelGrid.appendChild(button);
-    }
-    panel.appendChild(intelGrid);
-
-    if (!hasStructure(this.sim, 'strategic-silo', this.economy.team)) {
-      const copy = document.createElement('div');
-      copy.style.cssText = 'color:#aebbc4;font-size:10px;line-height:1.45;';
-      copy.textContent = 'Build a Missile Silo to launch at this army.';
-      panel.appendChild(copy);
-      return panel;
-    }
-
     const warhead = strategicWarhead(this.economy.strategicMissileLevel);
     const missileUpgrade = canUpgradeStrategicMissile(this.sim, this.economy);
-    const upgrade = document.createElement('button');
-    upgrade.type = 'button';
-    upgrade.disabled = !missileUpgrade.ok;
-    upgrade.textContent = missileUpgrade.cost > 0
-      ? `UPGRADE WARHEAD · ${warhead.label} LV ${warhead.level} · $${missileUpgrade.cost}`
-      : `${warhead.label} WARHEAD · MAXIMUM`;
-    upgrade.title = missileUpgrade.ok ? 'Increase strategic missile damage and explosion size' : missileUpgrade.reason;
-    upgrade.style.cssText = strategicButtonCss(missileUpgrade.ok);
-    upgrade.onclick = () => {
-      if (!this.actions.upgradeStrategicMissile()) this.flash(missileUpgrade.reason.toUpperCase());
-      else this.flash(`WARHEAD UPGRADED · LEVEL ${this.economy.strategicMissileLevel}`);
+
+    const upgradeChoices = document.createElement('div');
+    upgradeChoices.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;';
+    const intelligenceUpgrade = document.createElement('button');
+    intelligenceUpgrade.type = 'button';
+    intelligenceUpgrade.textContent = `INTELLIGENCE UPGRADE${purchasedIntel.length ? ` · ${purchasedIntel.length}/4` : ''}`;
+    intelligenceUpgrade.style.cssText =
+      strategicButtonCss(true) +
+      `min-height:44px;border-color:${this.strategicUpgradeMode === 'intelligence' ? '#66d9ff' : 'rgba(102,217,255,.42)'};` +
+      `background:${this.strategicUpgradeMode === 'intelligence' ? 'linear-gradient(180deg,#155267,#0c2933)' : 'linear-gradient(180deg,#24383e,#11191c)'};color:#d6f6ff;`;
+    intelligenceUpgrade.onclick = () => {
+      this.strategicUpgradeMode = this.strategicUpgradeMode === 'intelligence' ? undefined : 'intelligence';
+      this.strategicTargeting = false;
       this.lastBodyKey = '';
       this.renderBody();
     };
-    panel.appendChild(upgrade);
+    const missileUpgradeButton = document.createElement('button');
+    missileUpgradeButton.type = 'button';
+    missileUpgradeButton.textContent = `MISSILE UPGRADE · LV ${warhead.level}`;
+    missileUpgradeButton.style.cssText =
+      strategicButtonCss(true) +
+      `min-height:44px;border-color:${this.strategicUpgradeMode === 'warhead' ? '#ff9b63' : 'rgba(255,155,99,.42)'};` +
+      `background:${this.strategicUpgradeMode === 'warhead' ? 'linear-gradient(180deg,#6b351c,#2d1710)' : 'linear-gradient(180deg,#403027,#1d1713)'};color:#ffe0cd;`;
+    missileUpgradeButton.onclick = () => {
+      this.strategicUpgradeMode = this.strategicUpgradeMode === 'warhead' ? undefined : 'warhead';
+      this.strategicTargeting = false;
+      this.lastBodyKey = '';
+      this.renderBody();
+    };
+    upgradeChoices.append(intelligenceUpgrade, missileUpgradeButton);
+    panel.appendChild(upgradeChoices);
+
+    if (this.strategicUpgradeMode === 'intelligence') {
+      const intelPanel = document.createElement('div');
+      intelPanel.style.cssText = 'display:grid;gap:6px;padding:8px;border:1px solid rgba(102,217,255,.5);background:rgba(12,41,51,.72);';
+      const intelHeading = document.createElement('div');
+      intelHeading.innerHTML =
+        '<div style="color:#8be5ff;font-size:10px;font-weight:900">RECON PURCHASE · REVEALS TARGETS ONLY</div>' +
+        '<div style="color:#aebbc4;font-size:9px;margin-top:2px">These upgrades expose sites on the map. They do not launch a missile.</div>';
+      intelPanel.appendChild(intelHeading);
+      if (!hasStructure(this.sim, 'intelligence-center', this.economy.team)) {
+        const missing = document.createElement('div');
+        missing.style.cssText = 'padding:7px;color:#ffb59f;border:1px solid rgba(255,143,125,.35);font-size:9px;';
+        missing.textContent = 'BUILD AN INTELLIGENCE CENTER TO PURCHASE RECON.';
+        intelPanel.appendChild(missing);
+      } else {
+        const intelGrid = document.createElement('div');
+        intelGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;';
+        for (const program of Object.values(INTELLIGENCE_PROGRAMS)) {
+          const purchased = purchasedIntel.includes(program.category);
+          const enabled = !purchased && this.economy.credits >= program.cost;
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.disabled = purchased || !enabled;
+          button.innerHTML = purchased
+            ? `<span>✓ ${program.label.toUpperCase()}</span><small>REVEALED</small>`
+            : `<span>REVEAL ${program.label.toUpperCase()}</span><small>${program.description.toUpperCase()} · $${program.cost}</small>`;
+          button.title = purchased ? 'Already revealed for this army' : program.description;
+          button.style.cssText =
+            'min-height:48px;display:grid;gap:3px;padding:6px;text-align:left;border-radius:3px;border:1px solid rgba(102,217,255,.42);' +
+            `background:${purchased ? 'rgba(35,83,89,.7)' : enabled ? 'linear-gradient(180deg,#214d59,#102a32)' : '#171d1e'};` +
+            `color:${purchased || enabled ? '#d6f6ff' : '#687579'};font:800 8px ui-monospace,Menlo,monospace;cursor:${enabled ? 'pointer' : 'default'};`;
+          button.onclick = () => {
+            const result = this.actions.purchaseIntelligence(enemyTeam, program.category);
+            this.flash(result.ok ? `${program.label.toUpperCase()} REVEALED · ARMY ${enemyTeam}` : result.reason.toUpperCase());
+            this.lastBodyKey = '';
+            this.renderBody();
+          };
+          intelGrid.appendChild(button);
+        }
+        intelPanel.appendChild(intelGrid);
+      }
+      panel.appendChild(intelPanel);
+    } else if (this.strategicUpgradeMode === 'warhead') {
+      const warheadPanel = document.createElement('div');
+      warheadPanel.style.cssText = 'display:grid;gap:6px;padding:8px;border:1px solid rgba(255,155,99,.5);background:rgba(63,31,18,.72);';
+      const nextWarhead = strategicWarhead(warhead.level + 1);
+      const warheadHeading = document.createElement('div');
+      warheadHeading.innerHTML =
+        '<div style="color:#ffb58b;font-size:10px;font-weight:900">WARHEAD DEVELOPMENT · DAMAGE & BLAST SIZE</div>' +
+        `<div style="color:#d3b7a8;font-size:9px;margin-top:2px">CURRENT ${warhead.label} · ${warhead.damageScale.toFixed(2)}× DAMAGE · ${warhead.impactScale.toFixed(2)}× BLAST</div>`;
+      const upgrade = document.createElement('button');
+      upgrade.type = 'button';
+      upgrade.disabled = !missileUpgrade.ok;
+      upgrade.textContent = missileUpgrade.cost > 0
+        ? `DEVELOP ${nextWarhead.label} WARHEAD · ${nextWarhead.damageScale.toFixed(2)}× DAMAGE · $${missileUpgrade.cost}`
+        : `${warhead.label} WARHEAD · MAXIMUM`;
+      upgrade.title = missileUpgrade.ok ? 'Increase missile damage and explosion size' : missileUpgrade.reason;
+      upgrade.style.cssText = strategicButtonCss(missileUpgrade.ok) + 'min-height:42px;border-color:rgba(255,155,99,.55);background:linear-gradient(180deg,#6b351c,#2d1710);color:#ffe0cd;';
+      upgrade.onclick = () => {
+        if (!this.actions.upgradeStrategicMissile()) this.flash(missileUpgrade.reason.toUpperCase());
+        else this.flash(`WARHEAD UPGRADED · LEVEL ${this.economy.strategicMissileLevel}`);
+        this.lastBodyKey = '';
+        this.renderBody();
+      };
+      warheadPanel.append(warheadHeading, upgrade);
+      panel.appendChild(warheadPanel);
+    }
 
     const readiness = strategicLaunchReadiness(this.sim, this.economy);
     const targets = this.actions.strategicTargets().filter((target) => target.team?.id === enemyTeam);
+    const launchPanel = document.createElement('div');
+    launchPanel.style.cssText = 'display:grid;gap:6px;padding:8px;border:2px solid rgba(240,213,106,.58);background:linear-gradient(180deg,rgba(10,17,16,.98),rgba(6,9,9,.98));';
     const launchHeading = document.createElement('div');
-    launchHeading.style.cssText = `font-size:10px;color:${readiness.ready ? '#9cf3b1' : '#d2b15f'};font-weight:900;`;
-    launchHeading.textContent = `3 · ${readiness.ready ? `LAUNCH · $${STRATEGIC_MISSILE_COST}` : readiness.reason.toUpperCase()}`;
-    panel.appendChild(launchHeading);
+    launchHeading.style.cssText = 'display:flex;justify-content:space-between;gap:6px;font-size:10px;font-weight:900;';
+    launchHeading.innerHTML =
+      `<span style="color:#f0d56a">LAUNCH CONTROL · WARHEAD $${STRATEGIC_MISSILE_COST}</span>` +
+      `<span style="color:${readiness.ready ? '#9cf3b1' : '#ffb59f'}">${readiness.ready ? 'READY' : readiness.reason.toUpperCase()}</span>`;
+    const accuracyCopy = document.createElement('div');
+    accuracyCopy.style.cssText = 'color:#aebbc4;font-size:9px;line-height:1.4;';
+    accuracyCopy.textContent = `${accuracy.label} ACCURACY${accuracy.radius ? ` · SCATTER UP TO ${accuracy.radius}M` : ' · DIRECT LOCK'} · ${targets.length} REVEALED TARGET${targets.length === 1 ? '' : 'S'}`;
+    const blind = document.createElement('button');
+    blind.type = 'button';
+    blind.disabled = !readiness.ready;
+    blind.textContent = `BLIND LAUNCH TOWARD ARMY ${enemyTeam} · $${STRATEGIC_MISSILE_COST}`;
+    blind.title = readiness.ready ? 'Launch toward the estimated enemy base area' : readiness.reason;
+    blind.style.cssText = strategicButtonCss(readiness.ready) + 'min-height:42px;font-size:10px;';
+    blind.onclick = () => {
+      const result = this.actions.launchBlindStrategicMissile(enemyTeam);
+      this.flash(result.ok ? `BLIND MISSILE AWAY · ARMY ${enemyTeam}` : result.reason.toUpperCase());
+      this.lastBodyKey = '';
+      this.renderBody();
+    };
+    launchPanel.append(launchHeading, accuracyCopy, blind);
 
-    if (targets.length === 0) {
-      const copy = document.createElement('div');
-      copy.style.cssText = 'color:#aebbc4;font-size:10px;line-height:1.45;';
-      copy.textContent = 'No structures revealed. A blind launch flies toward the enemy base direction but may miss widely.';
-      const blind = document.createElement('button');
-      blind.type = 'button';
-      blind.disabled = !readiness.ready;
-      blind.textContent = `BLIND LAUNCH TOWARD ARMY ${enemyTeam}`;
-      blind.title = readiness.ready ? 'Launch toward the estimated enemy base area' : readiness.reason;
-      blind.style.cssText = strategicButtonCss(readiness.ready) + 'min-height:42px;';
-      blind.onclick = () => {
-        const result = this.actions.launchBlindStrategicMissile(enemyTeam);
-        this.flash(result.ok ? `BLIND MISSILE AWAY · ARMY ${enemyTeam}` : result.reason.toUpperCase());
-        this.lastBodyKey = '';
-        this.renderBody();
-      };
-      panel.append(copy, blind);
-      return panel;
-    }
-
-    if (!this.strategicTargeting) {
+    if (targets.length > 0) {
       const chooseTarget = document.createElement('button');
       chooseTarget.type = 'button';
-      chooseTarget.disabled = !readiness.ready;
-      chooseTarget.textContent = `CHOOSE REVEALED BUILDING · ${targets.length} AVAILABLE`;
-      chooseTarget.title = readiness.ready ? 'Open revealed building targets' : readiness.reason;
-      chooseTarget.style.cssText = strategicButtonCss(readiness.ready) + 'min-height:42px;font-size:11px;';
+      chooseTarget.textContent = this.strategicTargeting
+        ? 'HIDE REVEALED TARGETS'
+        : `CHOOSE REVEALED TARGET · ${targets.length} AVAILABLE`;
+      chooseTarget.title = 'Open revealed building targets';
+      chooseTarget.style.cssText = strategicButtonCss(true) + 'min-height:38px;font-size:9px;';
       chooseTarget.onclick = () => {
-        this.strategicTargeting = true;
+        this.strategicTargeting = !this.strategicTargeting;
+        this.strategicUpgradeMode = undefined;
         this.lastBodyKey = '';
         this.renderBody();
       };
-      panel.appendChild(chooseTarget);
-      return panel;
+      launchPanel.appendChild(chooseTarget);
     }
 
-    const targetGrid = document.createElement('div');
-    targetGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;';
-    for (const [index, target] of targets.entries()) {
-      targetGrid.appendChild(this.strategicTargetCard(target, index + 1, readiness.ready, readiness.reason, accuracy));
+    if (this.strategicTargeting && targets.length > 0) {
+      const targetGrid = document.createElement('div');
+      targetGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;';
+      for (const [index, target] of targets.entries()) {
+        targetGrid.appendChild(this.strategicTargetCard(target, index + 1, readiness.ready, readiness.reason, accuracy));
+      }
+      launchPanel.appendChild(targetGrid);
     }
-    panel.appendChild(targetGrid);
+    panel.appendChild(launchPanel);
     return panel;
   }
 
@@ -1167,6 +1240,7 @@ export class Sidebar {
   private contextTab(entity: Entity): Tab | undefined {
     if (!entity.building?.complete) return undefined;
     if (entity.building.kind === 'command-yard') return 'buildings';
+    if (entity.building.kind === 'strategic-silo' || entity.building.kind === 'intelligence-center') return 'buildings';
     if (entity.building.kind === 'barracks') return 'infantry';
     if (entity.building.kind === 'factory') return 'vehicles';
     if (entity.building.kind === 'helipad') return 'aircraft';
@@ -1236,6 +1310,7 @@ export class Sidebar {
       Math.ceil(this.economy.strategicMissileCooldown),
       this.strategicTargeting,
       this.strategicEnemyTeam ?? '',
+      this.strategicUpgradeMode ?? '',
       `${line?.kind ?? ''}`,
       this.economy.readyStructure ?? '',
       this.economy.selectedStructure ?? '',

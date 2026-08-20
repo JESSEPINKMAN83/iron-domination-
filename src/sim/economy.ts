@@ -463,8 +463,8 @@ export function hasStructure(sim: GameSim, kind: StructureKind, team = 1): boole
 export const MAX_STRATEGIC_MISSILE_LEVEL = 3;
 
 export function strategicMissileUpgradeCost(currentLevel: number): number {
-  if (currentLevel <= 1) return 900;
-  if (currentLevel === 2) return 1500;
+  if (currentLevel <= 1) return 500;
+  if (currentLevel === 2) return 850;
   return 0;
 }
 

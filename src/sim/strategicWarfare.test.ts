@@ -151,9 +151,9 @@ describe('Missile Command strategic warfare', () => {
     const creditsBefore = economy.credits;
     expect(upgradeStrategicMissile(sim, economy)).toBe(true);
     expect(economy.strategicMissileLevel).toBe(2);
-    expect(economy.credits).toBe(creditsBefore - 900);
+    expect(economy.credits).toBe(creditsBefore - 500);
     expect(launchStrategicMissile(sim, economy, new Set([target.id]), target.id).ok).toBe(true);
-    expect(sim.projectiles[0]).toMatchObject({ damageScale: 1.5, impactScale: 1.35 });
+    expect(sim.projectiles[0]).toMatchObject({ damageScale: 1.65, impactScale: 1.4 });
   });
 
   it('lets a hostile missile-defense battery destroy the round before impact', () => {
