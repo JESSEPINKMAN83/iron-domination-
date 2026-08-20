@@ -108,7 +108,7 @@ export class Sidebar {
     this.root.style.cssText =
       'position:fixed;top:10px;right:10px;width:322px;max-height:calc(100vh - 20px);display:flex;flex-direction:column;gap:7px;' +
       'font:12px/1.35 ui-monospace,Menlo,monospace;color:#e0e7dd;background:linear-gradient(180deg,rgba(31,35,36,.96),rgba(10,13,14,.93));' +
-      'border:2px solid #1b1f20;border-top-color:#596260;border-left-color:#596260;border-radius:3px;padding:10px;z-index:12;' +
+      'border:2px solid #1b1f20;border-top-color:#596260;border-left-color:#596260;border-radius:4px;padding:10px;z-index:12;' +
       'box-shadow:inset 0 0 0 1px rgba(210,177,95,.25),0 12px 30px rgba(0,0,0,.38);';
     this.root.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
@@ -116,7 +116,7 @@ export class Sidebar {
     this.radarWrap = document.createElement('div');
     this.radarWrap.className = 'game-sidebar__radar-wrap';
     this.radarWrap.style.cssText =
-      'position:relative;display:grid;grid-template-rows:auto auto;gap:6px;padding:7px;background:#060908;border:2px solid #151817;' +
+      'position:relative;display:grid;grid-template-rows:auto auto;gap:6px;padding:7px;background:#060908;border:2px solid #151817;border-radius:4px;' +
       'border-top-color:#66706a;border-left-color:#66706a;box-shadow:inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75);overflow:hidden;';
     this.radar = document.createElement('canvas');
     this.radar.className = 'game-sidebar__radar';
@@ -124,7 +124,7 @@ export class Sidebar {
     this.radar.width = 298;
     this.radar.height = 298;
     this.radar.style.cssText =
-      'display:block;width:100%;aspect-ratio:1 / 1;height:auto;image-rendering:pixelated;background:#07100c;' +
+      'display:block;width:100%;aspect-ratio:1 / 1;height:auto;image-rendering:pixelated;background:#07100c;border-radius:4px;' +
       'touch-action:none;cursor:crosshair;user-select:none;-webkit-user-select:none;';
     this.radar.title = 'Left-click: focus camera · Right-click: move units · Command + right-click: fire at point';
     this.radar.setAttribute('aria-label', this.radar.title);
@@ -138,7 +138,7 @@ export class Sidebar {
     this.status.className = 'game-sidebar__status';
     this.status.style.cssText =
       'min-height:38px;display:flex;align-items:center;gap:10px;padding:0 9px;background:linear-gradient(180deg,#161d1c,#0c1110);' +
-      'border:1px solid #4a5350;box-sizing:border-box;box-shadow:inset 0 0 14px rgba(0,0,0,.6),inset 0 1px 0 rgba(210,177,95,.1);' +
+      'border:1px solid #4a5350;border-radius:4px;box-sizing:border-box;box-shadow:inset 0 0 14px rgba(0,0,0,.6),inset 0 1px 0 rgba(210,177,95,.1);' +
       'color:#d2b15f;overflow:hidden;font-variant-numeric:tabular-nums;';
     this.creditsBlock = document.createElement('span');
     this.creditsBlock.className = 'game-sidebar__credits';
@@ -175,7 +175,7 @@ export class Sidebar {
     this.firstPersonStatus = document.createElement('div');
     this.firstPersonStatus.className = 'game-sidebar__first-person-status';
     this.firstPersonStatus.style.cssText =
-      'display:none;padding:5px 6px;border:1px solid #313936;background:rgba(13,19,18,.94);color:#cfd9d3;' +
+      'display:none;padding:5px 6px;border:1px solid #313936;border-radius:4px;background:rgba(13,19,18,.94);color:#cfd9d3;' +
       'font:700 8px/1.45 ui-monospace,Menlo,monospace;letter-spacing:.03em;white-space:pre;';
     this.radarWrap.append(this.status, this.mobileStatus, this.radar, this.firstPersonStatus);
     if (this.actions.beginTacticalPing) {
@@ -624,7 +624,7 @@ export class Sidebar {
     const producerName = producerType === 'infantry' || producerType === 'vehicles' || producerType === 'aircraft' ? producerType : undefined;
     const isPrimary = producerName ? this.economy.primaryProducerIds[producerName] === entity.id : false;
     el.style.cssText =
-      'grid-column:1/-1;display:grid;grid-template-columns:46px 1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #4b5552;' +
+      'grid-column:1/-1;display:grid;grid-template-columns:46px 1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #4b5552;border-radius:4px;' +
       'background:linear-gradient(180deg,#202929,#111615);box-shadow:inset 0 0 14px rgba(0,0,0,.45);';
     const icon = document.createElement('div');
     icon.style.cssText = commandIconCss(true) + 'min-height:42px;';
@@ -676,7 +676,7 @@ export class Sidebar {
     const state = harvesterStateLabel(entity);
     const health = entity.health ? `${Math.ceil(entity.health.current)}/${entity.health.max}` : 'online';
     el.style.cssText =
-      'grid-column:1/-1;display:grid;grid-template-columns:46px 1fr;gap:8px;align-items:center;padding:8px;border:1px solid #4b5552;' +
+      'grid-column:1/-1;display:grid;grid-template-columns:46px 1fr;gap:8px;align-items:center;padding:8px;border:1px solid #4b5552;border-radius:4px;' +
       'background:linear-gradient(180deg,#202929,#111615);box-shadow:inset 0 0 14px rgba(0,0,0,.45);';
 
     const icon = document.createElement('div');
@@ -693,7 +693,7 @@ export class Sidebar {
       `<div style="font-size:14px;color:#f0f3e8">${unitDisplayName(entity)}</div>` +
       `<div style="font-size:11px;color:#aebbc4">hull ${health} · ${state} · cargo ${cargo}/${capacity}</div>`;
     const bar = document.createElement('div');
-    bar.style.cssText = 'height:8px;border:1px solid #303936;background:#060908;box-shadow:inset 0 0 6px rgba(0,0,0,.7);overflow:hidden;';
+    bar.style.cssText = 'height:8px;border:1px solid #303936;border-radius:4px;background:#060908;box-shadow:inset 0 0 6px rgba(0,0,0,.7);overflow:hidden;';
     const fill = document.createElement('div');
     fill.style.cssText = `height:100%;width:${Math.round(cargoPct * 100)}%;background:linear-gradient(90deg,#8b7339,#f0d56a);`;
     bar.appendChild(fill);
@@ -724,7 +724,7 @@ export class Sidebar {
 
     const el = document.createElement('div');
     el.style.cssText =
-      'grid-column:1/-1;display:grid;grid-template-columns:1fr auto;gap:4px 8px;padding:7px 8px;border:1px solid #2f3735;' +
+      'grid-column:1/-1;display:grid;grid-template-columns:1fr auto;gap:4px 8px;padding:7px 8px;border:1px solid #2f3735;border-radius:4px;' +
       'background:#101514;color:#aebbc4;box-shadow:inset 0 0 10px rgba(0,0,0,.35);';
     const title = document.createElement('div');
     title.style.cssText = 'font-size:10px;color:#d2b15f;';
@@ -767,7 +767,7 @@ export class Sidebar {
       const chip = document.createElement('span');
       chip.textContent = text;
       chip.style.cssText =
-        'display:inline-block;padding:2px 5px;border:1px solid #3e4744;background:#121817;color:#d2b15f;font-size:9px;line-height:12px;white-space:nowrap;';
+        'display:inline-block;padding:2px 5px;border:1px solid #3e4744;border-radius:4px;background:#121817;color:#d2b15f;font-size:9px;line-height:12px;white-space:nowrap;';
       el.appendChild(chip);
     }
     return el;
@@ -776,7 +776,7 @@ export class Sidebar {
   private productionSummary(tab: 'infantry' | 'vehicles' | 'aircraft'): HTMLDivElement {
     const el = document.createElement('div');
     el.style.cssText =
-      'grid-column:1/-1;display:grid;gap:4px;padding:7px 8px;border:1px solid #2f3735;background:#101514;color:#aebbc4;box-shadow:inset 0 0 10px rgba(0,0,0,.35);';
+      'grid-column:1/-1;display:grid;gap:4px;padding:7px 8px;border:1px solid #2f3735;border-radius:4px;background:#101514;color:#aebbc4;box-shadow:inset 0 0 10px rgba(0,0,0,.35);';
     const producers = this.unitProducers(tab);
     if (producers.length === 0) {
       el.textContent =
@@ -803,7 +803,7 @@ export class Sidebar {
     const el = document.createElement('div');
     el.style.cssText =
       'grid-column:1/-1;min-height:126px;display:grid;grid-template-rows:auto auto;align-content:center;gap:7px;padding:14px;' +
-      'border:1px solid #333b39;background:linear-gradient(180deg,#141a19,#0b0f0f);color:#9ba7a2;text-align:center;box-shadow:inset 0 0 18px rgba(0,0,0,.45);';
+      'border:1px solid #333b39;border-radius:4px;background:linear-gradient(180deg,#141a19,#0b0f0f);color:#9ba7a2;text-align:center;box-shadow:inset 0 0 18px rgba(0,0,0,.45);';
     const heading = document.createElement('div');
     heading.style.cssText = 'font-size:13px;color:#d2b15f;letter-spacing:.08em;';
     heading.textContent = title;
@@ -1412,7 +1412,7 @@ function mixToward(baseHex: string, tint: [number, number, number], t: number): 
 function cardCss(state: CardState): string {
   return (
     'height:108px;text-align:left;padding:4px;display:grid;grid-template-rows:1fr auto;gap:3px;align-items:stretch;' +
-    'border-radius:2px;border:1px solid #58615f;border-top-color:#89908b;border-left-color:#89908b;' +
+    'border-radius:4px;border:1px solid #58615f;border-top-color:#89908b;border-left-color:#89908b;' +
     `background:${state.ready ? 'linear-gradient(180deg,#6d5e2d,#2a2416)' : state.enabled ? 'linear-gradient(180deg,#334143,#1b2527)' : 'linear-gradient(180deg,#2c302f,#171a1a)'};` +
     `color:${state.enabled || state.ready ? '#eef3e9' : '#87918a'};cursor:${state.enabled ? 'pointer' : 'default'};box-shadow:inset 0 0 0 1px rgba(0,0,0,.5);`
   );
@@ -1420,7 +1420,7 @@ function cardCss(state: CardState): string {
 
 function buttonCss(active: boolean, activity: boolean): string {
   return (
-    'height:31px;border-radius:2px;border:1px solid #4b5552;font:8px ui-monospace,Menlo,monospace;letter-spacing:0;' +
+    'height:31px;border-radius:4px;border:1px solid #4b5552;font:8px ui-monospace,Menlo,monospace;letter-spacing:0;' +
     `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : activity ? 'linear-gradient(180deg,#3f3b25,#151816)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
     `color:${active ? '#141614' : activity ? '#f0d56a' : '#d7e0e7'};cursor:pointer;`
   );
@@ -1428,7 +1428,7 @@ function buttonCss(active: boolean, activity: boolean): string {
 
 function smallButtonCss(active: boolean): string {
   return (
-    'height:23px;border-radius:2px;border:1px solid #4b5552;font:10px ui-monospace,Menlo,monospace;letter-spacing:0;padding:0 6px;' +
+    'height:23px;border-radius:4px;border:1px solid #4b5552;font:10px ui-monospace,Menlo,monospace;letter-spacing:0;padding:0 6px;' +
     `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
     `color:${active ? '#141614' : '#d7e0e7'};cursor:pointer;`
   );
@@ -1436,7 +1436,7 @@ function smallButtonCss(active: boolean): string {
 
 function commandIconCss(enabled: boolean): string {
   return (
-    'position:relative;min-height:62px;border:1px solid #111;background:#111615;overflow:hidden;' +
+    'position:relative;min-height:62px;border:1px solid #111;border-radius:4px;background:#111615;overflow:hidden;' +
     'box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),inset 0 -18px 18px rgba(0,0,0,.35);' +
     (enabled ? '' : 'filter:grayscale(1) brightness(.62);')
   );
@@ -1455,7 +1455,7 @@ function progressBarCss(progress: number, active: boolean): string {
 
 function tacticalButtonCss(active: boolean): string {
   return (
-    'height:22px;border:1px solid #4b5552;border-radius:1px;font:9px ui-monospace,Menlo,monospace;letter-spacing:0;padding:0 3px;' +
+    'height:22px;border:1px solid #4b5552;border-radius:4px;font:9px ui-monospace,Menlo,monospace;letter-spacing:0;padding:0 3px;' +
     `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : 'linear-gradient(180deg,#25302e,#111615)'};` +
     `color:${active ? '#161713' : '#d7e0e7'};cursor:pointer;`
   );
@@ -1470,7 +1470,7 @@ function badge(text: string, ready: boolean): HTMLDivElement {
   const el = document.createElement('div');
   el.textContent = text;
   el.style.cssText =
-    'position:absolute;right:3px;top:3px;z-index:4;padding:1px 4px;border:1px solid rgba(0,0,0,.55);font-size:10px;line-height:14px;' +
+    'position:absolute;right:3px;top:3px;z-index:4;padding:1px 4px;border:1px solid rgba(0,0,0,.55);border-radius:4px;font-size:10px;line-height:14px;' +
     `background:${ready ? '#d2b15f' : '#111615'};color:${ready ? '#151715' : '#f0d56a'};box-shadow:0 1px 4px rgba(0,0,0,.45);`;
   return el;
 }
@@ -1560,7 +1560,7 @@ function statPip(value: number, active: boolean): HTMLDivElement {
   const el = document.createElement('div');
   const pct = Math.max(6, Math.round(Math.max(0, Math.min(1, value)) * 100));
   el.style.cssText =
-    'position:relative;overflow:hidden;border:1px solid rgba(0,0,0,.55);background:#101514;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);';
+    'position:relative;overflow:hidden;border:1px solid rgba(0,0,0,.55);border-radius:4px;background:#101514;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);';
   const fill = document.createElement('div');
   fill.style.cssText = `height:100%;width:${pct}%;background:${active ? '#d2b15f' : '#5f6762'};`;
   el.appendChild(fill);

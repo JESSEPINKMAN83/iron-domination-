@@ -1,8 +1,10 @@
 import {
+  AdditiveBlending,
   BoxGeometry,
   BufferGeometry,
   CanvasTexture,
   CircleGeometry,
+  Color,
   ConeGeometry,
   CylinderGeometry,
   Float32BufferAttribute,
@@ -12,6 +14,8 @@ import {
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
+  Points,
+  PointsMaterial,
   Quaternion,
   RingGeometry,
   SphereGeometry,
@@ -19,6 +23,9 @@ import {
   SpriteMaterial,
   Vector3,
 } from 'three';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import type { CombatEvent } from '../sim/world';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
@@ -40,7 +47,8 @@ interface Burst {
 
 interface BombProjectile {
   group: Group;
-  trail: Line;
+  trail: Line2;
+  trailGlow: Points<BufferGeometry, PointsMaterial>;
   trailPositions: Vector3[];
   from: Vector3;
   control: Vector3;
@@ -51,6 +59,7 @@ interface BombProjectile {
   smokeTimer: number;
   direction?: Vector3;
   trailCapacity: number;
+  trailProfile: ProjectileTrailProfile;
 }
 
 interface HitIndicator {
@@ -176,6 +185,7 @@ export class CombatView {
   private readonly smokePuffs: SmokePuff[] = [];
   private readonly hitFragments: HitFragment[] = [];
   private readonly groundScorches: GroundScorch[] = [];
+  private readonly projectileTrailGlowTexture = makeProjectileTrailGlowTexture();
   private readonly up = new Vector3(0, 1, 0);
   private visualQuality: VisualQualityTier = 0;
   private visualEventsThisFrame = 0;
@@ -406,22 +416,55 @@ export class CombatView {
     this.group.add(group);
 
     const homing = event.trajectory === 'homing';
-    const trailCapacity = homing ? 20 : 8;
-    const trailGeometry = new BufferGeometry();
-    trailGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(trailCapacity * 3), 3));
-    const trail = new Line(trailGeometry, new LineBasicMaterial({
-      color: trailColor(event.weaponKind ?? event.kind),
+    const trailProfile = projectileTrailProfile(event.weaponKind ?? event.kind, event.kind, homing);
+    const qualityScale = this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 0.76 : 0.58;
+    const trailCapacity = Math.max(trailProfile.missile ? 18 : 6, Math.round(trailProfile.capacity * qualityScale));
+    const trailGeometry = new LineGeometry();
+    trailGeometry.setPositions([from.x, from.y, from.z, from.x, from.y, from.z]);
+    trailGeometry.setColors([0, 0, 0, 1, 1, 1]);
+    const trail = new Line2(trailGeometry, new LineMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      linewidth: trailProfile.width,
       transparent: true,
-      opacity: homing ? 0.88 : 0.5,
+      opacity: 0,
       depthWrite: false,
+      ...(trailProfile.missile ? { blending: AdditiveBlending } : {}),
+      alphaToCoverage: true,
     }));
     trail.renderOrder = 58;
+    trail.frustumCulled = false;
     this.group.add(trail);
+
+    const trailGlowGeometry = new BufferGeometry();
+    const trailGlowPositions = new Float32Array(trailCapacity * 3);
+    const trailGlowColors = new Float32Array(trailCapacity * 3);
+    trailGlowPositions.set([from.x, from.y, from.z, from.x, from.y, from.z]);
+    trailGlowColors.set([0, 0, 0, 1, 1, 1]);
+    trailGlowGeometry.setAttribute('position', new Float32BufferAttribute(trailGlowPositions, 3));
+    trailGlowGeometry.setAttribute('color', new Float32BufferAttribute(trailGlowColors, 3));
+    trailGlowGeometry.setDrawRange(0, 2);
+    const trailGlow = new Points(trailGlowGeometry, new PointsMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      size: Math.max(5, trailProfile.width * 2.55),
+      sizeAttenuation: false,
+      map: this.projectileTrailGlowTexture,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: trailProfile.missile ? AdditiveBlending : undefined,
+      alphaTest: 0.015,
+    }));
+    trailGlow.renderOrder = 59;
+    trailGlow.frustumCulled = false;
+    this.group.add(trailGlow);
 
     this.bombProjectiles.push({
       group,
       trail,
-      trailPositions: [from.clone()],
+      trailGlow,
+      trailPositions: [from.clone(), from.clone()],
       from,
       control,
       to,
@@ -432,6 +475,7 @@ export class CombatView {
       smokeTimer: 0,
       direction: homing ? to.clone().sub(from).normalize() : undefined,
       trailCapacity,
+      trailProfile,
     });
     const maxProjectiles = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 28;
     while (this.bombProjectiles.length > maxProjectiles) this.disposeBombProjectile(this.bombProjectiles.shift());
@@ -525,20 +569,51 @@ export class CombatView {
     });
     this.group.remove(projectile.trail);
     projectile.trail.geometry.dispose();
-    (projectile.trail.material as LineBasicMaterial).dispose();
+    (projectile.trail.material as LineMaterial).dispose();
+    this.group.remove(projectile.trailGlow);
+    projectile.trailGlow.geometry.dispose();
+    projectile.trailGlow.material.dispose();
   }
 
   private updateTrail(projectile: BombProjectile): void {
-    const attribute = projectile.trail.geometry.getAttribute('position') as Float32BufferAttribute;
-    const first = projectile.trailPositions[0];
-    for (let i = 0; i < projectile.trailCapacity; i++) {
-      const p = projectile.trailPositions[i] ?? first;
-      attribute.setXYZ(i, p.x, p.y, p.z);
+    const points = projectile.trailPositions;
+    const positions = new Float32Array(points.length * 3);
+    const colors = new Float32Array(points.length * 3);
+    const tailColor = new Color(projectile.trailProfile.tailColor);
+    const headColor = new Color(projectile.trailProfile.headColor);
+    const mixed = new Color();
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      const offset = i * 3;
+      positions[offset] = p.x;
+      positions[offset + 1] = p.y;
+      positions[offset + 2] = p.z;
+      const progress = points.length <= 1 ? 1 : i / (points.length - 1);
+      const brightness = projectile.trailProfile.missile ? 0.08 + Math.pow(progress, 0.72) * 0.92 : 0.18 + progress * 0.82;
+      mixed.copy(tailColor).lerp(headColor, Math.pow(progress, 1.5)).multiplyScalar(brightness);
+      colors[offset] = mixed.r;
+      colors[offset + 1] = mixed.g;
+      colors[offset + 2] = mixed.b;
     }
-    attribute.needsUpdate = true;
-    const material = projectile.trail.material as LineBasicMaterial;
-    const maxOpacity = projectile.event.trajectory === 'homing' ? 0.88 : 0.55;
-    material.opacity = Math.min(maxOpacity, projectile.elapsed / 0.18);
+    const geometry = projectile.trail.geometry as LineGeometry;
+    geometry.setPositions(positions);
+    geometry.setColors(colors);
+    const material = projectile.trail.material as LineMaterial;
+    material.opacity = Math.min(projectile.trailProfile.opacity, projectile.elapsed / 0.14);
+    const glowPositions = projectile.trailGlow.geometry.getAttribute('position') as Float32BufferAttribute;
+    const glowColors = projectile.trailGlow.geometry.getAttribute('color') as Float32BufferAttribute;
+    for (let i = 0; i < points.length; i++) {
+      const offset = i * 3;
+      glowPositions.setXYZ(i, positions[offset], positions[offset + 1], positions[offset + 2]);
+      glowColors.setXYZ(i, colors[offset], colors[offset + 1], colors[offset + 2]);
+    }
+    glowPositions.needsUpdate = true;
+    glowColors.needsUpdate = true;
+    projectile.trailGlow.geometry.setDrawRange(0, points.length);
+    projectile.trailGlow.material.opacity = Math.min(
+      projectile.trailProfile.opacity * (projectile.trailProfile.missile ? 0.72 : 0.38),
+      projectile.elapsed / 0.18,
+    );
   }
 
   private emitProjectileSmoke(projectile: BombProjectile, tangent: Vector3, dt: number): void {
@@ -947,6 +1022,24 @@ function makeHitTexture(event: CombatEvent): CanvasTexture {
   return texture;
 }
 
+function makeProjectileTrailGlowTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
+  const glow = ctx.createRadialGradient(32, 32, 1, 32, 32, 31);
+  glow.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  glow.addColorStop(0.22, 'rgba(255, 255, 255, .94)');
+  glow.addColorStop(0.58, 'rgba(255, 255, 255, .3)');
+  glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, 64, 64);
+  const texture = new CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -1003,6 +1096,63 @@ function isLargeMissile(kind: string): boolean {
 
 function isTankMissileImpact(kind: string): boolean {
   return kind === 'scoutMissile-impact' || kind === 'tankMissile-impact' || kind === 'siegeMissile-impact';
+}
+
+export interface ProjectileTrailProfile {
+  missile: boolean;
+  capacity: number;
+  width: number;
+  opacity: number;
+  tailColor: number;
+  headColor: number;
+}
+
+/** Fixed-screen-width trails keep missiles readable at every camera distance. */
+export function projectileTrailProfile(weaponKind: string, projectileKind: string, homing: boolean): ProjectileTrailProfile {
+  const fallback: ProjectileTrailProfile = {
+    missile: false,
+    capacity: homing ? 20 : 8,
+    width: 1.15,
+    opacity: homing ? 0.82 : 0.5,
+    tailColor: trailColor(weaponKind),
+    headColor: trailColor(weaponKind),
+  };
+  if (!isMissile(projectileKind)) return fallback;
+  if (weaponKind === 'rocketPod') return {
+    missile: true, capacity: 24, width: 2.1, opacity: 0.82, tailColor: 0xb94712, headColor: 0xffd08a,
+  };
+  if (weaponKind === 'rocketLauncher') return {
+    missile: true, capacity: 38, width: 2.8, opacity: 0.92, tailColor: 0xc56026, headColor: 0xfff0c4,
+  };
+  if (weaponKind === 'scoutMissile') return {
+    missile: true, capacity: 34, width: 2.45, opacity: 0.88, tailColor: 0x2f8b58, headColor: 0xd8ffdc,
+  };
+  if (weaponKind === 'tankMissile') return {
+    missile: true, capacity: 44, width: 3.2, opacity: 0.96, tailColor: 0xd57d21, headColor: 0xfff4c4,
+  };
+  if (weaponKind === 'siegeMissile') return {
+    missile: true, capacity: 50, width: 4.1, opacity: 0.94, tailColor: 0xb83c18, headColor: 0xffd08a,
+  };
+  if (weaponKind === 'agMissile') return {
+    missile: true, capacity: 48, width: 3.5, opacity: 0.96, tailColor: 0xc98f24, headColor: 0xffffdc,
+  };
+  if (weaponKind === 'aaMissile') return {
+    missile: true, capacity: 54, width: 2.7, opacity: 0.94, tailColor: 0x2c8dcc, headColor: 0xe8fbff,
+  };
+  if (weaponKind === 'swarmRocket') return {
+    missile: true, capacity: 42, width: 3, opacity: 0.96, tailColor: 0x3b9c75, headColor: 0xe4fff1,
+  };
+  if (weaponKind === 'annihilatorMissile') return {
+    missile: true, capacity: 62, width: 5.2, opacity: 1, tailColor: 0xa92716, headColor: 0xffffff,
+  };
+  return {
+    missile: true,
+    capacity: homing ? 42 : 36,
+    width: 3,
+    opacity: 0.9,
+    tailColor: trailColor(weaponKind),
+    headColor: 0xfff4d6,
+  };
 }
 
 interface ProjectileVisualProfile {
@@ -1094,6 +1244,21 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
     ...base, bodyColor: 0xd8dde0, noseColor: 0x70d8ff, bandColor: 0x4ea4d8, glowColor: 0x9eeaff,
     bodyRadius: 0.12, tipRadius: 0.07, bodyLength: 2.15, noseLength: 0.62, bandWidth: 0.12,
     glowRadius: 0.38, fins: 4, finThickness: 0.045, finLength: 0.52, finWidth: 0.38, scale: 1.3,
+  };
+  if (weaponKind === 'siegeMissile') return {
+    ...base, bodyColor: 0x342725, noseColor: 0xe28c53, bandColor: 0xb83c18, glowColor: 0xff7a32,
+    glowOpacity: 0.5, bodyRadius: 0.3, tipRadius: 0.2, bodyLength: 2.75, noseLength: 0.78, bandWidth: 0.18,
+    glowRadius: 0.64, fins: 4, finThickness: 0.08, finLength: 0.75, finWidth: 0.64, scale: 1.72,
+  };
+  if (weaponKind === 'swarmRocket') return {
+    ...base, bodyColor: 0x293b35, noseColor: 0xc9f2d8, bandColor: 0x3b9c75, glowColor: 0xa8ffd0,
+    glowOpacity: 0.52, bodyRadius: 0.17, tipRadius: 0.1, bodyLength: 1.85, noseLength: 0.55, bandWidth: 0.11,
+    glowRadius: 0.45, fins: 4, finThickness: 0.05, finLength: 0.48, finWidth: 0.4, scale: 1.38,
+  };
+  if (weaponKind === 'annihilatorMissile') return {
+    ...base, bodyColor: 0x302526, noseColor: 0xf4e9d3, bandColor: 0xa92716, glowColor: 0xfff2d6,
+    glowOpacity: 0.7, bodyRadius: 0.38, tipRadius: 0.24, bodyLength: 3.2, noseLength: 0.94, bandWidth: 0.22,
+    glowRadius: 0.82, fins: 4, finThickness: 0.1, finLength: 0.9, finWidth: 0.76, scale: 1.95,
   };
   return projectileKind === 'tankBomb' ? { ...base, bodyRadius: 0.4, bodyLength: 2.3, scale: 2.2 } : base;
 }
@@ -1288,6 +1453,9 @@ function trailColor(kind: string): number {
   if (kind === 'rocketLauncher') return 0xffb06a;
   if (kind === 'scoutMissile') return 0x9de2a9;
   if (kind === 'tankMissile') return 0xffbd58;
+  if (kind === 'siegeMissile') return 0xff7138;
+  if (kind === 'swarmRocket') return 0x8fffc3;
+  if (kind === 'annihilatorMissile') return 0xfff2d6;
   if (kind === 'rifleGrenade') return 0xe1cc68;
   if (kind === 'atRocket') return 0xff9e52;
   if (kind === 'grenade') return 0xf2b35e;

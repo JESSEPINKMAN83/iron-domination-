@@ -8,6 +8,7 @@
   overflow: auto;
   color: #e9eee9;
   border: 1px solid rgba(229, 189, 85, 0.72);
+  border-radius: 4px;
   background:
     linear-gradient(135deg, rgba(229, 189, 85, 0.08), transparent 42%),
     rgba(7, 13, 13, 0.94);
@@ -56,7 +57,7 @@
   padding: 6px 8px;
   color: #dce4df;
   border: 1px solid #46534e;
-  border-radius: 2px;
+  border-radius: 4px;
   background: linear-gradient(180deg, #26312e, #111716);
   font: 800 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.08em;
@@ -85,6 +86,7 @@
   padding: 8px 9px;
   text-align: left;
   background: rgba(255, 255, 255, 0.025);
+  border-radius: 4px;
 }
 
 .durability-lab__target:hover {

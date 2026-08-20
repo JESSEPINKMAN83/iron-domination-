@@ -6,7 +6,7 @@
   box-sizing: border-box;
   pointer-events: auto;
   border: 2px solid #f0d56a;
-  border-radius: 3px;
+  border-radius: 4px;
   background: linear-gradient(180deg, #3a3420, #0c100f);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65), 0 14px 36px rgba(0, 0, 0, 0.65);
   color: #e0e7dd;
@@ -42,7 +42,7 @@
 .iron-tactic-feedback__actions button {
   padding: 9px 10px;
   border: 1px solid #4b5552;
-  border-radius: 2px;
+  border-radius: 4px;
   background: linear-gradient(180deg, #26302f, #121817);
   color: #eef3e9;
   cursor: pointer;

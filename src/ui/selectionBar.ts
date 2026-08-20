@@ -1,5 +1,6 @@
 import { Vector3, type Camera } from 'three';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
+import { SIM_HZ } from '../engine/loop';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { selectedEntities, type GameSim } from '../sim/world';
@@ -22,10 +23,17 @@ interface SelectionGroup {
   unitKind?: UnitKind;
 }
 
+interface WorldTacticCountdown {
+  element: HTMLDivElement;
+  startTicks: number[];
+  displayedSeconds: number;
+}
+
 export class SelectionBar {
   private readonly root: HTMLDivElement;
   private readonly worldOverlay: HTMLDivElement;
   private readonly worldButtons = new Map<number, HTMLButtonElement>();
+  private readonly worldCountdowns = new Map<number, WorldTacticCountdown>();
   private readonly projectedAnchor = new Vector3();
   private worldPopover?: HTMLDivElement;
   private worldPopoverEntityId?: number;
@@ -50,12 +58,14 @@ export class SelectionBar {
       'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:13;display:none;' +
       'width:min(720px,calc(100vw - 36px));pointer-events:auto;color:#e0e7dd;font:12px/1.35 ui-monospace,Menlo,monospace;' +
       'background:linear-gradient(180deg,rgba(24,31,31,.94),rgba(8,12,12,.9));border:2px solid #1b1f20;border-top-color:#596260;border-left-color:#596260;' +
-      'border-radius:3px;padding:9px 10px;box-shadow:inset 0 0 0 1px rgba(210,177,95,.25),0 12px 30px rgba(0,0,0,.38);';
+      'border-radius:4px;padding:9px 10px;box-shadow:inset 0 0 0 1px rgba(210,177,95,.25),0 12px 30px rgba(0,0,0,.38);';
     this.root.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
     this.worldOverlay = document.createElement('div');
     this.worldOverlay.className = 'game-world-upgrades';
-    this.worldOverlay.style.cssText = 'position:fixed;inset:0;z-index:14;pointer-events:none;overflow:hidden;';
+    // Unit-attached chrome belongs above the battlefield canvas but below every
+    // HUD/menu surface. The interactive popover is appended to body separately.
+    this.worldOverlay.style.cssText = 'position:fixed;inset:0;z-index:9;pointer-events:none;overflow:hidden;';
     document.body.appendChild(this.root);
     document.body.appendChild(this.worldOverlay);
   }
@@ -68,6 +78,50 @@ export class SelectionBar {
       this.closeWorldPopover();
     }
     else this.lastKey = '';
+  }
+
+  scheduleTacticCountdown(entityIds: number[], startTick: number): void {
+    if (!Number.isFinite(startTick)) return;
+    for (const entityId of entityIds) {
+      const entity = this.sim.byId.get(entityId);
+      if (!entity || entity.destroyed || entity.team?.id !== this.localTeam) continue;
+      let countdown = this.worldCountdowns.get(entityId);
+      if (!countdown) {
+        const element = document.createElement('div');
+        element.dataset.tacticCountdownId = String(entityId);
+        element.style.cssText =
+          'position:fixed;display:none;min-width:38px;padding:4px 7px;box-sizing:border-box;transform:translate(-50%,-100%);' +
+          'pointer-events:none;z-index:1;border:2px solid #050706;border-radius:4px;background:rgba(7,11,11,.92);color:#fff;' +
+          'font:900 13px/1 ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;text-align:center;white-space:nowrap;' +
+          'text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;box-shadow:0 3px 9px rgba(0,0,0,.72);';
+        this.worldOverlay.appendChild(element);
+        countdown = { element, startTicks: [], displayedSeconds: -1 };
+        this.worldCountdowns.set(entityId, countdown);
+      }
+      if (!countdown.startTicks.includes(startTick)) countdown.startTicks.push(startTick);
+      countdown.startTicks.sort((a, b) => a - b);
+      countdown.displayedSeconds = -1;
+    }
+    this.updateWorldAnchors();
+  }
+
+  clearTacticCountdown(entityIds: number[], startTick: number): void {
+    for (const entityId of entityIds) {
+      const countdown = this.worldCountdowns.get(entityId);
+      if (!countdown) continue;
+      countdown.startTicks = countdown.startTicks.filter((tick) => tick !== startTick);
+      if (countdown.startTicks.length > 0) {
+        countdown.displayedSeconds = -1;
+        continue;
+      }
+      countdown.element.remove();
+      this.worldCountdowns.delete(entityId);
+    }
+  }
+
+  clearAllTacticCountdowns(): void {
+    for (const countdown of this.worldCountdowns.values()) countdown.element.remove();
+    this.worldCountdowns.clear();
   }
 
   update(): void {
@@ -108,6 +162,29 @@ export class SelectionBar {
       button.style.top = `${anchor.y}px`;
       if (this.worldPopoverEntityId === id) this.positionWorldPopover(entity, anchor.x, anchor.y);
     }
+    for (const [id, countdown] of this.worldCountdowns) {
+      const entity = this.sim.byId.get(id);
+      const startTick = countdown.startTicks[0];
+      if (!entity || entity.destroyed || startTick === undefined) {
+        countdown.element.remove();
+        this.worldCountdowns.delete(id);
+        continue;
+      }
+      const remainingSeconds = Math.max(0, Math.ceil((startTick - this.sim.tick) / SIM_HZ));
+      const anchor = this.projectUpgradeAnchor(entity);
+      const visible = remainingSeconds > 0 && anchor.visible;
+      countdown.element.style.display = visible ? 'block' : 'none';
+      if (!visible) continue;
+      if (countdown.displayedSeconds !== remainingSeconds) {
+        countdown.displayedSeconds = remainingSeconds;
+        const minutes = Math.floor(remainingSeconds / 60);
+        countdown.element.textContent = `${minutes}:${String(remainingSeconds % 60).padStart(2, '0')}`;
+      }
+      countdown.element.style.left = `${anchor.x}px`;
+      // Upgrade buttons occupy the 25px immediately above the anchor. Keep a
+      // clear 9px gap so the countdown never sits behind them at any zoom.
+      countdown.element.style.top = `${anchor.y - 34}px`;
+    }
   }
 
   private render(groups: SelectionGroup[], selectedCount: number): void {
@@ -141,7 +218,7 @@ export class SelectionBar {
       tacticBtn.textContent = 'Define Tactic';
       tacticBtn.title = 'Plan a multi-point path for the selected units';
       tacticBtn.style.cssText =
-        'padding:7px 12px;border:1px solid #d2b15f;border-radius:2px;cursor:pointer;' +
+        'padding:7px 12px;border:1px solid #d2b15f;border-radius:4px;cursor:pointer;' +
         'background:linear-gradient(180deg,#4f4728,#1d2018);color:#f0d56a;font:700 11px ui-monospace,Menlo,monospace;' +
         'letter-spacing:.08em;text-transform:uppercase;';
       tacticBtn.onpointerdown = (event) => {
@@ -167,7 +244,7 @@ export class SelectionBar {
     button.setAttribute('aria-label', `Select ${group.entities.length} ${group.label}`);
     button.style.cssText =
       'flex:0 0 136px;min-height:92px;text-align:left;padding:5px;display:grid;grid-template-rows:48px auto;gap:4px;align-items:stretch;' +
-      'border-radius:2px;border:1px solid #4b5552;border-top-color:#757f7a;border-left-color:#757f7a;' +
+      'border-radius:4px;border:1px solid #4b5552;border-top-color:#757f7a;border-left-color:#757f7a;' +
       `background:${active ? 'linear-gradient(180deg,#4f4728,#1d2018)' : 'linear-gradient(180deg,#26302f,#121817)'};` +
       'color:#eef3e9;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.48);';
     button.onpointerdown = (event) => {
@@ -189,7 +266,7 @@ export class SelectionBar {
 
     const icon = document.createElement('div');
     icon.style.cssText =
-      'position:relative;min-height:48px;border:1px solid #111;background:#111615;overflow:hidden;' +
+      'position:relative;min-height:48px;border:1px solid #111;border-radius:4px;background:#111615;overflow:hidden;' +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),inset 0 -18px 18px rgba(0,0,0,.35);';
     const fallback = document.createElement('div');
     fallback.style.cssText =
@@ -246,7 +323,7 @@ export class SelectionBar {
     popover.dataset.upgradePopover = 'true';
     popover.style.cssText =
       'position:absolute;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%);width:min(440px,calc(100vw - 40px));' +
-      'display:grid;gap:8px;padding:10px;background:linear-gradient(180deg,#1d2625,#0b1110);border:1px solid #717b74;' +
+      'display:grid;gap:8px;padding:10px;background:linear-gradient(180deg,#1d2625,#0b1110);border:1px solid #717b74;border-radius:4px;' +
       'box-shadow:0 16px 36px rgba(0,0,0,.55),inset 0 0 0 1px rgba(210,177,95,.18);z-index:20;';
     popover.onpointerdown = (event) => event.stopPropagation();
     this.populateUpgradePopover(popover, group, () => popover.remove());
@@ -272,7 +349,7 @@ export class SelectionBar {
       row.type = 'button';
       row.disabled = missing === 0 || !affordable;
       row.style.cssText =
-        'width:100%;display:grid;grid-template-columns:1fr auto;gap:7px 12px;text-align:left;padding:9px;border:1px solid #46514e;' +
+        'width:100%;display:grid;grid-template-columns:1fr auto;gap:7px 12px;text-align:left;padding:9px;border:1px solid #46514e;border-radius:4px;' +
         `background:${missing === 0 ? '#18211b' : affordable ? '#202a28' : '#241b19'};color:#eef3e9;cursor:${row.disabled ? 'default' : 'pointer'};opacity:${missing === 0 ? '.72' : '1'};`;
       const state = missing === 0 ? 'INSTALLED' : `$${totalCost}`;
       const stateColor = missing === 0 ? '#78df8b' : affordable ? '#f0d56a' : '#ff7d67';
@@ -296,7 +373,7 @@ export class SelectionBar {
     const close = document.createElement('button');
     close.type = 'button';
     close.textContent = 'CLOSE';
-    close.style.cssText = 'justify-self:end;padding:4px 8px;border:1px solid #46514e;background:#111817;color:#b8c3bf;cursor:pointer;font:10px ui-monospace,Menlo,monospace;';
+    close.style.cssText = 'justify-self:end;padding:4px 8px;border:1px solid #46514e;border-radius:4px;background:#111817;color:#b8c3bf;cursor:pointer;font:10px ui-monospace,Menlo,monospace;';
     close.onclick = closePopover;
     popover.appendChild(close);
   }
@@ -331,7 +408,7 @@ export class SelectionBar {
         button.type = 'button';
         button.dataset.worldUpgradeId = String(entity.id);
         button.style.cssText =
-          'position:fixed;display:grid;place-items:center;width:25px;height:25px;padding:0;transform:translate(-50%,-100%);' +
+          'position:fixed;display:grid;place-items:center;width:25px;height:25px;padding:0;transform:translate(-50%,-100%);z-index:2;' +
           'pointer-events:auto;border:1px solid #f0d56a;border-radius:50%;background:rgba(8,14,13,.94);color:#f6dc72;' +
           'font:900 17px/1 ui-monospace,Menlo,monospace;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.62),0 0 0 2px rgba(8,14,13,.55),0 0 12px rgba(240,213,106,.24);';
         button.onpointerdown = (event) => {
@@ -368,14 +445,14 @@ export class SelectionBar {
     popover.dataset.worldUpgradePopover = String(entity.id);
     popover.style.cssText =
       'position:fixed;width:min(330px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow-y:auto;display:grid;gap:7px;padding:9px;pointer-events:auto;' +
-      'background:linear-gradient(180deg,rgba(29,38,37,.98),rgba(8,14,13,.98));border:1px solid #7a826f;' +
+      'background:linear-gradient(180deg,rgba(29,38,37,.98),rgba(8,14,13,.98));border:1px solid #7a826f;border-radius:4px;' +
       'box-shadow:0 14px 34px rgba(0,0,0,.62),inset 0 0 0 1px rgba(210,177,95,.2);z-index:30;';
     popover.onpointerdown = (event) => event.stopPropagation();
     popover.oncontextmenu = (event) => event.preventDefault();
     this.worldPopover = popover;
     this.worldPopoverEntityId = entity.id;
     this.populateUpgradePopover(popover, group, () => this.closeWorldPopover());
-    this.worldOverlay.appendChild(popover);
+    document.body.appendChild(popover);
     const anchor = this.projectUpgradeAnchor(entity);
     this.positionWorldPopover(entity, anchor.x, anchor.y);
   }
@@ -468,7 +545,7 @@ function badge(text: string, active: boolean): HTMLDivElement {
   const el = document.createElement('div');
   el.textContent = text;
   el.style.cssText =
-    'position:absolute;right:3px;top:3px;z-index:4;padding:1px 4px;border:1px solid rgba(0,0,0,.55);font-size:10px;line-height:14px;' +
+    'position:absolute;right:3px;top:3px;z-index:4;padding:1px 4px;border:1px solid rgba(0,0,0,.55);border-radius:4px;font-size:10px;line-height:14px;' +
     `background:${active ? '#d2b15f' : '#111615'};color:${active ? '#151715' : '#f0d56a'};box-shadow:0 1px 4px rgba(0,0,0,.45);`;
   return el;
 }
@@ -480,7 +557,7 @@ function rankChevronBadge(rank: number): HTMLDivElement {
   el.setAttribute('aria-label', el.title);
   el.style.cssText =
     'position:absolute;left:3px;bottom:3px;z-index:5;display:grid;gap:1px;padding:2px 3px;' +
-    'border:1px solid rgba(210,177,95,.55);background:rgba(8,12,10,.82);box-shadow:0 1px 4px rgba(0,0,0,.45);';
+    'border:1px solid rgba(210,177,95,.55);border-radius:4px;background:rgba(8,12,10,.82);box-shadow:0 1px 4px rgba(0,0,0,.45);';
   for (let i = 0; i < Math.min(3, rank); i++) {
     const chevron = document.createElement('div');
     chevron.style.cssText =

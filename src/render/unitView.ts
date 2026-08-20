@@ -1891,6 +1891,7 @@ export class UnitView {
     // Sit to the left of the health bar (same height), or centered if HP chrome is hidden.
     badge.root.translateX(healthVisible ? -2.55 : 0);
   }
+
 }
 
 function unitChromeLift(entity: Entity): number {

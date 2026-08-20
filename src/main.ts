@@ -155,7 +155,7 @@ import { MissionComms } from './ui/missionComms';
 import { showOutcomeScreen } from './ui/outcomeScreen';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
-import { TacticPlanner } from './ui/tacticPlanner';
+import { TacticPlanner, type TacticExecutePayload } from './ui/tacticPlanner';
 import { maybeAskTacticFeedback, hideTacticFeedbackPrompt } from './ui/tacticFeedbackPrompt';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
 import { unitDisplayName } from './ui/unitDisplayName';
@@ -2492,7 +2492,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const startMode = params.get('start');
   const weaponsLab = startMode === 'weapons-lab' && !multiplayerMode && !isPublicHost(location.hostname);
-  const lineupStart = startMode === 'lineup' || weaponsLab;
+  const missileTrailPreview =
+    startMode === 'missile-preview' && !multiplayerMode && !isPublicHost(location.hostname);
+  const lineupStart = startMode === 'lineup' || weaponsLab || missileTrailPreview;
   const impactMovementDemo =
     startMode === 'impact-demo' && !multiplayerMode && !isPublicHost(location.hostname);
   const debriefPreview =
@@ -2511,7 +2513,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     !isPublicHost(location.hostname) &&
     isDestructionPreviewQuery(params);
   const cinematicShot = cinematicWar ? sanitizeCinematicShot(params.get('cinematic-shot')) : 'overview';
-  if (cinematicWar && params.get('cinematic-ui') === 'clean') {
+  if ((cinematicWar && params.get('cinematic-ui') === 'clean') || missileTrailPreview) {
     document.documentElement.classList.add('cinematic-clean');
   }
   const collectorPreview =
@@ -2544,6 +2546,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let nextImpactPreviewSalvoTick = 0;
   let impactDemoSequence = 0;
   let nextImpactDemoTick = 24;
+  let nextMissileTrailPreviewTick = 8;
+  let missileTrailPreviewVolley = 0;
   let impactDemoFollow: Entity | undefined;
   let impactDemoCameraReleased = false;
   let impactDemoPending:
@@ -2641,7 +2645,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const matchSnapshot = (): MatchSnapshot => debriefTracker.snapshot(sim.tick / SIM_HZ);
 
   const loadedUnits = loadedFromSave ? Array.from(sim.world.entities).filter((entity) => entity.selectable && !entity.building) : [];
-  const lineupUnits = !loadedFromSave && lineupStart ? spawnLineupUnits(sim, hf, economy, localBase.transform.x, localBase.transform.z) : [];
+  const lineupUnits = !loadedFromSave && lineupStart && !missileTrailPreview
+    ? spawnLineupUnits(sim, hf, economy, localBase.transform.x, localBase.transform.z)
+    : [];
+  const missileTrailPreviewFocus = missileTrailPreview
+    ? { x: localBase.transform.x + 58, z: localBase.transform.z + 58 }
+    : undefined;
   const collectorPreviewEntity = collectorPreview
     ? lineupUnits.find((entity) => entity.harvester && entity.team?.id === localTeam)
     : undefined;
@@ -2743,6 +2752,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   activeMatchExitGuard?.dispose();
   activeMatchExitGuard = installActiveMatchExitGuard();
   const impactDemoPanel = impactDemoScene ? createImpactMovementDemoPanel() : undefined;
+  const missileTrailPreviewPanel = missileTrailPreview ? createMissileTrailPreviewPanel() : undefined;
   let sidebar!: Sidebar;
   let tacticalPingKind: TacticalPingKind | undefined;
   let networkPaused = false;
@@ -2842,6 +2852,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       },
       138,
       -6,
+    );
+  } else if (missileTrailPreviewFocus) {
+    rig.focusOn(
+      missileTrailPreviewFocus.x,
+      missileTrailPreviewFocus.z,
+      { x: missileTrailPreviewFocus.x - 105, z: missileTrailPreviewFocus.z + 105 },
+      145,
+      -10,
     );
   } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else {
@@ -3037,6 +3055,23 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       tacticPlanner.open(entities);
     },
   }, localTeam, ctx.camera, hf);
+  const scheduledTactics: Array<{ startTick: number; payload: TacticExecutePayload }> = [];
+  const tacticUnits = (entityIds: number[]): Entity[] => entityIds
+    .map((id) => entityById(sim, id))
+    .filter((entity): entity is Entity => !!entity && !entity.destroyed && entity.team?.id === localTeam);
+  const issueTactic = (payload: TacticExecutePayload): boolean => {
+    const units = tacticUnits(payload.entityIds);
+    if (units.length === 0) return false;
+    return lockstep
+      ? lockstep.issue({
+          type: 'tactic',
+          ids: units.map((entity) => entity.id),
+          waypoints: payload.waypoints,
+          endAction: payload.endAction.kind,
+          endTargetId: payload.endAction.kind === 'attack' ? payload.endAction.targetId : undefined,
+        })
+      : issueTacticOrder(sim, units, payload.waypoints, payload.endAction);
+  };
   const tacticPlanner = new TacticPlanner(
     sim,
     localTeam,
@@ -3066,9 +3101,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       },
       onExecute: (payload) => {
         controller.setEnabled(true);
-        const units = payload.entityIds
-          .map((id) => entityById(sim, id))
-          .filter((entity): entity is Entity => !!entity && !entity.destroyed && entity.team?.id === localTeam);
+        const units = tacticUnits(payload.entityIds);
         const unitKinds = summarizeUnitKinds(
           units.map((entity) => unitKindForUpgrade(entity) ?? entity.selectable?.type ?? 'unit'),
         );
@@ -3082,18 +3115,23 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           plannerDurationMs: payload.plannerDurationMs,
           subsetOfSelection: units.length < payload.selectionCount,
         };
-        const issued = lockstep
-          ? lockstep.issue({
-              type: 'tactic',
-              ids: units.map((entity) => entity.id),
-              waypoints: payload.waypoints,
-              endAction: payload.endAction.kind,
-              endTargetId: payload.endAction.kind === 'attack' ? payload.endAction.targetId : undefined,
-            })
-          : issueTacticOrder(sim, units, payload.waypoints, payload.endAction);
-        if (!issued) {
+        if (units.length === 0) {
           audio.playUi('error');
           return;
+        }
+        if (payload.startDelaySeconds === 0) {
+          if (!issueTactic(payload)) {
+            audio.playUi('error');
+            return;
+          }
+        } else {
+          const startTick = sim.tick + Math.round(payload.startDelaySeconds * SIM_HZ);
+          scheduledTactics.push({
+            startTick,
+            payload,
+          });
+          scheduledTactics.sort((a, b) => a.startTick - b.startTick);
+          selectionBar.scheduleTacticCountdown(payload.entityIds, startTick);
         }
         sendTelemetryEvent('tactic-execute', matchTelemetryMetadata(), feature);
         audio.playUi('order');
@@ -3281,6 +3319,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (durabilityPreview || destructionPreview || debriefPreview || outcome) return;
     outcome = result;
     {
+      scheduledTactics.length = 0;
+      selectionBar.clearAllTacticCountdowns();
       activeMatchExitGuard?.complete();
       if (multiplayerMode) clearActiveMultiplayerMatch(window.sessionStorage);
       matchTelemetry?.end();
@@ -3392,6 +3432,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     simTick: () => {
       if (uiPaused || networkPaused) return;
       if (collectorPreview) return;
+      while (scheduledTactics[0] && scheduledTactics[0].startTick <= sim.tick) {
+        const scheduled = scheduledTactics.shift()!;
+        selectionBar.clearTacticCountdown(scheduled.payload.entityIds, scheduled.startTick);
+        if (!issueTactic(scheduled.payload)) audio.playUi('error');
+      }
       firstPerson.simTick();
       const tickResult = advanceTick({
         sim,
@@ -3422,6 +3467,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       const events = tickResult.events;
       destructionPanel?.simTick(sim.tick);
       debriefTracker.recordEvents(events);
+      if (missileTrailPreviewFocus && sim.tick >= nextMissileTrailPreviewTick) {
+        const preview = createMissileTrailPreviewEvents(
+          hf,
+          missileTrailPreviewFocus.x,
+          missileTrailPreviewFocus.z,
+          missileTrailPreviewVolley++,
+        );
+        events.push(...preview.events);
+        missileTrailPreviewPanel?.announce(preview.labels);
+        nextMissileTrailPreviewTick = sim.tick + Math.round(4.8 * SIM_HZ);
+      }
       if (impactDemoScene) {
         const playerTookTanks = impactDemoScene.tanks.some((tank) => tank.selectable?.selected || tank.playerControlled);
         if (playerTookTanks) impactDemoCameraReleased = true;
@@ -3848,7 +3904,7 @@ function gameChromeButton(text: string, title: string): HTMLButtonElement {
   button.textContent = text;
   button.title = title;
   button.style.cssText =
-    'height:34px;padding:0 14px;border:1px solid #4b5552;border-radius:2px;' +
+    'height:34px;padding:0 14px;border:1px solid #4b5552;border-radius:4px;' +
     'font:11px ui-monospace,Menlo,monospace;letter-spacing:.12em;background:linear-gradient(180deg,#26302f,#111615);color:#d7e0e7;cursor:pointer;';
   button.onpointerdown = (event) => {
     event.preventDefault();
@@ -3893,7 +3949,7 @@ function showMatchMenu(
   const panel = document.createElement('div');
   panel.className = 'game-menu-panel';
   panel.style.cssText =
-    'width:340px;display:grid;gap:8px;padding:14px;background:rgba(8,12,14,.94);border:1px solid #596260;border-radius:3px;' +
+    'width:340px;display:grid;gap:8px;padding:14px;background:rgba(8,12,14,.94);border:1px solid #596260;border-radius:4px;' +
     'box-shadow:0 18px 60px rgba(0,0,0,.55);font:11px ui-monospace,Menlo,monospace;color:#d7e0e7;letter-spacing:.08em;';
   const title = document.createElement('div');
   title.textContent = 'MATCH MENU';
@@ -4050,7 +4106,7 @@ function dialogButton(label: string, action: () => void): HTMLButtonElement {
   button.tabIndex = -1;
   button.textContent = label.toUpperCase();
   button.style.cssText =
-    'height:34px;border-radius:2px;border:1px solid #4b5552;background:linear-gradient(180deg,#26302f,#111615);' +
+    'height:34px;border-radius:4px;border:1px solid #4b5552;background:linear-gradient(180deg,#26302f,#111615);' +
     'color:#d7e0e7;font:11px ui-monospace,Menlo,monospace;letter-spacing:.08em;cursor:pointer;';
   button.onpointerdown = (event) => {
     event.preventDefault();
@@ -4073,7 +4129,7 @@ function showRankUpToast(rankLabel: string): void {
   toast.textContent = `UNIT PROMOTED — ${rankLabel.toUpperCase()}`;
   toast.style.cssText =
     'position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:70;pointer-events:none;' +
-    'padding:10px 16px;border:2px solid #f0d56a;border-radius:3px;background:rgba(12,16,14,.92);' +
+    'padding:10px 16px;border:2px solid #f0d56a;border-radius:4px;background:rgba(12,16,14,.92);' +
     'color:#f0d56a;font:700 13px ui-monospace,Menlo,monospace;letter-spacing:.08em;' +
     'box-shadow:0 12px 28px rgba(0,0,0,.45)';
   document.body.appendChild(toast);
@@ -4432,6 +4488,78 @@ function sanitizeCinematicShot(value: string | null): CinematicShot {
 
 function sanitizeImpactPreview(value: string | null): ImpactPreview | undefined {
   return value === 'side' || value === 'top' || value === 'salvo' || value === 'near' ? value : undefined;
+}
+
+const MISSILE_TRAIL_PREVIEW_WEAPONS: ReadonlyArray<{
+  label: string;
+  weaponKind: WeaponKind;
+  projectileKind: CombatEvent['kind'];
+}> = [
+  { label: 'ROCKET POD', weaponKind: 'rocketPod', projectileKind: 'atRocket' },
+  { label: 'ROCKET LAUNCHER', weaponKind: 'rocketLauncher', projectileKind: 'atRocket' },
+  { label: 'SCOUT MISSILE', weaponKind: 'scoutMissile', projectileKind: 'scoutMissile' },
+  { label: 'TANK MISSILE', weaponKind: 'tankMissile', projectileKind: 'tankMissile' },
+  { label: 'SIEGE MISSILE', weaponKind: 'siegeMissile', projectileKind: 'siegeMissile' },
+  { label: 'AIR-TO-GROUND', weaponKind: 'agMissile', projectileKind: 'agMissile' },
+  { label: 'ANTI-AIR', weaponKind: 'aaMissile', projectileKind: 'aaMissile' },
+  { label: 'SWARM ROCKET', weaponKind: 'swarmRocket', projectileKind: 'agMissile' },
+  { label: 'ANNIHILATOR', weaponKind: 'annihilatorMissile', projectileKind: 'siegeMissile' },
+];
+
+function createMissileTrailPreviewEvents(
+  hf: ReturnType<typeof generateHeightfield>,
+  centerX: number,
+  centerZ: number,
+  volley: number,
+): { events: CombatEvent[]; labels: string[] } {
+  const labels: string[] = [];
+  const events: CombatEvent[] = [];
+  const direction = volley % 2 === 0 ? 1 : -1;
+  for (let lane = -1; lane <= 1; lane++) {
+    const profile = MISSILE_TRAIL_PREVIEW_WEAPONS[(volley * 3 + lane + 1) % MISSILE_TRAIL_PREVIEW_WEAPONS.length];
+    const depthOffset = lane * 15;
+    const fromX = centerX - 88 * direction - depthOffset;
+    const fromZ = centerZ - 88 * direction + depthOffset;
+    const toX = centerX + 88 * direction - depthOffset;
+    const toZ = centerZ + 88 * direction + depthOffset;
+    const flightY = Math.max(sampleHeight(hf, fromX, fromZ), sampleHeight(hf, toX, toZ)) + 18 + (lane + 1) * 1.6;
+    labels.push(profile.label);
+    events.push({
+      kind: profile.projectileKind,
+      weaponKind: profile.weaponKind,
+      fromX,
+      fromY: flightY,
+      fromZ,
+      toX,
+      toY: flightY,
+      toZ,
+      sourceTeamId: 1,
+      damage: 0,
+      killed: false,
+      duration: 4.2,
+      trajectory: 'flat',
+    });
+  }
+  return { events, labels };
+}
+
+function createMissileTrailPreviewPanel(): { announce: (labels: string[]) => void } {
+  const panel = document.createElement('section');
+  panel.className = 'missile-trail-preview';
+  panel.setAttribute('aria-label', 'Missile trail visual preview');
+  panel.innerHTML = `
+    <div class="missile-trail-preview__eyebrow">VISUAL EFFECTS RANGE</div>
+    <div class="missile-trail-preview__title">MISSILE TRAIL PREVIEW</div>
+    <div class="missile-trail-preview__status" data-missile-preview-status>Preparing first salvo…</div>
+    <div class="missile-trail-preview__note">Three profiles cross the screen every 4.8 seconds.</div>
+  `;
+  document.body.appendChild(panel);
+  const status = panel.querySelector<HTMLElement>('[data-missile-preview-status]')!;
+  return {
+    announce: (labels) => {
+      status.textContent = labels.join('  ·  ');
+    },
+  };
 }
 
 function createSideMissileLaunchEvent(entity: Entity, side: 1 | -1): { event: CombatEvent; duration: number } {
