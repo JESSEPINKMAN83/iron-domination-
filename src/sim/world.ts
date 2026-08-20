@@ -49,6 +49,8 @@ export interface CombatEvent {
   toY?: number;
   toZ: number;
   sourceTeamId?: number;
+  /** Defending army for warnings or effects that are aimed at a team rather than one entity. */
+  targetTeamId?: number;
   targetId?: number;
   targetLabel?: string;
   targetType?: string;

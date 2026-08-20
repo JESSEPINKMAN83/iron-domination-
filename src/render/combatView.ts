@@ -114,7 +114,9 @@ export function selectCombatVisualEvents(
   quality: VisualQualityTier,
   totalLimit: number = COMBAT_EVENT_BUDGETS[quality].total,
 ): CombatEvent[] {
-  const visualEvents = events.filter((event) => event.kind !== 'ore-delivery' && event.kind !== 'impact-reaction');
+  const visualEvents = events.filter(
+    (event) => event.kind !== 'ore-delivery' && event.kind !== 'impact-reaction' && event.kind !== 'strategic-missile-warning',
+  );
   const budget = COMBAT_EVENT_BUDGETS[quality];
   const total = Math.min(budget.total, Math.max(0, Math.floor(totalLimit)));
   if (total === 0) return [];
@@ -749,7 +751,7 @@ export class CombatView {
       fin.rotation.y = angle;
       group.add(fin);
     }
-    group.scale.setScalar(profile.scale);
+    group.scale.setScalar(profile.scale * (event.impactScale ?? 1));
     return group;
   }
 

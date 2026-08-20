@@ -130,13 +130,15 @@ import {
   spawnInfantryAt,
   startStructureBuild,
   stepEconomy,
-  upgradeIntelligence,
+  upgradeStrategicMissile,
   updatePlacement,
 } from './sim/economy';
 import {
   discoverEnemyStructures,
   knownStrategicTargets,
+  launchBlindStrategicMissile,
   launchStrategicMissile,
+  purchaseEnemyIntelligence,
 } from './sim/strategicWarfare';
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
 import { damageForArmor, issueAttackOrder } from './sim/combat';
@@ -3070,14 +3072,21 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     orderMap: (x, z, attackGround) => attackGround ? controller.attackGroundAt(x, z) : controller.orderSelectedTo(x, z),
     radarYaw: () => rig.yawRadians,
     radarViewport: () => rig.getGroundViewportFootprint(),
-    upgradeIntelligence: () => {
-      const upgraded = upgradeIntelligence(sim, economy);
-      if (upgraded) discoverEnemyStructures(sim, economy, strategicKnownTargetIds);
-      return upgraded;
+    purchaseIntelligence: (enemyTeam, category) => {
+      const result = purchaseEnemyIntelligence(sim, economy, enemyTeam, category);
+      if (result.ok) discoverEnemyStructures(sim, economy, strategicKnownTargetIds);
+      return result;
     },
+    upgradeStrategicMissile: () => upgradeStrategicMissile(sim, economy),
     strategicTargets: () => knownStrategicTargets(sim, strategicKnownTargetIds),
     launchStrategicMissile: (targetId) => {
       const result = launchStrategicMissile(sim, economy, strategicKnownTargetIds, targetId);
+      if (result.ok) audio.playUi('order');
+      else audio.playUi('error');
+      return { ok: result.ok, reason: result.reason };
+    },
+    launchBlindStrategicMissile: (enemyTeam) => {
+      const result = launchBlindStrategicMissile(sim, economy, enemyTeam);
       if (result.ok) audio.playUi('order');
       else audio.playUi('error');
       return { ok: result.ok, reason: result.reason };
@@ -3582,6 +3591,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       firstPerson.handleCombatEvents(events);
       audio.handleCombatEvents(events, firstPerson.possessedEntity?.id);
       for (const event of events) {
+        if (event.kind === 'strategic-missile-warning' && event.targetTeamId === localTeam) {
+          const attackerTeam = event.sourceTeamId ?? 0;
+          sidebar.signalIncomingMissile(attackerTeam);
+          hud.showBaseUnderAttack('Incoming strategic missile', true);
+          missionComms.announceIncomingMissile(attackerTeam);
+          audio.playUi('error');
+        }
         if (event.kind === 'strategic-missile-intercepted') {
           sidebar.notify(event.sourceTeamId === localTeam ? 'MISSILE DEFENSE INTERCEPT' : 'STRATEGIC MISSILE INTERCEPTED');
         }
@@ -5386,7 +5402,8 @@ function seedMissileDoctrinePreview(
   const local = armies.find((army) => army.team === localTeam);
   if (!local) return;
   local.economy.doctrine = 'missile-command';
-  local.economy.intelligenceLevel = 1;
+  local.economy.intelligenceByTeam = {};
+  local.economy.strategicMissileLevel = 1;
   // The regular test base intentionally runs close to its power ceiling. Give
   // this focused scenario enough generation to operate both strategic systems.
   placePreviewStructure(sim, hf, local.economy, local.base, 'power-plant', [

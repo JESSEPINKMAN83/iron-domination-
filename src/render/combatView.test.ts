@@ -50,6 +50,7 @@ describe('combat visual load shedding', () => {
 
   it('ignores non-visual bookkeeping before applying the budget', () => {
     const bookkeeping = Array.from({ length: 100 }, (_, index) => event(index, 1, { kind: 'impact-reaction' }));
+    bookkeeping.push(event(150, 2, { kind: 'strategic-missile-warning', targetTeamId: 1 }));
     const visible = Array.from({ length: 8 }, (_, index) => event(200 + index, 1));
     expect(selectCombatVisualEvents([...bookkeeping, ...visible], 1, 0)).toEqual(visible);
   });

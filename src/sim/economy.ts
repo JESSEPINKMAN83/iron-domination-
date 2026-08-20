@@ -12,6 +12,7 @@ import type { GameSim } from './world';
 import { issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt } from './world';
 
 export type UnitProducerType = 'infantry' | 'vehicles' | 'aircraft';
+export type IntelligenceCategory = 'economy' | 'power' | 'military' | 'command';
 export const MAX_PRODUCER_JOBS = 10;
 const COMMAND_YARD_HEALTH = 1680;
 const DEFAULT_STRUCTURE_HEALTH = 630;
@@ -40,7 +41,8 @@ export interface EconomyState {
   placement?: PlacementState;
   pendingSpawned: Entity[];
   harvesterReplacementTimers: Record<number, number>;
-  intelligenceLevel: number;
+  intelligenceByTeam: Record<number, IntelligenceCategory[]>;
+  strategicMissileLevel: number;
   strategicMissileCooldown: number;
 }
 
@@ -68,7 +70,8 @@ export function createEconomy(team = 1, initialCredits = 4600, doctrine: ArmyDoc
     primaryProducerIds: {},
     pendingSpawned: [],
     harvesterReplacementTimers: {},
-    intelligenceLevel: doctrine === 'missile-command' ? 1 : 0,
+    intelligenceByTeam: {},
+    strategicMissileLevel: 1,
     strategicMissileCooldown: 0,
   };
 }
@@ -105,7 +108,11 @@ export function hashEconomy(economy: EconomyState): number {
   mix(Math.round(economy.incomeMultiplier * 1000));
   mix(Math.round(economy.powerProduced * 100));
   mix(Math.round(economy.powerUsed * 100));
-  mix(economy.intelligenceLevel);
+  mix(economy.strategicMissileLevel);
+  for (const team of Object.keys(economy.intelligenceByTeam).map(Number).sort((a, b) => a - b)) {
+    mix(team);
+    for (const category of [...(economy.intelligenceByTeam[team] ?? [])].sort()) mixText(category);
+  }
   mix(Math.round(economy.strategicMissileCooldown * 1000));
   mixJob(economy.structureLine);
   mixText(economy.readyStructure);
@@ -453,28 +460,28 @@ export function hasStructure(sim: GameSim, kind: StructureKind, team = 1): boole
   return buildings(sim, team).some((entity) => entity.building?.kind === kind && entity.building.complete);
 }
 
-export const MAX_INTELLIGENCE_LEVEL = 3;
+export const MAX_STRATEGIC_MISSILE_LEVEL = 3;
 
-export function intelligenceUpgradeCost(currentLevel: number): number {
-  if (currentLevel <= 1) return 650;
-  if (currentLevel === 2) return 1100;
+export function strategicMissileUpgradeCost(currentLevel: number): number {
+  if (currentLevel <= 1) return 900;
+  if (currentLevel === 2) return 1500;
   return 0;
 }
 
-export function canUpgradeIntelligence(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
-  const cost = intelligenceUpgradeCost(economy.intelligenceLevel);
+export function canUpgradeStrategicMissile(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
+  const cost = strategicMissileUpgradeCost(economy.strategicMissileLevel);
   if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Missile Command doctrine only', cost };
-  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
-  if (economy.intelligenceLevel >= MAX_INTELLIGENCE_LEVEL) return { ok: false, reason: 'Maximum intelligence level', cost: 0 };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
+  if (economy.strategicMissileLevel >= MAX_STRATEGIC_MISSILE_LEVEL) return { ok: false, reason: 'Maximum missile level', cost: 0 };
   if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
   return { ok: true, reason: '', cost };
 }
 
-export function upgradeIntelligence(sim: GameSim, economy: EconomyState): boolean {
-  const check = canUpgradeIntelligence(sim, economy);
+export function upgradeStrategicMissile(sim: GameSim, economy: EconomyState): boolean {
+  const check = canUpgradeStrategicMissile(sim, economy);
   if (!check.ok) return false;
-  spend(economy, sim.tick, `Intelligence level ${economy.intelligenceLevel + 1}`, check.cost);
-  economy.intelligenceLevel++;
+  spend(economy, sim.tick, `Missile level ${economy.strategicMissileLevel + 1}`, check.cost);
+  economy.strategicMissileLevel++;
   return true;
 }
 

@@ -115,6 +115,15 @@ export class MissionComms {
     });
   }
 
+  announceIncomingMissile(attackerTeam: number): void {
+    this.announce({
+      eyebrow: 'MISSILE WARNING',
+      title: 'INCOMING STRATEGIC MISSILE',
+      message: `Army ${attackerTeam} has launched a long-range missile toward your territory. Impact is imminent.`,
+      alert: true,
+    });
+  }
+
   private announce(transmission: Transmission): void {
     if (this.hideTimer !== undefined) window.clearTimeout(this.hideTimer);
     this.eyebrow.textContent = transmission.eyebrow;
