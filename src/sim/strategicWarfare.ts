@@ -7,6 +7,11 @@ import { areTeamsHostile, entityById, type CombatEvent, type GameSim } from './w
 export const STRATEGIC_MISSILE_COST = 350;
 export const STRATEGIC_MISSILE_COOLDOWN = 30;
 
+export interface StrategicAccuracy {
+  label: 'LOW' | 'MEDIUM' | 'PINPOINT';
+  radius: number;
+}
+
 export interface StrategicLaunchResult {
   ok: boolean;
   reason: string;
@@ -18,6 +23,12 @@ export function intelligenceTargetCapacity(level: number): number {
   if (level === 1) return 2;
   if (level === 2) return 5;
   return Number.POSITIVE_INFINITY;
+}
+
+export function strategicAccuracy(level: number): StrategicAccuracy {
+  if (level <= 1) return { label: 'LOW', radius: 48 };
+  if (level === 2) return { label: 'MEDIUM', radius: 16 };
+  return { label: 'PINPOINT', radius: 0 };
 }
 
 /**
@@ -71,7 +82,7 @@ export function strategicLaunchReadiness(
 ): { ready: boolean; reason: string; cooldown: number } {
   if (economy.doctrine !== 'missile-command') return { ready: false, reason: 'Missile Command doctrine only', cooldown: 0 };
   if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ready: false, reason: 'Build an Intelligence Center', cooldown: 0 };
-  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ready: false, reason: 'Build a Strategic Missile Silo', cooldown: 0 };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ready: false, reason: 'Build a Missile Silo', cooldown: 0 };
   if (economy.powerProduced < economy.powerUsed) return { ready: false, reason: 'Insufficient power', cooldown: economy.strategicMissileCooldown };
   if (economy.strategicMissileCooldown > 0) {
     return { ready: false, reason: `Reloading ${Math.ceil(economy.strategicMissileCooldown)}s`, cooldown: economy.strategicMissileCooldown };
@@ -107,14 +118,17 @@ export function launchStrategicMissile(
   const fromX = silo.transform.x;
   const fromZ = silo.transform.z;
   const fromY = sampleHeight(sim.nav.heightfield, fromX, fromZ) + 5.5;
-  const toX = target.transform.x;
-  const toZ = target.transform.z;
-  const toY = sampleHeight(sim.nav.heightfield, toX, toZ) + Math.max(2.8, (target.collider?.radius ?? 4) * 0.45);
+  const accuracy = strategicAccuracy(economy.intelligenceLevel);
+  const scatterAngle = deterministicUnit(target.id * 31 + sim.tick * 17 + 7) * Math.PI * 2;
+  const scatterDistance = accuracy.radius * (0.58 + deterministicUnit(target.id * 47 + sim.tick * 13 + 19) * 0.42);
+  const toX = target.transform.x + Math.cos(scatterAngle) * scatterDistance;
+  const toZ = target.transform.z + Math.sin(scatterAngle) * scatterDistance;
+  const toY = sampleHeight(sim.nav.heightfield, toX, toZ) + 1.1;
   const dx = toX - fromX;
   const dy = toY - fromY;
   const dz = toZ - fromZ;
   const distance = Math.max(0.001, Math.hypot(dx, dy, dz));
-  const duration = distance / speed;
+  const duration = Math.max(2.8, distance / speed);
   sim.projectiles.push({
     kind: def.projectile!.kind,
     weaponKind: def.kind,
@@ -131,19 +145,8 @@ export function launchStrategicMissile(
     duration,
     speed,
     maxDistance: sim.nav.size * Math.SQRT2 + 128,
-    directTargetId: target.id,
-    trajectory: 'homing',
-    homing: {
-      targetId: target.id,
-      speed,
-      fizzleRange: sim.nav.size * Math.SQRT2 + 128,
-      remainingLifetime: Math.max(12, duration + 6),
-      traveledDistance: 0,
-      directionX: dx / distance,
-      directionY: dy / distance,
-      directionZ: dz / distance,
-      turnRate: 0.7,
-    },
+    directTargetId: accuracy.radius === 0 ? target.id : undefined,
+    trajectory: 'arc',
     teamId: economy.team,
     attackerId: silo.id,
     strategic: true,
@@ -165,10 +168,16 @@ export function launchStrategicMissile(
     damage: 0,
     killed: false,
     duration,
-    trajectory: 'homing',
-    homingSpeed: speed,
-    homingTurnRate: 0.7,
+    trajectory: 'arc',
   };
   sim.events.push(event);
   return { ok: true, reason: '', event };
+}
+
+function deterministicUnit(seed: number): number {
+  let value = seed | 0;
+  value = Math.imul(value ^ (value >>> 16), 0x45d9f3b);
+  value = Math.imul(value ^ (value >>> 16), 0x45d9f3b);
+  value ^= value >>> 16;
+  return (value >>> 0) / 0x100000000;
 }

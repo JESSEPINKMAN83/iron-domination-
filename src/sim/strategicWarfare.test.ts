@@ -104,7 +104,30 @@ describe('Missile Command strategic warfare', () => {
     expect(economy.credits).toBe(creditsBefore - STRATEGIC_MISSILE_COST);
     expect(economy.strategicMissileCooldown).toBe(STRATEGIC_MISSILE_COOLDOWN);
     expect(sim.projectiles).toHaveLength(1);
-    expect(sim.projectiles[0]).toMatchObject({ strategic: true, weaponKind: 'strategicMissile', directTargetId: target.id });
+    expect(sim.projectiles[0]).toMatchObject({ strategic: true, weaponKind: 'strategicMissile', trajectory: 'arc' });
+    expect(sim.projectiles[0].directTargetId).toBeUndefined();
+    expect(Math.hypot(sim.projectiles[0].toX - target.transform.x, sim.projectiles[0].toZ - target.transform.z)).toBeLessThanOrEqual(48);
+  });
+
+  it('becomes pinpoint at intelligence level 3 and reaches the selected structure', () => {
+    const { sim, economy, target } = missileFixture();
+    economy.intelligenceLevel = 3;
+    const healthBefore = target.health!.current;
+    expect(launchStrategicMissile(sim, economy, new Set([target.id]), target.id).ok).toBe(true);
+    expect(sim.projectiles[0]).toMatchObject({
+      toX: target.transform.x,
+      toZ: target.transform.z,
+      directTargetId: target.id,
+      trajectory: 'arc',
+    });
+
+    for (let tick = 0; tick < 30 * 20 && sim.projectiles.length > 0; tick++) {
+      sim.tick++;
+      stepCombat(sim, 1 / 30, { autoFire: false });
+    }
+
+    expect(sim.projectiles).toHaveLength(0);
+    expect(target.health!.current).toBeLessThan(healthBefore);
   });
 
   it('lets a hostile missile-defense battery destroy the round before impact', () => {

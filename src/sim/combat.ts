@@ -952,7 +952,9 @@ function stepProjectiles(sim: GameSim, dt: number): void {
     // A V-mode shot is already resolved against the reticle or a real entity.
     // Let it reach that terminal point; late terrain sampling used to pull
     // otherwise accurate shots into the ground just before their target.
-    const mayStrikeTerrain = projectile.manualAim
+    const mayStrikeTerrain = projectile.strategic
+      ? false
+      : projectile.manualAim
       ? false
       : projectile.trajectory === 'arc'
         ? t >= 0.58

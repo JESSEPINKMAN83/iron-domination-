@@ -129,7 +129,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
   },
   'strategic-silo': {
     kind: 'strategic-silo',
-    label: 'Strategic Missile Silo',
+    label: 'Missile Silo',
     tab: 'structures',
     cost: 1500,
     buildTime: 11,

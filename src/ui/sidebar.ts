@@ -11,7 +11,7 @@ import {
   hasStructure,
   type EconomyState,
 } from '../sim/economy';
-import { STRATEGIC_MISSILE_COST, strategicLaunchReadiness } from '../sim/strategicWarfare';
+import { STRATEGIC_MISSILE_COST, strategicAccuracy, strategicLaunchReadiness } from '../sim/strategicWarfare';
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { selectedEntities, type GameSim } from '../sim/world';
@@ -105,6 +105,7 @@ export class Sidebar {
   private selectedTacticalPing?: TacticalPingKind;
   private notice?: { text: string; untilTick: number };
   private firstPersonMode = false;
+  private strategicTargeting = false;
 
   constructor(
     private readonly sim: GameSim,
@@ -557,16 +558,19 @@ export class Sidebar {
     if (!hasStructure(this.sim, 'strategic-silo', this.economy.team)) {
       const copy = document.createElement('div');
       copy.style.cssText = 'color:#aebbc4;font-size:10px;line-height:1.45;';
-      copy.textContent = 'Build a Strategic Missile Silo after intelligence contacts are available.';
+      copy.textContent = 'Build a Missile Silo after intelligence contacts are available.';
       panel.appendChild(copy);
       return panel;
     }
 
     const targets = this.actions.strategicTargets();
     const readiness = strategicLaunchReadiness(this.sim, this.economy);
+    const accuracy = strategicAccuracy(this.economy.intelligenceLevel);
     const status = document.createElement('div');
     status.style.cssText = `font-size:10px;color:${readiness.ready ? '#9cf3b1' : '#d2b15f'};`;
-    status.textContent = readiness.ready ? `SILO READY · WARHEAD $${STRATEGIC_MISSILE_COST}` : readiness.reason.toUpperCase();
+    status.textContent = readiness.ready
+      ? `1 MISSILE TYPE · WARHEAD $${STRATEGIC_MISSILE_COST} · ${accuracy.label} ACCURACY${accuracy.radius ? ` ±${accuracy.radius}M` : ''}`
+      : readiness.reason.toUpperCase();
     panel.appendChild(status);
     if (targets.length === 0) {
       const copy = document.createElement('div');
@@ -575,6 +579,40 @@ export class Sidebar {
       panel.appendChild(copy);
       return panel;
     }
+    if (!this.strategicTargeting) {
+      const guidance = document.createElement('div');
+      guidance.style.cssText = 'color:#aebbc4;font-size:10px;line-height:1.45;';
+      guidance.textContent = `${targets.length} enemy target${targets.length === 1 ? '' : 's'} identified. Choose Launch Missile, then select exactly which enemy structure to strike.`;
+      panel.appendChild(guidance);
+      const chooseTarget = document.createElement('button');
+      chooseTarget.type = 'button';
+      chooseTarget.disabled = !readiness.ready;
+      chooseTarget.textContent = 'LAUNCH MISSILE · CHOOSE TARGET';
+      chooseTarget.title = readiness.ready ? 'Open the revealed target list' : readiness.reason;
+      chooseTarget.style.cssText = strategicButtonCss(readiness.ready) + 'min-height:42px;font-size:11px;';
+      chooseTarget.onclick = () => {
+        this.strategicTargeting = true;
+        this.lastBodyKey = '';
+        this.renderBody();
+      };
+      panel.appendChild(chooseTarget);
+      return panel;
+    }
+
+    const targetHeader = document.createElement('div');
+    targetHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;color:#fff;font-size:10px;font-weight:900;';
+    targetHeader.textContent = 'SELECT A REVEALED ENEMY TARGET';
+    const cancelTargeting = document.createElement('button');
+    cancelTargeting.type = 'button';
+    cancelTargeting.textContent = 'CANCEL';
+    cancelTargeting.style.cssText = strategicButtonCss(true) + 'padding:4px 7px;min-height:24px;';
+    cancelTargeting.onclick = () => {
+      this.strategicTargeting = false;
+      this.lastBodyKey = '';
+      this.renderBody();
+    };
+    targetHeader.appendChild(cancelTargeting);
+    panel.appendChild(targetHeader);
     const grid = document.createElement('div');
     grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;';
     for (const target of targets) {
@@ -582,11 +620,14 @@ export class Sidebar {
       button.type = 'button';
       button.disabled = !readiness.ready;
       const hp = target.health ? Math.max(0, Math.round((target.health.current / target.health.max) * 100)) : 100;
-      button.textContent = `T${target.team?.id ?? '?'} · ${target.building?.label ?? target.name} · ${hp}%`;
-      button.title = readiness.ready ? `Launch strategic missile for $${STRATEGIC_MISSILE_COST}` : readiness.reason;
+      button.textContent = `TARGET · T${target.team?.id ?? '?'} ${target.building?.label ?? target.name} · ${hp}% HP`;
+      button.title = readiness.ready
+        ? `Launch at this target · ${accuracy.label.toLowerCase()} accuracy${accuracy.radius ? ` within about ${accuracy.radius}m` : ''}`
+        : readiness.reason;
       button.style.cssText = strategicButtonCss(readiness.ready) + 'min-height:42px;text-align:left;white-space:normal;line-height:1.25;';
       button.onclick = () => {
         const result = this.actions.launchStrategicMissile(target.id);
+        if (result.ok) this.strategicTargeting = false;
         this.flash(result.ok ? `MISSILE AWAY · ${target.building?.label?.toUpperCase()}` : result.reason.toUpperCase());
         this.lastBodyKey = '';
         this.renderBody();
@@ -1078,6 +1119,7 @@ export class Sidebar {
       this.economy.doctrine,
       this.economy.intelligenceLevel,
       Math.ceil(this.economy.strategicMissileCooldown),
+      this.strategicTargeting,
       `${line?.kind ?? ''}`,
       this.economy.readyStructure ?? '',
       this.economy.selectedStructure ?? '',
