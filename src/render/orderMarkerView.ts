@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
@@ -36,6 +37,8 @@ const slotFacingGeometry = new BoxGeometry(0.28, 0.16, 1.65);
 const targetRingGeometry = new RingGeometry(2.8, 3.5, 56);
 const targetInnerRingGeometry = new RingGeometry(1.25, 1.45, 44);
 const targetBracketGeometry = new BoxGeometry(1.8, 0.16, 0.32);
+const strategicAreaRingGeometry = new RingGeometry(0.965, 1, 96);
+const strategicAreaFillGeometry = new CircleGeometry(1, 96);
 const MAX_FACING_ARROW_LENGTH = 72;
 const MAX_FORMATION_PREVIEW_SLOTS = 48;
 const FORMATION_SLOT_LIFT = 2.55;
@@ -75,12 +78,20 @@ interface TargetHover {
   pulse: number;
 }
 
+interface StrategicAreaTarget {
+  root: Group;
+  ring: Mesh;
+  fill: Mesh;
+  center: Mesh;
+  materials: MeshBasicMaterial[];
+}
+
 export class OrderMarkerView {
   readonly group = new Group();
   private readonly markers: Marker[] = [];
   private preview?: FacingPreview;
   private targetHover?: TargetHover;
-  private strategicTargetHover?: TargetHover;
+  private strategicAreaTarget?: StrategicAreaTarget;
 
   constructor(private readonly hf: Heightfield) {}
 
@@ -187,26 +198,24 @@ export class OrderMarkerView {
     this.targetHover.target = undefined;
   }
 
-  showStrategicTarget(target: Entity, color: number): void {
-    if (!this.strategicTargetHover) this.strategicTargetHover = this.createTargetHover(color);
-    const hover = this.strategicTargetHover;
-    hover.materials[0].color.setHex(color);
-    hover.materials[1].color.setHex(color);
-    hover.target = target;
-    hover.radius = targetHoverRadius(target, this.hf.cellSize);
-    hover.root.visible = true;
-    this.positionTargetHover(hover);
+  showStrategicAreaTarget(x: number, z: number, radius: number, color: number): void {
+    if (!this.strategicAreaTarget) this.strategicAreaTarget = this.createStrategicAreaTarget(color);
+    const marker = this.strategicAreaTarget;
+    marker.materials.forEach((material) => material.color.setHex(color));
+    marker.root.visible = true;
+    marker.root.position.set(x, sampleHeight(this.hf, x, z) + 0.35, z);
+    const visibleRadius = Math.max(3, radius);
+    marker.ring.scale.setScalar(visibleRadius);
+    marker.fill.scale.setScalar(visibleRadius);
+    marker.center.scale.setScalar(radius <= 0 ? 2.2 : 1.25);
   }
 
-  clearStrategicTarget(): void {
-    if (!this.strategicTargetHover) return;
-    this.strategicTargetHover.root.visible = false;
-    this.strategicTargetHover.target = undefined;
+  clearStrategicAreaTarget(): void {
+    if (this.strategicAreaTarget) this.strategicAreaTarget.root.visible = false;
   }
 
   update(dt: number): void {
     this.updateTargetHover(this.targetHover, dt, () => this.clearTargetHover());
-    this.updateTargetHover(this.strategicTargetHover, dt, () => this.clearStrategicTarget());
     for (let i = this.markers.length - 1; i >= 0; i--) {
       const marker = this.markers[i];
       marker.ttl -= dt;
@@ -337,9 +346,9 @@ export class OrderMarkerView {
     return { root, slots, anchorRing, direction, materials: [core, ringMaterial, dark] };
   }
 
-  private createTargetHover(color = 0xff2f2f): TargetHover {
-    const core = new MeshBasicMaterial({ color, transparent: true, opacity: 0.86, depthWrite: false, depthTest: false, side: DoubleSide });
-    const soft = new MeshBasicMaterial({ color, transparent: true, opacity: 0.34, depthWrite: false, depthTest: false, side: DoubleSide });
+  private createTargetHover(): TargetHover {
+    const core = new MeshBasicMaterial({ color: 0xff2f2f, transparent: true, opacity: 0.86, depthWrite: false, depthTest: false, side: DoubleSide });
+    const soft = new MeshBasicMaterial({ color: 0xff5c4a, transparent: true, opacity: 0.34, depthWrite: false, depthTest: false, side: DoubleSide });
     const dark = new MeshBasicMaterial({ color: 0x130303, transparent: true, opacity: 0.42, depthWrite: false, depthTest: false, side: DoubleSide });
     const root = new Group();
     root.visible = false;
@@ -374,6 +383,29 @@ export class OrderMarkerView {
 
     this.group.add(root);
     return { root, ring, innerRing, brackets, materials: [core, soft, dark], radius: 4, pulse: 0 };
+  }
+
+  private createStrategicAreaTarget(color: number): StrategicAreaTarget {
+    const ringMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false, side: DoubleSide });
+    const fillMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.1, depthWrite: false, depthTest: false, side: DoubleSide });
+    const centerMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false, side: DoubleSide });
+    const root = new Group();
+    root.visible = false;
+    root.renderOrder = 118;
+    const fill = new Mesh(strategicAreaFillGeometry, fillMaterial);
+    fill.rotation.x = -Math.PI / 2;
+    fill.renderOrder = 116;
+    const ring = new Mesh(strategicAreaRingGeometry, ringMaterial);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    ring.renderOrder = 119;
+    const center = new Mesh(targetInnerRingGeometry, centerMaterial);
+    center.rotation.x = -Math.PI / 2;
+    center.position.y = 0.1;
+    center.renderOrder = 120;
+    root.add(fill, ring, center);
+    this.group.add(root);
+    return { root, ring, fill, center, materials: [ringMaterial, fillMaterial, centerMaterial] };
   }
 
   private updateTargetHover(hover: TargetHover | undefined, dt: number, clear: () => void): void {

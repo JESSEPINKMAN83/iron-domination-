@@ -3,13 +3,11 @@ import { MAP01 } from '../content/map01';
 import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity } from './components';
 import { stepCombat } from './combat';
-import { canBuildStructure, createEconomy, createInitialBase, recomputePower, upgradeStrategicMissile } from './economy';
+import { canBuildStructure, createEconomy, createInitialBase, recomputePower, upgradeStrategicAccuracy, upgradeStrategicMissile } from './economy';
 import { generateHeightfield } from './heightfield';
 import {
-  discoverEnemyStructures,
-  launchBlindStrategicMissile,
-  launchStrategicMissile,
-  purchaseEnemyIntelligence,
+  launchStrategicMissileAt,
+  strategicAccuracy,
   STRATEGIC_MISSILE_COOLDOWN,
   STRATEGIC_MISSILE_COST,
 } from './strategicWarfare';
@@ -75,64 +73,46 @@ describe('Missile Command strategic warfare', () => {
     expect(canBuildStructure(sim, specialist, 'intelligence-center').ok).toBe(true);
   });
 
-  it('buys intelligence by enemy and category instead of revealing every base globally', () => {
-    const hf = generateHeightfield(MAP01);
-    const sim = createGameSim(hf);
-    const economy = createEconomy(1, 5000, 'missile-command');
-    createInitialBase(sim, hf, economy, -180, 0);
-    addStructure(sim, 'intelligence-center', 1, -150, 0);
-    const army2Power = addStructure(sim, 'power-plant', 2, 20, 0);
-    const army2Factory = addStructure(sim, 'factory', 2, 40, 0);
-    const army3Power = addStructure(sim, 'power-plant', 3, 60, 0);
-    const known = new Set<number>();
-
-    expect(purchaseEnemyIntelligence(sim, economy, 2, 'power').ok).toBe(true);
-    discoverEnemyStructures(sim, economy, known);
-    expect(known.has(army2Power.id)).toBe(true);
-    expect(known.has(army2Factory.id)).toBe(false);
-    expect(known.has(army3Power.id)).toBe(false);
-
-    expect(purchaseEnemyIntelligence(sim, economy, 2, 'military').ok).toBe(true);
-    discoverEnemyStructures(sim, economy, known);
-    expect(known.has(army2Factory.id)).toBe(true);
-    expect(known.has(army3Power.id)).toBe(false);
+  it('upgrades guidance independently and shrinks the visible scatter radius', () => {
+    const { sim, economy } = missileFixture();
+    expect(strategicAccuracy(economy.strategicAccuracyLevel).radius).toBe(110);
+    expect(upgradeStrategicAccuracy(sim, economy)).toBe(true);
+    expect(strategicAccuracy(economy.strategicAccuracyLevel).radius).toBe(55);
+    expect(upgradeStrategicAccuracy(sim, economy)).toBe(true);
+    expect(strategicAccuracy(economy.strategicAccuracyLevel).radius).toBe(22);
+    expect(upgradeStrategicAccuracy(sim, economy)).toBe(true);
+    expect(strategicAccuracy(economy.strategicAccuracyLevel).radius).toBe(0);
   });
 
-  it('allows a blind launch toward a chosen army and warns that defender immediately', () => {
+  it('allows a marked-area launch and warns the chosen defender immediately', () => {
     const { sim, economy } = missileFixture();
-    expect(launchBlindStrategicMissile(sim, economy, 2).ok).toBe(true);
+    expect(launchStrategicMissileAt(sim, economy, 2, 170, 0).ok).toBe(true);
     expect(sim.projectiles[0]).toMatchObject({ strategic: true, directTargetId: undefined });
     expect(sim.events.some((event) => event.kind === 'strategic-missile-warning' && event.targetTeamId === 2)).toBe(true);
   });
 
-  it('launches only at identified targets and charges the missile cost', () => {
+  it('lands somewhere inside the marked scatter circle and charges the missile cost', () => {
     const { sim, economy, target } = missileFixture();
     const creditsBefore = economy.credits;
 
-    expect(launchStrategicMissile(sim, economy, new Set(), target.id)).toEqual({
-      ok: false,
-      reason: 'Target has not been identified',
-    });
-    economy.intelligenceByTeam[2] = ['military'];
-    const result = launchStrategicMissile(sim, economy, new Set([target.id]), target.id);
+    const result = launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z);
     expect(result.ok).toBe(true);
     expect(economy.credits).toBe(creditsBefore - STRATEGIC_MISSILE_COST);
     expect(economy.strategicMissileCooldown).toBe(STRATEGIC_MISSILE_COOLDOWN);
     expect(sim.projectiles).toHaveLength(1);
     expect(sim.projectiles[0]).toMatchObject({ strategic: true, weaponKind: 'strategicMissile', trajectory: 'arc' });
     expect(sim.projectiles[0].directTargetId).toBeUndefined();
-    expect(Math.hypot(sim.projectiles[0].toX - target.transform.x, sim.projectiles[0].toZ - target.transform.z)).toBeLessThanOrEqual(55);
+    expect(Math.hypot(sim.projectiles[0].toX - target.transform.x, sim.projectiles[0].toZ - target.transform.z)).toBeLessThanOrEqual(110);
   });
 
-  it('becomes pinpoint after three intelligence programs and reaches the selected structure', () => {
+  it('becomes pinpoint after three accuracy upgrades and reaches the marked location', () => {
     const { sim, economy, target } = missileFixture();
-    economy.intelligenceByTeam[2] = ['economy', 'power', 'military'];
+    economy.strategicAccuracyLevel = 3;
     const healthBefore = target.health!.current;
-    expect(launchStrategicMissile(sim, economy, new Set([target.id]), target.id).ok).toBe(true);
+    expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
     expect(sim.projectiles[0]).toMatchObject({
       toX: target.transform.x,
       toZ: target.transform.z,
-      directTargetId: target.id,
       trajectory: 'arc',
     });
 
@@ -142,31 +122,30 @@ describe('Missile Command strategic warfare', () => {
     }
 
     expect(sim.projectiles).toHaveLength(0);
-    expect(target.health!.current / healthBefore).toBeLessThan(0.2);
+    expect(target.health!.current / healthBefore).toBeLessThan(0.6);
     expect(sim.events.some((event) =>
       event.kind === 'siegeMissile-impact' &&
       event.weaponKind === 'strategicMissile' &&
-      event.damage >= 500 &&
+      event.damage >= 250 &&
       event.impactScale === 1.6
     )).toBe(true);
   });
 
-  it('upgrades the silo warhead independently from intelligence', () => {
+  it('upgrades the silo warhead independently from accuracy', () => {
     const { sim, economy, target } = missileFixture();
-    economy.intelligenceByTeam[2] = ['military'];
     const creditsBefore = economy.credits;
     expect(upgradeStrategicMissile(sim, economy)).toBe(true);
     expect(economy.strategicMissileLevel).toBe(2);
     expect(economy.credits).toBe(creditsBefore - 500);
-    expect(launchStrategicMissile(sim, economy, new Set([target.id]), target.id).ok).toBe(true);
+    expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
     expect(sim.projectiles[0]).toMatchObject({ damageScale: 1.75, impactScale: 2.25 });
   });
 
-  it('makes a fully upgraded warhead devastating to a locked building target', () => {
+  it('makes a fully upgraded warhead devastating at the marked point', () => {
     const { sim, economy, target } = missileFixture();
-    economy.intelligenceByTeam[2] = ['economy', 'power', 'military'];
+    economy.strategicAccuracyLevel = 3;
     economy.strategicMissileLevel = 3;
-    expect(launchStrategicMissile(sim, economy, new Set([target.id]), target.id).ok).toBe(true);
+    expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
     expect(sim.projectiles[0]).toMatchObject({ damageScale: 2.8, impactScale: 3.1 });
 
     for (let tick = 0; tick < 30 * 20 && sim.projectiles.length > 0; tick++) {
@@ -180,10 +159,10 @@ describe('Missile Command strategic warfare', () => {
 
   it('lets a hostile missile-defense battery destroy the round before impact', () => {
     const { sim, economy, target } = missileFixture();
-    economy.intelligenceByTeam[2] = ['military'];
+    economy.strategicAccuracyLevel = 3;
     addStructure(sim, 'missile-defense', 2, -135, 14);
     const healthBefore = target.health!.current;
-    expect(launchStrategicMissile(sim, economy, new Set([target.id]), target.id).ok).toBe(true);
+    expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
 
     for (let tick = 0; tick < 30 && sim.projectiles.length > 0; tick++) {
       sim.tick++;

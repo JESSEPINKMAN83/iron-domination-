@@ -1,31 +1,10 @@
 import { WEAPONS } from '../content/phase4';
-import type { Entity } from './components';
-import {
-  buildings,
-  hasStructure,
-  spendCredits,
-  type EconomyState,
-  type IntelligenceCategory,
-} from './economy';
+import { buildings, hasStructure, spendCredits, type EconomyState } from './economy';
 import { sampleHeight } from './heightfield';
-import { areTeamsHostile, entityById, type CombatEvent, type GameSim } from './world';
+import { areTeamsHostile, type CombatEvent, type GameSim } from './world';
 
 export const STRATEGIC_MISSILE_COST = 225;
 export const STRATEGIC_MISSILE_COOLDOWN = 30;
-
-export interface IntelligenceProgram {
-  category: IntelligenceCategory;
-  label: string;
-  description: string;
-  cost: number;
-}
-
-export const INTELLIGENCE_PROGRAMS: Record<IntelligenceCategory, IntelligenceProgram> = {
-  economy: { category: 'economy', label: 'Ore Operations', description: 'Reveal refineries and ore collectors.', cost: 100 },
-  power: { category: 'power', label: 'Power Grid', description: 'Reveal enemy power plants.', cost: 150 },
-  military: { category: 'military', label: 'Military Sites', description: 'Reveal production and defensive structures.', cost: 250 },
-  command: { category: 'command', label: 'Command Center', description: 'Reveal the enemy Command Yard.', cost: 400 },
-};
 
 export interface StrategicAccuracy {
   label: 'BLIND' | 'LOW' | 'MEDIUM' | 'PINPOINT';
@@ -58,64 +37,6 @@ export function strategicWarhead(level: number): StrategicWarhead {
   return { level: 3, label: 'DEVASTATOR', damageScale: 2.8, impactScale: 3.1 };
 }
 
-export function enemyIntelligenceCategories(economy: EconomyState, enemyTeam: number): IntelligenceCategory[] {
-  return economy.intelligenceByTeam[enemyTeam] ?? [];
-}
-
-export function enemyIntelligenceLevel(economy: EconomyState, enemyTeam: number): number {
-  return Math.min(3, enemyIntelligenceCategories(economy, enemyTeam).length);
-}
-
-export function purchaseEnemyIntelligence(
-  sim: GameSim,
-  economy: EconomyState,
-  enemyTeam: number,
-  category: IntelligenceCategory,
-): { ok: boolean; reason: string } {
-  const program = INTELLIGENCE_PROGRAMS[category];
-  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Missile Command doctrine only' };
-  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center' };
-  if (!areTeamsHostile(sim, economy.team, enemyTeam)) return { ok: false, reason: 'Choose an enemy army' };
-  const purchased = enemyIntelligenceCategories(economy, enemyTeam);
-  if (purchased.includes(category)) return { ok: false, reason: 'Intelligence already acquired' };
-  if (!spendCredits(economy, sim.tick, `${program.label} intelligence · Army ${enemyTeam}`, program.cost)) {
-    return { ok: false, reason: 'Insufficient credits' };
-  }
-  economy.intelligenceByTeam[enemyTeam] = [...purchased, category];
-  return { ok: true, reason: '' };
-}
-
-/** Continuously reveals structures covered by purchased, enemy-specific intelligence programs. */
-export function discoverEnemyStructures(
-  sim: GameSim,
-  economy: EconomyState,
-  knownTargetIds: Set<number>,
-): Entity[] {
-  if (!hasStructure(sim, 'intelligence-center', economy.team)) return [];
-  const newlyDiscovered: Entity[] = [];
-  for (const target of sim.world.entities) {
-    const enemyTeam = target.team?.id;
-    const kind = target.building?.kind;
-    if (
-      enemyTeam === undefined || target.destroyed || (!target.building && !target.harvester) ||
-      (target.building && !target.building.complete) ||
-      !areTeamsHostile(sim, economy.team, enemyTeam) || knownTargetIds.has(target.id)
-    ) continue;
-    const category = target.harvester ? 'economy' : intelligenceCategoryForStructure(kind!);
-    if (!enemyIntelligenceCategories(economy, enemyTeam).includes(category)) continue;
-    knownTargetIds.add(target.id);
-    newlyDiscovered.push(target);
-  }
-  return newlyDiscovered.sort((a, b) => a.id - b.id);
-}
-
-export function knownStrategicTargets(sim: GameSim, knownTargetIds: Set<number>): Entity[] {
-  return Array.from(knownTargetIds)
-    .map((id) => entityById(sim, id))
-    .filter((entity): entity is Entity => !!entity && (!!entity.building || !!entity.harvester) && !entity.destroyed && (entity.health?.current ?? 0) > 0)
-    .sort((a, b) => a.id - b.id);
-}
-
 export function strategicLaunchReadiness(
   sim: GameSim,
   economy: EconomyState,
@@ -130,39 +51,19 @@ export function strategicLaunchReadiness(
   return { ready: true, reason: '', cooldown: 0 };
 }
 
-export function launchStrategicMissile(
-  sim: GameSim,
-  economy: EconomyState,
-  knownTargetIds: Set<number>,
-  targetId: number,
-): StrategicLaunchResult {
-  if (!knownTargetIds.has(targetId)) return { ok: false, reason: 'Target has not been identified' };
-  const target = entityById(sim, targetId);
-  if (
-    !target || (!target.building && !target.harvester) || target.destroyed || !target.health || target.team?.id === undefined ||
-    !areTeamsHostile(sim, economy.team, target.team.id)
-  ) return { ok: false, reason: 'Target no longer available' };
-  return launchAtArea(
-    sim,
-    economy,
-    target.team.id,
-    target.transform.x,
-    target.transform.z,
-    target,
-    enemyIntelligenceLevel(economy, target.team.id),
-  );
-}
-
-export function launchBlindStrategicMissile(
+export function launchStrategicMissileAt(
   sim: GameSim,
   economy: EconomyState,
   enemyTeam: number,
+  targetX: number,
+  targetZ: number,
 ): StrategicLaunchResult {
   if (!areTeamsHostile(sim, economy.team, enemyTeam)) return { ok: false, reason: 'Choose an enemy army' };
-  const enemyBase = buildings(sim, enemyTeam).find((entity) => entity.building?.kind === 'command-yard' && !entity.destroyed)
-    ?? buildings(sim, enemyTeam).find((entity) => !entity.destroyed);
-  if (!enemyBase) return { ok: false, reason: 'Enemy direction unavailable' };
-  return launchAtArea(sim, economy, enemyTeam, enemyBase.transform.x, enemyBase.transform.z, undefined, 0);
+  const halfSize = sim.nav.size * 0.5;
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetZ) || Math.abs(targetX) > halfSize || Math.abs(targetZ) > halfSize) {
+    return { ok: false, reason: 'Choose a point inside the battlefield' };
+  }
+  return launchAtArea(sim, economy, enemyTeam, targetX, targetZ);
 }
 
 function launchAtArea(
@@ -171,8 +72,6 @@ function launchAtArea(
   enemyTeam: number,
   targetX: number,
   targetZ: number,
-  target: Entity | undefined,
-  intelLevel: number,
 ): StrategicLaunchResult {
   const readiness = strategicLaunchReadiness(sim, economy);
   if (!readiness.ready) return { ok: false, reason: readiness.reason };
@@ -186,10 +85,10 @@ function launchAtArea(
 
   const def = WEAPONS.strategicMissile;
   const warhead = strategicWarhead(economy.strategicMissileLevel);
-  const accuracy = strategicAccuracy(intelLevel);
-  const seedTarget = target?.id ?? enemyTeam * 101;
+  const accuracy = strategicAccuracy(economy.strategicAccuracyLevel);
+  const seedTarget = enemyTeam * 101;
   const scatterAngle = deterministicUnit(seedTarget * 31 + sim.tick * 17 + 7) * Math.PI * 2;
-  const scatterDistance = accuracy.radius * (0.58 + deterministicUnit(seedTarget * 47 + sim.tick * 13 + 19) * 0.42);
+  const scatterDistance = accuracy.radius * Math.sqrt(deterministicUnit(seedTarget * 47 + sim.tick * 13 + 19));
   const fromX = silo.transform.x;
   const fromZ = silo.transform.z;
   const fromY = sampleHeight(sim.nav.heightfield, fromX, fromZ) + 5.5;
@@ -216,7 +115,7 @@ function launchAtArea(
     damageScale: warhead.damageScale,
     impactScale: warhead.impactScale,
     maxDistance: sim.nav.size * Math.SQRT2 + 128,
-    directTargetId: accuracy.radius === 0 ? target?.id : undefined,
+    directTargetId: undefined,
     trajectory: 'arc',
     teamId: economy.team,
     attackerId: silo.id,
@@ -232,9 +131,8 @@ function launchAtArea(
     toX,
     toY,
     toZ,
-    targetId: target?.id,
-    targetLabel: target?.building?.label ?? target?.name ?? `Army ${enemyTeam} estimated area`,
-    targetType: target?.building ? 'building' : target ? 'vehicle' : 'ground',
+    targetLabel: `Army ${enemyTeam} marked impact area`,
+    targetType: 'ground',
     sourceTeamId: economy.team,
     targetTeamId: enemyTeam,
     damage: 0,
@@ -250,13 +148,6 @@ function launchAtArea(
   });
   sim.events.push(event);
   return { ok: true, reason: '', event };
-}
-
-function intelligenceCategoryForStructure(kind: string): IntelligenceCategory {
-  if (kind === 'command-yard') return 'command';
-  if (kind === 'power-plant') return 'power';
-  if (kind === 'refinery') return 'economy';
-  return 'military';
 }
 
 function deterministicUnit(seed: number): number {

@@ -130,16 +130,11 @@ import {
   spawnInfantryAt,
   startStructureBuild,
   stepEconomy,
+  upgradeStrategicAccuracy,
   upgradeStrategicMissile,
   updatePlacement,
 } from './sim/economy';
-import {
-  discoverEnemyStructures,
-  knownStrategicTargets,
-  launchBlindStrategicMissile,
-  launchStrategicMissile,
-  purchaseEnemyIntelligence,
-} from './sim/strategicWarfare';
+import { launchStrategicMissileAt, strategicAccuracy, strategicLaunchReadiness } from './sim/strategicWarfare';
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
 import { damageForArmor, issueAttackOrder } from './sim/combat';
 import { directionalImpactResponse } from './sim/impactModel';
@@ -2624,7 +2619,6 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const economy = localArmy.economy;
   let localBase = localArmy.base;
   const playerVision = localArmy.vision;
-  const strategicKnownTargetIds = new Set<number>();
   let loadedFromSave = false;
   if (savedMatch) {
     try {
@@ -2656,17 +2650,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   } else if ((testStart || buildingShowcase) && !multiplayerMode && !loadedFromSave) {
     seedTestStartBase(sim, hf, economy, localBase);
   }
-  const isStrategicIntelVisible = (x: number, z: number): boolean => {
-    for (const id of strategicKnownTargetIds) {
-      const target = sim.byId.get(id);
-      if (!target || target.destroyed) continue;
-      if (Math.hypot(target.transform.x - x, target.transform.z - z) <= (target.collider?.radius ?? 5) + 3) return true;
-    }
-    return false;
-  };
   const isVisibleToPlayer = lineupStart || destructionPreview
     ? () => true
-    : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z) || isStrategicIntelVisible(x, z);
+    : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
     if (durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || !aiTeams.has(army.team)) continue;
     const hints = armies
@@ -2798,6 +2784,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const impactDemoPanel = impactDemoScene ? createImpactMovementDemoPanel() : undefined;
   let sidebar!: Sidebar;
   let tacticalPingKind: TacticalPingKind | undefined;
+  let strategicMissileTargeting: { enemyTeam: number; radius: number; color: number } | undefined;
   let networkPaused = false;
   let lastNetworkStatus = '';
   const setNetworkStatus = (message: string, bad = false): void => {
@@ -2935,11 +2922,30 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     sim,
     unitView,
     {
-      isPlacing: () => economy.placement !== undefined,
+      isPlacing: () => economy.placement !== undefined || strategicMissileTargeting !== undefined,
       preview: (x, z) => {
+        if (strategicMissileTargeting) {
+          orderMarkers.showStrategicAreaTarget(x, z, strategicMissileTargeting.radius, strategicMissileTargeting.color);
+          return;
+        }
         if (economy.selectedStructure) economy.placement = updatePlacement(sim, hf, economy.selectedStructure, x, z, economy.team, economy);
       },
       confirm: (x, z) => {
+        if (strategicMissileTargeting) {
+          const targeting = strategicMissileTargeting;
+          const result = launchStrategicMissileAt(sim, economy, targeting.enemyTeam, x, z);
+          if (result.ok) {
+            strategicMissileTargeting = undefined;
+            orderMarkers.clearStrategicAreaTarget();
+            ctx.renderer.domElement.style.cursor = '';
+            audio.playUi('order');
+            sidebar.finishStrategicTargeting('MISSILE AWAY · IMPACT POINT CONFIRMED');
+          } else {
+            audio.playUi('error');
+            sidebar.notify(result.reason.toUpperCase());
+          }
+          return;
+        }
         if (!economy.selectedStructure) return;
         if (lockstep) {
           const kind = economy.selectedStructure;
@@ -2962,6 +2968,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         }
       },
       cancel: () => {
+        if (strategicMissileTargeting) {
+          strategicMissileTargeting = undefined;
+          orderMarkers.clearStrategicAreaTarget();
+          ctx.renderer.domElement.style.cursor = '';
+          sidebar.finishStrategicTargeting('MISSILE TARGETING CANCELLED');
+          audio.playUi('cancel');
+          return;
+        }
         economy.selectedStructure = undefined;
         economy.placement = undefined;
         audio.playUi('cancel');
@@ -3072,28 +3086,21 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     orderMap: (x, z, attackGround) => attackGround ? controller.attackGroundAt(x, z) : controller.orderSelectedTo(x, z),
     radarYaw: () => rig.yawRadians,
     radarViewport: () => rig.getGroundViewportFootprint(),
-    purchaseIntelligence: (enemyTeam, category) => {
-      const result = purchaseEnemyIntelligence(sim, economy, enemyTeam, category);
-      if (result.ok) discoverEnemyStructures(sim, economy, strategicKnownTargetIds);
-      return result;
-    },
+    upgradeStrategicAccuracy: () => upgradeStrategicAccuracy(sim, economy),
     upgradeStrategicMissile: () => upgradeStrategicMissile(sim, economy),
-    strategicTargets: () => knownStrategicTargets(sim, strategicKnownTargetIds),
-    previewStrategicTarget: (target, color) => {
-      if (target && color !== undefined) orderMarkers.showStrategicTarget(target, color);
-      else orderMarkers.clearStrategicTarget();
+    beginStrategicTargeting: (enemyTeam, color) => {
+      const readiness = strategicLaunchReadiness(sim, economy);
+      if (!readiness.ready) return { ok: false, reason: readiness.reason };
+      const accuracy = strategicAccuracy(economy.strategicAccuracyLevel);
+      strategicMissileTargeting = { enemyTeam, radius: accuracy.radius, color };
+      ctx.renderer.domElement.style.cursor = 'crosshair';
+      audio.playUi('select');
+      return { ok: true, reason: '' };
     },
-    launchStrategicMissile: (targetId) => {
-      const result = launchStrategicMissile(sim, economy, strategicKnownTargetIds, targetId);
-      if (result.ok) audio.playUi('order');
-      else audio.playUi('error');
-      return { ok: result.ok, reason: result.reason };
-    },
-    launchBlindStrategicMissile: (enemyTeam) => {
-      const result = launchBlindStrategicMissile(sim, economy, enemyTeam);
-      if (result.ok) audio.playUi('order');
-      else audio.playUi('error');
-      return { ok: result.ok, reason: result.reason };
+    cancelStrategicTargeting: () => {
+      strategicMissileTargeting = undefined;
+      orderMarkers.clearStrategicAreaTarget();
+      ctx.renderer.domElement.style.cursor = '';
     },
   });
   const selectionBar = new SelectionBar(sim, {
@@ -3506,12 +3513,6 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         fogView.refresh();
       }
       const events = tickResult.events;
-      if (sim.tick % SIM_HZ === 0 && economy.doctrine === 'missile-command') {
-        const discoveries = discoverEnemyStructures(sim, economy, strategicKnownTargetIds);
-        if (discoveries.length > 0) {
-          sidebar.notify(`INTELLIGENCE CONTACT · ${discoveries[0].building?.label?.toUpperCase() ?? 'ENEMY STRUCTURE'}`);
-        }
-      }
       destructionPanel?.simTick(sim.tick);
       debriefTracker.recordEvents(events);
       if (impactDemoScene) {
@@ -5406,8 +5407,8 @@ function seedMissileDoctrinePreview(
   const local = armies.find((army) => army.team === localTeam);
   if (!local) return;
   local.economy.doctrine = 'missile-command';
-  local.economy.intelligenceByTeam = {};
   local.economy.strategicMissileLevel = 1;
+  local.economy.strategicAccuracyLevel = 0;
   // The regular test base intentionally runs close to its power ceiling. Give
   // this focused scenario enough generation to operate both strategic systems.
   placePreviewStructure(sim, hf, local.economy, local.base, 'power-plant', [

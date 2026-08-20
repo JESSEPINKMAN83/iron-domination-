@@ -7,16 +7,13 @@ import {
   buildings,
   canBuildStructure,
   canQueueUnit,
+  canUpgradeStrategicAccuracy,
   canUpgradeStrategicMissile,
   hasStructure,
   type EconomyState,
-  type IntelligenceCategory,
 } from '../sim/economy';
 import {
-  INTELLIGENCE_PROGRAMS,
   STRATEGIC_MISSILE_COST,
-  enemyIntelligenceCategories,
-  enemyIntelligenceLevel,
   strategicAccuracy,
   strategicLaunchReadiness,
   strategicWarhead,
@@ -49,12 +46,10 @@ export interface SidebarActions {
   radarYaw(): number;
   radarViewport(): { x: number; z: number }[];
   beginTacticalPing?(kind: TacticalPingKind): void;
-  purchaseIntelligence(enemyTeam: number, category: IntelligenceCategory): { ok: boolean; reason: string };
+  upgradeStrategicAccuracy(): boolean;
   upgradeStrategicMissile(): boolean;
-  strategicTargets(): Entity[];
-  previewStrategicTarget(target?: Entity, color?: number): void;
-  launchStrategicMissile(targetId: number): { ok: boolean; reason: string };
-  launchBlindStrategicMissile(enemyTeam: number): { ok: boolean; reason: string };
+  beginStrategicTargeting(enemyTeam: number, color: number): { ok: boolean; reason: string };
+  cancelStrategicTargeting(): void;
 }
 
 interface CardState {
@@ -120,10 +115,6 @@ export class Sidebar {
   private firstPersonMode = false;
   private strategicTargeting = false;
   private strategicEnemyTeam?: number;
-  private strategicUpgradeMode?: 'intelligence' | 'warhead';
-  private strategicTargetTypeIndex = 0;
-  private strategicTargetSiteIndex = 0;
-  private strategicPreviewTarget?: Entity;
 
   constructor(
     private readonly sim: GameSim,
@@ -233,11 +224,8 @@ export class Sidebar {
     if (selectedId !== this.lastSelectedBuildingId) {
       this.lastSelectedBuildingId = selectedId;
       this.strategicEnemyTeam = undefined;
+      if (this.strategicTargeting) this.actions.cancelStrategicTargeting();
       this.strategicTargeting = false;
-      this.strategicUpgradeMode = undefined;
-      this.strategicTargetTypeIndex = 0;
-      this.strategicTargetSiteIndex = 0;
-      this.setStrategicPreviewTarget(undefined);
       if (context && this.activeTab !== context) {
         this.activeTab = context;
         this.renderTabs();
@@ -448,6 +436,13 @@ export class Sidebar {
     this.flash(text);
   }
 
+  finishStrategicTargeting(message: string): void {
+    this.strategicTargeting = false;
+    this.flash(message);
+    this.lastBodyKey = '';
+    this.renderBody();
+  }
+
   signalIncomingMissile(attackerTeam: number): void {
     this.radarWrap.style.borderColor = '#ff3f2f';
     this.radarWrap.style.boxShadow = 'inset 0 0 0 2px rgba(255,63,47,.72),0 0 28px rgba(255,35,20,.62)';
@@ -559,33 +554,6 @@ export class Sidebar {
     this.body.appendChild(this.productionSummary(this.activeTab));
   }
 
-  private setStrategicPreviewTarget(target?: Entity, focus = false): void {
-    this.strategicPreviewTarget = target;
-    const color = this.strategicEnemyTeam === undefined ? undefined : FACTION[factionId(this.strategicEnemyTeam)].accent;
-    this.actions.previewStrategicTarget(target, color);
-    if (target && focus) this.actions.focusMap(target.transform.x, target.transform.z);
-    this.lastRadarTick = -3;
-    this.drawRadar();
-  }
-
-  private strategicTargetGroups(targets: Entity[]): Array<{ kind: string; label: string; targets: Entity[] }> {
-    const byKind = new Map<string, { kind: string; label: string; targets: Entity[] }>();
-    for (const target of targets) {
-      const kind = target.building?.kind ?? target.selectable?.type ?? 'harvester';
-      const label = target.building?.label ?? (target.harvester ? unitDisplayName(target) : target.name) ?? 'Target';
-      const group = byKind.get(kind);
-      if (group) group.targets.push(target);
-      else byKind.set(kind, { kind, label, targets: [target] });
-    }
-    const priority = ['power-plant', 'refinery', 'barracks', 'factory', 'helipad', 'command-yard'];
-    return Array.from(byKind.values()).sort((a, b) => {
-      const aPriority = priority.indexOf(a.kind);
-      const bPriority = priority.indexOf(b.kind);
-      if (aPriority !== bPriority) return (aPriority < 0 ? priority.length : aPriority) - (bPriority < 0 ? priority.length : bPriority);
-      return a.label.localeCompare(b.label);
-    });
-  }
-
   private strategicOperationsPanel(): HTMLDivElement {
     const panel = document.createElement('div');
     panel.style.cssText =
@@ -603,11 +571,8 @@ export class Sidebar {
     )).sort((a, b) => a - b);
     if (!this.strategicEnemyTeam || !enemyTeams.includes(this.strategicEnemyTeam)) {
       this.strategicEnemyTeam = undefined;
+      if (this.strategicTargeting) this.actions.cancelStrategicTargeting();
       this.strategicTargeting = false;
-      this.strategicUpgradeMode = undefined;
-      this.strategicTargetTypeIndex = 0;
-      this.strategicTargetSiteIndex = 0;
-      this.setStrategicPreviewTarget(undefined);
     }
     if (enemyTeams.length === 1) this.strategicEnemyTeam = enemyTeams[0];
     if (this.strategicEnemyTeam === undefined) {
@@ -622,23 +587,18 @@ export class Sidebar {
       const armies = document.createElement('div');
       armies.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;';
       for (const team of enemyTeams) {
-        const known = enemyIntelligenceCategories(this.economy, team).length;
         const accent = `#${FACTION[factionId(team)].accent.toString(16).padStart(6, '0')}`;
         const button = document.createElement('button');
         button.type = 'button';
         button.innerHTML =
           `<span style="font-size:20px;line-height:1">ARMY ${team}</span>` +
-          `<span style="font-size:8px;color:rgba(255,255,255,.8)">${known ? `${known} INTEL FILE${known === 1 ? '' : 'S'}` : 'NO INTELLIGENCE'}</span>`;
+          '<span style="font-size:8px;color:rgba(255,255,255,.8)">SELECT TARGET ZONE</span>';
         button.style.cssText =
           `aspect-ratio:1;display:grid;place-content:center;gap:9px;border-radius:4px;border:2px solid ${accent};` +
           `background:linear-gradient(145deg,${accent}cc,${accent}55 48%,#101414 49%);color:#fff;` +
           'font:900 10px ui-monospace,Menlo,monospace;letter-spacing:.06em;cursor:pointer;text-shadow:0 2px 3px #000;box-shadow:inset 0 0 18px rgba(0,0,0,.45);';
         button.onclick = () => {
           this.strategicEnemyTeam = team;
-          this.strategicUpgradeMode = undefined;
-          this.strategicTargetTypeIndex = 0;
-          this.strategicTargetSiteIndex = 0;
-          this.setStrategicPreviewTarget(undefined);
           this.lastBodyKey = '';
           this.renderBody();
         };
@@ -666,11 +626,8 @@ export class Sidebar {
       changeArmy.style.cssText = strategicThemedButtonCss(true, accent) + 'padding:4px 7px;min-height:24px;';
       changeArmy.onclick = () => {
         this.strategicEnemyTeam = undefined;
+        if (this.strategicTargeting) this.actions.cancelStrategicTargeting();
         this.strategicTargeting = false;
-        this.strategicUpgradeMode = undefined;
-        this.strategicTargetTypeIndex = 0;
-        this.strategicTargetSiteIndex = 0;
-        this.setStrategicPreviewTarget(undefined);
         this.lastBodyKey = '';
         this.renderBody();
       };
@@ -678,107 +635,46 @@ export class Sidebar {
     }
     panel.appendChild(enemyHeader);
 
-    const purchasedIntel = enemyIntelligenceCategories(this.economy, enemyTeam);
-    const accuracy = strategicAccuracy(enemyIntelligenceLevel(this.economy, enemyTeam));
+    const accuracy = strategicAccuracy(this.economy.strategicAccuracyLevel);
     const warhead = strategicWarhead(this.economy.strategicMissileLevel);
+    const accuracyUpgrade = canUpgradeStrategicAccuracy(this.sim, this.economy);
     const missileUpgrade = canUpgradeStrategicMissile(this.sim, this.economy);
 
     const upgradeChoices = document.createElement('div');
     upgradeChoices.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;';
-    const intelligenceUpgrade = document.createElement('button');
-    intelligenceUpgrade.type = 'button';
-    intelligenceUpgrade.textContent = `INTELLIGENCE UPGRADE${purchasedIntel.length ? ` · ${purchasedIntel.length}/4` : ''}`;
-    intelligenceUpgrade.style.cssText = strategicThemedButtonCss(true, accent, this.strategicUpgradeMode === 'intelligence') + 'min-height:44px;';
-    intelligenceUpgrade.onclick = () => {
-      this.strategicUpgradeMode = this.strategicUpgradeMode === 'intelligence' ? undefined : 'intelligence';
-      this.strategicTargeting = false;
-      this.setStrategicPreviewTarget(undefined);
+    const accuracyButton = document.createElement('button');
+    accuracyButton.type = 'button';
+    accuracyButton.disabled = !accuracyUpgrade.ok;
+    accuracyButton.innerHTML = accuracyUpgrade.cost > 0
+      ? `<span>ACCURACY · LV ${this.economy.strategicAccuracyLevel}/3</span><small>${accuracy.radius}M → ${strategicAccuracy(this.economy.strategicAccuracyLevel + 1).radius}M · $${accuracyUpgrade.cost}</small>`
+      : '<span>ACCURACY · MAX</span><small>PINPOINT</small>';
+    accuracyButton.title = accuracyUpgrade.ok ? 'Reduce the random impact radius' : accuracyUpgrade.reason;
+    accuracyButton.style.cssText = strategicThemedButtonCss(accuracyUpgrade.ok, accent) + 'min-height:48px;display:grid;gap:3px;';
+    accuracyButton.onclick = () => {
+      if (!this.actions.upgradeStrategicAccuracy()) this.flash(accuracyUpgrade.reason.toUpperCase());
+      else this.flash(`ACCURACY UPGRADED · LEVEL ${this.economy.strategicAccuracyLevel}`);
       this.lastBodyKey = '';
       this.renderBody();
     };
-    const missileUpgradeButton = document.createElement('button');
-    missileUpgradeButton.type = 'button';
-    missileUpgradeButton.textContent = `MISSILE UPGRADE · LV ${warhead.level}`;
-    missileUpgradeButton.style.cssText = strategicThemedButtonCss(true, accent, this.strategicUpgradeMode === 'warhead') + 'min-height:44px;';
-    missileUpgradeButton.onclick = () => {
-      this.strategicUpgradeMode = this.strategicUpgradeMode === 'warhead' ? undefined : 'warhead';
-      this.strategicTargeting = false;
-      this.setStrategicPreviewTarget(undefined);
+    const warheadButton = document.createElement('button');
+    warheadButton.type = 'button';
+    warheadButton.disabled = !missileUpgrade.ok;
+    const nextWarhead = strategicWarhead(warhead.level + 1);
+    warheadButton.innerHTML = missileUpgrade.cost > 0
+      ? `<span>WARHEAD · LV ${warhead.level}/3</span><small>${warhead.label} → ${nextWarhead.label} · $${missileUpgrade.cost}</small>`
+      : `<span>WARHEAD · MAX</span><small>${warhead.label}</small>`;
+    warheadButton.title = missileUpgrade.ok ? 'Increase missile damage and blast radius' : missileUpgrade.reason;
+    warheadButton.style.cssText = strategicThemedButtonCss(missileUpgrade.ok, accent) + 'min-height:48px;display:grid;gap:3px;';
+    warheadButton.onclick = () => {
+      if (!this.actions.upgradeStrategicMissile()) this.flash(missileUpgrade.reason.toUpperCase());
+      else this.flash(`WARHEAD UPGRADED · LEVEL ${this.economy.strategicMissileLevel}`);
       this.lastBodyKey = '';
       this.renderBody();
     };
-    upgradeChoices.append(intelligenceUpgrade, missileUpgradeButton);
+    upgradeChoices.append(accuracyButton, warheadButton);
     panel.appendChild(upgradeChoices);
 
-    if (this.strategicUpgradeMode === 'intelligence') {
-      const intelPanel = document.createElement('div');
-      intelPanel.style.cssText = `display:grid;gap:6px;padding:8px;border:1px solid ${accent}88;background:${accent}18;`;
-      const intelHeading = document.createElement('div');
-      intelHeading.innerHTML =
-        `<div style="color:${accent};font-size:10px;font-weight:900">RECON PURCHASE · REVEALS TARGETS ONLY</div>` +
-        '<div style="color:#aebbc4;font-size:9px;margin-top:2px">These upgrades expose sites on the map. They do not launch a missile.</div>';
-      intelPanel.appendChild(intelHeading);
-      if (!hasStructure(this.sim, 'intelligence-center', this.economy.team)) {
-        const missing = document.createElement('div');
-        missing.style.cssText = 'padding:7px;color:#ffb59f;border:1px solid rgba(255,143,125,.35);font-size:9px;';
-        missing.textContent = 'BUILD AN INTELLIGENCE CENTER TO PURCHASE RECON.';
-        intelPanel.appendChild(missing);
-      } else {
-        const intelGrid = document.createElement('div');
-        intelGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;';
-        for (const program of Object.values(INTELLIGENCE_PROGRAMS)) {
-          const purchased = purchasedIntel.includes(program.category);
-          const enabled = !purchased && this.economy.credits >= program.cost;
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.disabled = purchased || !enabled;
-          button.innerHTML = purchased
-            ? `<span>✓ ${program.label.toUpperCase()}</span><small>REVEALED</small>`
-            : `<span>REVEAL ${program.label.toUpperCase()}</span><small>${program.description.toUpperCase()} · $${program.cost}</small>`;
-          button.title = purchased ? 'Already revealed for this army' : program.description;
-          button.style.cssText =
-            `min-height:48px;display:grid;gap:3px;padding:6px;text-align:left;border-radius:3px;border:1px solid ${accent}72;` +
-            `background:${purchased ? `${accent}44` : enabled ? `linear-gradient(180deg,${accent}55,${accent}18)` : '#171d1e'};` +
-            `color:${purchased || enabled ? '#fff' : '#687579'};font:800 8px ui-monospace,Menlo,monospace;cursor:${enabled ? 'pointer' : 'default'};`;
-          button.onclick = () => {
-            const result = this.actions.purchaseIntelligence(enemyTeam, program.category);
-            this.flash(result.ok ? `${program.label.toUpperCase()} REVEALED · ARMY ${enemyTeam}` : result.reason.toUpperCase());
-            this.lastBodyKey = '';
-            this.renderBody();
-          };
-          intelGrid.appendChild(button);
-        }
-        intelPanel.appendChild(intelGrid);
-      }
-      panel.appendChild(intelPanel);
-    } else if (this.strategicUpgradeMode === 'warhead') {
-      const warheadPanel = document.createElement('div');
-      warheadPanel.style.cssText = `display:grid;gap:6px;padding:8px;border:1px solid ${accent}88;background:${accent}18;`;
-      const nextWarhead = strategicWarhead(warhead.level + 1);
-      const warheadHeading = document.createElement('div');
-      warheadHeading.innerHTML =
-        `<div style="color:${accent};font-size:10px;font-weight:900">WARHEAD DEVELOPMENT · DAMAGE & BLAST SIZE</div>` +
-        `<div style="color:#d3b7a8;font-size:9px;margin-top:2px">CURRENT ${warhead.label} · ${warhead.damageScale.toFixed(2)}× DAMAGE · ${warhead.impactScale.toFixed(2)}× BLAST</div>`;
-      const upgrade = document.createElement('button');
-      upgrade.type = 'button';
-      upgrade.disabled = !missileUpgrade.ok;
-      upgrade.textContent = missileUpgrade.cost > 0
-        ? `DEVELOP ${nextWarhead.label} WARHEAD · ${nextWarhead.damageScale.toFixed(2)}× DAMAGE · $${missileUpgrade.cost}`
-        : `${warhead.label} WARHEAD · MAXIMUM`;
-      upgrade.title = missileUpgrade.ok ? 'Increase missile damage and explosion size' : missileUpgrade.reason;
-      upgrade.style.cssText = strategicThemedButtonCss(missileUpgrade.ok, accent, true) + 'min-height:42px;';
-      upgrade.onclick = () => {
-        if (!this.actions.upgradeStrategicMissile()) this.flash(missileUpgrade.reason.toUpperCase());
-        else this.flash(`WARHEAD UPGRADED · LEVEL ${this.economy.strategicMissileLevel}`);
-        this.lastBodyKey = '';
-        this.renderBody();
-      };
-      warheadPanel.append(warheadHeading, upgrade);
-      panel.appendChild(warheadPanel);
-    }
-
     const readiness = strategicLaunchReadiness(this.sim, this.economy);
-    const targets = this.actions.strategicTargets().filter((target) => target.team?.id === enemyTeam && !!target.building);
     const launchPanel = document.createElement('div');
     launchPanel.style.cssText = `display:grid;gap:6px;padding:8px;border:2px solid ${accent}99;background:linear-gradient(180deg,${accent}1f,rgba(6,9,9,.98));`;
     const launchHeading = document.createElement('div');
@@ -788,171 +684,37 @@ export class Sidebar {
       `<span style="color:${readiness.ready ? '#9cf3b1' : '#ffb59f'}">${readiness.ready ? 'READY' : readiness.reason.toUpperCase()}</span>`;
     const accuracyCopy = document.createElement('div');
     accuracyCopy.style.cssText = 'color:#aebbc4;font-size:9px;line-height:1.4;';
-    accuracyCopy.textContent = `${accuracy.label} ACCURACY${accuracy.radius ? ` · SCATTER UP TO ${accuracy.radius}M` : ' · DIRECT LOCK'} · ${targets.length} REVEALED TARGET${targets.length === 1 ? '' : 'S'}`;
-    const blind = document.createElement('button');
-    blind.type = 'button';
-    blind.disabled = !readiness.ready;
-    blind.textContent = `BLIND LAUNCH TOWARD ARMY ${enemyTeam} · $${STRATEGIC_MISSILE_COST}`;
-    blind.title = readiness.ready ? 'Launch toward the estimated enemy base area' : readiness.reason;
-    blind.style.cssText = strategicThemedButtonCss(readiness.ready, accent) + 'min-height:42px;font-size:10px;';
-    blind.onclick = () => {
-      const result = this.actions.launchBlindStrategicMissile(enemyTeam);
-      this.flash(result.ok ? `BLIND MISSILE AWAY · ARMY ${enemyTeam}` : result.reason.toUpperCase());
+    accuracyCopy.textContent = accuracy.radius > 0
+      ? `${accuracy.label} GUIDANCE · MISSILE LANDS RANDOMLY WITHIN THE ${accuracy.radius}M CIRCLE`
+      : 'PINPOINT GUIDANCE · MISSILE LANDS ON THE MARKED POINT';
+    const targetButton = document.createElement('button');
+    targetButton.type = 'button';
+    targetButton.disabled = !this.strategicTargeting && !readiness.ready;
+    targetButton.textContent = this.strategicTargeting
+      ? 'CANCEL IMPACT SELECTION · ESC / RIGHT-CLICK'
+      : `MARK IMPACT POINT · $${STRATEGIC_MISSILE_COST}`;
+    targetButton.title = this.strategicTargeting ? 'Cancel missile targeting' : readiness.ready ? 'Choose any battlefield location' : readiness.reason;
+    targetButton.style.cssText = strategicThemedButtonCss(this.strategicTargeting || readiness.ready, accent, this.strategicTargeting) + 'min-height:44px;font-size:10px;';
+    targetButton.onclick = () => {
+      if (this.strategicTargeting) {
+        this.actions.cancelStrategicTargeting();
+        this.strategicTargeting = false;
+        this.flash('MISSILE TARGETING CANCELLED');
+      } else {
+        const result = this.actions.beginStrategicTargeting(enemyTeam, FACTION[factionId(enemyTeam)].accent);
+        if (!result.ok) {
+          this.flash(result.reason.toUpperCase());
+          return;
+        }
+        this.strategicTargeting = true;
+        this.flash(`MARK IMPACT POINT · ${accuracy.radius ? `${accuracy.radius}M SCATTER RADIUS` : 'PINPOINT'}`);
+      }
       this.lastBodyKey = '';
       this.renderBody();
     };
-    launchPanel.append(launchHeading, accuracyCopy, blind);
-
-    if (targets.length > 0 && !this.strategicTargeting) {
-      const chooseTarget = document.createElement('button');
-      chooseTarget.type = 'button';
-      chooseTarget.textContent = `CHOOSE REVEALED BUILDING · ${targets.length} AVAILABLE`;
-      chooseTarget.title = 'Open revealed building targets';
-      chooseTarget.style.cssText = strategicThemedButtonCss(true, accent) + 'min-height:36px;font-size:9px;';
-      chooseTarget.onclick = () => {
-        this.strategicTargeting = true;
-        this.strategicUpgradeMode = undefined;
-        this.strategicTargetTypeIndex = 0;
-        this.strategicTargetSiteIndex = 0;
-        const firstTarget = this.strategicTargetGroups(targets)[0]?.targets[0];
-        this.setStrategicPreviewTarget(firstTarget, true);
-        this.lastBodyKey = '';
-        this.renderBody();
-      };
-      launchPanel.appendChild(chooseTarget);
-    }
-
-    if (this.strategicTargeting && targets.length > 0) {
-      launchPanel.appendChild(this.strategicTargetGallery(targets, readiness.ready, readiness.reason, accuracy, accent));
-    } else if (this.strategicPreviewTarget) {
-      this.setStrategicPreviewTarget(undefined);
-    }
+    launchPanel.append(launchHeading, accuracyCopy, targetButton);
     panel.appendChild(launchPanel);
     return panel;
-  }
-
-  private strategicTargetGallery(
-    targets: Entity[],
-    enabled: boolean,
-    reason: string,
-    accuracy: ReturnType<typeof strategicAccuracy>,
-    accent: string,
-  ): HTMLDivElement {
-    const groups = this.strategicTargetGroups(targets);
-    this.strategicTargetTypeIndex = Math.max(0, Math.min(this.strategicTargetTypeIndex, groups.length - 1));
-    const group = groups[this.strategicTargetTypeIndex];
-    group.targets.sort((a, b) => a.id - b.id);
-    this.strategicTargetSiteIndex = Math.max(0, Math.min(this.strategicTargetSiteIndex, group.targets.length - 1));
-    const target = group.targets[this.strategicTargetSiteIndex];
-    if (this.strategicPreviewTarget?.id !== target.id) this.setStrategicPreviewTarget(target);
-    const hp = target.health ? Math.max(0, Math.round((target.health.current / target.health.max) * 100)) : 100;
-
-    const gallery = document.createElement('div');
-    gallery.style.cssText = `display:grid;gap:5px;padding:7px;border:1px solid ${accent}aa;background:linear-gradient(155deg,${accent}22,rgba(5,9,9,.96));box-shadow:inset 0 0 18px ${accent}18;`;
-
-    const typeNav = document.createElement('div');
-    typeNav.style.cssText = 'display:grid;grid-template-columns:30px minmax(0,1fr) 30px 24px;align-items:center;gap:5px;';
-    const previousType = this.strategicGalleryArrow('◀', groups.length > 1, accent, 'Previous building type', () => {
-      this.strategicTargetTypeIndex = (this.strategicTargetTypeIndex - 1 + groups.length) % groups.length;
-      this.strategicTargetSiteIndex = 0;
-      const next = groups[this.strategicTargetTypeIndex].targets[0];
-      this.setStrategicPreviewTarget(next, true);
-      this.lastBodyKey = '';
-      this.renderBody();
-    });
-    const typeCopy = document.createElement('div');
-    typeCopy.style.cssText = 'text-align:center;min-width:0;';
-    typeCopy.innerHTML = `<div style="font-size:8px;color:${accent};font-weight:900">BUILDING TYPE ${this.strategicTargetTypeIndex + 1} / ${groups.length}</div><div style="font-size:13px;color:#fff;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${group.label.toUpperCase()}</div>`;
-    const nextType = this.strategicGalleryArrow('▶', groups.length > 1, accent, 'Next building type', () => {
-      this.strategicTargetTypeIndex = (this.strategicTargetTypeIndex + 1) % groups.length;
-      this.strategicTargetSiteIndex = 0;
-      const next = groups[this.strategicTargetTypeIndex].targets[0];
-      this.setStrategicPreviewTarget(next, true);
-      this.lastBodyKey = '';
-      this.renderBody();
-    });
-    const close = document.createElement('button');
-    close.type = 'button';
-    close.textContent = '×';
-    close.title = 'Close target gallery';
-    close.setAttribute('aria-label', 'Close target gallery');
-    close.style.cssText = strategicThemedButtonCss(true, accent) + 'min-width:24px;min-height:30px;padding:0;font-size:15px;';
-    close.onclick = () => {
-      this.strategicTargeting = false;
-      this.setStrategicPreviewTarget(undefined);
-      this.lastBodyKey = '';
-      this.renderBody();
-    };
-    typeNav.append(previousType, typeCopy, nextType, close);
-
-    const icon = document.createElement('div');
-    icon.style.cssText = `position:relative;height:104px;border:2px solid ${accent};background:#0c1111;overflow:hidden;box-shadow:inset 0 0 20px ${accent}2e,0 0 10px ${accent}22;`;
-    const fallback = document.createElement('div');
-    fallback.style.cssText = `position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,${accent}33,#090d0d);color:${accent};font-size:34px;font-weight:900;z-index:1;`;
-    fallback.textContent = initials(group.label);
-    const img = document.createElement('img');
-    img.src = commandIconPath(group.kind);
-    img.alt = group.label;
-    img.style.cssText = 'position:relative;z-index:2;width:100%;height:100%;object-fit:cover;display:block;';
-    img.onerror = () => img.remove();
-    const lockBadge = document.createElement('div');
-    lockBadge.style.cssText = `position:absolute;z-index:3;right:7px;top:7px;padding:4px 6px;border:1px solid ${accent};background:rgba(0,0,0,.78);color:${accent};font-size:8px;font-weight:900;`;
-    lockBadge.textContent = 'TARGET LOCK';
-    icon.append(fallback, img, lockBadge);
-
-    const siteSelector = document.createElement('div');
-    siteSelector.style.cssText = `display:grid;grid-template-columns:repeat(${group.targets.length},minmax(0,1fr));gap:4px;`;
-    for (const [index, site] of group.targets.entries()) {
-      const siteButton = document.createElement('button');
-      const active = index === this.strategicTargetSiteIndex;
-      siteButton.type = 'button';
-      siteButton.textContent = group.targets.length === 1 ? 'SITE 1' : `${index + 1}`;
-      siteButton.title = `Target ${group.label} site ${index + 1}`;
-      siteButton.setAttribute('aria-label', `Target ${group.label} site ${index + 1}${active ? ', selected' : ''}`);
-      siteButton.style.cssText = strategicThemedButtonCss(true, accent, active) + 'min-height:28px;padding:3px;font-size:9px;';
-      siteButton.onclick = () => {
-        this.strategicTargetSiteIndex = index;
-        this.setStrategicPreviewTarget(site, true);
-        this.lastBodyKey = '';
-        this.renderBody();
-      };
-      siteSelector.appendChild(siteButton);
-    }
-    const targetStatus = document.createElement('div');
-    targetStatus.style.cssText = 'text-align:center;color:#d9e1df;font-size:8px;line-height:1.2;';
-    targetStatus.innerHTML = `<strong style="color:#fff">SITE ${this.strategicTargetSiteIndex + 1}</strong> · ${hp}% HP · <span style="color:${accent}">LOCKED</span>`;
-
-    const launch = document.createElement('button');
-    launch.type = 'button';
-    launch.disabled = !enabled;
-    launch.title = enabled ? `${accuracy.label.toLowerCase()} accuracy${accuracy.radius ? ` within about ${accuracy.radius}m` : ''}` : reason;
-    launch.textContent = `LAUNCH AT ${group.label.toUpperCase()} · SITE ${this.strategicTargetSiteIndex + 1} · $${STRATEGIC_MISSILE_COST}`;
-    launch.style.cssText = strategicThemedButtonCss(enabled, accent, true) + 'min-height:38px;font-size:9px;';
-    launch.onclick = () => {
-      const result = this.actions.launchStrategicMissile(target.id);
-      if (result.ok) {
-        this.strategicTargeting = false;
-        this.setStrategicPreviewTarget(undefined);
-        this.actions.focusMap(target.transform.x, target.transform.z);
-      }
-      this.flash(result.ok ? `MISSILE AWAY · ${group.label.toUpperCase()} · SITE ${this.strategicTargetSiteIndex + 1}` : result.reason.toUpperCase());
-      this.lastBodyKey = '';
-      this.renderBody();
-    };
-
-    gallery.append(typeNav, icon, siteSelector, targetStatus, launch);
-    return gallery;
-  }
-
-  private strategicGalleryArrow(label: string, enabled: boolean, accent: string, title: string, action: () => void): HTMLButtonElement {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.disabled = !enabled;
-    button.textContent = label;
-    button.title = title;
-    button.style.cssText = strategicThemedButtonCss(enabled, accent) + 'min-width:30px;min-height:30px;padding:0;font-size:13px;';
-    button.onclick = action;
-    return button;
   }
 
   private card(
@@ -1435,15 +1197,11 @@ export class Sidebar {
       this.economy.powerProduced,
       this.economy.powerUsed,
       this.economy.doctrine,
-      JSON.stringify(this.economy.intelligenceByTeam),
       this.economy.strategicMissileLevel,
+      this.economy.strategicAccuracyLevel,
       Math.ceil(this.economy.strategicMissileCooldown),
       this.strategicTargeting,
       this.strategicEnemyTeam ?? '',
-      this.strategicUpgradeMode ?? '',
-      this.strategicTargetTypeIndex,
-      this.strategicTargetSiteIndex,
-      this.strategicPreviewTarget?.id ?? '',
       `${line?.kind ?? ''}`,
       this.economy.readyStructure ?? '',
       this.economy.selectedStructure ?? '',
@@ -1574,7 +1332,6 @@ export class Sidebar {
     this.drawRadarFog();
     this.drawRadarBoundary();
     this.drawRadarViewport();
-    this.drawStrategicTargetPreview(now);
     this.drawTacticalPings(now);
     this.drawUnderAttackAlert(now);
     if (this.radarFocus) {
@@ -1595,40 +1352,6 @@ export class Sidebar {
     this.drawRadarOrientation();
     this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
-  }
-
-  private drawStrategicTargetPreview(now: number): void {
-    const target = this.strategicPreviewTarget;
-    const enemyTeam = this.strategicEnemyTeam;
-    if (!target || enemyTeam === undefined || target.destroyed || (target.health && target.health.current <= 0)) return;
-    const p = this.worldToRadar(target.transform.x, target.transform.z);
-    if (p.x < -14 || p.y < -14 || p.x > this.radar.width + 14 || p.y > this.radar.height + 14) return;
-    const accent = `#${FACTION[factionId(enemyTeam)].accent.toString(16).padStart(6, '0')}`;
-    const pulse = 0.5 + 0.5 * Math.sin(now * 0.012);
-    const radius = 7 + pulse * 4;
-    this.radarCtx.save();
-    this.radarCtx.strokeStyle = accent;
-    this.radarCtx.fillStyle = accent;
-    this.radarCtx.lineWidth = 2;
-    this.radarCtx.shadowColor = accent;
-    this.radarCtx.shadowBlur = 7;
-    this.radarCtx.beginPath();
-    this.radarCtx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-    this.radarCtx.stroke();
-    this.radarCtx.shadowBlur = 0;
-    this.radarCtx.globalAlpha = 0.9;
-    this.radarCtx.fillRect(Math.round(p.x) - 2, Math.round(p.y) - 2, 4, 4);
-    this.radarCtx.beginPath();
-    this.radarCtx.moveTo(p.x - radius - 5, p.y);
-    this.radarCtx.lineTo(p.x - radius + 1, p.y);
-    this.radarCtx.moveTo(p.x + radius - 1, p.y);
-    this.radarCtx.lineTo(p.x + radius + 5, p.y);
-    this.radarCtx.moveTo(p.x, p.y - radius - 5);
-    this.radarCtx.lineTo(p.x, p.y - radius + 1);
-    this.radarCtx.moveTo(p.x, p.y + radius - 1);
-    this.radarCtx.lineTo(p.x, p.y + radius + 5);
-    this.radarCtx.stroke();
-    this.radarCtx.restore();
   }
 
   private drawUnderAttackAlert(now: number): void {

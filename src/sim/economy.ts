@@ -12,7 +12,6 @@ import type { GameSim } from './world';
 import { issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt } from './world';
 
 export type UnitProducerType = 'infantry' | 'vehicles' | 'aircraft';
-export type IntelligenceCategory = 'economy' | 'power' | 'military' | 'command';
 export const MAX_PRODUCER_JOBS = 10;
 const COMMAND_YARD_HEALTH = 1680;
 const DEFAULT_STRUCTURE_HEALTH = 630;
@@ -41,8 +40,8 @@ export interface EconomyState {
   placement?: PlacementState;
   pendingSpawned: Entity[];
   harvesterReplacementTimers: Record<number, number>;
-  intelligenceByTeam: Record<number, IntelligenceCategory[]>;
   strategicMissileLevel: number;
+  strategicAccuracyLevel: number;
   strategicMissileCooldown: number;
 }
 
@@ -70,8 +69,8 @@ export function createEconomy(team = 1, initialCredits = 4600, doctrine: ArmyDoc
     primaryProducerIds: {},
     pendingSpawned: [],
     harvesterReplacementTimers: {},
-    intelligenceByTeam: {},
     strategicMissileLevel: 1,
+    strategicAccuracyLevel: 0,
     strategicMissileCooldown: 0,
   };
 }
@@ -109,10 +108,7 @@ export function hashEconomy(economy: EconomyState): number {
   mix(Math.round(economy.powerProduced * 100));
   mix(Math.round(economy.powerUsed * 100));
   mix(economy.strategicMissileLevel);
-  for (const team of Object.keys(economy.intelligenceByTeam).map(Number).sort((a, b) => a - b)) {
-    mix(team);
-    for (const category of [...(economy.intelligenceByTeam[team] ?? [])].sort()) mixText(category);
-  }
+  mix(economy.strategicAccuracyLevel);
   mix(Math.round(economy.strategicMissileCooldown * 1000));
   mixJob(economy.structureLine);
   mixText(economy.readyStructure);
@@ -461,6 +457,7 @@ export function hasStructure(sim: GameSim, kind: StructureKind, team = 1): boole
 }
 
 export const MAX_STRATEGIC_MISSILE_LEVEL = 3;
+export const MAX_STRATEGIC_ACCURACY_LEVEL = 3;
 
 export function strategicMissileUpgradeCost(currentLevel: number): number {
   if (currentLevel <= 1) return 500;
@@ -482,6 +479,31 @@ export function upgradeStrategicMissile(sim: GameSim, economy: EconomyState): bo
   if (!check.ok) return false;
   spend(economy, sim.tick, `Missile level ${economy.strategicMissileLevel + 1}`, check.cost);
   economy.strategicMissileLevel++;
+  return true;
+}
+
+export function strategicAccuracyUpgradeCost(currentLevel: number): number {
+  if (currentLevel <= 0) return 250;
+  if (currentLevel === 1) return 450;
+  if (currentLevel === 2) return 700;
+  return 0;
+}
+
+export function canUpgradeStrategicAccuracy(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
+  const cost = strategicAccuracyUpgradeCost(economy.strategicAccuracyLevel);
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Missile Command doctrine only', cost };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
+  if (economy.strategicAccuracyLevel >= MAX_STRATEGIC_ACCURACY_LEVEL) return { ok: false, reason: 'Maximum accuracy level', cost: 0 };
+  if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
+  return { ok: true, reason: '', cost };
+}
+
+export function upgradeStrategicAccuracy(sim: GameSim, economy: EconomyState): boolean {
+  const check = canUpgradeStrategicAccuracy(sim, economy);
+  if (!check.ok) return false;
+  spend(economy, sim.tick, `Missile accuracy ${economy.strategicAccuracyLevel + 1}`, check.cost);
+  economy.strategicAccuracyLevel++;
   return true;
 }
 
