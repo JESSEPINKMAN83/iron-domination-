@@ -51,6 +51,16 @@ interface BombProjectile {
   smokeTimer: number;
   direction?: Vector3;
   trailCapacity: number;
+  healthBar?: StrategicHealthBar;
+}
+
+interface StrategicHealthBar {
+  group: Group;
+  fill: Sprite;
+  fillMaterial: SpriteMaterial;
+  width: number;
+  health: number;
+  maxHealth: number;
 }
 
 interface HitIndicator {
@@ -147,7 +157,7 @@ export function selectCombatVisualEvents(
 }
 
 function isCriticalVisualEvent(event: CombatEvent): boolean {
-  return event.killed || event.weaponKind === 'strategicMissile' || event.kind === 'crash' || event.kind === 'aircraft-crash-smoke';
+  return event.killed || event.strategicId !== undefined || event.weaponKind === 'strategicMissile' || event.kind === 'crash' || event.kind === 'aircraft-crash-smoke';
 }
 
 function addSpreadSelection(selected: Set<number>, candidates: IndexedCombatEvent[], count: number): void {
@@ -199,6 +209,12 @@ export class CombatView {
   }
 
   push(events: CombatEvent[]): void {
+    for (const event of events) {
+      if (event.strategicId !== undefined && event.targetHealth !== undefined && event.targetMaxHealth !== undefined) {
+        this.updateStrategicHealth(event.strategicId, event.targetHealth, event.targetMaxHealth);
+      }
+      if (event.kind === 'strategic-missile-intercepted') this.removeStrategicProjectile(event.strategicId);
+    }
     const frameBudget = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 30;
     const remaining = frameBudget - this.visualEventsThisFrame;
     if (remaining <= 0) return;
@@ -210,6 +226,11 @@ export class CombatView {
       const playerHiddenHit = event.sourceTeamId === this.localTeam && event.damage > 0;
       // fights entirely inside the fog stay hidden, except brief player-fired hit confirmations
       if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
+      if (event.kind === 'strategic-missile-intercepted') {
+        this.removeStrategicProjectile(event.strategicId);
+        this.spawnBombBlast(event.toX, event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.2, event.toZ, true, 1.45);
+        continue;
+      }
       const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : event.kind === 'microLaser' ? 2.75 : 2.2;
       const fromY = event.fromY ?? sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
       const toY = event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
@@ -399,11 +420,16 @@ export class CombatView {
     const distance = Math.hypot(event.toX - event.fromX, event.toZ - event.fromZ);
     const drop = event.trajectory === 'drop';
     const flat = event.trajectory === 'flat' || event.trajectory === 'homing';
+    const strategic = event.weaponKind === 'strategicMissile';
     const controlY = drop
       ? Math.max(toY + 2, (fromY + toY) * 0.46 - Math.min(16, distance * 0.04))
       : flat
         ? (fromY + toY) * 0.5
-        : Math.max(fromY, toY) + Math.min(190, distance * 0.24);
+        : strategic
+          // Match the simulation's capped strategic arc so interceptor trails
+          // visibly meet the missile instead of flying below cosmetic altitude.
+          ? (fromY + toY) * 0.5 + Math.min(56, distance * 0.64)
+          : Math.max(fromY, toY) + Math.min(190, distance * 0.24);
     const control = new Vector3((event.fromX + event.toX) / 2, controlY, (event.fromZ + event.toZ) / 2);
     const group = this.makeProjectileMesh(event);
     group.position.copy(from);
@@ -411,7 +437,6 @@ export class CombatView {
     this.group.add(group);
 
     const homing = event.trajectory === 'homing';
-    const strategic = event.weaponKind === 'strategicMissile';
     const trailCapacity = strategic ? 40 : homing ? 20 : 8;
     const trailGeometry = new BufferGeometry();
     trailGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(trailCapacity * 3), 3));
@@ -438,7 +463,12 @@ export class CombatView {
       smokeTimer: 0,
       direction: homing ? to.clone().sub(from).normalize() : undefined,
       trailCapacity,
+      healthBar: strategic && event.targetTeamId === this.localTeam && event.strategicId !== undefined
+        ? this.makeStrategicHealthBar(event.targetHealth ?? 100, event.targetMaxHealth ?? 100)
+        : undefined,
     });
+    const spawned = this.bombProjectiles[this.bombProjectiles.length - 1];
+    if (spawned.healthBar) this.syncStrategicHealthBar(spawned);
     const maxProjectiles = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 28;
     while (this.bombProjectiles.length > maxProjectiles) this.disposeBombProjectile(this.bombProjectiles.shift());
   }
@@ -477,6 +507,7 @@ export class CombatView {
           }
         }
         projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, projectile.direction));
+        this.syncStrategicHealthBar(projectile);
         projectile.trailPositions.push(projectile.group.position.clone());
         if (projectile.trailPositions.length > projectile.trailCapacity) projectile.trailPositions.shift();
         this.updateTrail(projectile);
@@ -492,6 +523,7 @@ export class CombatView {
       const tangent = bezierTangent(projectile.from, projectile.control, projectile.to, t).normalize();
       projectile.group.position.copy(position);
       projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, tangent));
+      this.syncStrategicHealthBar(projectile);
       projectile.trailPositions.push(position.clone());
       if (projectile.trailPositions.length > projectile.trailCapacity) projectile.trailPositions.shift();
       this.updateTrail(projectile);
@@ -520,6 +552,58 @@ export class CombatView {
     }
   }
 
+  private removeStrategicProjectile(strategicId: number | undefined): void {
+    if (strategicId === undefined) return;
+    for (let i = this.bombProjectiles.length - 1; i >= 0; i--) {
+      if (this.bombProjectiles[i].event.strategicId !== strategicId) continue;
+      this.disposeBombProjectile(this.bombProjectiles[i]);
+      this.bombProjectiles.splice(i, 1);
+      return;
+    }
+  }
+
+  private makeStrategicHealthBar(health: number, maxHealth: number): StrategicHealthBar {
+    const group = new Group();
+    const border = new Sprite(new SpriteMaterial({ color: 0xffffff, depthTest: false, depthWrite: false }));
+    const background = new Sprite(new SpriteMaterial({ color: 0x090d10, depthTest: false, depthWrite: false }));
+    const fillMaterial = new SpriteMaterial({ color: 0x79f28b, depthTest: false, depthWrite: false });
+    const fill = new Sprite(fillMaterial);
+    border.scale.set(9.2, 1.45, 1);
+    background.scale.set(8.65, 0.92, 1);
+    fill.scale.set(8.1, 0.5, 1);
+    border.renderOrder = 89;
+    background.renderOrder = 90;
+    fill.renderOrder = 91;
+    group.add(border, background, fill);
+    group.renderOrder = 89;
+    this.group.add(group);
+    const bar = { group, fill, fillMaterial, width: 8.1, health, maxHealth: Math.max(1, maxHealth) };
+    this.layoutStrategicHealthBar(bar);
+    return bar;
+  }
+
+  private updateStrategicHealth(strategicId: number, health: number, maxHealth: number): void {
+    const projectile = this.bombProjectiles.find((candidate) => candidate.event.strategicId === strategicId);
+    if (!projectile?.healthBar) return;
+    projectile.healthBar.health = health;
+    projectile.healthBar.maxHealth = Math.max(1, maxHealth);
+    this.layoutStrategicHealthBar(projectile.healthBar);
+  }
+
+  private layoutStrategicHealthBar(bar: StrategicHealthBar): void {
+    const ratio = Math.max(0, Math.min(1, bar.health / bar.maxHealth));
+    const width = Math.max(0.001, bar.width * ratio);
+    bar.fill.scale.x = width;
+    bar.fill.position.x = -(bar.width - width) * 0.5;
+    bar.fillMaterial.color.setHex(ratio > 0.55 ? 0x79f28b : ratio > 0.25 ? 0xffd75d : 0xff6659);
+  }
+
+  private syncStrategicHealthBar(projectile: BombProjectile): void {
+    if (!projectile.healthBar) return;
+    projectile.healthBar.group.position.copy(projectile.group.position);
+    projectile.healthBar.group.position.y += 6.8;
+  }
+
   private disposeBombProjectile(projectile?: BombProjectile): void {
     if (!projectile) return;
     this.group.remove(projectile.group);
@@ -532,6 +616,12 @@ export class CombatView {
     this.group.remove(projectile.trail);
     projectile.trail.geometry.dispose();
     (projectile.trail.material as LineBasicMaterial).dispose();
+    if (projectile.healthBar) {
+      this.group.remove(projectile.healthBar.group);
+      projectile.healthBar.group.traverse((object) => {
+        if (object instanceof Sprite) object.material.dispose();
+      });
+    }
   }
 
   private updateTrail(projectile: BombProjectile): void {

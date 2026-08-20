@@ -56,6 +56,8 @@ export interface CombatEvent {
   targetType?: string;
   targetHealth?: number;
   targetMaxHealth?: number;
+  /** Stable id used to keep strategic-missile flight FX and defense UI in sync. */
+  strategicId?: number;
   damage: number;
   killed: boolean;
   /** flight time in seconds for ballistic launches ('bomb') */
@@ -116,6 +118,19 @@ export interface Projectile {
   attackerId: number;
   /** Long-range silo round eligible for dedicated missile-defense interception. */
   strategic?: boolean;
+  /** Stable id shared with interceptor rounds and strategic-missile combat events. */
+  strategicId?: number;
+  /** Only this defending army may automatically engage the strategic round. */
+  strategicTargetTeamId?: number;
+  /** Interception durability; separate from the warhead's ground damage. */
+  strategicHealth?: number;
+  strategicMaxHealth?: number;
+  /** Small defense round that damages a strategic projectile instead of the ground. */
+  strategicInterceptor?: {
+    targetStrategicId: number;
+    damage: number;
+    sourceKind: 'tower' | 'aircraft';
+  };
 }
 
 export interface ResourceNode {
@@ -1601,6 +1616,13 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round(projectile.elapsed * 1000));
     mix(projectile.manualAim ? 1 : 0);
     mix(projectile.strategic ? 1 : 0);
+    mix(projectile.strategicId ?? 0);
+    mix(projectile.strategicTargetTeamId ?? 0);
+    mix(Math.round((projectile.strategicHealth ?? 0) * 100));
+    mix(Math.round((projectile.strategicMaxHealth ?? 0) * 100));
+    mix(projectile.strategicInterceptor?.targetStrategicId ?? 0);
+    mix(Math.round((projectile.strategicInterceptor?.damage ?? 0) * 100));
+    mix(projectile.strategicInterceptor?.sourceKind === 'tower' ? 1 : projectile.strategicInterceptor?.sourceKind === 'aircraft' ? 2 : 0);
     mix(projectile.attackerId);
   }
   for (const node of sim.resourceNodes) {

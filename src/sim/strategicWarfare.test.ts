@@ -4,14 +4,14 @@ import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity } from './components';
 import { stepCombat } from './combat';
 import { canBuildStructure, createEconomy, createInitialBase, recomputePower, upgradeStrategicAccuracy, upgradeStrategicMissile } from './economy';
-import { generateHeightfield } from './heightfield';
+import { generateHeightfield, type Heightfield } from './heightfield';
 import {
   launchStrategicMissileAt,
   strategicAccuracy,
   STRATEGIC_MISSILE_COOLDOWN,
   STRATEGIC_MISSILE_COST,
 } from './strategicWarfare';
-import { createGameSim, type GameSim } from './world';
+import { createGameSim, spawnWaspAt, type GameSim } from './world';
 
 function addStructure(sim: GameSim, kind: StructureKind, team: number, x: number, z: number): Entity {
   const def = STRUCTURES[kind];
@@ -41,6 +41,7 @@ function missileFixture(): {
   sim: GameSim;
   economy: ReturnType<typeof createEconomy>;
   target: Entity;
+  hf: Heightfield;
 } {
   const hf = generateHeightfield(MAP01);
   const sim = createGameSim(hf);
@@ -52,7 +53,7 @@ function missileFixture(): {
   createInitialBase(sim, hf, createEconomy(2, 5000), 180, 0);
   const target = addStructure(sim, 'factory', 2, 170, 0);
   recomputePower(sim, economy);
-  return { sim, economy, target };
+  return { sim, economy, target, hf };
 }
 
 describe('Missile Command strategic warfare', () => {
@@ -138,7 +139,7 @@ describe('Missile Command strategic warfare', () => {
     expect(economy.strategicMissileLevel).toBe(2);
     expect(economy.credits).toBe(creditsBefore - 500);
     expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
-    expect(sim.projectiles[0]).toMatchObject({ damageScale: 1.75, impactScale: 2.25 });
+    expect(sim.projectiles[0]).toMatchObject({ damageScale: 1.75, impactScale: 2.25, strategicHealth: 140, strategicMaxHealth: 140 });
   });
 
   it('makes a fully upgraded warhead devastating at the marked point', () => {
@@ -157,20 +158,41 @@ describe('Missile Command strategic warfare', () => {
     expect(target.destroyed).toBeDefined();
   });
 
-  it('lets a hostile missile-defense battery destroy the round before impact', () => {
+  it('requires five missile-defense hits to destroy a standard strategic round', () => {
     const { sim, economy, target } = missileFixture();
     economy.strategicAccuracyLevel = 3;
-    addStructure(sim, 'missile-defense', 2, -135, 14);
+    addStructure(sim, 'missile-defense', 2, 135, 14);
     const healthBefore = target.health!.current;
     expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+    expect(sim.projectiles.find((projectile) => projectile.strategic)).toMatchObject({ strategicHealth: 100, strategicMaxHealth: 100 });
 
-    for (let tick = 0; tick < 30 && sim.projectiles.length > 0; tick++) {
+    for (let tick = 0; tick < 30 * 20 && !sim.events.some((event) => event.kind === 'strategic-missile-intercepted'); tick++) {
       sim.tick++;
       stepCombat(sim, 1 / 30, { autoFire: false });
     }
 
-    expect(sim.projectiles).toHaveLength(0);
+    const defenseHits = sim.events.filter((event) => event.kind === 'aaMissile-impact' && event.strategicId !== undefined);
+    expect(defenseHits).toHaveLength(5);
+    expect(defenseHits.slice(0, 4).every((event) => !event.killed)).toBe(true);
+    expect(defenseHits[4]).toMatchObject({ killed: true, targetHealth: 0, targetMaxHealth: 100 });
+    expect(sim.projectiles.find((projectile) => projectile.strategic)).toBeUndefined();
     expect(sim.events.some((event) => event.kind === 'strategic-missile-intercepted')).toBe(true);
     expect(target.health?.current).toBe(healthBefore);
+  });
+
+  it('lets defending interceptor aircraft damage an incoming strategic round', () => {
+    const { sim, economy, target, hf } = missileFixture();
+    economy.strategicAccuracyLevel = 3;
+    const wasp = spawnWaspAt(sim, hf, 135, 8, 'Defense Wasp', 2);
+    expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+
+    for (let tick = 0; tick < 30 * 12 && !sim.events.some((event) => event.kind === 'aaMissile-impact' && event.sourceTeamId === 2); tick++) {
+      sim.tick++;
+      stepCombat(sim, 1 / 30, { autoFire: false });
+    }
+
+    expect(sim.events.some((event) => event.kind === 'aaMissile' && event.sourceTeamId === 2 && event.targetLabel === 'Aircraft interceptor')).toBe(true);
+    expect(sim.events.some((event) => event.kind === 'aaMissile-impact' && event.sourceTeamId === 2 && event.damage === 10)).toBe(true);
+    expect(wasp.health?.current).toBe(wasp.health?.max);
   });
 });

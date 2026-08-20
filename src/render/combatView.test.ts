@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { Sprite } from 'three';
+import { MAP01 } from '../content/map01';
+import { generateHeightfield } from '../sim/heightfield';
 import type { CombatEvent } from '../sim/world';
-import { selectCombatVisualEvents } from './combatView';
+import { CombatView, selectCombatVisualEvents } from './combatView';
 
 function event(index: number, sourceTeamId: number, overrides: Partial<CombatEvent> = {}): CombatEvent {
   return {
@@ -53,5 +56,35 @@ describe('combat visual load shedding', () => {
     bookkeeping.push(event(150, 2, { kind: 'strategic-missile-warning', targetTeamId: 1 }));
     const visible = Array.from({ length: 8 }, (_, index) => event(200 + index, 1));
     expect(selectCombatVisualEvents([...bookkeeping, ...visible], 1, 0)).toEqual(visible);
+  });
+
+  it('shows and updates strategic missile health only for the defending army', () => {
+    const view = new CombatView(generateHeightfield(MAP01), () => true, () => undefined, 2);
+    view.push([event(0, 1, {
+      kind: 'siegeMissile',
+      weaponKind: 'strategicMissile',
+      targetTeamId: 2,
+      strategicId: 42,
+      targetHealth: 100,
+      targetMaxHealth: 100,
+      trajectory: 'arc',
+      duration: 8,
+      damage: 0,
+    })]);
+    const sprites: Sprite[] = [];
+    view.group.traverse((object) => {
+      if (object instanceof Sprite) sprites.push(object);
+    });
+    const fill = sprites.find((sprite) => sprite.renderOrder === 91);
+    expect(fill?.scale.x).toBeCloseTo(8.1);
+
+    view.push([event(1, 2, {
+      kind: 'impact-reaction',
+      strategicId: 42,
+      targetHealth: 40,
+      targetMaxHealth: 100,
+      damage: 20,
+    })]);
+    expect(fill?.scale.x).toBeCloseTo(3.24);
   });
 });

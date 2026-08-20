@@ -16,6 +16,7 @@ export interface StrategicWarhead {
   label: 'STANDARD' | 'HEAVY' | 'DEVASTATOR';
   damageScale: number;
   impactScale: number;
+  interceptionHealth: number;
 }
 
 export interface StrategicLaunchResult {
@@ -32,9 +33,9 @@ export function strategicAccuracy(level: number): StrategicAccuracy {
 }
 
 export function strategicWarhead(level: number): StrategicWarhead {
-  if (level <= 1) return { level: 1, label: 'STANDARD', damageScale: 1, impactScale: 1.6 };
-  if (level === 2) return { level: 2, label: 'HEAVY', damageScale: 1.75, impactScale: 2.25 };
-  return { level: 3, label: 'DEVASTATOR', damageScale: 2.8, impactScale: 3.1 };
+  if (level <= 1) return { level: 1, label: 'STANDARD', damageScale: 1, impactScale: 1.6, interceptionHealth: 100 };
+  if (level === 2) return { level: 2, label: 'HEAVY', damageScale: 1.75, impactScale: 2.25, interceptionHealth: 140 };
+  return { level: 3, label: 'DEVASTATOR', damageScale: 2.8, impactScale: 3.1, interceptionHealth: 200 };
 }
 
 export function strategicLaunchReadiness(
@@ -97,6 +98,7 @@ function launchAtArea(
   const toY = sampleHeight(sim.nav.heightfield, toX, toZ) + 1.1;
   const distance = Math.max(0.001, Math.hypot(toX - fromX, toY - fromY, toZ - fromZ));
   const duration = Math.max(2.8, distance / def.projectile!.speed);
+  const strategicId = (sim.tick + 1) * 1_000_000 + silo.id;
   sim.projectiles.push({
     kind: def.projectile!.kind,
     weaponKind: def.kind,
@@ -120,6 +122,10 @@ function launchAtArea(
     teamId: economy.team,
     attackerId: silo.id,
     strategic: true,
+    strategicId,
+    strategicTargetTeamId: enemyTeam,
+    strategicHealth: warhead.interceptionHealth,
+    strategicMaxHealth: warhead.interceptionHealth,
   });
   economy.strategicMissileCooldown = STRATEGIC_MISSILE_COOLDOWN;
   const event: CombatEvent = {
@@ -140,6 +146,9 @@ function launchAtArea(
     duration,
     trajectory: 'arc',
     impactScale: warhead.impactScale,
+    strategicId,
+    targetHealth: warhead.interceptionHealth,
+    targetMaxHealth: warhead.interceptionHealth,
   };
   sim.events.push({
     ...event,
