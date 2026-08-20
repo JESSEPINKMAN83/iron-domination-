@@ -312,10 +312,10 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   strategicMissile: {
     kind: 'strategicMissile',
     label: 'Long-Range Strategic Missile',
-    damage: 460,
+    damage: 520,
     cooldown: 30,
     range: 1800,
-    splashRadius: 18,
+    splashRadius: 20,
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
     vs: { infantry: 0.8, light: 0.9, heavy: 0.95, building: 1, air: 0 },
     projectile: { kind: 'siegeMissile', speed: 42, trajectory: 'homing', impactRadius: 7 },

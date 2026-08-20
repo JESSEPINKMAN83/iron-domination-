@@ -1060,12 +1060,13 @@ function impactProjectile(sim: GameSim, projectile: GameSim['projectiles'][numbe
       }
     }
   }
+  const splashRadius = def.splashRadius * (projectile.strategic ? (projectile.impactScale ?? 1) : 1);
   const area = applyAreaDamage(
     sim,
     projectile.teamId,
     x,
     z,
-    def.splashRadius,
+    splashRadius,
     weaponKind,
     directTarget,
     attacker,

@@ -817,7 +817,10 @@ export class Sidebar {
     button.append(icon, copy);
     button.onclick = () => {
       const result = this.actions.launchStrategicMissile(target.id);
-      if (result.ok) this.strategicTargeting = false;
+      if (result.ok) {
+        this.strategicTargeting = false;
+        this.actions.focusMap(target.transform.x, target.transform.z);
+      }
       this.flash(result.ok ? `MISSILE AWAY · ${label.toUpperCase()}` : result.reason.toUpperCase());
       this.lastBodyKey = '';
       this.renderBody();

@@ -5418,12 +5418,9 @@ function seedMissileDoctrinePreview(
   const missileSilo = placePreviewStructure(sim, hf, local.economy, local.base, 'strategic-silo', [
     { x: 66, z: 48 }, { x: -70, z: 52 }, { x: 74, z: -42 },
   ]);
-  for (const army of armies) {
-    if (!areTeamsHostile(sim, localTeam, army.team)) continue;
-    placePreviewStructure(sim, hf, army.economy, army.base, 'missile-defense', [
-      { x: 58, z: 46 }, { x: -58, z: -46 }, { x: 66, z: -12 },
-    ]);
-  }
+  // Keep the focused missile preview undefended so launches visibly reach
+  // their selected targets. Missile-defense interception remains available in
+  // normal matches and has its own deterministic combat coverage.
   local.economy.credits = Math.max(local.economy.credits, 15000);
   if (missileSilo) setSelected(sim, [missileSilo], false, localTeam);
 }

@@ -53,9 +53,9 @@ export function strategicAccuracy(level: number): StrategicAccuracy {
 }
 
 export function strategicWarhead(level: number): StrategicWarhead {
-  if (level <= 1) return { level: 1, label: 'STANDARD', damageScale: 1, impactScale: 1 };
-  if (level === 2) return { level: 2, label: 'HEAVY', damageScale: 1.65, impactScale: 1.4 };
-  return { level: 3, label: 'DEVASTATOR', damageScale: 2.5, impactScale: 1.9 };
+  if (level <= 1) return { level: 1, label: 'STANDARD', damageScale: 1, impactScale: 1.6 };
+  if (level === 2) return { level: 2, label: 'HEAVY', damageScale: 1.75, impactScale: 2.25 };
+  return { level: 3, label: 'DEVASTATOR', damageScale: 2.8, impactScale: 3.1 };
 }
 
 export function enemyIntelligenceCategories(economy: EconomyState, enemyTeam: number): IntelligenceCategory[] {

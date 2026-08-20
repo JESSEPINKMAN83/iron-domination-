@@ -142,7 +142,13 @@ describe('Missile Command strategic warfare', () => {
     }
 
     expect(sim.projectiles).toHaveLength(0);
-    expect(target.health!.current).toBeLessThan(healthBefore);
+    expect(target.health!.current / healthBefore).toBeLessThan(0.2);
+    expect(sim.events.some((event) =>
+      event.kind === 'siegeMissile-impact' &&
+      event.weaponKind === 'strategicMissile' &&
+      event.damage >= 500 &&
+      event.impactScale === 1.6
+    )).toBe(true);
   });
 
   it('upgrades the silo warhead independently from intelligence', () => {
@@ -153,7 +159,23 @@ describe('Missile Command strategic warfare', () => {
     expect(economy.strategicMissileLevel).toBe(2);
     expect(economy.credits).toBe(creditsBefore - 500);
     expect(launchStrategicMissile(sim, economy, new Set([target.id]), target.id).ok).toBe(true);
-    expect(sim.projectiles[0]).toMatchObject({ damageScale: 1.65, impactScale: 1.4 });
+    expect(sim.projectiles[0]).toMatchObject({ damageScale: 1.75, impactScale: 2.25 });
+  });
+
+  it('makes a fully upgraded warhead devastating to a locked building target', () => {
+    const { sim, economy, target } = missileFixture();
+    economy.intelligenceByTeam[2] = ['economy', 'power', 'military'];
+    economy.strategicMissileLevel = 3;
+    expect(launchStrategicMissile(sim, economy, new Set([target.id]), target.id).ok).toBe(true);
+    expect(sim.projectiles[0]).toMatchObject({ damageScale: 2.8, impactScale: 3.1 });
+
+    for (let tick = 0; tick < 30 * 20 && sim.projectiles.length > 0; tick++) {
+      sim.tick++;
+      stepCombat(sim, 1 / 30, { autoFire: false });
+    }
+
+    expect(target.health?.current).toBe(0);
+    expect(target.destroyed).toBeDefined();
   });
 
   it('lets a hostile missile-defense battery destroy the round before impact', () => {

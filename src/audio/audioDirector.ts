@@ -245,30 +245,31 @@ export class AudioDirector {
   }
 
   private playExplosion(event: CombatEvent): void {
-    const profile = explosionProfile(event.kind, event.killed);
+    const strategic = event.weaponKind === 'strategicMissile';
+    const profile = explosionProfile(event.kind, event.killed, event.weaponKind);
     if (!this.allowSound(event, profile, 0.045)) return;
     const bus = this.spatialBus(event.toX, event.toZ, profile);
     if (!bus) return;
     const now = this.ctx!.currentTime;
-    const heavy = event.kind === 'tankBomb-impact' || event.kind === 'bomb-impact' || event.kind === 'agMissile-impact';
-    const duration = heavy ? 1.35 : 0.72;
+    const heavy = strategic || event.kind === 'tankBomb-impact' || event.kind === 'bomb-impact' || event.kind === 'agMissile-impact';
+    const duration = strategic ? 2.35 : heavy ? 1.35 : 0.72;
 
     const boom = this.ctx!.createOscillator();
     boom.type = 'sine';
-    boom.frequency.setValueAtTime(heavy ? 74 : 105, now);
-    boom.frequency.exponentialRampToValueAtTime(heavy ? 31 : 48, now + duration * 0.38);
+    boom.frequency.setValueAtTime(strategic ? 48 : heavy ? 74 : 105, now);
+    boom.frequency.exponentialRampToValueAtTime(strategic ? 18 : heavy ? 31 : 48, now + duration * 0.38);
     const boomGain = this.ctx!.createGain();
     boomGain.gain.setValueAtTime(0.0001, now);
-    boomGain.gain.exponentialRampToValueAtTime(heavy ? 0.46 : 0.22, now + 0.012);
+    boomGain.gain.exponentialRampToValueAtTime(strategic ? 0.72 : heavy ? 0.46 : 0.22, now + 0.012);
     boomGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     boom.connect(boomGain);
     boomGain.connect(bus.input);
     boom.start(now);
     boom.stop(now + duration + 0.03);
 
-    this.noiseBurst(bus.input, heavy ? 0.72 : 0.38, heavy ? 0.28 : 0.16, {
+    this.noiseBurst(bus.input, strategic ? 1.25 : heavy ? 0.72 : 0.38, strategic ? 0.42 : heavy ? 0.28 : 0.16, {
       type: 'lowpass',
-      frequency: heavy ? 720 : 1100,
+      frequency: strategic ? 520 : heavy ? 720 : 1100,
       q: 0.8,
       delay: 0.006,
     });
@@ -508,7 +509,8 @@ export class AudioDirector {
   }
 }
 
-function explosionProfile(kind: string, killed: boolean): SoundProfile {
+function explosionProfile(kind: string, killed: boolean, weaponKind?: string): SoundProfile {
+  if (weaponKind === 'strategicMissile') return { gain: killed ? 0.96 : 0.88, near: 70, far: 1200 };
   if (kind === 'artilleryShell-impact') return { gain: killed ? 0.72 : 0.58, near: 32, far: killed ? 590 : 510 };
   if (kind === 'kineticShell-impact') return { gain: killed ? 0.38 : 0.29, near: 20, far: 310 };
   if (kind === 'tankBomb-impact') return { gain: killed ? 0.76 : 0.62, near: 34, far: killed ? 620 : 540 };

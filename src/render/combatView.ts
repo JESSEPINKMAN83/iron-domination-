@@ -147,7 +147,7 @@ export function selectCombatVisualEvents(
 }
 
 function isCriticalVisualEvent(event: CombatEvent): boolean {
-  return event.killed || event.kind === 'crash' || event.kind === 'aircraft-crash-smoke';
+  return event.killed || event.weaponKind === 'strategicMissile' || event.kind === 'crash' || event.kind === 'aircraft-crash-smoke';
 }
 
 function addSpreadSelection(selected: Set<number>, candidates: IndexedCombatEvent[], count: number): void {
@@ -228,7 +228,10 @@ export class CombatView {
       if (isProjectileImpact(event.kind)) {
         this.removeImpactedHomingProjectile(event);
         if (shouldPaintGroundScorch(this.hf, event)) this.spawnGroundScorch(event);
-        if (isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
+        if (event.weaponKind === 'strategicMissile') {
+          const impactY = sampleHeight(this.hf, event.toX, event.toZ) + 0.4;
+          this.spawnStrategicBlast(event, impactY);
+        } else if (isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
           const impactY = event.targetType === 'aircraft'
             ? toY
             : sampleHeight(this.hf, event.toX, event.toZ) + 0.4;
@@ -408,7 +411,8 @@ export class CombatView {
     this.group.add(group);
 
     const homing = event.trajectory === 'homing';
-    const trailCapacity = homing ? 20 : 8;
+    const strategic = event.weaponKind === 'strategicMissile';
+    const trailCapacity = strategic ? 40 : homing ? 20 : 8;
     const trailGeometry = new BufferGeometry();
     trailGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(trailCapacity * 3), 3));
     const trail = new Line(trailGeometry, new LineBasicMaterial({
@@ -604,11 +608,12 @@ export class CombatView {
   }
 
   private spawnHitFragments(event: CombatEvent, y: number): void {
-    const heavy = isBombImpact(event.kind);
-    const fullCount = heavy ? 18 : isTankMissileImpact(event.kind) || event.killed ? 11 : 6;
+    const strategic = event.weaponKind === 'strategicMissile';
+    const heavy = strategic || isBombImpact(event.kind);
+    const fullCount = strategic ? 30 : heavy ? 18 : isTankMissileImpact(event.kind) || event.killed ? 11 : 6;
     const density = this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 0.65 : 0.38;
     const count = Math.max(2, Math.round(fullCount * density));
-    const force = heavy ? 8.5 : isTankMissileImpact(event.kind) ? 6.4 : 4.2;
+    const force = strategic ? 13 : heavy ? 8.5 : isTankMissileImpact(event.kind) ? 6.4 : 4.2;
     const awayX = event.toX - event.fromX;
     const awayZ = event.toZ - event.fromZ;
     const awayLength = Math.hypot(awayX, awayZ);
@@ -678,7 +683,7 @@ export class CombatView {
   }
 
   private spawnGroundScorch(event: CombatEvent): void {
-    const profile = scorchProfile(event.kind, event.killed);
+    const profile = scorchProfile(event.kind, event.killed, event.weaponKind);
     const texture = makeScorchTexture(event.kind, event.toX, event.toZ);
     const material = new MeshBasicMaterial({
       map: texture,
@@ -806,6 +811,77 @@ export class CombatView {
     this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial], baseScale });
     this.group.add(group);
     this.trimBursts();
+  }
+
+  private spawnStrategicBlast(event: CombatEvent, y: number): void {
+    const warheadScale = Math.max(1.6, event.impactScale ?? 1.6);
+    this.spawnBombBlast(event.toX, y, event.toZ, event.killed, warheadScale * 1.2);
+
+    const group = new Group();
+    const flashMaterial = new MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.96, depthWrite: false });
+    const fireMaterial = new MeshBasicMaterial({ color: 0xff6a24, transparent: true, opacity: 0.72, depthWrite: false });
+    const shockMaterial = new MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.48, depthWrite: false, side: 2 });
+    const smokeMaterial = new MeshBasicMaterial({ color: 0x211c18, transparent: true, opacity: 0.18, depthWrite: false });
+    flashMaterial.userData.role = 'fire';
+    fireMaterial.userData.role = 'fire';
+    shockMaterial.userData.role = 'shock';
+    smokeMaterial.userData.role = 'smoke';
+
+    const flash = new Mesh(new SphereGeometry(3.6, 18, 12), flashMaterial);
+    const fireball = new Mesh(new SphereGeometry(5.2, 18, 12), fireMaterial);
+    const innerRing = new Mesh(new RingGeometry(3.2, 10.5, 48), shockMaterial);
+    const outerRing = new Mesh(new RingGeometry(8.5, 17, 64), shockMaterial.clone());
+    const smokeColumn = new Mesh(new CylinderGeometry(2.6, 5.4, 10, 14), smokeMaterial);
+    flash.position.y = 1.8;
+    fireball.position.y = 3.1;
+    smokeColumn.position.y = 6.2;
+    innerRing.rotation.x = -Math.PI / 2;
+    outerRing.rotation.x = -Math.PI / 2;
+    innerRing.position.y = 0.12;
+    outerRing.position.y = 0.18;
+    group.add(innerRing, outerRing, flash, fireball, smokeColumn);
+    group.position.set(event.toX, y, event.toZ);
+    group.renderOrder = 58;
+    const baseScale = warheadScale * 0.88;
+    group.scale.setScalar(baseScale);
+    this.bursts.push({
+      group,
+      ttl: 1.45,
+      total: 1.45,
+      kind: 'bomb',
+      materials: [flashMaterial, fireMaterial, shockMaterial, outerRing.material as MeshBasicMaterial, smokeMaterial],
+      baseScale,
+    });
+    this.group.add(group);
+
+    const smokeCount = this.visualQuality === 0 ? 18 : this.visualQuality === 1 ? 14 : 10;
+    for (let i = 0; i < smokeCount; i++) {
+      const angle = (i / smokeCount) * Math.PI * 2 + (i % 3) * 0.17;
+      const smokePuffMaterial = new MeshBasicMaterial({
+        color: i % 3 === 0 ? 0x4b3527 : 0x211d1a,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false,
+      });
+      smokePuffMaterial.userData.baseOpacity = 0.5;
+      const puff = new Mesh(new SphereGeometry((0.75 + (i % 4) * 0.13) * warheadScale, 9, 6), smokePuffMaterial);
+      const radius = warheadScale * (1.2 + (i % 5) * 0.42);
+      puff.position.set(event.toX + Math.cos(angle) * radius, y + 1.2 + (i % 4) * 0.7, event.toZ + Math.sin(angle) * radius);
+      puff.renderOrder = 57;
+      this.group.add(puff);
+      const ttl = 2.2 + (i % 4) * 0.18;
+      this.smokePuffs.push({
+        mesh: puff,
+        material: smokePuffMaterial,
+        velocity: new Vector3(Math.cos(angle) * warheadScale * 1.8, 2.8 + (i % 4) * 0.75, Math.sin(angle) * warheadScale * 1.8),
+        ttl,
+        total: ttl,
+        spin: i % 2 === 0 ? 0.46 : -0.46,
+      });
+    }
+    this.trimBursts();
+    const maxSmoke = this.visualQuality === 0 ? 110 : this.visualQuality === 1 ? 72 : 46;
+    while (this.smokePuffs.length > maxSmoke) this.disposeSmokePuff(this.smokePuffs.shift());
   }
 
   private trimBursts(): void {
@@ -1097,10 +1173,17 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
     bodyRadius: 0.12, tipRadius: 0.07, bodyLength: 2.15, noseLength: 0.62, bandWidth: 0.12,
     glowRadius: 0.38, fins: 4, finThickness: 0.045, finLength: 0.52, finWidth: 0.38, scale: 1.3,
   };
+  if (weaponKind === 'strategicMissile') return {
+    ...base, bodyColor: 0xd8d3c6, noseColor: 0x9d3024, bandColor: 0xe7c35d, glowColor: 0xff7a32,
+    glowOpacity: 0.78, bodyRadius: 0.42, tipRadius: 0.28, bodyLength: 4.2, noseLength: 1.25,
+    bandWidth: 0.28, glowRadius: 1.05, fins: 4, finThickness: 0.12, finLength: 1.15, finWidth: 0.9,
+    segments: 14, scale: 1.65,
+  };
   return projectileKind === 'tankBomb' ? { ...base, bodyRadius: 0.4, bodyLength: 2.3, scale: 2.2 } : base;
 }
 
 function projectileSmokeCadence(weaponKind: string, projectileKind: string, homing: boolean): number {
+  if (weaponKind === 'strategicMissile') return 0.025;
   if (isBombKind(projectileKind)) return 0.075;
   if (projectileKind === 'grenade') return weaponKind === 'rifleGrenade' ? 0.18 : 0.12;
   if (projectileKind === 'kineticShell' || projectileKind === 'artilleryShell') return 0.2;
@@ -1110,6 +1193,7 @@ function projectileSmokeCadence(weaponKind: string, projectileKind: string, homi
 }
 
 function projectileSmokeOffset(weaponKind: string, projectileKind: string): number {
+  if (weaponKind === 'strategicMissile') return -2.6;
   if (projectileKind === 'kineticShell') return -0.35;
   if (projectileKind === 'artilleryShell') return -0.75;
   if (weaponKind === 'rocketPod') return -0.48;
@@ -1117,6 +1201,7 @@ function projectileSmokeOffset(weaponKind: string, projectileKind: string): numb
 }
 
 function projectileSmokeColor(weaponKind: string, projectileKind: string, homing: boolean): number {
+  if (weaponKind === 'strategicMissile') return 0xf1ead8;
   if (isBombKind(projectileKind)) return 0x3a3026;
   if (projectileKind === 'kineticShell') return 0xffd875;
   if (projectileKind === 'artilleryShell') return 0x71675a;
@@ -1126,6 +1211,7 @@ function projectileSmokeColor(weaponKind: string, projectileKind: string, homing
 }
 
 function projectileSmokeOpacity(weaponKind: string, projectileKind: string, homing: boolean): number {
+  if (weaponKind === 'strategicMissile') return 0.72;
   if (projectileKind === 'kineticShell') return 0.12;
   if (projectileKind === 'artilleryShell') return 0.18;
   if (projectileKind === 'grenade') return weaponKind === 'rifleGrenade' ? 0.13 : 0.22;
@@ -1134,6 +1220,7 @@ function projectileSmokeOpacity(weaponKind: string, projectileKind: string, homi
 }
 
 function projectileSmokeSize(weaponKind: string, projectileKind: string, homing: boolean): number {
+  if (weaponKind === 'strategicMissile') return 0.86;
   if (isBombKind(projectileKind)) return 0.42;
   if (projectileKind === 'kineticShell') return 0.12;
   if (projectileKind === 'artilleryShell') return 0.2;
@@ -1171,7 +1258,8 @@ function shouldPaintGroundScorch(hf: Heightfield, event: CombatEvent): boolean {
   return impactY <= groundY + 4.5;
 }
 
-function scorchProfile(kind: string, killed: boolean): { size: number; opacity: number; ttl: number } {
+function scorchProfile(kind: string, killed: boolean, weaponKind?: string): { size: number; opacity: number; ttl: number } {
+  if (weaponKind === 'strategicMissile') return { size: killed ? 34 : 28, opacity: 0.82, ttl: killed ? 110 : 90 };
   if (kind === 'artilleryShell-impact') return { size: killed ? 15.5 : 12.8, opacity: 0.68, ttl: killed ? 58 : 48 };
   if (kind === 'kineticShell-impact') return { size: killed ? 5.4 : 3.6, opacity: 0.4, ttl: 24 };
   if (kind === 'tankBomb-impact') return { size: killed ? 18.5 : 15.2, opacity: 0.7, ttl: killed ? 66 : 54 };
