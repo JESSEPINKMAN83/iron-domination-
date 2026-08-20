@@ -3079,6 +3079,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     },
     upgradeStrategicMissile: () => upgradeStrategicMissile(sim, economy),
     strategicTargets: () => knownStrategicTargets(sim, strategicKnownTargetIds),
+    previewStrategicTarget: (target, color) => {
+      if (target && color !== undefined) orderMarkers.showStrategicTarget(target, color);
+      else orderMarkers.clearStrategicTarget();
+    },
     launchStrategicMissile: (targetId) => {
       const result = launchStrategicMissile(sim, economy, strategicKnownTargetIds, targetId);
       if (result.ok) audio.playUi('order');

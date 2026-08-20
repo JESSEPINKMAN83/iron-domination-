@@ -80,6 +80,7 @@ export class OrderMarkerView {
   private readonly markers: Marker[] = [];
   private preview?: FacingPreview;
   private targetHover?: TargetHover;
+  private strategicTargetHover?: TargetHover;
 
   constructor(private readonly hf: Heightfield) {}
 
@@ -186,8 +187,26 @@ export class OrderMarkerView {
     this.targetHover.target = undefined;
   }
 
+  showStrategicTarget(target: Entity, color: number): void {
+    if (!this.strategicTargetHover) this.strategicTargetHover = this.createTargetHover(color);
+    const hover = this.strategicTargetHover;
+    hover.materials[0].color.setHex(color);
+    hover.materials[1].color.setHex(color);
+    hover.target = target;
+    hover.radius = targetHoverRadius(target, this.hf.cellSize);
+    hover.root.visible = true;
+    this.positionTargetHover(hover);
+  }
+
+  clearStrategicTarget(): void {
+    if (!this.strategicTargetHover) return;
+    this.strategicTargetHover.root.visible = false;
+    this.strategicTargetHover.target = undefined;
+  }
+
   update(dt: number): void {
-    this.updateTargetHover(dt);
+    this.updateTargetHover(this.targetHover, dt, () => this.clearTargetHover());
+    this.updateTargetHover(this.strategicTargetHover, dt, () => this.clearStrategicTarget());
     for (let i = this.markers.length - 1; i >= 0; i--) {
       const marker = this.markers[i];
       marker.ttl -= dt;
@@ -318,9 +337,9 @@ export class OrderMarkerView {
     return { root, slots, anchorRing, direction, materials: [core, ringMaterial, dark] };
   }
 
-  private createTargetHover(): TargetHover {
-    const core = new MeshBasicMaterial({ color: 0xff2f2f, transparent: true, opacity: 0.86, depthWrite: false, depthTest: false, side: DoubleSide });
-    const soft = new MeshBasicMaterial({ color: 0xff5c4a, transparent: true, opacity: 0.34, depthWrite: false, depthTest: false, side: DoubleSide });
+  private createTargetHover(color = 0xff2f2f): TargetHover {
+    const core = new MeshBasicMaterial({ color, transparent: true, opacity: 0.86, depthWrite: false, depthTest: false, side: DoubleSide });
+    const soft = new MeshBasicMaterial({ color, transparent: true, opacity: 0.34, depthWrite: false, depthTest: false, side: DoubleSide });
     const dark = new MeshBasicMaterial({ color: 0x130303, transparent: true, opacity: 0.42, depthWrite: false, depthTest: false, side: DoubleSide });
     const root = new Group();
     root.visible = false;
@@ -357,11 +376,10 @@ export class OrderMarkerView {
     return { root, ring, innerRing, brackets, materials: [core, soft, dark], radius: 4, pulse: 0 };
   }
 
-  private updateTargetHover(dt: number): void {
-    const hover = this.targetHover;
+  private updateTargetHover(hover: TargetHover | undefined, dt: number, clear: () => void): void {
     if (!hover || !hover.root.visible) return;
     if (!hover.target || hover.target.destroyed || (hover.target.health && hover.target.health.current <= 0)) {
-      this.clearTargetHover();
+      clear();
       return;
     }
     hover.radius = targetHoverRadius(hover.target, this.hf.cellSize);
