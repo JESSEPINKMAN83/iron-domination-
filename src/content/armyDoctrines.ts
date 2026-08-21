@@ -1,6 +1,7 @@
 export const ARMY_DOCTRINE_IDS = ['iron-legion', 'missile-command'] as const;
 
 export type ArmyDoctrineId = (typeof ARMY_DOCTRINE_IDS)[number];
+export type ArmyDoctrineAssignments = [ArmyDoctrineId, ArmyDoctrineId, ArmyDoctrineId, ArmyDoctrineId];
 
 export interface ArmyDoctrineDef {
   id: ArmyDoctrineId;
@@ -36,4 +37,19 @@ export function opposingArmyDoctrine(doctrine: ArmyDoctrineId): ArmyDoctrineId {
 
 export function sanitizeArmyDoctrine(value: unknown): ArmyDoctrineId | undefined {
   return ARMY_DOCTRINE_IDS.includes(value as ArmyDoctrineId) ? value as ArmyDoctrineId : undefined;
+}
+
+export function defaultArmyDoctrines(): ArmyDoctrineAssignments {
+  return ['iron-legion', 'missile-command', 'missile-command', 'missile-command'];
+}
+
+export function sanitizeArmyDoctrines(value: unknown, legacyPrimary?: unknown): ArmyDoctrineAssignments | undefined {
+  if (Array.isArray(value) && value.length > 0) {
+    const defaults = defaultArmyDoctrines();
+    return defaults.map((fallback, index) => sanitizeArmyDoctrine(value[index]) ?? fallback) as ArmyDoctrineAssignments;
+  }
+  const primary = sanitizeArmyDoctrine(legacyPrimary);
+  if (!primary) return undefined;
+  const opponent = opposingArmyDoctrine(primary);
+  return [primary, opponent, opponent, opponent];
 }

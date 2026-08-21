@@ -46,11 +46,11 @@ import {
 } from './content/maps';
 import { STRUCTURES, type StructureKind, type UnitKind } from './content/phase3';
 import {
-  ARMY_DOCTRINES,
   ARMY_DOCTRINE_IDS,
-  opposingArmyDoctrine,
+  defaultArmyDoctrines,
   sanitizeArmyDoctrine,
-  type ArmyDoctrineId,
+  sanitizeArmyDoctrines,
+  type ArmyDoctrineAssignments,
 } from './content/armyDoctrines';
 import { WEAPONS, type WeaponKind } from './content/phase4';
 import { arsenalForUnit } from './content/unitArsenal';
@@ -193,7 +193,7 @@ interface SkirmishSettings {
   aiStyle: Personality;
   debug: boolean;
   combatMode: CombatMode;
-  armyDoctrine: ArmyDoctrineId;
+  armyDoctrines: ArmyDoctrineAssignments;
   armyCount: ArmyCount;
   armySides: ArmySides;
   spawnSlots: ArmySpawnSlots;
@@ -460,7 +460,9 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
       aiStyle: PERSONALITIES.includes(parsed.aiStyle as Personality) ? parsed.aiStyle : undefined,
       debug: parsed.debug === true,
       combatMode: COMBAT_MODES.includes(parsed.combatMode as CombatMode) ? parsed.combatMode : undefined,
-      armyDoctrine: sanitizeArmyDoctrine(parsed.armyDoctrine),
+      // The retired global faction choice cannot express independent armies,
+      // so old local settings fall back to the new Aegis-vs-Vesper defaults.
+      armyDoctrines: sanitizeArmyDoctrines(parsed.armyDoctrines),
       armyCount: sanitizeArmyCount(parsed.armyCount),
       armySides: sanitizeArmySides(parsed.armySides),
       spawnSlots: sanitizeSpawnSlots(parsed.spawnSlots),
@@ -486,7 +488,8 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
   const ai = params.get('ai');
   const aiStyle = params.get('ai-style');
   const combat = params.get('combat');
-  const armyDoctrine = sanitizeArmyDoctrine(params.get('army'));
+  const legacyArmyDoctrine = sanitizeArmyDoctrine(params.get('army'));
+  const armyDoctrines = sanitizeArmyDoctrines(params.get('doctrines')?.split(','), legacyArmyDoctrine);
   const armyCount = sanitizeArmyCount(params.get('armies'));
   const sides = params.get('sides');
   const spawns = params.get('spawns');
@@ -502,7 +505,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
     aiStyle: PERSONALITIES.includes(aiStyle as Personality) ? (aiStyle as Personality) : undefined,
     debug: params.get('debug') === 'armies' ? true : undefined,
     combatMode: COMBAT_MODES.includes(combat as CombatMode) ? (combat as CombatMode) : undefined,
-    armyDoctrine,
+    armyDoctrines,
     armyCount,
     armySides: sides ? sanitizeArmySides(sides.split(',')) : undefined,
     spawnSlots: spawns ? sanitizeSpawnSlots(spawns.split(',')) : undefined,
@@ -547,7 +550,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     aiStyle: fromUrl.aiStyle ?? stored.aiStyle ?? 'balanced',
     debug: fromUrl.debug ?? stored.debug ?? false,
     combatMode: fromUrl.combatMode ?? stored.combatMode ?? 'assisted',
-    armyDoctrine: fromUrl.armyDoctrine ?? stored.armyDoctrine ?? 'iron-legion',
+    armyDoctrines: fromUrl.armyDoctrines ?? stored.armyDoctrines ?? defaultArmyDoctrines(),
     armyCount,
     armySides: ensureOpposingSides(armyCount, armySides),
     spawnSlots,
@@ -725,8 +728,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     const difficulty = createSegmentedControl('Difficulty', DIFFICULTIES, defaults.ai, DIFFICULTY_DESCRIPTIONS, undefined, () => refresh());
     const commander = createSegmentedControl('Enemy commander', PERSONALITIES, defaults.aiStyle, PERSONALITY_DESCRIPTIONS, undefined, () => refresh());
     const combatMode = createSegmentedControl('Combat mode', COMBAT_MODES, defaults.combatMode, COMBAT_MODE_DESCRIPTIONS, undefined, () => refresh());
-    const armyDoctrine = createFactionControl(defaults.armyDoctrine, () => refresh());
-    const armies = createArmySetupControl(defaults.armyCount, defaults.armySides, () => refresh());
+    const armies = createArmySetupControl(defaults.armyCount, defaults.armySides, defaults.armyDoctrines, () => refresh());
 
     const mapPreview = document.createElement('div');
     mapPreview.className = 'war-map-preview';
@@ -811,7 +813,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
 
     const rules = document.createElement('div');
     rules.className = 'war-rules-grid';
-    rules.append(armyDoctrine.root, difficulty.root, commander.root, combatMode.root);
+    rules.append(difficulty.root, commander.root, combatMode.root);
     const rulesSection = createSetupSection('02', 'BATTLE RULES', '', rules);
     rulesSection.classList.add('war-section--rules');
 
@@ -838,7 +840,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       aiStyle: commander.value(),
       debug: defaults.debug,
       combatMode: combatMode.value(),
-      armyDoctrine: armyDoctrine.value(),
+      armyDoctrines: armies.armyDoctrines(),
       armyCount: armies.armyCount(),
       armySides: armies.armySides(),
       spawnSlots: multiplayerSpawnSlots,
@@ -849,7 +851,6 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       difficulty.setValue(room.ai);
       commander.setValue(room.aiStyle);
       combatMode.setValue(room.combatMode ?? 'assisted');
-      armyDoctrine.setValue(sanitizeArmyDoctrine(room.armyDoctrine) ?? 'iron-legion');
       mapChoice.setValue(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID);
       mapSizeChoice.setValue(sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE);
       seedInput.value = String(room.seed);
@@ -857,13 +858,16 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       terrainReliefInput.value = String(sanitizeTerrainRelief(room.terrainRelief) ?? defaultTerrainRelief(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID));
       timeOfDayChoice.setValue(sanitizeTimeOfDay(room.timeOfDay) ?? 'day');
       weatherChoice.setValue(sanitizeWeather(room.weather) ?? 'clear');
-      armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
+      armies.setState(
+        sanitizeArmyCount(room.armyCount) ?? 2,
+        sanitizeArmySides(room.armySides) ?? defaultArmySides(),
+        sanitizeArmyDoctrines(room.armyDoctrines, room.armyDoctrine) ?? defaultArmyDoctrines(),
+      );
       multiplayerSpawnSlots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
       currentSpawnPoints = sanitizeSpawnPoints(room.spawnPoints) ?? spawnPointsFromSlots(multiplayerSpawnSlots);
       const roomPlayer = room.players.find((player) => player.index === playerIndex);
       armies.setPlayerIndex(roomPlayer?.armyId ?? playerIndex);
       const guestLocked = room.hostPlayerId ? roomPlayer?.id !== room.hostPlayerId : playerIndex !== 1;
-      armyDoctrine.setDisabled(guestLocked);
       difficulty.setDisabled(guestLocked);
       commander.setDisabled(guestLocked);
       combatMode.setDisabled(guestLocked);
@@ -972,7 +976,6 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
         difficulty.setDisabled(false);
         commander.setDisabled(false);
         combatMode.setDisabled(false);
-        armyDoctrine.setDisabled(false);
         mapChoice.setDisabled(false);
         mapSizeChoice.setDisabled(false);
         timeOfDayChoice.setDisabled(false);
@@ -1176,74 +1179,17 @@ function createSegmentedControl<T extends string>(
   };
 }
 
-function createFactionControl(
-  initial: ArmyDoctrineId,
-  onChange: (value: ArmyDoctrineId) => void = () => {},
-): { root: HTMLDivElement; value: () => ArmyDoctrineId; setValue: (value: ArmyDoctrineId) => void; setDisabled: (disabled: boolean) => void } {
-  let current = initial;
-  let disabled = false;
-  const root = document.createElement('div');
-  root.className = 'war-faction';
-  const heading = document.createElement('div');
-  heading.className = 'war-field__label';
-  heading.innerHTML = '<span>CHOOSE YOUR FACTION</span><small>THE OPPOSING ARMY DEPLOYS THE RIVAL FACTION</small>';
-  const choices = document.createElement('div');
-  choices.className = 'war-faction__choices';
-  const buttons = new Map<ArmyDoctrineId, HTMLButtonElement>();
-
-  const render = (): void => {
-    for (const [id, button] of buttons) {
-      const active = id === current;
-      button.classList.toggle('is-active', active);
-      button.setAttribute('aria-pressed', String(active));
-      button.disabled = disabled;
-    }
-  };
-
-  for (const id of ARMY_DOCTRINE_IDS) {
-    const faction = ARMY_DOCTRINES[id];
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `war-faction-card war-faction-card--${id === 'iron-legion' ? 'aegis' : 'vesper'}`;
-    button.innerHTML =
-      `<span class="war-faction-card__eyebrow">${id === 'iron-legion' ? 'AIR COMMAND' : 'MISSILE COMMAND'}</span>` +
-      `<strong>${faction.label}</strong>` +
-      `<em>${faction.specialty}</em>` +
-      `<span class="war-faction-card__description">${faction.description}</span>` +
-      `<span class="war-faction-card__strength">+ ${faction.strength}</span>` +
-      `<span class="war-faction-card__limit">− ${faction.limitation}</span>`;
-    button.onclick = () => {
-      current = id;
-      render();
-      onChange(id);
-      button.blur();
-    };
-    choices.appendChild(button);
-    buttons.set(id, button);
-  }
-  root.append(heading, choices);
-  render();
-  return {
-    root,
-    value: () => current,
-    setValue: (value) => {
-      if (!ARMY_DOCTRINE_IDS.includes(value)) return;
-      current = value;
-      render();
-      onChange(value);
-    },
-    setDisabled: (value) => {
-      disabled = value;
-      render();
-    },
-  };
-}
-
-function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides, onChange: () => void = () => {}): {
+function createArmySetupControl(
+  initialCount: ArmyCount,
+  initialSides: ArmySides,
+  initialDoctrines: ArmyDoctrineAssignments,
+  onChange: () => void = () => {},
+): {
   root: HTMLDivElement;
   armyCount: () => ArmyCount;
   armySides: () => ArmySides;
-  setState: (count: ArmyCount, sides: ArmySides) => void;
+  armyDoctrines: () => ArmyDoctrineAssignments;
+  setState: (count: ArmyCount, sides: ArmySides, doctrines: ArmyDoctrineAssignments) => void;
   setPlayerIndex: (playerIndex: number) => void;
   setDisabled: (disabled: boolean) => void;
 } {
@@ -1251,6 +1197,7 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   let playerIndex = 1;
   let disabled = false;
   const sides: ArmySides = ensureOpposingSides(initialCount, initialSides);
+  const doctrines: ArmyDoctrineAssignments = [...initialDoctrines];
   const root = document.createElement('div');
   root.className = 'war-armies';
   const title = document.createElement('div');
@@ -1261,6 +1208,9 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   countButtons.style.setProperty('--option-count', '3');
   const sideRows = document.createElement('div');
   sideRows.className = 'war-armies__rows';
+  const tableHead = document.createElement('div');
+  tableHead.className = 'war-armies__table-head';
+  tableHead.innerHTML = '<span>ARMY</span><span>SIDE</span><span>TYPE</span>';
   const matchup = document.createElement('div');
   matchup.className = 'war-armies__matchup';
   matchup.setAttribute('aria-live', 'polite');
@@ -1281,17 +1231,17 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
       const army = Number(row.dataset.army);
       row.style.display = army <= count ? 'grid' : 'none';
       const label = row.querySelector('.war-army-row__label');
-      if (label) label.textContent = army === playerIndex ? `ARMY ${army} YOU` : `ARMY ${army} PLAYER / AI`;
-      for (const button of Array.from(row.querySelectorAll('button')) as HTMLButtonElement[]) {
-        const side = Number(button.dataset.side);
-        const active = side === sides[army - 1];
-        const proposedSides = sides.slice(0, count);
-        proposedSides[army - 1] = side;
-        const removesLastOpponent = new Set(proposedSides).size < 2;
-        button.classList.toggle('is-active', active);
-        button.setAttribute('aria-pressed', String(active));
-        button.disabled = disabled || removesLastOpponent;
-        button.title = removesLastOpponent ? 'At least two opposing sides are required.' : '';
+      if (label) label.innerHTML = `<strong>ARMY ${army}</strong><small>${army === playerIndex ? 'YOU' : 'PLAYER / AI'}</small>`;
+      const sideSelect = row.querySelector<HTMLSelectElement>('[data-role="side"]');
+      const doctrineSelect = row.querySelector<HTMLSelectElement>('[data-role="doctrine"]');
+      if (sideSelect) {
+        sideSelect.value = String(sides[army - 1]);
+        sideSelect.disabled = disabled;
+      }
+      if (doctrineSelect) {
+        doctrineSelect.value = doctrines[army - 1];
+        doctrineSelect.disabled = disabled;
+        doctrineSelect.dataset.doctrine = doctrines[army - 1];
       }
     }
     matchup.textContent = formatArmyMatchup(count, sides);
@@ -1326,33 +1276,53 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
     const label = document.createElement('div');
     label.className = 'war-army-row__label';
     row.appendChild(label);
+    const sideSelect = document.createElement('select');
+    sideSelect.className = 'war-army-row__select war-army-row__select--side';
+    sideSelect.dataset.role = 'side';
+    sideSelect.setAttribute('aria-label', `Army ${army} side`);
     for (let side = 1; side <= 4; side++) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'war-choice war-choice--side';
-      button.dataset.side = String(side);
-      button.textContent = `SIDE ${side}`;
-      button.onclick = () => {
-        sides[army - 1] = side;
-        normalizeSides();
-        render();
-        onChange();
-        button.blur();
-      };
-      row.appendChild(button);
+      const option = document.createElement('option');
+      option.value = String(side);
+      option.textContent = String(side);
+      sideSelect.appendChild(option);
     }
+    sideSelect.onchange = () => {
+      const previous = sides[army - 1];
+      sides[army - 1] = Math.max(1, Math.min(4, Number(sideSelect.value) || army));
+      if (new Set(sides.slice(0, count)).size < 2) sides[army - 1] = previous;
+      render();
+      onChange();
+    };
+    const doctrineSelect = document.createElement('select');
+    doctrineSelect.className = 'war-army-row__select war-army-row__select--doctrine';
+    doctrineSelect.dataset.role = 'doctrine';
+    doctrineSelect.setAttribute('aria-label', `Army ${army} type`);
+    for (const doctrine of ARMY_DOCTRINE_IDS) {
+      const option = document.createElement('option');
+      option.value = doctrine;
+      option.textContent = doctrine === 'iron-legion' ? 'AEGIS · AIR FORCE' : 'VESPER · MISSILES';
+      doctrineSelect.appendChild(option);
+    }
+    doctrineSelect.onchange = () => {
+      doctrines[army - 1] = sanitizeArmyDoctrine(doctrineSelect.value) ?? doctrines[army - 1];
+      render();
+      onChange();
+    };
+    row.append(sideSelect, doctrineSelect);
     sideRows.appendChild(row);
   }
 
-  root.append(title, countButtons, sideRows, matchup);
+  root.append(title, countButtons, tableHead, sideRows, matchup);
   render();
   return {
     root,
     armyCount: () => count,
     armySides: () => ensureOpposingSides(count, sides),
-    setState: (nextCount, nextSides) => {
+    armyDoctrines: () => [...doctrines] as ArmyDoctrineAssignments,
+    setState: (nextCount, nextSides, nextDoctrines) => {
       count = nextCount;
       for (let index = 0; index < sides.length; index++) sides[index] = nextSides[index];
+      for (let index = 0; index < doctrines.length; index++) doctrines[index] = nextDoctrines[index];
       normalizeSides();
       render();
       onChange();
@@ -2353,7 +2323,7 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
     aiStyle: room.aiStyle,
     debug: false,
     combatMode: room.combatMode ?? 'assisted',
-    armyDoctrine: sanitizeArmyDoctrine(room.armyDoctrine) ?? 'iron-legion',
+    armyDoctrines: sanitizeArmyDoctrines(room.armyDoctrines, room.armyDoctrine) ?? defaultArmyDoctrines(),
     armyCount: sanitizeArmyCount(room.armyCount) ?? 2,
     armySides: sanitizeArmySides(room.armySides) ?? defaultArmySides(),
     spawnSlots: sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots(),
@@ -2661,10 +2631,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         : aiTeams.has(team)
           ? AI_DIFFICULTY[aiDifficulty].startCredits
           : 4600;
-    const primaryDoctrine = missileDoctrinePreview ? 'missile-command' : settings.armyDoctrine;
-    const primarySide = settings.armySides[0] ?? 1;
-    const teamSide = settings.armySides[team - 1] ?? team;
-    const doctrine = teamSide === primarySide ? primaryDoctrine : opposingArmyDoctrine(primaryDoctrine);
+    const doctrine = missileDoctrinePreview && team === localTeam
+      ? 'missile-command'
+      : settings.armyDoctrines[team - 1] ?? defaultArmyDoctrines()[team - 1];
     const economy = createEconomy(team, credits, doctrine);
     const start = armyStartPosition(hf.size, team, settings.spawnPoints);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
@@ -4175,6 +4144,7 @@ function copyMatchLink(settings: SkirmishSettings, status: HTMLElement): void {
   url.searchParams.set('combat', settings.combatMode);
   url.searchParams.set('armies', String(settings.armyCount));
   url.searchParams.set('sides', settings.armySides.slice(0, settings.armyCount).join(','));
+  url.searchParams.set('doctrines', settings.armyDoctrines.slice(0, settings.armyCount).join(','));
   url.searchParams.set('spawns', settings.spawnSlots.slice(0, settings.armyCount).join(','));
   url.searchParams.set('spawnpts', serializeSpawnPoints(settings.spawnPoints, settings.armyCount));
   const write = navigator.clipboard?.writeText(url.toString());
