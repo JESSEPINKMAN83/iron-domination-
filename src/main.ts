@@ -3940,7 +3940,7 @@ function createGameMenu(
 ): void {
   const wrap = document.createElement('div');
   wrap.className = 'game-chrome-controls';
-  wrap.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:30;display:flex;gap:6px;align-items:center;';
+  wrap.style.cssText = 'position:fixed;left:10px;top:10px;z-index:30;display:flex;gap:6px;align-items:center;';
   const help = gameChromeButton('HOW TO PLAY', 'Open the field manual');
   help.classList.add('game-chrome-controls__help');
   help.setAttribute('aria-label', 'How to play');
@@ -3968,7 +3968,7 @@ function createGameMenu(
       onHelp: () => openHowToPlay(),
     });
   };
-  wrap.append(help, menu);
+  wrap.append(menu, help);
   document.body.appendChild(wrap);
 }
 
