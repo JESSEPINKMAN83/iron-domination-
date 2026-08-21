@@ -35,6 +35,7 @@ const rooms = new Map();
  *   ai: string;
  *   aiStyle: string;
  *   combatMode: 'assisted' | 'manual';
+ *   armyDoctrine: 'iron-legion' | 'missile-command';
  *   inputDelay: number;
  *   createdAt: number;
  *   updatedAt: number;
@@ -273,6 +274,7 @@ function handleSettings(socket, body) {
   room.ai = String(next.ai ?? room.ai);
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
+  room.armyDoctrine = normalizeArmyDoctrine(next.armyDoctrine ?? room.armyDoctrine);
   const requestedControllerCount = normalizeControllerCount(
     next.controllerCount ?? next.armyCount ?? room.controllerCount,
   );
@@ -439,6 +441,7 @@ function createRoom(body) {
     ai: String(body?.ai ?? 'normal'),
     aiStyle: String(body?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(body?.combatMode),
+    armyDoctrine: normalizeArmyDoctrine(body?.armyDoctrine),
     inputDelay: 8,
     armyCount,
     controllerCount,
@@ -475,6 +478,7 @@ function restoreRoom(snapshot) {
     ai: String(snapshot?.ai ?? 'normal'),
     aiStyle: String(snapshot?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(snapshot?.combatMode),
+    armyDoctrine: normalizeArmyDoctrine(snapshot?.armyDoctrine),
     inputDelay: Math.max(4, Math.min(12, Math.floor(Number(snapshot?.inputDelay) || 8))),
     armyCount,
     controllerCount,
@@ -649,6 +653,7 @@ function publicRoom(room) {
     ai: room.ai,
     aiStyle: room.aiStyle,
     combatMode: room.combatMode,
+    armyDoctrine: room.armyDoctrine,
     inputDelay: room.inputDelay,
     armyCount: room.armyCount,
     controllerCount: room.controllerCount,
@@ -744,6 +749,10 @@ function normalizeRoomCode(code) {
 
 function normalizeCombatMode(value) {
   return value === 'manual' ? 'manual' : 'assisted';
+}
+
+function normalizeArmyDoctrine(value) {
+  return value === 'missile-command' ? 'missile-command' : 'iron-legion';
 }
 
 

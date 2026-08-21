@@ -246,7 +246,7 @@ describe('multiplayer relay', () => {
       type: 'settings',
       roomCode,
       playerId: hostId,
-      settings: { mapId: 'crater-oasis', mapSize: 'large', seed: 246810, oreAmount: 175, terrainRelief: 150, combatMode: 'manual', armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
+      settings: { mapId: 'crater-oasis', mapSize: 'large', seed: 246810, oreAmount: 175, terrainRelief: 150, combatMode: 'manual', armyDoctrine: 'missile-command', armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
     }));
     const synchronizedRoom = await synchronizedSettings;
     expect(synchronizedRoom.room.spawnSlots).toEqual([2, 1, 3, 4]);
@@ -254,6 +254,7 @@ describe('multiplayer relay', () => {
     expect(synchronizedRoom.room.oreAmount).toBe(175);
     expect(synchronizedRoom.room.terrainRelief).toBe(150);
     expect(synchronizedRoom.room.combatMode).toBe('manual');
+    expect(synchronizedRoom.room.armyDoctrine).toBe('missile-command');
 
     const resizedSettings = nextMessage(
       guest,
@@ -301,6 +302,8 @@ describe('multiplayer relay', () => {
     expect(guestStart.room.terrainRelief).toBe(150);
     expect(hostStart.room.combatMode).toBe('manual');
     expect(guestStart.room.combatMode).toBe('manual');
+    expect(hostStart.room.armyDoctrine).toBe('missile-command');
+    expect(guestStart.room.armyDoctrine).toBe('missile-command');
 
     const hostPing = nextMessage(host, (message) => message.type === 'tactical-ping');
     const guestPing = nextMessage(guest, (message) => message.type === 'tactical-ping');

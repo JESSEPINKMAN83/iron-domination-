@@ -50,6 +50,69 @@ function runMatch(ticks: number) {
 }
 
 describe('phase 6 enemy commander', () => {
+  it('uses faction-specific infrastructure plans', () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vision = new VisibilityGrid(hf, 2);
+    const vesper = new EnemyCommander(sim, hf, createEconomy(2, 4600, 'missile-command'), vision, 'balanced', 'normal');
+    const aegis = new EnemyCommander(sim, hf, createEconomy(3, 4600, 'iron-legion'), vision, 'balanced', 'normal', [], true);
+    const vesperQueue = (vesper as unknown as { buildQueue: string[] }).buildQueue;
+    const aegisQueue = (aegis as unknown as { buildQueue: string[] }).buildQueue;
+    expect(vesperQueue).toContain('intelligence-center');
+    expect(vesperQueue).toContain('strategic-silo');
+    expect(vesperQueue).not.toContain('helipad');
+    expect(aegisQueue).toContain('missile-defense');
+    vi.restoreAllMocks();
+  });
+
+  it('lets a Vesper commander launch toward a known enemy deployment sector', () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.allianceSides = { 1: 1, 2: 2 };
+    const player = createEconomy(1);
+    const playerBase = createInitialBase(sim, hf, player, -170, 0);
+    const vesper = createEconomy(2, 5000, 'missile-command');
+    const vesperBase = createInitialBase(sim, hf, vesper, 170, 0);
+    vesper.powerProduced = 100;
+    vesper.powerUsed = 0;
+    sim.world.add({
+      id: sim.nextEntityId++,
+      name: 'Vesper Missile Silo',
+      transform: { x: vesperBase.transform.x - 18, z: vesperBase.transform.z, rot: 0 },
+      previousTransform: { x: vesperBase.transform.x - 18, z: vesperBase.transform.z, rot: 0 },
+      health: { current: 820, max: 820 },
+      team: { id: 2 },
+      selectable: { selected: false, type: 'building', radius: 7 },
+      collider: { radius: 7 },
+      armor: { kind: 'building' },
+      building: {
+        kind: 'strategic-silo',
+        label: 'Missile Silo',
+        footprint: { w: 7, h: 7 },
+        powerProduced: 0,
+        powerUsed: 25,
+        complete: true,
+        buildProgress: 1,
+      },
+    });
+    const commander = new EnemyCommander(
+      sim,
+      hf,
+      vesper,
+      new VisibilityGrid(hf, 2),
+      'balanced',
+      'normal',
+      [{ x: playerBase.transform.x, z: playerBase.transform.z }],
+    );
+
+    (commander as unknown as { commandStrategicStrike: () => void }).commandStrategicStrike();
+
+    expect(sim.projectiles.some((projectile) => projectile.strategic && projectile.teamId === 2 && projectile.strategicTargetTeamId === 1)).toBe(true);
+    vi.restoreAllMocks();
+  });
+
   it('builds its base, produces an army, and launches attacks', () => {
     const { sim, commander } = runMatch(30 * 240); // 4 sim-minutes
     const aiBuildings = buildings(sim, 2).filter((entity) => entity.building?.complete);

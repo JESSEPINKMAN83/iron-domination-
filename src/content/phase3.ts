@@ -53,6 +53,7 @@ export interface UnitDef {
   buildTime: number;
   requires: StructureKind;
   producer: 'infantry' | 'vehicles' | 'aircraft';
+  doctrine?: ArmyDoctrineId;
 }
 
 export const STRUCTURES: Record<StructureKind, StructureDef> = {
@@ -112,6 +113,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     powerUsed: 10,
     requires: 'factory',
     producer: 'aircraft',
+    doctrine: 'iron-legion',
   },
   'intelligence-center': {
     kind: 'intelligence-center',
@@ -200,6 +202,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     requires: 'power-plant',
     blocksMovement: true,
     visionRadius: 190,
+    doctrine: 'iron-legion',
   },
 };
 
@@ -283,6 +286,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     buildTime: 9,
     requires: 'helipad',
     producer: 'aircraft',
+    doctrine: 'iron-legion',
   },
   vulture: {
     kind: 'vulture',
@@ -293,6 +297,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     buildTime: 12,
     requires: 'helipad',
     producer: 'aircraft',
+    doctrine: 'iron-legion',
   },
   hammerhead: {
     kind: 'hammerhead',
@@ -303,5 +308,6 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     buildTime: 15,
     requires: 'helipad',
     producer: 'aircraft',
+    doctrine: 'iron-legion',
   },
 };

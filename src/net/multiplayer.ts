@@ -1,6 +1,7 @@
 import { enlistedCommander } from '../identity/enlist';
 import type { Difficulty, Personality } from '../content/phase6';
 import type { CombatMode } from '../content/rules';
+import type { ArmyDoctrineId } from '../content/armyDoctrines';
 import { secureRandomUuid } from '../crypto';
 
 export interface MultiplayerRoom {
@@ -16,6 +17,7 @@ export interface MultiplayerRoom {
   ai: Difficulty;
   aiStyle: Personality;
   combatMode?: CombatMode;
+  armyDoctrine?: ArmyDoctrineId;
   inputDelay?: number;
   armyCount: number;
   controllerCount?: 2 | 3 | 4;
@@ -128,7 +130,7 @@ export class MultiplayerClient {
     return commander ? { memberId: commander.memberId, memberTicket: commander.ticket } : {};
   }
 
-  async host(settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; terrainRelief?: number; timeOfDay?: string; weather?: string; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; controllerCount?: number; controllerTeams?: number[]; playersPerArmy?: 1 | 2; armySides?: number[]; spawnSlots?: number[]; spawnPoints?: Array<{ x: number; z: number }>; name?: string; playerId?: string }): Promise<MultiplayerSession> {
+  async host(settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; terrainRelief?: number; timeOfDay?: string; weather?: string; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyDoctrine?: ArmyDoctrineId; armyCount?: number; controllerCount?: number; controllerTeams?: number[]; playersPerArmy?: 1 | 2; armySides?: number[]; spawnSlots?: number[]; spawnPoints?: Array<{ x: number; z: number }>; name?: string; playerId?: string }): Promise<MultiplayerSession> {
     await this.ensureSocket();
     return this.request({
       type: 'host',
@@ -160,7 +162,7 @@ export class MultiplayerClient {
     this.send({ type: 'tactical-ping', roomCode: normalizeRoomCode(roomCode), playerId, kind, x, z });
   }
 
-  updateSettings(roomCode: string, playerId: string, settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; terrainRelief?: number; timeOfDay?: string; weather?: string; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyCount?: number; controllerCount?: number; controllerTeams?: number[]; playersPerArmy?: 1 | 2; armySides?: number[]; spawnSlots?: number[]; spawnPoints?: Array<{ x: number; z: number }> }): void {
+  updateSettings(roomCode: string, playerId: string, settings: { mapId?: string; mapSize?: string; seed: number; oreAmount?: number; terrainRelief?: number; timeOfDay?: string; weather?: string; ai: Difficulty; aiStyle: Personality; combatMode?: CombatMode; armyDoctrine?: ArmyDoctrineId; armyCount?: number; controllerCount?: number; controllerTeams?: number[]; playersPerArmy?: 1 | 2; armySides?: number[]; spawnSlots?: number[]; spawnPoints?: Array<{ x: number; z: number }> }): void {
     this.send({ type: 'settings', roomCode: normalizeRoomCode(roomCode), playerId, settings });
   }
 

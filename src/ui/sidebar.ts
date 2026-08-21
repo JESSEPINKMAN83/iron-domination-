@@ -519,7 +519,9 @@ export class Sidebar {
     }
 
     if (this.activeTab === 'defense') {
-      for (const def of Object.values(STRUCTURES).filter((structure) => structure.tab === 'defense')) {
+      for (const def of Object.values(STRUCTURES).filter(
+        (structure) => structure.tab === 'defense' && (!structure.doctrine || structure.doctrine === this.economy.doctrine),
+      )) {
         this.body.appendChild(
           this.card(def.kind, def.label, def.cost, 'DEFENSE', this.structureCardState(def.kind), () => this.actions.buildStructure(def.kind), () =>
             this.actions.cancelStructure(),
@@ -530,7 +532,13 @@ export class Sidebar {
     }
 
     const selectedProducer = selected && this.contextTab(selected) === this.activeTab ? selected : undefined;
-    const units = Object.values(UNITS).filter((unit) => unit.tab === this.activeTab);
+    const units = Object.values(UNITS).filter(
+      (unit) => unit.tab === this.activeTab && (!unit.doctrine || unit.doctrine === this.economy.doctrine),
+    );
+    if (this.activeTab === 'aircraft' && this.economy.doctrine === 'missile-command') {
+      this.body.appendChild(this.emptyState('NO AIR FORCE', 'The Vesper Republic replaces aircraft production with strategic missile capability.'));
+      return;
+    }
     const hasProducer = this.unitProducers(this.activeTab).length > 0;
     if (!hasProducer) {
       const required =

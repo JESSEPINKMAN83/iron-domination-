@@ -7,22 +7,32 @@ export interface ArmyDoctrineDef {
   label: string;
   specialty: string;
   description: string;
+  strength: string;
+  limitation: string;
 }
 
 export const ARMY_DOCTRINES: Record<ArmyDoctrineId, ArmyDoctrineDef> = {
   'iron-legion': {
     id: 'iron-legion',
-    label: 'Iron Legion',
-    specialty: 'Combined arms',
-    description: 'The current balanced army: strong armor, flexible aircraft, and dependable defenses.',
+    label: 'Aegis Coalition',
+    specialty: 'Air superiority & interception',
+    description: 'Control the sky with aircraft and layered missile-defense batteries.',
+    strength: 'Aircraft and strategic missile interception',
+    limitation: 'No strategic missile program',
   },
   'missile-command': {
     id: 'missile-command',
-    label: 'Missile Command',
-    specialty: 'Long-range strike',
-    description: 'Build intelligence infrastructure, reveal enemy structures, and strike them from across the map.',
+    label: 'Vesper Republic',
+    specialty: 'Long-range strategic strike',
+    description: 'Build intelligence and missile infrastructure, then strike marked locations across the map.',
+    strength: 'Long-range warheads and precision guidance',
+    limitation: 'No helipads or aircraft production',
   },
 };
+
+export function opposingArmyDoctrine(doctrine: ArmyDoctrineId): ArmyDoctrineId {
+  return doctrine === 'iron-legion' ? 'missile-command' : 'iron-legion';
+}
 
 export function sanitizeArmyDoctrine(value: unknown): ArmyDoctrineId | undefined {
   return ARMY_DOCTRINE_IDS.includes(value as ArmyDoctrineId) ? value as ArmyDoctrineId : undefined;

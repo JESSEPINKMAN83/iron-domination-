@@ -297,6 +297,41 @@
 .war-rules-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .war-rules-grid .war-field:last-child { grid-column: auto; }
 
+.war-faction { display: grid; gap: 8px; }
+.war-faction .war-field__label { justify-content: space-between; }
+.war-faction .war-field__label small { color: var(--war-dim); font-size: 7px; letter-spacing: .08em; }
+.war-faction__choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.war-faction-card {
+  position: relative;
+  min-width: 0;
+  min-height: 154px;
+  padding: 14px;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  overflow: hidden;
+  border: 1px solid var(--war-line-strong);
+  border-radius: 4px;
+  color: #c9d1cc;
+  background: linear-gradient(145deg, rgba(31,39,40,.96), rgba(10,14,15,.98));
+  text-align: left;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+.war-faction-card::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .12; background: linear-gradient(120deg, currentColor, transparent 42%); }
+.war-faction-card--aegis { color: #83d9ff; }
+.war-faction-card--vesper { color: #ff9d6c; }
+.war-faction-card:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.08); }
+.war-faction-card.is-active { border-color: currentColor; box-shadow: inset 0 0 0 1px currentColor, 0 0 22px color-mix(in srgb, currentColor 18%, transparent); }
+.war-faction-card:disabled { cursor: default; opacity: .48; }
+.war-faction-card__eyebrow { color: currentColor; font: 800 8px/1 ui-monospace, monospace; letter-spacing: .16em; }
+.war-faction-card strong { color: #f4f6f2; font: 400 21px/.95 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; letter-spacing: .06em; }
+.war-faction-card em { color: currentColor; font: 700 9px/1.2 ui-monospace, monospace; letter-spacing: .07em; text-transform: uppercase; font-style: normal; }
+.war-faction-card__description { min-height: 30px; color: #a2ada7; font-size: 10px; line-height: 1.45; }
+.war-faction-card__strength, .war-faction-card__limit { font: 700 8px/1.4 ui-monospace, monospace; letter-spacing: .02em; }
+.war-faction-card__strength { color: #9fdda9; }
+.war-faction-card__limit { color: #df8d7c; }
+
 .war-field, .war-input { min-width: 0; display: grid; gap: 5px; }
 .war-field__label, .war-input__label, .war-lobby__colors {
   color: #b9c1bc;
@@ -627,6 +662,8 @@
   .war-battlefield { grid-template-columns: 1fr; }
   .war-map-preview { max-width: 100%; }
   .war-settings-grid, .war-rules-grid { grid-template-columns: 1fr; }
+  .war-faction__choices { grid-template-columns: 1fr; }
+  .war-faction-card { min-height: 132px; }
   .war-terrain-row { grid-template-columns: 1fr; }
   .war-rules-grid .war-field:last-child { grid-column: auto; }
   .war-field__description { min-height: 0; }

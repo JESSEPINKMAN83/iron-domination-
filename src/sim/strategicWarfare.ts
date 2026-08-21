@@ -42,7 +42,7 @@ export function strategicLaunchReadiness(
   sim: GameSim,
   economy: EconomyState,
 ): { ready: boolean; reason: string; cooldown: number } {
-  if (economy.doctrine !== 'missile-command') return { ready: false, reason: 'Missile Command doctrine only', cooldown: 0 };
+  if (economy.doctrine !== 'missile-command') return { ready: false, reason: 'Vesper Republic only', cooldown: 0 };
   if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ready: false, reason: 'Build a Missile Silo', cooldown: 0 };
   if (economy.powerProduced < economy.powerUsed) return { ready: false, reason: 'Insufficient power', cooldown: economy.strategicMissileCooldown };
   if (economy.strategicMissileCooldown > 0) {

@@ -65,7 +65,7 @@ describe('Missile Command strategic warfare', () => {
     addStructure(sim, 'power-plant', 1, -20, 0);
     expect(canBuildStructure(sim, standard, 'intelligence-center')).toEqual({
       ok: false,
-      reason: 'Missile Command doctrine only',
+      reason: 'Vesper Republic only',
     });
 
     const specialist = createEconomy(2, 5000, 'missile-command');

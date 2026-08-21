@@ -3,7 +3,7 @@ import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, type Fortr
 import { startPosition } from '../content/startPositions';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
 import { WEAPONS } from '../content/phase4';
-import type { ArmyDoctrineId } from '../content/armyDoctrines';
+import { ARMY_DOCTRINES, type ArmyDoctrineId } from '../content/armyDoctrines';
 import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
@@ -157,7 +157,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
 
 export function canBuildStructure(sim: GameSim, economy: EconomyState, kind: StructureKind): { ok: boolean; reason: string } {
   const def = STRUCTURES[kind];
-  if (def.doctrine && def.doctrine !== economy.doctrine) return { ok: false, reason: 'Missile Command doctrine only' };
+  if (def.doctrine && def.doctrine !== economy.doctrine) return { ok: false, reason: `${ARMY_DOCTRINES[def.doctrine].label} only` };
   if (economy.structureLine || economy.readyStructure) return { ok: false, reason: 'Structure line busy' };
   if (economy.credits < def.cost) return { ok: false, reason: 'Insufficient credits' };
   if (def.requires && !hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}` };
@@ -169,6 +169,9 @@ export function canQueueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind
   const producers = buildings(sim, economy.team).filter(
     (entity) => entity.building?.complete && STRUCTURES[entity.building.kind as StructureKind]?.producer === def.producer,
   );
+  if (def.doctrine && def.doctrine !== economy.doctrine) {
+    return { ok: false, reason: `${ARMY_DOCTRINES[def.doctrine].label} only`, producers: [] };
+  }
   if (!hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}`, producers };
   if (producers.length === 0) return { ok: false, reason: 'No producer', producers };
   if (economy.credits < def.cost) return { ok: false, reason: 'Insufficient credits', producers };
@@ -467,7 +470,7 @@ export function strategicMissileUpgradeCost(currentLevel: number): number {
 
 export function canUpgradeStrategicMissile(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
   const cost = strategicMissileUpgradeCost(economy.strategicMissileLevel);
-  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Missile Command doctrine only', cost };
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
   if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
   if (economy.strategicMissileLevel >= MAX_STRATEGIC_MISSILE_LEVEL) return { ok: false, reason: 'Maximum missile level', cost: 0 };
   if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
@@ -491,7 +494,7 @@ export function strategicAccuracyUpgradeCost(currentLevel: number): number {
 
 export function canUpgradeStrategicAccuracy(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
   const cost = strategicAccuracyUpgradeCost(economy.strategicAccuracyLevel);
-  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Missile Command doctrine only', cost };
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
   if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
   if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
   if (economy.strategicAccuracyLevel >= MAX_STRATEGIC_ACCURACY_LEVEL) return { ok: false, reason: 'Maximum accuracy level', cost: 0 };

@@ -48,6 +48,7 @@ import { STRUCTURES, type StructureKind, type UnitKind } from './content/phase3'
 import {
   ARMY_DOCTRINES,
   ARMY_DOCTRINE_IDS,
+  opposingArmyDoctrine,
   sanitizeArmyDoctrine,
   type ArmyDoctrineId,
 } from './content/armyDoctrines';
@@ -724,17 +725,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     const difficulty = createSegmentedControl('Difficulty', DIFFICULTIES, defaults.ai, DIFFICULTY_DESCRIPTIONS, undefined, () => refresh());
     const commander = createSegmentedControl('Enemy commander', PERSONALITIES, defaults.aiStyle, PERSONALITY_DESCRIPTIONS, undefined, () => refresh());
     const combatMode = createSegmentedControl('Combat mode', COMBAT_MODES, defaults.combatMode, COMBAT_MODE_DESCRIPTIONS, undefined, () => refresh());
-    const armyDoctrineDescriptions = Object.fromEntries(
-      ARMY_DOCTRINE_IDS.map((id) => [id, `${ARMY_DOCTRINES[id].specialty} — ${ARMY_DOCTRINES[id].description}`]),
-    ) as Record<ArmyDoctrineId, string>;
-    const armyDoctrine = createSegmentedControl(
-      'Army doctrine',
-      ARMY_DOCTRINE_IDS,
-      defaults.armyDoctrine,
-      armyDoctrineDescriptions,
-      (id) => ARMY_DOCTRINES[id].label,
-      () => refresh(),
-    );
+    const armyDoctrine = createFactionControl(defaults.armyDoctrine, () => refresh());
     const armies = createArmySetupControl(defaults.armyCount, defaults.armySides, () => refresh());
 
     const mapPreview = document.createElement('div');
@@ -858,8 +849,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       difficulty.setValue(room.ai);
       commander.setValue(room.aiStyle);
       combatMode.setValue(room.combatMode ?? 'assisted');
-      armyDoctrine.setValue('iron-legion');
-      armyDoctrine.setDisabled(true);
+      armyDoctrine.setValue(sanitizeArmyDoctrine(room.armyDoctrine) ?? 'iron-legion');
       mapChoice.setValue(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID);
       mapSizeChoice.setValue(sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE);
       seedInput.value = String(room.seed);
@@ -873,6 +863,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       const roomPlayer = room.players.find((player) => player.index === playerIndex);
       armies.setPlayerIndex(roomPlayer?.armyId ?? playerIndex);
       const guestLocked = room.hostPlayerId ? roomPlayer?.id !== room.hostPlayerId : playerIndex !== 1;
+      armyDoctrine.setDisabled(guestLocked);
       difficulty.setDisabled(guestLocked);
       commander.setDisabled(guestLocked);
       combatMode.setDisabled(guestLocked);
@@ -981,6 +972,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
         difficulty.setDisabled(false);
         commander.setDisabled(false);
         combatMode.setDisabled(false);
+        armyDoctrine.setDisabled(false);
         mapChoice.setDisabled(false);
         mapSizeChoice.setDisabled(false);
         timeOfDayChoice.setDisabled(false);
@@ -1176,6 +1168,69 @@ function createSegmentedControl<T extends string>(
       current = value;
       render();
       onChange(current);
+    },
+    setDisabled: (value) => {
+      disabled = value;
+      render();
+    },
+  };
+}
+
+function createFactionControl(
+  initial: ArmyDoctrineId,
+  onChange: (value: ArmyDoctrineId) => void = () => {},
+): { root: HTMLDivElement; value: () => ArmyDoctrineId; setValue: (value: ArmyDoctrineId) => void; setDisabled: (disabled: boolean) => void } {
+  let current = initial;
+  let disabled = false;
+  const root = document.createElement('div');
+  root.className = 'war-faction';
+  const heading = document.createElement('div');
+  heading.className = 'war-field__label';
+  heading.innerHTML = '<span>CHOOSE YOUR FACTION</span><small>THE OPPOSING ARMY DEPLOYS THE RIVAL FACTION</small>';
+  const choices = document.createElement('div');
+  choices.className = 'war-faction__choices';
+  const buttons = new Map<ArmyDoctrineId, HTMLButtonElement>();
+
+  const render = (): void => {
+    for (const [id, button] of buttons) {
+      const active = id === current;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+      button.disabled = disabled;
+    }
+  };
+
+  for (const id of ARMY_DOCTRINE_IDS) {
+    const faction = ARMY_DOCTRINES[id];
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `war-faction-card war-faction-card--${id === 'iron-legion' ? 'aegis' : 'vesper'}`;
+    button.innerHTML =
+      `<span class="war-faction-card__eyebrow">${id === 'iron-legion' ? 'AIR COMMAND' : 'MISSILE COMMAND'}</span>` +
+      `<strong>${faction.label}</strong>` +
+      `<em>${faction.specialty}</em>` +
+      `<span class="war-faction-card__description">${faction.description}</span>` +
+      `<span class="war-faction-card__strength">+ ${faction.strength}</span>` +
+      `<span class="war-faction-card__limit">− ${faction.limitation}</span>`;
+    button.onclick = () => {
+      current = id;
+      render();
+      onChange(id);
+      button.blur();
+    };
+    choices.appendChild(button);
+    buttons.set(id, button);
+  }
+  root.append(heading, choices);
+  render();
+  return {
+    root,
+    value: () => current,
+    setValue: (value) => {
+      if (!ARMY_DOCTRINE_IDS.includes(value)) return;
+      current = value;
+      render();
+      onChange(value);
     },
     setDisabled: (value) => {
       disabled = value;
@@ -2298,7 +2353,7 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
     aiStyle: room.aiStyle,
     debug: false,
     combatMode: room.combatMode ?? 'assisted',
-    armyDoctrine: 'iron-legion',
+    armyDoctrine: sanitizeArmyDoctrine(room.armyDoctrine) ?? 'iron-legion',
     armyCount: sanitizeArmyCount(room.armyCount) ?? 2,
     armySides: sanitizeArmySides(room.armySides) ?? defaultArmySides(),
     spawnSlots: sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots(),
@@ -2606,9 +2661,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         : aiTeams.has(team)
           ? AI_DIFFICULTY[aiDifficulty].startCredits
           : 4600;
-    const doctrine = !multiplayerMode && isLocal
-      ? missileDoctrinePreview ? 'missile-command' : settings.armyDoctrine
-      : 'iron-legion';
+    const primaryDoctrine = missileDoctrinePreview ? 'missile-command' : settings.armyDoctrine;
+    const primarySide = settings.armySides[0] ?? 1;
+    const teamSide = settings.armySides[team - 1] ?? team;
+    const doctrine = teamSide === primarySide ? primaryDoctrine : opposingArmyDoctrine(primaryDoctrine);
     const economy = createEconomy(team, credits, doctrine);
     const start = armyStartPosition(hf.size, team, settings.spawnPoints);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
@@ -2658,7 +2714,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
-    army.commander = new EnemyCommander(sim, hf, army.economy, army.vision, aiPersonality, aiDifficulty, hints);
+    const strategicDefenseNeeded = armies.some(
+      (candidate) => areTeamsHostile(sim, army.team, candidate.team) && candidate.economy.doctrine === 'missile-command',
+    );
+    army.commander = new EnemyCommander(sim, hf, army.economy, army.vision, aiPersonality, aiDifficulty, hints, strategicDefenseNeeded);
   }
   const commanders = armies.map((army) => army.commander).filter((commander): commander is EnemyCommander => !!commander);
   const debriefTracker = new BattleDebriefTracker(
@@ -5383,6 +5442,8 @@ function seedTestStartBase(sim: ReturnType<typeof createGameSim>, hf: ReturnType
     { kind: 'aa-tower', offsets: [{ x: 68, z: -4 }, { x: -68, z: 30 }, { x: 28, z: 76 }] },
   ];
   for (const item of placements) {
+    const definition = STRUCTURES[item.kind];
+    if (definition.doctrine && definition.doctrine !== economy.doctrine) continue;
     economy.readyStructure = item.kind;
     const placement = findValidTestPlacement(sim, hf, economy, base.transform.x, base.transform.z, item.kind, item.offsets);
     if (!placement) {

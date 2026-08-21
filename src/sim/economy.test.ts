@@ -24,6 +24,20 @@ import {
 import { createGameSim, spawnTankAt, stepSim } from './world';
 
 describe('phase 3 economy and production', () => {
+  it('enforces the asymmetric faction rosters', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const vesper = createEconomy(1, 5000, 'missile-command');
+    const aegis = createEconomy(2, 5000, 'iron-legion');
+    createInitialBase(sim, hf, vesper, -120, 0);
+    createInitialBase(sim, hf, aegis, 120, 0);
+
+    expect(canBuildStructure(sim, vesper, 'helipad')).toEqual({ ok: false, reason: 'Aegis Coalition only' });
+    expect(canBuildStructure(sim, vesper, 'missile-defense')).toEqual({ ok: false, reason: 'Aegis Coalition only' });
+    expect(canQueueUnit(sim, vesper, 'wasp')).toMatchObject({ ok: false, reason: 'Aegis Coalition only' });
+    expect(canBuildStructure(sim, aegis, 'intelligence-center')).toEqual({ ok: false, reason: 'Vesper Republic only' });
+  });
+
   it('does not let defense towers extend the construction grid toward an enemy base', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
