@@ -463,7 +463,7 @@ export class CombatView {
       smokeTimer: 0,
       direction: homing ? to.clone().sub(from).normalize() : undefined,
       trailCapacity,
-      healthBar: strategic && event.targetTeamId === this.localTeam && event.strategicId !== undefined
+      healthBar: strategic && event.strategicId !== undefined
         ? this.makeStrategicHealthBar(event.targetHealth ?? 100, event.targetMaxHealth ?? 100)
         : undefined,
     });

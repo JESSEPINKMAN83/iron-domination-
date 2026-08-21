@@ -58,7 +58,7 @@ describe('combat visual load shedding', () => {
     expect(selectCombatVisualEvents([...bookkeeping, ...visible], 1, 0)).toEqual(visible);
   });
 
-  it('shows and updates strategic missile health only for the defending army', () => {
+  it('shows and updates strategic missile health for every player viewing the missile', () => {
     const view = new CombatView(generateHeightfield(MAP01), () => true, () => undefined, 2);
     view.push([event(0, 1, {
       kind: 'siegeMissile',
@@ -86,5 +86,23 @@ describe('combat visual load shedding', () => {
       damage: 20,
     })]);
     expect(fill?.scale.x).toBeCloseTo(3.24);
+
+    const attackerView = new CombatView(generateHeightfield(MAP01), () => true, () => undefined, 1);
+    attackerView.push([event(0, 1, {
+      kind: 'siegeMissile',
+      weaponKind: 'strategicMissile',
+      targetTeamId: 2,
+      strategicId: 43,
+      targetHealth: 100,
+      targetMaxHealth: 100,
+      trajectory: 'arc',
+      duration: 8,
+      damage: 0,
+    })]);
+    const attackerSprites: Sprite[] = [];
+    attackerView.group.traverse((object) => {
+      if (object instanceof Sprite) attackerSprites.push(object);
+    });
+    expect(attackerSprites.some((sprite) => sprite.renderOrder === 91)).toBe(true);
   });
 });
