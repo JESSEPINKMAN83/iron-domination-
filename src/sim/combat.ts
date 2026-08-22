@@ -14,7 +14,7 @@ import { hash2i, smoothstep } from './noise';
 import { hasTerrainLineOfSight, sampleHeight } from './heightfield';
 import { directionalImpactResponse } from './impactModel';
 import { applyStructureDamage } from './structureDamage';
-import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, stopEntities, type GameSim } from './world';
+import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, stopEntities, type GameSim, type Projectile } from './world';
 
 /** Cannons may only fire once the turret has traversed onto the bearing. */
 const AIM_TOLERANCE = 0.12;
@@ -423,6 +423,7 @@ export function manualFireAt(
   slot: 'primary' | 'secondary' | 'special' = 'primary',
   targetY?: number,
   lockedTargetId?: number,
+  lockedStrategicId?: number,
 ): boolean {
   if (!attacker.team || attacker.destroyed) return false;
   const weapon = weaponForSlot(attacker, slot);
@@ -438,7 +439,12 @@ export function manualFireAt(
   const forceScale = primaryScales.force;
   const impactScale = primaryScales.impact;
   const lockedTarget = validManualLockTarget(sim, attacker, weapon, lockedTargetId);
-  if (lockedTarget) {
+  const lockedStrategic = validManualStrategicTarget(sim, attacker, weapon, lockedStrategicId);
+  if (lockedStrategic) {
+    targetX = lockedStrategic.x ?? lockedStrategic.fromX;
+    targetZ = lockedStrategic.z ?? lockedStrategic.fromZ;
+    targetY = lockedStrategic.y ?? lockedStrategic.fromY;
+  } else if (lockedTarget) {
     targetX = lockedTarget.transform.x;
     targetZ = lockedTarget.transform.z;
     targetY = lockedTarget.transform.y;
@@ -476,6 +482,19 @@ export function manualFireAt(
     ? len
     : Math.min(weapon.range || def.range, len);
   if (def.minRange !== undefined && len < def.minRange) return false;
+  if (lockedStrategic) {
+    const interceptRange = Math.max(weapon.range || def.range, def.projectile?.fizzleRange ?? 0);
+    if (len > interceptRange) return false;
+    launchStrategicInterceptor(
+      sim,
+      lockedStrategic,
+      attacker,
+      isFortressTower(attacker) ? 'tower' : 'aircraft',
+      isFortressTower(attacker) ? MISSILE_DEFENSE_DAMAGE : AIRCRAFT_INTERCEPT_DAMAGE,
+    );
+    weapon.cooldown = weaponCooldown(def.cooldown, attacker);
+    return true;
+  }
   const target = lockedTarget ?? acquireLineTarget(
     sim,
     attacker,
@@ -785,6 +804,25 @@ export function canManualWeaponLockTarget(kind: string | undefined, target: Enti
   // M-17 missile against aircraft), but never promise a lock for a zero-damage
   // pairing such as an anti-air seeker against a ground structure.
   return Boolean(def && def.vs[target.armor.kind] > 0);
+}
+
+export function canManualWeaponLockStrategic(kind: string | undefined, projectile: Projectile): boolean {
+  if (!kind || !projectile.strategic || projectile.strategicId === undefined || (projectile.strategicHealth ?? 0) <= 0) return false;
+  const def = WEAPONS[kind as WeaponKind];
+  return Boolean(isManualTargetLockWeapon(kind) && def?.canTargetAir && def.vs.air > 0);
+}
+
+function validManualStrategicTarget(
+  sim: GameSim,
+  attacker: Entity,
+  weapon: Weapon,
+  strategicId: number | undefined,
+): Projectile | undefined {
+  if (strategicId === undefined || !attacker.playerControlled || !attacker.team) return undefined;
+  const projectile = sim.projectiles.find((candidate) => candidate.strategicId === strategicId);
+  if (!projectile || !canManualWeaponLockStrategic(weapon.kind, projectile)) return undefined;
+  if (!areTeamsHostile(sim, attacker.team.id, projectile.teamId)) return undefined;
+  return projectile;
 }
 
 function isTankDirectMissile(kind: WeaponKind): boolean {

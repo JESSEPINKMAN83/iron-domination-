@@ -57,7 +57,7 @@ export type NetCommand =
       strafe?: number;
       boost?: boolean;
     }
-  | { type: 'possess-fire'; id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number }
+  | { type: 'possess-fire'; id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number; strategicTargetId?: number }
   | { type: 'possess-follow'; leaderId: number; followerIds: number[]; x: number; z: number; faceYaw: number }
   | { type: 'possess-release'; id: number }
   | { type: 'tick-ready' }
@@ -536,12 +536,12 @@ export class LockstepRuntime {
         boost: entity.playerControlled?.boost ?? false,
       };
       if (entity.turret) entity.turret.yaw = Math.atan2(command.x - entity.transform.x, command.z - entity.transform.z);
-      manualFireAt(this.options.sim, entity, command.x, command.z, command.slot, command.y, command.targetId);
+      manualFireAt(this.options.sim, entity, command.x, command.z, command.slot, command.y, command.targetId, command.strategicTargetId);
       const followers = ownedEntities(this.options.sim, command.followerIds ?? [], team).filter((follower) => follower.id !== entity.id);
       for (const follower of followers) {
         if (follower.turret) follower.turret.yaw = Math.atan2(command.x - follower.transform.x, command.z - follower.transform.z);
-        manualFireAt(this.options.sim, follower, command.x, command.z, command.slot, command.y);
-        if (command.slot === 'secondary') manualFireAt(this.options.sim, follower, command.x, command.z, 'primary', command.y);
+        manualFireAt(this.options.sim, follower, command.x, command.z, command.slot, command.y, undefined, command.strategicTargetId);
+        if (command.slot === 'secondary') manualFireAt(this.options.sim, follower, command.x, command.z, 'primary', command.y, undefined, command.strategicTargetId);
       }
     } else if (command.type === 'possess-follow') {
       if (!ownedEntity(this.options.sim, command.leaderId, team)) return;
