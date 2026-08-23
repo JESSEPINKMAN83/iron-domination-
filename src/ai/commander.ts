@@ -8,7 +8,7 @@ import { buildings, canBuildStructure, placeStructure, queueUnit, startStructure
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { areTeamsHostile, attackStandoffPoint, issueMoveOrder, type GameSim } from '../sim/world';
-import { launchStrategicMissileAt } from '../sim/strategicWarfare';
+import { emberLaunchReadiness, launchEmberDroneAt, launchStrategicMissileAt } from '../sim/strategicWarfare';
 
 interface Squad {
   units: Entity[];
@@ -51,7 +51,7 @@ export class EnemyCommander {
     economy.incomeMultiplier = this.difficulty.incomeMultiplier;
     this.buildQueue = economy.doctrine === 'missile-command'
       ? ['power-plant', 'refinery', 'power-plant', 'factory', 'intelligence-center', 'strategic-silo', 'guard-tower', 'aa-tower']
-      : [...this.personality.buildOrder, ...(strategicDefenseNeeded ? ['missile-defense' as const] : [])];
+      : [...this.personality.buildOrder, ...(strategicDefenseNeeded ? ['skylance-ciws' as const, 'missile-defense' as const] : [])];
     this.log(`online — ${personality}/${difficulty}, build order: ${this.buildQueue.join(' → ')}`);
   }
 
@@ -209,7 +209,7 @@ export class EnemyCommander {
   }
 
   private commandStrategicStrike(): void {
-    if (this.economy.doctrine !== 'missile-command' || this.economy.strategicMissileCooldown > 0) return;
+    if (this.economy.doctrine !== 'missile-command') return;
     let target: Entity | undefined;
     for (const entity of this.sim.world.entities) {
       if (
@@ -222,8 +222,14 @@ export class EnemyCommander {
       if (!target || entity.id < target.id) target = entity;
     }
     if (target?.team) {
-      const result = launchStrategicMissileAt(this.sim, this.economy, target.team.id, target.transform.x, target.transform.z);
-      if (result.ok) this.log(`strategic launch against visible ${target.building?.label ?? target.name ?? 'target'}`);
+      const droneReady = emberLaunchReadiness(this.sim, this.economy).ready;
+      const launchingDrone = this.economy.strategicMissileCooldown > 0 && droneReady;
+      const result = !launchingDrone && this.economy.strategicMissileCooldown <= 0
+        ? launchStrategicMissileAt(this.sim, this.economy, target.team.id, target.transform.x, target.transform.z)
+        : launchingDrone
+          ? launchEmberDroneAt(this.sim, this.economy, target.team.id, target.transform.x, target.transform.z)
+          : undefined;
+      if (result?.ok) this.log(`${launchingDrone ? 'drone' : 'strategic'} launch against visible ${target.building?.label ?? target.name ?? 'target'}`);
       return;
     }
 
@@ -238,8 +244,12 @@ export class EnemyCommander {
       .sort((a, b) => a.x - b.x || a.z - b.z);
     if (possible.length === 0) return;
     const mark = possible[this.strategicTargetIndex++ % possible.length];
-    const result = launchStrategicMissileAt(this.sim, this.economy, hostileTeams[0], mark.x, mark.z);
-    if (result.ok) this.log('blind strategic launch toward a known deployment sector');
+    const result = this.economy.strategicMissileCooldown <= 0
+      ? launchStrategicMissileAt(this.sim, this.economy, hostileTeams[0], mark.x, mark.z)
+      : emberLaunchReadiness(this.sim, this.economy).ready
+        ? launchEmberDroneAt(this.sim, this.economy, hostileTeams[0], mark.x, mark.z)
+        : undefined;
+    if (result?.ok) this.log('blind strategic launch toward a known deployment sector');
   }
 
   private myUnits(): Entity[] {

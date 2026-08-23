@@ -181,6 +181,7 @@ export class CombatView {
   private readonly aviationCannonMaterial = new LineBasicMaterial({ color: 0x77dfff, transparent: true, opacity: 0.88 });
   private readonly sniperMaterial = new LineBasicMaterial({ color: 0xd8ffd0, transparent: true, opacity: 0.96 });
   private readonly microLaserMaterial = new LineBasicMaterial({ color: 0x67f4ff, transparent: true, opacity: 0.94 });
+  private readonly skylanceMaterial = new LineBasicMaterial({ color: 0xf4fff7, transparent: true, opacity: 0.98 });
   private readonly tracers: Tracer[] = [];
   private readonly bursts: Burst[] = [];
   private readonly bombProjectiles: BombProjectile[] = [];
@@ -277,7 +278,9 @@ export class CombatView {
       geometry.setAttribute('position', new Float32BufferAttribute([event.fromX, fromY, event.fromZ, event.toX, toY, event.toZ], 3));
       const line = new Line(
         geometry,
-        event.kind === 'microLaser'
+        event.kind === 'skylanceGun'
+          ? this.skylanceMaterial
+          : event.kind === 'microLaser'
           ? this.microLaserMaterial
           : event.kind === 'waspAutocannon'
             ? this.aviationCannonMaterial
@@ -291,6 +294,7 @@ export class CombatView {
       );
       line.renderOrder = 50;
       const tracerTtl = event.kind === 'sniperRifle' || event.kind === 'railShot' ? 0.34
+        : event.kind === 'skylanceGun' ? 0.1
         : event.kind === 'microLaser' ? 0.11
           : event.kind === 'waspAutocannon' ? 0.055
             : event.kind === 'autocannon' ? 0.075
@@ -420,9 +424,12 @@ export class CombatView {
     const distance = Math.hypot(event.toX - event.fromX, event.toZ - event.fromZ);
     const drop = event.trajectory === 'drop';
     const flat = event.trajectory === 'flat' || event.trajectory === 'homing';
-    const strategic = event.weaponKind === 'strategicMissile';
+    const strategic = event.strategicId !== undefined;
+    const ember = event.weaponKind === 'emberDrone';
     const controlY = drop
       ? Math.max(toY + 2, (fromY + toY) * 0.46 - Math.min(16, distance * 0.04))
+      : ember
+        ? (fromY + toY) * 0.5 + 10
       : flat
         ? (fromY + toY) * 0.5
         : strategic
@@ -437,7 +444,7 @@ export class CombatView {
     this.group.add(group);
 
     const homing = event.trajectory === 'homing';
-    const trailCapacity = strategic ? 40 : homing ? 20 : 8;
+    const trailCapacity = event.weaponKind === 'strategicMissile' ? 40 : ember ? 30 : homing ? 20 : 8;
     const trailGeometry = new BufferGeometry();
     trailGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(trailCapacity * 3), 3));
     const trail = new Line(trailGeometry, new LineBasicMaterial({
@@ -1253,6 +1260,12 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
     bodyRadius: 0.22, tipRadius: 0.15, bodyLength: 2.05, noseLength: 0.58, bandWidth: 0.15,
     glowRadius: 0.52, fins: 4, finThickness: 0.07, finLength: 0.56, finWidth: 0.5, scale: 1.48,
   };
+  if (weaponKind === 'emberDrone') return {
+    ...base, bodyColor: 0x27231f, noseColor: 0xe87534, bandColor: 0xffb05b, glowColor: 0xff7b2f,
+    glowOpacity: 0.82, bodyRadius: 0.22, tipRadius: 0.13, bodyLength: 1.45, noseLength: 0.42,
+    bandWidth: 0.12, glowRadius: 0.58, fins: 2, finThickness: 0.08, finLength: 1.2, finWidth: 1.35,
+    segments: 10, scale: 1.8,
+  };
   if (weaponKind === 'agMissile') return {
     ...base, bodyColor: 0x252a2e, noseColor: 0xf2d66c, bandColor: 0xe2bc4f, glowColor: 0xffd76a,
     bodyRadius: 0.2, tipRadius: 0.12, bodyLength: 2.5, noseLength: 0.72, bandWidth: 0.14,
@@ -1274,6 +1287,7 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
 
 function projectileSmokeCadence(weaponKind: string, projectileKind: string, homing: boolean): number {
   if (weaponKind === 'strategicMissile') return 0.025;
+  if (weaponKind === 'emberDrone') return 0.055;
   if (isBombKind(projectileKind)) return 0.075;
   if (projectileKind === 'grenade') return weaponKind === 'rifleGrenade' ? 0.18 : 0.12;
   if (projectileKind === 'kineticShell' || projectileKind === 'artilleryShell') return 0.2;
@@ -1284,6 +1298,7 @@ function projectileSmokeCadence(weaponKind: string, projectileKind: string, homi
 
 function projectileSmokeOffset(weaponKind: string, projectileKind: string): number {
   if (weaponKind === 'strategicMissile') return -2.6;
+  if (weaponKind === 'emberDrone') return -1.25;
   if (projectileKind === 'kineticShell') return -0.35;
   if (projectileKind === 'artilleryShell') return -0.75;
   if (weaponKind === 'rocketPod') return -0.48;
@@ -1292,6 +1307,7 @@ function projectileSmokeOffset(weaponKind: string, projectileKind: string): numb
 
 function projectileSmokeColor(weaponKind: string, projectileKind: string, homing: boolean): number {
   if (weaponKind === 'strategicMissile') return 0xf1ead8;
+  if (weaponKind === 'emberDrone') return 0xd7c6b2;
   if (isBombKind(projectileKind)) return 0x3a3026;
   if (projectileKind === 'kineticShell') return 0xffd875;
   if (projectileKind === 'artilleryShell') return 0x71675a;
@@ -1302,6 +1318,7 @@ function projectileSmokeColor(weaponKind: string, projectileKind: string, homing
 
 function projectileSmokeOpacity(weaponKind: string, projectileKind: string, homing: boolean): number {
   if (weaponKind === 'strategicMissile') return 0.72;
+  if (weaponKind === 'emberDrone') return 0.54;
   if (projectileKind === 'kineticShell') return 0.12;
   if (projectileKind === 'artilleryShell') return 0.18;
   if (projectileKind === 'grenade') return weaponKind === 'rifleGrenade' ? 0.13 : 0.22;
@@ -1311,6 +1328,7 @@ function projectileSmokeOpacity(weaponKind: string, projectileKind: string, homi
 
 function projectileSmokeSize(weaponKind: string, projectileKind: string, homing: boolean): number {
   if (weaponKind === 'strategicMissile') return 0.86;
+  if (weaponKind === 'emberDrone') return 0.42;
   if (isBombKind(projectileKind)) return 0.42;
   if (projectileKind === 'kineticShell') return 0.12;
   if (projectileKind === 'artilleryShell') return 0.2;
@@ -1320,6 +1338,7 @@ function projectileSmokeSize(weaponKind: string, projectileKind: string, homing:
 }
 
 function impactBlastScale(kind: string, weaponKind?: string): number {
+  if (weaponKind === 'emberDrone') return 1.15;
   if (kind === 'kineticShell-impact') return 0.34;
   if (kind === 'artilleryShell-impact') return 1.16;
   if (kind === 'tankBomb-impact') return 1.42;
@@ -1333,7 +1352,7 @@ function impactBlastScale(kind: string, weaponKind?: string): number {
 }
 
 function smallImpactScale(weaponKind: string): number {
-  if (weaponKind === 'rifle' || weaponKind === 'microLaser') return 0.42;
+  if (weaponKind === 'rifle' || weaponKind === 'microLaser' || weaponKind === 'skylanceGun') return 0.42;
   if (weaponKind === 'autocannon') return 0.62;
   if (weaponKind === 'waspAutocannon') return 0.54;
   if (weaponKind === 'sniperRifle' || weaponKind === 'railShot') return 0.76;

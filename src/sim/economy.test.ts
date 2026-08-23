@@ -34,8 +34,10 @@ describe('phase 3 economy and production', () => {
 
     expect(canBuildStructure(sim, vesper, 'helipad')).toEqual({ ok: false, reason: 'Aegis Coalition only' });
     expect(canBuildStructure(sim, vesper, 'missile-defense')).toEqual({ ok: false, reason: 'Aegis Coalition only' });
+    expect(canBuildStructure(sim, vesper, 'skylance-ciws')).toEqual({ ok: false, reason: 'Aegis Coalition only' });
     expect(canQueueUnit(sim, vesper, 'wasp')).toMatchObject({ ok: false, reason: 'Aegis Coalition only' });
     expect(canBuildStructure(sim, aegis, 'intelligence-center')).toEqual({ ok: false, reason: 'Vesper Republic only' });
+    expect(canBuildStructure(sim, aegis, 'skylance-ciws')).toEqual({ ok: false, reason: 'Requires Power Plant' });
   });
 
   it('does not let defense towers extend the construction grid toward an enemy base', () => {

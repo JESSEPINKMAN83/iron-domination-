@@ -13,7 +13,10 @@ import {
   type EconomyState,
 } from '../sim/economy';
 import {
+  EMBER_DRONE_COST,
+  EMBER_DRONE_MAX_IN_FLIGHT,
   STRATEGIC_MISSILE_COST,
+  emberLaunchReadiness,
   strategicAccuracy,
   strategicLaunchReadiness,
   strategicWarhead,
@@ -49,6 +52,7 @@ export interface SidebarActions {
   upgradeStrategicAccuracy(): boolean;
   upgradeStrategicMissile(): boolean;
   beginStrategicTargeting(enemyTeam: number, color: number): { ok: boolean; reason: string };
+  beginEmberTargeting(enemyTeam: number, color: number): { ok: boolean; reason: string };
   cancelStrategicTargeting(): void;
 }
 
@@ -443,7 +447,7 @@ export class Sidebar {
     this.renderBody();
   }
 
-  signalIncomingMissile(attackerTeam: number): void {
+  signalIncomingMissile(attackerTeam: number, threat = 'STRATEGIC MISSILE'): void {
     this.radarWrap.style.borderColor = '#ff3f2f';
     this.radarWrap.style.boxShadow = 'inset 0 0 0 2px rgba(255,63,47,.72),0 0 28px rgba(255,35,20,.62)';
     window.setTimeout(() => {
@@ -454,7 +458,7 @@ export class Sidebar {
       this.radarWrap.style.borderBottomColor = '#151817';
       this.radarWrap.style.boxShadow = 'inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75)';
     }, 3200);
-    this.flash(`⚠ INCOMING STRATEGIC MISSILE · ARMY ${attackerTeam}`, 120);
+    this.flash(`⚠ INCOMING ${threat} · ARMY ${attackerTeam}`, 120);
   }
 
   producerHighlightIds(): number[] {
@@ -496,7 +500,7 @@ export class Sidebar {
   private renderBody(): void {
     this.body.replaceChildren();
     const selected = this.selectedBuilding();
-    if (selected?.building?.kind === 'strategic-silo') {
+    if (selected?.building?.kind === 'strategic-silo' || selected?.building?.kind === 'intelligence-center') {
       this.body.appendChild(this.strategicOperationsPanel());
       return;
     }
@@ -569,7 +573,7 @@ export class Sidebar {
       'background:linear-gradient(145deg,rgba(25,20,13,.96),rgba(8,13,13,.96));box-shadow:inset 0 0 18px rgba(0,0,0,.48);';
     const title = document.createElement('div');
     title.style.cssText = 'display:flex;justify-content:space-between;gap:8px;color:#f0d56a;font-weight:900;letter-spacing:.08em;';
-    title.innerHTML = `<span>MISSILE SILO CONTROL</span><span>WARHEAD ${this.economy.strategicMissileLevel}/3</span>`;
+    title.innerHTML = `<span>VESPER STRIKE CONTROL</span><span>WARHEAD ${this.economy.strategicMissileLevel}/3</span>`;
     panel.appendChild(title);
 
     const enemyTeams = Array.from(new Set(
@@ -722,6 +726,45 @@ export class Sidebar {
     };
     launchPanel.append(launchHeading, accuracyCopy, targetButton);
     panel.appendChild(launchPanel);
+
+    const emberReadiness = emberLaunchReadiness(this.sim, this.economy);
+    const emberPanel = document.createElement('div');
+    emberPanel.style.cssText = `display:grid;gap:6px;padding:8px;border:1px solid ${accent}77;background:linear-gradient(180deg,rgba(42,29,18,.92),rgba(6,9,9,.98));`;
+    const emberHeading = document.createElement('div');
+    emberHeading.style.cssText = 'display:flex;justify-content:space-between;gap:6px;font-size:10px;font-weight:900;';
+    emberHeading.innerHTML =
+      `<span style="color:#ffb56f">EMBER ONE-WAY · $${EMBER_DRONE_COST}</span>` +
+      `<span style="color:${emberReadiness.ready ? '#9cf3b1' : '#ffb59f'}">${emberReadiness.ready ? 'READY' : emberReadiness.reason.toUpperCase()}</span>`;
+    const emberCopy = document.createElement('div');
+    emberCopy.style.cssText = 'color:#aebbc4;font-size:9px;line-height:1.4;';
+    emberCopy.textContent = `LOW-FLYING ATTACK DRONE · ${emberReadiness.inFlight}/${EMBER_DRONE_MAX_IN_FLIGHT} AIRBORNE · SHORT-RANGE CIWS CAN DESTROY IT`;
+    const emberButton = document.createElement('button');
+    emberButton.type = 'button';
+    emberButton.disabled = !this.strategicTargeting && !emberReadiness.ready;
+    emberButton.textContent = this.strategicTargeting
+      ? 'CANCEL IMPACT SELECTION · ESC / RIGHT-CLICK'
+      : `MARK EMBER IMPACT POINT · $${EMBER_DRONE_COST}`;
+    emberButton.title = this.strategicTargeting ? 'Cancel strategic targeting' : emberReadiness.ready ? 'Choose any battlefield location' : emberReadiness.reason;
+    emberButton.style.cssText = strategicThemedButtonCss(this.strategicTargeting || emberReadiness.ready, '#ff9b58', this.strategicTargeting) + 'min-height:40px;font-size:10px;';
+    emberButton.onclick = () => {
+      if (this.strategicTargeting) {
+        this.actions.cancelStrategicTargeting();
+        this.strategicTargeting = false;
+        this.flash('EMBER TARGETING CANCELLED');
+      } else {
+        const result = this.actions.beginEmberTargeting(enemyTeam, FACTION[factionId(enemyTeam)].accent);
+        if (!result.ok) {
+          this.flash(result.reason.toUpperCase());
+          return;
+        }
+        this.strategicTargeting = true;
+        this.flash('MARK EMBER IMPACT POINT · 10M SCATTER');
+      }
+      this.lastBodyKey = '';
+      this.renderBody();
+    };
+    emberPanel.append(emberHeading, emberCopy, emberButton);
+    panel.appendChild(emberPanel);
     return panel;
   }
 
@@ -988,7 +1031,9 @@ export class Sidebar {
     if (def?.powerProduced) chips.push(`POWER +${def.powerProduced}`);
     if (def?.powerUsed) chips.push(`POWER -${def.powerUsed}`);
     if (kind === 'refinery') chips.push('CREDITS');
-    if (def?.weaponKind) chips.push(def.weaponKind === 'aaMissile' ? 'ANTI-AIR' : 'GROUND DEFENSE');
+    if (def?.weaponKind) chips.push(
+      def.weaponKind === 'skylanceGun' ? 'DRONE DEFENSE' : def.weaponKind === 'aaMissile' ? 'ANTI-AIR' : 'GROUND DEFENSE',
+    );
     if (def?.blocksMovement) chips.push('BLOCKS');
     if (chips.length === 0) chips.push('BASE NODE');
     for (const text of chips) {
@@ -1208,6 +1253,7 @@ export class Sidebar {
       this.economy.strategicMissileLevel,
       this.economy.strategicAccuracyLevel,
       Math.ceil(this.economy.strategicMissileCooldown),
+      Math.ceil(this.economy.emberDroneCooldown),
       this.strategicTargeting,
       this.strategicEnemyTeam ?? '',
       `${line?.kind ?? ''}`,
@@ -1754,6 +1800,7 @@ function healthBucket(entity: Entity): number {
 }
 
 function commandIconPath(kind: string): string {
+  if (kind === 'skylance-ciws') return '/assets/ui/command-icons/missile-defense.png';
   return `/assets/ui/command-icons/${kind}.png`;
 }
 

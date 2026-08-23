@@ -135,7 +135,14 @@ import {
   upgradeStrategicMissile,
   updatePlacement,
 } from './sim/economy';
-import { launchStrategicMissileAt, strategicAccuracy, strategicLaunchReadiness } from './sim/strategicWarfare';
+import {
+  EMBER_DRONE_SCATTER_RADIUS,
+  emberLaunchReadiness,
+  launchEmberDroneAt,
+  launchStrategicMissileAt,
+  strategicAccuracy,
+  strategicLaunchReadiness,
+} from './sim/strategicWarfare';
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
 import { damageForArmor, issueAttackOrder } from './sim/combat';
 import { directionalImpactResponse } from './sim/impactModel';
@@ -2812,7 +2819,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const impactDemoPanel = impactDemoScene ? createImpactMovementDemoPanel() : undefined;
   let sidebar!: Sidebar;
   let tacticalPingKind: TacticalPingKind | undefined;
-  let strategicMissileTargeting: { enemyTeam: number; radius: number; color: number } | undefined;
+  let strategicMissileTargeting: { enemyTeam: number; radius: number; color: number; weapon: 'missile' | 'ember' } | undefined;
   let networkPaused = false;
   let lastNetworkStatus = '';
   const setNetworkStatus = (message: string, bad = false): void => {
@@ -2961,13 +2968,22 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       confirm: (x, z) => {
         if (strategicMissileTargeting) {
           const targeting = strategicMissileTargeting;
-          const result = launchStrategicMissileAt(sim, economy, targeting.enemyTeam, x, z);
+          const issued = lockstep
+            ? lockstep.issue({ type: 'launch-strategic', weapon: targeting.weapon, enemyTeam: targeting.enemyTeam, x, z })
+            : undefined;
+          const result = lockstep
+            ? { ok: issued === true, reason: issued ? '' : 'Launch command rejected' }
+            : targeting.weapon === 'ember'
+              ? launchEmberDroneAt(sim, economy, targeting.enemyTeam, x, z)
+              : launchStrategicMissileAt(sim, economy, targeting.enemyTeam, x, z);
           if (result.ok) {
             strategicMissileTargeting = undefined;
             orderMarkers.clearStrategicAreaTarget();
             ctx.renderer.domElement.style.cursor = '';
             audio.playUi('order');
-            sidebar.finishStrategicTargeting('MISSILE AWAY · IMPACT POINT CONFIRMED');
+            sidebar.finishStrategicTargeting(targeting.weapon === 'ember'
+              ? 'EMBER AWAY · IMPACT POINT CONFIRMED'
+              : 'MISSILE AWAY · IMPACT POINT CONFIRMED');
           } else {
             audio.playUi('error');
             sidebar.notify(result.reason.toUpperCase());
@@ -3120,7 +3136,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       const readiness = strategicLaunchReadiness(sim, economy);
       if (!readiness.ready) return { ok: false, reason: readiness.reason };
       const accuracy = strategicAccuracy(economy.strategicAccuracyLevel);
-      strategicMissileTargeting = { enemyTeam, radius: accuracy.radius, color };
+      strategicMissileTargeting = { enemyTeam, radius: accuracy.radius, color, weapon: 'missile' };
+      ctx.renderer.domElement.style.cursor = 'crosshair';
+      audio.playUi('select');
+      return { ok: true, reason: '' };
+    },
+    beginEmberTargeting: (enemyTeam, color) => {
+      const readiness = emberLaunchReadiness(sim, economy);
+      if (!readiness.ready) return { ok: false, reason: readiness.reason };
+      strategicMissileTargeting = { enemyTeam, radius: EMBER_DRONE_SCATTER_RADIUS, color, weapon: 'ember' };
       ctx.renderer.domElement.style.cursor = 'crosshair';
       audio.playUi('select');
       return { ok: true, reason: '' };
@@ -3631,8 +3655,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           missionComms.announceIncomingMissile(attackerTeam);
           audio.playUi('error');
         }
+        if (event.kind === 'ember-drone-warning' && event.targetTeamId === localTeam) {
+          const attackerTeam = event.sourceTeamId ?? 0;
+          sidebar.signalIncomingMissile(attackerTeam, 'EMBER DRONE');
+          hud.showBaseUnderAttack('Incoming Ember drone', true);
+          missionComms.announceIncomingMissile(attackerTeam);
+          audio.playUi('error');
+        }
         if (event.kind === 'strategic-missile-intercepted') {
-          sidebar.notify(event.sourceTeamId === localTeam ? 'MISSILE DEFENSE INTERCEPT' : 'STRATEGIC MISSILE INTERCEPTED');
+          const intercepted = event.targetLabel?.toUpperCase() ?? 'STRATEGIC THREAT INTERCEPTED';
+          sidebar.notify(intercepted);
         }
         if (event.kind === 'rank-up' && event.sourceTeamId === localTeam) {
           audio.playUi('build');
@@ -5454,9 +5486,16 @@ function seedMissileDoctrinePreview(
   const missileSilo = placePreviewStructure(sim, hf, local.economy, local.base, 'strategic-silo', [
     { x: 66, z: 48 }, { x: -70, z: 52 }, { x: 74, z: -42 },
   ]);
-  // Keep the focused missile preview undefended so launches visibly reach
-  // their selected targets. Missile-defense interception remains available in
-  // normal matches and has its own deterministic combat coverage.
+  for (const defender of armies.filter((army) => army.team !== localTeam)) {
+    placePreviewStructure(sim, hf, defender.economy, defender.base, 'skylance-ciws', [
+      { x: -52, z: -28 }, { x: 52, z: -28 }, { x: -58, z: 26 },
+    ]);
+    placePreviewStructure(sim, hf, defender.economy, defender.base, 'skylance-ciws', [
+      { x: 52, z: 28 }, { x: -24, z: -58 }, { x: 24, z: 58 },
+    ]);
+  }
+  // The focused preview includes two short-range Skylance batteries per
+  // defender so the player can compare defended and undefended impact zones.
   local.economy.credits = Math.max(local.economy.credits, 15000);
   if (missileSilo) setSelected(sim, [missileSilo], false, localTeam);
 }

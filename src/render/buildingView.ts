@@ -225,6 +225,12 @@ export class BuildingView {
         roughness: 0.66,
         metalness: 0.26,
       })),
+      'skylance-ciws': ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xaab8bc,
+        map: hullSteel,
+        roughness: 0.58,
+        metalness: 0.34,
+      })),
     };
     this.ensureGhostCount(1);
   }
@@ -438,7 +444,7 @@ export class BuildingView {
       tierBaseY += tierH;
     }
 
-    const isTower = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense';
+    const isTower = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' || kind === 'skylance-ciws';
     const isPowerPlant = kind === 'power-plant';
     const accentY = isTower
       ? buildingHeight * profile[0]!.heightShare + 0.16
@@ -967,7 +973,7 @@ interface SelectionGlow {
 function structureDamageFor(entity: Entity): StructureDamage {
   if (!entity.structureDamage) {
     const kind = entity.building?.kind;
-    const tiers = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' ? 3 : 2;
+    const tiers = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' || kind === 'skylance-ciws' ? 3 : 2;
     return { cols: 3, rows: 3, tiers, cells: new Uint8Array(3 * 3 * tiers), version: 0 };
   }
   return entity.structureDamage;
@@ -980,7 +986,7 @@ interface BodyTierProfile {
 }
 
 function bodyProfileFor(kind?: string): BodyTierProfile[] | undefined {
-  if (kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense') {
+  if (kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' || kind === 'skylance-ciws') {
     return [
       { widthScale: 1, depthScale: 1, heightShare: 0.2 },
       { widthScale: 0.42, depthScale: 0.42, heightShare: 0.45 },
@@ -1244,6 +1250,7 @@ function heightForStructure(kind?: string): number {
   if (kind === 'wall') return 2.6;
   if (kind === 'guard-tower' || kind === 'aa-tower') return 10.5;
   if (kind === 'missile-defense') return 8.4;
+  if (kind === 'skylance-ciws') return 5.6;
   if (kind === 'intelligence-center') return 6.6;
   if (kind === 'strategic-silo') return 7.8;
   if (kind === 'helipad') return 4.8;
@@ -1399,7 +1406,7 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     // signal, gauge, and façade light that happens to share the base material.
     box(name, 0.34, 0.2, 0.18, x, y, z, signal.clone(), fragility);
 
-  const isDefenseTower = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense';
+  const isDefenseTower = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' || kind === 'skylance-ciws';
   box('foundation', width * (isDefenseTower ? 1.02 : 1.06), 0.38, depth * (isDefenseTower ? 1.02 : 1.06), 0, 0.18, 0, dark, 10);
   if (kind !== 'wall' && kind !== 'power-plant' && !isDefenseTower) {
     box('front-armored-skirt', width * 0.9, 0.52, 0.28, 0, 0.48, depth * 0.512, metal, 8);
@@ -1889,6 +1896,36 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     root.userData.turretPivot = defenseDeck;
     door(width * 0.22, height * 0.26, 0, depth * 0.51, 5);
     stripe(width * 0.34, depth * 0.07, 0, depth * 0.49, 5);
+  } else if (kind === 'skylance-ciws') {
+    const ciws = new Group();
+    ciws.name = 'skylance-ciws-pivot';
+    ciws.position.y = height + 0.22;
+    const turntable = new Mesh(new CylinderGeometry(width * 0.34, width * 0.4, 0.48, 18), dark);
+    turntable.castShadow = true;
+    ciws.add(turntable);
+    const cradle = new Mesh(new BoxGeometry(width * 0.44, 0.62, depth * 0.32), metal);
+    cradle.position.y = 0.58;
+    cradle.castShadow = true;
+    ciws.add(cradle);
+    for (const x of [-width * 0.11, width * 0.11]) {
+      const barrel = new Mesh(new CylinderGeometry(0.09, 0.12, depth * 0.86, 10), concrete);
+      barrel.rotation.x = Math.PI * 0.5;
+      barrel.position.set(x, 0.72, depth * 0.34);
+      barrel.castShadow = true;
+      ciws.add(barrel);
+      const muzzle = new Mesh(new CylinderGeometry(0.14, 0.14, 0.24, 10), warning);
+      muzzle.rotation.x = Math.PI * 0.5;
+      muzzle.position.set(x, 0.72, depth * 0.78);
+      ciws.add(muzzle);
+    }
+    const sensor = new Mesh(new RingGeometry(width * 0.16, width * 0.28, 24, 1, 0, Math.PI), signal);
+    sensor.position.set(0, 1.28, -depth * 0.12);
+    sensor.rotation.x = -0.72;
+    ciws.add(sensor);
+    add(ciws, 4);
+    activity(ciws, 'spin-y', 0.42, 1, 0.35);
+    root.userData.turretPivot = ciws;
+    stripe(width * 0.3, depth * 0.07, 0, depth * 0.49, 5);
   } else if (kind === 'guard-tower') {
     const plinthH = height * 0.2;
     const shaftH = height * 0.45;
@@ -2288,7 +2325,7 @@ export function buildingSelectionFootprint(
   kind?: string,
   options: { radiusScale?: number; outerAdd?: number } = {},
 ): BuildingSelectionFootprint {
-  const foundationScale = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' ? 1.02 : 1.06;
+  const foundationScale = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' || kind === 'skylance-ciws' ? 1.02 : 1.06;
   const wallHalfW = Math.max(0.6, footprint.w * cellSize * foundationScale);
   const wallHalfD = Math.max(0.6, footprint.h * cellSize * foundationScale);
   const extra = ((options.radiusScale ?? 1) - 1) * Math.max(wallHalfW, wallHalfD) * 0.18 + (options.outerAdd ?? 0) * 0.12;

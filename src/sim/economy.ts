@@ -43,6 +43,7 @@ export interface EconomyState {
   strategicMissileLevel: number;
   strategicAccuracyLevel: number;
   strategicMissileCooldown: number;
+  emberDroneCooldown: number;
 }
 
 export interface PlacementState {
@@ -72,6 +73,7 @@ export function createEconomy(team = 1, initialCredits = 4600, doctrine: ArmyDoc
     strategicMissileLevel: 1,
     strategicAccuracyLevel: 0,
     strategicMissileCooldown: 0,
+    emberDroneCooldown: 0,
   };
 }
 
@@ -110,6 +112,7 @@ export function hashEconomy(economy: EconomyState): number {
   mix(economy.strategicMissileLevel);
   mix(economy.strategicAccuracyLevel);
   mix(Math.round(economy.strategicMissileCooldown * 1000));
+  mix(Math.round(economy.emberDroneCooldown * 1000));
   mixJob(economy.structureLine);
   mixText(economy.readyStructure);
   for (const refineryId of Object.keys(economy.harvesterReplacementTimers).map(Number).sort((a, b) => a - b)) {
@@ -403,6 +406,7 @@ export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState
   const powered = economy.powerProduced >= economy.powerUsed;
   const productionScale = powered ? 1 : 0.45;
   economy.strategicMissileCooldown = Math.max(0, economy.strategicMissileCooldown - dt * productionScale);
+  economy.emberDroneCooldown = Math.max(0, economy.emberDroneCooldown - dt * productionScale);
 
   const structureJob = economy.structureLine;
   if (structureJob) {

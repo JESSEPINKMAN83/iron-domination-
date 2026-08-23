@@ -6,6 +6,12 @@ import { stepCombat } from './combat';
 import { canBuildStructure, createEconomy, createInitialBase, recomputePower, upgradeStrategicAccuracy, upgradeStrategicMissile } from './economy';
 import { generateHeightfield, type Heightfield } from './heightfield';
 import {
+  EMBER_DRONE_COOLDOWN,
+  EMBER_DRONE_COST,
+  EMBER_DRONE_HEALTH,
+  EMBER_DRONE_MAX_IN_FLIGHT,
+  emberLaunchReadiness,
+  launchEmberDroneAt,
   launchStrategicMissileAt,
   strategicAccuracy,
   STRATEGIC_MISSILE_COOLDOWN,
@@ -72,6 +78,65 @@ describe('Missile Command strategic warfare', () => {
     createInitialBase(sim, hf, specialist);
     addStructure(sim, 'power-plant', 2, 20, 0);
     expect(canBuildStructure(sim, specialist, 'intelligence-center').ok).toBe(true);
+    expect(canBuildStructure(sim, specialist, 'skylance-ciws')).toEqual({
+      ok: false,
+      reason: 'Aegis Coalition only',
+    });
+    expect(canBuildStructure(sim, standard, 'skylance-ciws').ok).toBe(true);
+  });
+
+  it('launches a visible low-flying Ember drone from an Intelligence Center', () => {
+    const { sim, economy, target } = missileFixture();
+    const creditsBefore = economy.credits;
+    const result = launchEmberDroneAt(sim, economy, 2, target.transform.x, target.transform.z);
+
+    expect(result.ok).toBe(true);
+    expect(economy.credits).toBe(creditsBefore - EMBER_DRONE_COST);
+    expect(economy.emberDroneCooldown).toBe(EMBER_DRONE_COOLDOWN);
+    expect(sim.projectiles[0]).toMatchObject({
+      strategic: true,
+      strategicProfile: 'drone',
+      weaponKind: 'emberDrone',
+      trajectory: 'flat',
+      strategicHealth: EMBER_DRONE_HEALTH,
+      strategicMaxHealth: EMBER_DRONE_HEALTH,
+    });
+    expect(sim.events.some((event) => event.kind === 'ember-drone-warning' && event.targetTeamId === 2)).toBe(true);
+    expect(Math.hypot(sim.projectiles[0].toX - target.transform.x, sim.projectiles[0].toZ - target.transform.z)).toBeLessThanOrEqual(10);
+  });
+
+  it('caps Ember saturation at six airborne drones', () => {
+    const { sim, economy, target } = missileFixture();
+    for (let index = 0; index < EMBER_DRONE_MAX_IN_FLIGHT; index++) {
+      economy.emberDroneCooldown = 0;
+      sim.tick++;
+      expect(launchEmberDroneAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+    }
+    economy.emberDroneCooldown = 0;
+    expect(emberLaunchReadiness(sim, economy)).toMatchObject({ ready: false, inFlight: 6 });
+    expect(launchEmberDroneAt(sim, economy, 2, target.transform.x, target.transform.z)).toMatchObject({
+      ok: false,
+      reason: 'Six drones already airborne',
+    });
+  });
+
+  it('lets Skylance destroy an Ember but keeps the ballistic battery out of the exchange', () => {
+    const { sim, economy, target } = missileFixture();
+    addStructure(sim, 'skylance-ciws', 2, 135, 14);
+    addStructure(sim, 'missile-defense', 2, 135, -14);
+    const healthBefore = target.health!.current;
+    expect(launchEmberDroneAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+
+    for (let tick = 0; tick < 30 * 20 && !sim.events.some((event) => event.kind === 'strategic-missile-intercepted'); tick++) {
+      sim.tick++;
+      stepCombat(sim, 1 / 30, { autoFire: false });
+    }
+
+    const bursts = sim.events.filter((event) => event.kind === 'skylanceGun' && event.strategicId !== undefined);
+    expect(bursts).toHaveLength(4);
+    expect(bursts.at(-1)).toMatchObject({ killed: true, targetHealth: 0, targetMaxHealth: EMBER_DRONE_HEALTH });
+    expect(sim.events.some((event) => event.kind === 'aaMissile-impact' && event.targetLabel === 'Ember drone')).toBe(false);
+    expect(target.health?.current).toBe(healthBefore);
   });
 
   it('upgrades guidance independently and shrinks the visible scatter radius', () => {

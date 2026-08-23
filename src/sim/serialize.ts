@@ -106,6 +106,7 @@ export function restoreEconomyState(target: EconomyState, sim: GameSim, state: S
   target.strategicMissileLevel = restored.strategicMissileLevel ?? 1;
   target.strategicAccuracyLevel = restored.strategicAccuracyLevel ?? 0;
   target.strategicMissileCooldown = restored.strategicMissileCooldown ?? 0;
+  target.emberDroneCooldown = restored.emberDroneCooldown ?? 0;
   target.pendingSpawned = pendingSpawnedIds.map((id) => sim.byId.get(id)).filter((entity): entity is Entity => entity !== undefined);
 }
 

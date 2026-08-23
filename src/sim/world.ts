@@ -118,6 +118,8 @@ export interface Projectile {
   attackerId: number;
   /** Long-range silo round eligible for dedicated missile-defense interception. */
   strategic?: boolean;
+  /** Threat class used by layered defenses and flight rendering. */
+  strategicProfile?: 'ballistic' | 'drone';
   /** Stable id shared with interceptor rounds and strategic-missile combat events. */
   strategicId?: number;
   /** Only this defending army may automatically engage the strategic round. */
@@ -1616,6 +1618,7 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round(projectile.elapsed * 1000));
     mix(projectile.manualAim ? 1 : 0);
     mix(projectile.strategic ? 1 : 0);
+    mix(projectile.strategicProfile === 'ballistic' ? 1 : projectile.strategicProfile === 'drone' ? 2 : 0);
     mix(projectile.strategicId ?? 0);
     mix(projectile.strategicTargetTeamId ?? 0);
     mix(Math.round((projectile.strategicHealth ?? 0) * 100));

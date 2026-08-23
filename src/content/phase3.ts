@@ -12,7 +12,8 @@ export type StructureKind =
   | 'wall'
   | 'guard-tower'
   | 'aa-tower'
-  | 'missile-defense';
+  | 'missile-defense'
+  | 'skylance-ciws';
 export type UnitKind =
   | 'infantry'
   | 'sniper'
@@ -202,6 +203,23 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     requires: 'power-plant',
     blocksMovement: true,
     visionRadius: 190,
+    doctrine: 'iron-legion',
+  },
+  'skylance-ciws': {
+    kind: 'skylance-ciws',
+    label: 'Skylance CIWS',
+    tab: 'defense',
+    cost: 420,
+    buildTime: 5,
+    health: 360,
+    footprint: { w: 3, h: 3 },
+    powerProduced: 0,
+    powerUsed: 4,
+    requires: 'power-plant',
+    blocksMovement: true,
+    weaponKind: 'skylanceGun',
+    weaponRange: 110,
+    visionRadius: 145,
     doctrine: 'iron-legion',
   },
 };

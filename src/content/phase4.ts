@@ -17,13 +17,15 @@ export type WeaponKind =
   | 'rocketPod'
   | 'agMissile'
   | 'aaMissile'
+  | 'skylanceGun'
   | 'microLaser'
   | 'overchargeRifle'
   | 'clusterGrenade'
   | 'railShot'
   | 'swarmRocket'
   | 'annihilatorMissile'
-  | 'strategicMissile';
+  | 'strategicMissile'
+  | 'emberDrone';
 
 export type ProjectileKind = 'grenade' | 'kineticShell' | 'artilleryShell' | 'atRocket' | 'scoutMissile' | 'tankMissile' | 'siegeMissile' | 'agMissile' | 'aaMissile';
 
@@ -255,6 +257,18 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     vs: { infantry: 0, light: 0, heavy: 0, building: 0, air: 1.0 },
     projectile: { kind: 'aaMissile', speed: 110, trajectory: 'homing', impactRadius: 2.5, fizzleRange: 160 },
   },
+  skylanceGun: {
+    kind: 'skylanceGun',
+    label: 'Skylance Close-In Cannon',
+    damage: 8,
+    cooldown: 0.18,
+    range: 110,
+    airRange: 110,
+    canTargetAir: true,
+    splashRadius: 0,
+    targetTypes: ['air'],
+    vs: { infantry: 0, light: 0, heavy: 0, building: 0, air: 1 },
+  },
   overchargeRifle: {
     kind: 'overchargeRifle',
     label: 'Tesla Dart',
@@ -319,5 +333,16 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     targetTypes: ['infantry', 'light', 'heavy', 'building'],
     vs: { infantry: 0.8, light: 0.9, heavy: 0.95, building: 1, air: 0 },
     projectile: { kind: 'siegeMissile', speed: 42, trajectory: 'homing', impactRadius: 7 },
+  },
+  emberDrone: {
+    kind: 'emberDrone',
+    label: 'Ember One-Way Drone',
+    damage: 130,
+    cooldown: 5,
+    range: 1800,
+    splashRadius: 5.5,
+    targetTypes: ['infantry', 'light', 'heavy', 'building'],
+    vs: { infantry: 0.8, light: 0.9, heavy: 0.72, building: 0.85, air: 0 },
+    projectile: { kind: 'agMissile', speed: 34, trajectory: 'flat', impactRadius: 2.6 },
   },
 };

@@ -1052,7 +1052,7 @@ describe('phase 4 combat simulation', () => {
     hammerhead.turret!.yaw = 0;
     const strategicId = 9001;
     const strategic = {
-      kind: 'strategicMissile' as const,
+      kind: 'siegeMissile' as const,
       weaponKind: 'strategicMissile',
       fromX: 0,
       fromY: 20,

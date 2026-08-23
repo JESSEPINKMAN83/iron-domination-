@@ -5,6 +5,11 @@ import { areTeamsHostile, type CombatEvent, type GameSim } from './world';
 
 export const STRATEGIC_MISSILE_COST = 225;
 export const STRATEGIC_MISSILE_COOLDOWN = 30;
+export const EMBER_DRONE_COST = 180;
+export const EMBER_DRONE_COOLDOWN = 5;
+export const EMBER_DRONE_MAX_IN_FLIGHT = 6;
+export const EMBER_DRONE_SCATTER_RADIUS = 10;
+export const EMBER_DRONE_HEALTH = 32;
 
 export interface StrategicAccuracy {
   label: 'BLIND' | 'LOW' | 'MEDIUM' | 'PINPOINT';
@@ -50,6 +55,119 @@ export function strategicLaunchReadiness(
   }
   if (economy.credits < STRATEGIC_MISSILE_COST) return { ready: false, reason: 'Insufficient credits', cooldown: 0 };
   return { ready: true, reason: '', cooldown: 0 };
+}
+
+export function emberLaunchReadiness(
+  sim: GameSim,
+  economy: EconomyState,
+): { ready: boolean; reason: string; cooldown: number; inFlight: number } {
+  const inFlight = sim.projectiles.filter(
+    (projectile) => projectile.strategicProfile === 'drone' && projectile.teamId === economy.team && (projectile.strategicHealth ?? 0) > 0,
+  ).length;
+  if (economy.doctrine !== 'missile-command') return { ready: false, reason: 'Vesper Republic only', cooldown: 0, inFlight };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ready: false, reason: 'Build an Intelligence Center', cooldown: 0, inFlight };
+  if (economy.powerProduced < economy.powerUsed) return { ready: false, reason: 'Insufficient power', cooldown: economy.emberDroneCooldown, inFlight };
+  if (economy.emberDroneCooldown > 0) {
+    return { ready: false, reason: `Rearming ${Math.ceil(economy.emberDroneCooldown)}s`, cooldown: economy.emberDroneCooldown, inFlight };
+  }
+  if (inFlight >= EMBER_DRONE_MAX_IN_FLIGHT) return { ready: false, reason: 'Six drones already airborne', cooldown: 0, inFlight };
+  if (economy.credits < EMBER_DRONE_COST) return { ready: false, reason: 'Insufficient credits', cooldown: 0, inFlight };
+  return { ready: true, reason: '', cooldown: 0, inFlight };
+}
+
+export function launchEmberDroneAt(
+  sim: GameSim,
+  economy: EconomyState,
+  enemyTeam: number,
+  targetX: number,
+  targetZ: number,
+): StrategicLaunchResult {
+  if (!areTeamsHostile(sim, economy.team, enemyTeam)) return { ok: false, reason: 'Choose an enemy army' };
+  const halfSize = sim.nav.size * 0.5;
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetZ) || Math.abs(targetX) > halfSize || Math.abs(targetZ) > halfSize) {
+    return { ok: false, reason: 'Choose a point inside the battlefield' };
+  }
+  const readiness = emberLaunchReadiness(sim, economy);
+  if (!readiness.ready) return { ok: false, reason: readiness.reason };
+  const center = buildings(sim, economy.team).find(
+    (entity) => entity.building?.kind === 'intelligence-center' && entity.building.complete && !entity.destroyed,
+  );
+  if (!center) return { ok: false, reason: 'No operational Intelligence Center' };
+  if (!spendCredits(economy, sim.tick, 'Ember one-way drone', EMBER_DRONE_COST)) {
+    return { ok: false, reason: 'Insufficient credits' };
+  }
+
+  const def = WEAPONS.emberDrone;
+  const scatterAngle = deterministicUnit(enemyTeam * 61 + sim.tick * 29 + center.id) * Math.PI * 2;
+  const scatterDistance = EMBER_DRONE_SCATTER_RADIUS * Math.sqrt(deterministicUnit(enemyTeam * 83 + sim.tick * 19 + center.id * 7));
+  const fromX = center.transform.x;
+  const fromZ = center.transform.z;
+  const fromY = sampleHeight(sim.nav.heightfield, fromX, fromZ) + 8;
+  const toX = targetX + Math.cos(scatterAngle) * scatterDistance;
+  const toZ = targetZ + Math.sin(scatterAngle) * scatterDistance;
+  const toY = sampleHeight(sim.nav.heightfield, toX, toZ) + 2.2;
+  const distance = Math.max(0.001, Math.hypot(toX - fromX, toZ - fromZ));
+  const duration = Math.max(5, distance / def.projectile!.speed);
+  const strategicId = (sim.tick + 1) * 1_000_000 + center.id;
+  sim.projectiles.push({
+    kind: def.projectile!.kind,
+    weaponKind: def.kind,
+    fromX,
+    fromY,
+    fromZ,
+    x: fromX,
+    y: fromY,
+    z: fromZ,
+    toX,
+    toY,
+    toZ,
+    elapsed: 0,
+    duration,
+    speed: def.projectile!.speed,
+    damageScale: 1,
+    impactScale: 0.95,
+    maxDistance: sim.nav.size * Math.SQRT2 + 128,
+    directTargetId: undefined,
+    trajectory: 'flat',
+    teamId: economy.team,
+    attackerId: center.id,
+    strategic: true,
+    strategicProfile: 'drone',
+    strategicId,
+    strategicTargetTeamId: enemyTeam,
+    strategicHealth: EMBER_DRONE_HEALTH,
+    strategicMaxHealth: EMBER_DRONE_HEALTH,
+  });
+  economy.emberDroneCooldown = EMBER_DRONE_COOLDOWN;
+  const event: CombatEvent = {
+    kind: def.projectile!.kind,
+    weaponKind: def.kind,
+    fromX,
+    fromY,
+    fromZ,
+    toX,
+    toY,
+    toZ,
+    targetLabel: `Army ${enemyTeam} marked drone impact area`,
+    targetType: 'ground',
+    sourceTeamId: economy.team,
+    targetTeamId: enemyTeam,
+    damage: 0,
+    killed: false,
+    duration,
+    trajectory: 'flat',
+    impactScale: 0.95,
+    strategicId,
+    targetHealth: EMBER_DRONE_HEALTH,
+    targetMaxHealth: EMBER_DRONE_HEALTH,
+  };
+  sim.events.push({
+    ...event,
+    kind: 'ember-drone-warning',
+    targetLabel: `Incoming Ember drone from Army ${economy.team}`,
+  });
+  sim.events.push(event);
+  return { ok: true, reason: '', event };
 }
 
 export function launchStrategicMissileAt(
@@ -122,6 +240,7 @@ function launchAtArea(
     teamId: economy.team,
     attackerId: silo.id,
     strategic: true,
+    strategicProfile: 'ballistic',
     strategicId,
     strategicTargetTeamId: enemyTeam,
     strategicHealth: warhead.interceptionHealth,

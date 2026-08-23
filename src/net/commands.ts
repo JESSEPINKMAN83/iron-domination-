@@ -21,6 +21,7 @@ import { issueAttackOrder, issueGroundAttack, manualFireAt } from '../sim/combat
 import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
 import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
 import { issueTacticOrder } from '../sim/tactics';
+import { launchEmberDroneAt, launchStrategicMissileAt } from '../sim/strategicWarfare';
 import type { TacticEndAction } from '../sim/components';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from '../sim/serialize';
 import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession, type TacticalPing, type TacticalPingKind } from './multiplayer';
@@ -47,6 +48,7 @@ export type NetCommand =
   | { type: 'primary-producer'; producerId: number }
   | { type: 'rally'; producerId: number; x: number; z: number }
   | { type: 'upgrade-units'; ids: number[]; upgradeId: UnitUpgradeId }
+  | { type: 'launch-strategic'; weapon: 'missile' | 'ember'; enemyTeam: number; x: number; z: number }
   | {
       type: 'possess-input';
       id: number;
@@ -506,6 +508,9 @@ export class LockstepRuntime {
       if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
     } else if (command.type === 'upgrade-units') {
       purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, team);
+    } else if (command.type === 'launch-strategic') {
+      if (command.weapon === 'ember') launchEmberDroneAt(this.options.sim, economy, command.enemyTeam, command.x, command.z);
+      else launchStrategicMissileAt(this.options.sim, economy, command.enemyTeam, command.x, command.z);
     } else if (command.type === 'possess-input') {
       const entity = ownedEntity(this.options.sim, command.id, team);
       if (!entity?.possessable || (!entity.mover && !isFortressTower(entity))) return;
@@ -731,7 +736,8 @@ function isEconomyCommand(command: NetCommand): boolean {
     command.type === 'queue-unit' ||
     command.type === 'cancel-unit' ||
     command.type === 'primary-producer' ||
-    command.type === 'upgrade-units';
+    command.type === 'upgrade-units' ||
+    command.type === 'launch-strategic';
 }
 
 function clampUnit(value: number): number {
