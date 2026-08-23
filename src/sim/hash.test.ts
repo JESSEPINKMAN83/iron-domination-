@@ -3,6 +3,7 @@ import { MAP01 } from '../content/map01';
 import { createEconomy, createInitialBase, hashEconomy } from './economy';
 import { generateHeightfield } from './heightfield';
 import { createGameSim, hashCriticalSimState, hashSim, spawnTankAt, spawnVultureAt } from './world';
+import { launchStrategicMissile } from './strategicWarfare';
 
 // hashSim is the determinism canary (save/load + future multiplayer). These tests
 // assert it actually reacts to each tracked field — a hash that ignores a field can't
@@ -92,6 +93,22 @@ describe('hashSim sensitivity', () => {
     const spent = hashEconomy(economy);
     economy.structureLine = { kind: 'power-plant', label: 'Power Plant', remaining: 5, total: 10, cost: 500 };
     expect(hashEconomy(economy)).not.toBe(spent);
+  });
+
+  it('reacts to inbound missile flight', () => {
+    const { sim, hf } = fresh();
+    const initial = hashSim(sim);
+    const inbound = launchStrategicMissile(sim, hf, {
+      teamId: 2,
+      fromX: -40,
+      fromZ: 0,
+      toX: 20,
+      toZ: 8,
+    });
+    const launched = hashSim(sim);
+    expect(launched).not.toBe(initial);
+    inbound.inboundMissile!.elapsed += 0.25;
+    expect(hashSim(sim)).not.toBe(launched);
   });
 });
 

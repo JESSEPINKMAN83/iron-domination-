@@ -16,6 +16,7 @@ import { generateHeightfield, sampleHeight } from './heightfield';
 import { applyStructureDamage, cellIndex } from './structureDamage';
 import { purchaseUnitUpgrade } from './upgrades';
 import type { Entity } from './components';
+import { launchStrategicMissile } from './strategicWarfare';
 import {
   createGameSim,
   hashSim,
@@ -1070,7 +1071,7 @@ describe('phase 4 combat simulation', () => {
     for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
     placement = updatePlacement(sim, hf, 'aa-tower', base.transform.x + 24, base.transform.z, 2);
     const tower = placeStructure(sim, hf, economy, placement);
-    expect(tower?.weapon?.kind).toBe('aaMissile');
+    expect(tower?.weapon?.kind).toBe('skyguardInterceptor');
 
     const vulture = spawnVultureAt(sim, hf, tower!.transform.x + 58, tower!.transform.z, 'Vulture 1');
     vulture.playerControlled = { throttle: 0, turn: 0, aimYaw: 0, climb: 0 };
@@ -1196,7 +1197,7 @@ describe('phase 4 combat simulation', () => {
     expect(manualAim).toEqual({ x: target.transform.x, z: target.transform.z, leadSeconds: 0 });
   });
 
-  it('AA towers expose fortress control with lock-guided air defense and ground missiles', () => {
+  it('AA towers expose fortress control with interceptors and a close-in laser', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const economy = createEconomy(1, 5200);
@@ -1206,12 +1207,12 @@ describe('phase 4 combat simulation', () => {
     const placement = updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy);
     const tower = placeStructure(sim, hf, economy, placement);
 
-    expect(tower?.weapon?.kind).toBe('aaMissile');
-    expect(tower?.weapons?.secondary?.kind).toBe('swarmRocket');
-    expect(tower?.specialWeapon?.kind).toBe('annihilatorMissile');
-    expect(tower?.possessable?.socketHeight).toBeGreaterThan(12);
+    expect(tower?.weapon?.kind).toBe('skyguardInterceptor');
+    expect(tower?.weapons?.secondary?.kind).toBe('skyguardLaser');
+    expect(tower?.specialWeapon).toBeUndefined();
+    expect(tower?.possessable?.socketHeight).toBe(8.8);
     expect(tower?.turret?.turnRate).toBeGreaterThan(3);
-    expect(tower?.vision?.radius).toBe(300);
+    expect(tower?.vision?.radius).toBe(380);
   });
 
   it('launches homing missiles from explicit locks on both fortress tower types', () => {
@@ -1428,6 +1429,157 @@ describe('phase 4 combat simulation', () => {
       fired = sim.projectiles.some((p) => p.kind === 'aaMissile') || sim.events.some((e) => e.kind === 'aaMissile');
     }
     expect(fired).toBe(true);
+  });
+
+  it('Skyguard batteries intercept ballistic inbounds before they detonate', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+    economy.readyStructure = 'aa-tower';
+    const tower = placeStructure(
+      sim,
+      hf,
+      economy,
+      updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy),
+    )!;
+    const inbound = launchStrategicMissile(sim, hf, {
+      teamId: 2,
+      fromX: tower.transform.x + 180,
+      fromZ: tower.transform.z,
+      toX: base.transform.x,
+      toZ: base.transform.z,
+    });
+    const yardHealth = base.health!.current;
+    expect(sim.events.some((event) => event.kind === 'inbound-warning' && event.targetId === inbound.id)).toBe(true);
+
+    settle(sim, 6);
+
+    expect(inbound.destroyed).toBeDefined();
+    expect(sim.events.some((event) => event.kind === 'aaMissile' && event.targetId === inbound.id)).toBe(true);
+    expect(sim.events.some((event) => event.kind === 'inbound-impact')).toBe(false);
+    expect(base.health!.current).toBe(yardHealth);
+  });
+
+  it('Skyguard fires an interceptor as soon as a threatening inbound is launched', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+    economy.readyStructure = 'aa-tower';
+    const tower = placeStructure(
+      sim,
+      hf,
+      economy,
+      updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy),
+    )!;
+    const inbound = launchStrategicMissile(sim, hf, {
+      teamId: 2,
+      fromX: tower.transform.x + 640,
+      fromZ: tower.transform.z,
+      toX: base.transform.x,
+      toZ: base.transform.z,
+    });
+    const launchDistance = Math.hypot(inbound.transform.x - tower.transform.x, inbound.transform.z - tower.transform.z);
+    expect(launchDistance).toBeGreaterThan(500);
+
+    stepCombat(sim, 1 / 30);
+
+    expect(sim.events.some((event) => event.kind === 'aaMissile' && event.targetId === inbound.id)).toBe(true);
+    expect(sim.projectiles.some((projectile) => projectile.weaponKind === 'skyguardInterceptor' && projectile.directTargetId === inbound.id)).toBe(true);
+    expect(Math.hypot(inbound.transform.x - tower.transform.x, inbound.transform.z - tower.transform.z)).toBeGreaterThan(500);
+    expect(inbound.inboundMissile!.elapsed).toBeLessThan(0.2);
+    expect(inbound.destroyed).toBeUndefined();
+
+    const yardHealth = base.health!.current;
+    settle(sim, 6);
+    expect(inbound.destroyed).toBeDefined();
+    expect(sim.events.some((event) => event.kind === 'inbound-impact')).toBe(false);
+    expect(base.health!.current).toBe(yardHealth);
+  });
+
+  it('Skyguard ignores inbounds that will miss friendly buildings', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+    economy.readyStructure = 'aa-tower';
+    const tower = placeStructure(
+      sim,
+      hf,
+      economy,
+      updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy),
+    )!;
+    launchStrategicMissile(sim, hf, {
+      teamId: 2,
+      fromX: tower.transform.x + 80,
+      fromZ: tower.transform.z + 80,
+      toX: tower.transform.x + 420,
+      toZ: tower.transform.z + 420,
+    });
+
+    settle(sim, 0.4);
+    expect(sim.events.some((event) => event.kind === 'aaMissile')).toBe(false);
+  });
+
+  it('Skyguard close-in laser burns drone inbounds and ignores ballistic ones', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+    economy.readyStructure = 'aa-tower';
+    const tower = placeStructure(
+      sim,
+      hf,
+      economy,
+      updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy),
+    )!;
+    tower.weapons!.primary.cooldown = 99;
+    const drone = launchStrategicMissile(sim, hf, {
+      teamId: 2,
+      fromX: tower.transform.x + 70,
+      fromZ: tower.transform.z,
+      toX: base.transform.x,
+      toZ: base.transform.z,
+      profile: 'drone',
+    });
+    settle(sim, 1.2);
+    expect(sim.events.some((event) => event.kind === 'skyguardLaser' && event.targetId === drone.id)).toBe(true);
+    expect(drone.health!.current).toBeLessThan(drone.health!.max);
+
+    sim.events.length = 0;
+    tower.weapons!.secondary!.cooldown = 0;
+    const ballistic = launchStrategicMissile(sim, hf, {
+      teamId: 2,
+      fromX: tower.transform.x + 80,
+      fromZ: tower.transform.z + 4,
+      toX: base.transform.x,
+      toZ: base.transform.z,
+    });
+    settle(sim, 0.4);
+    expect(sim.events.some((event) => event.kind === 'skyguardLaser' && event.targetId === ballistic.id)).toBe(false);
+  });
+
+  it('Skyguard batteries refuse ground fire', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 5200);
+    const base = createInitialBase(sim, hf, economy);
+    economy.readyStructure = 'aa-tower';
+    const tower = placeStructure(
+      sim,
+      hf,
+      economy,
+      updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy),
+    )!;
+    const tank = spawnTankAt(sim, tower.transform.x + 36, tower.transform.z, 'Raider', 2);
+    tank.weapon = undefined;
+    tank.weapons = undefined;
+    settle(sim, 2);
+    expect(sim.events.some((event) => event.sourceTeamId === 1 && (event.kind === 'aaMissile' || event.kind === 'skyguardLaser' || event.kind === 'skyguardInterceptor'))).toBe(false);
+    expect(issueGroundAttack(sim, [tower], tank.transform.x, tank.transform.z)).toBe(false);
+    expect(manualFireAt(sim, tower, tank.transform.x, tank.transform.z, 'primary', tank.transform.y)).toBe(false);
+    expect(manualFireAt(sim, tower, tank.transform.x, tank.transform.z, 'secondary', tank.transform.y)).toBe(false);
   });
 });
 

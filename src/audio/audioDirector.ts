@@ -176,6 +176,10 @@ export class AudioDirector {
       this.playMetalCrash(event);
       return;
     }
+    if (event.kind === 'microLaser' || event.kind === 'skyguardLaser') {
+      this.playLaser(event);
+      return;
+    }
     if (event.kind === 'bomb' || event.kind === 'tankBomb' || event.kind === 'grenade' || event.kind === 'kineticShell' || event.kind === 'artilleryShell' || event.kind === 'atRocket' || event.kind === 'agMissile' || event.kind === 'aaMissile' || event.kind === 'scoutMissile' || event.kind === 'tankMissile' || event.kind === 'siegeMissile') {
       this.playLaunch(event);
       return;
@@ -334,6 +338,28 @@ export class AudioDirector {
     osc.stop(now + (sniper ? 0.26 : 0.09));
     this.noiseBurst(bus.input, sniper ? 0.2 : 0.045, sniper ? 0.065 : 0.018, { type: 'highpass', frequency: sniper ? 850 : 1200, q: 0.7 });
     this.releaseBus(bus, sniper ? 0.34 : 0.12);
+  }
+
+  private playLaser(event: CombatEvent): void {
+    const closeIn = event.kind === 'skyguardLaser';
+    const profile: SoundProfile = { gain: closeIn ? 0.055 : 0.04, near: 12, far: closeIn ? 180 : 120 };
+    if (!this.allowSoundAt(event.kind, event.fromX, event.fromZ, profile, closeIn ? 0.04 : 0.08)) return;
+    const bus = this.spatialBus(event.fromX, event.fromZ, profile);
+    if (!bus) return;
+    const now = this.ctx!.currentTime;
+    const osc = this.ctx!.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(closeIn ? 1680 : 1320, now);
+    osc.frequency.exponentialRampToValueAtTime(closeIn ? 920 : 740, now + (closeIn ? 0.07 : 0.09));
+    const gain = this.ctx!.createGain();
+    gain.gain.setValueAtTime(closeIn ? 0.028 : 0.02, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + (closeIn ? 0.09 : 0.12));
+    osc.connect(gain);
+    gain.connect(bus.input);
+    osc.start(now);
+    osc.stop(now + 0.14);
+    this.noiseBurst(bus.input, closeIn ? 0.05 : 0.04, closeIn ? 0.012 : 0.01, { type: 'highpass', frequency: 2400, q: 0.8 });
+    this.releaseBus(bus, 0.16);
   }
 
   private playCannon(event: CombatEvent): void {

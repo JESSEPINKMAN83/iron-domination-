@@ -128,6 +128,7 @@ import {
 } from './sim/economy';
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
 import { damageForArmor, issueAttackOrder } from './sim/combat';
+import { launchStrategicMissile } from './sim/strategicWarfare';
 import { directionalImpactResponse } from './sim/impactModel';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from './sim/serialize';
 import { purchaseUnitUpgrade, unitKindForUpgrade } from './sim/upgrades';
@@ -2518,6 +2519,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
   const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
+  const inboundDemo = params.get('inbound-demo') === '1' && !multiplayerMode;
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   const impactPreview =
     !multiplayerMode && !isPublicHost(location.hostname)
@@ -3348,6 +3350,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const firstContactGate = new FirstContactGate();
   const baseUnderAttackGate = new BaseUnderAttackGate();
   const missionComms = new MissionComms();
+  let lastInboundWarningTick = -999;
+  let nextInboundDemoTick = 60;
+  let inboundDemoVolley = 0;
 
   const showEnemyFirstContact = (): void => {
     showMissionBriefing({
@@ -3378,6 +3383,20 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (contact) showEnemyFirstContact();
   };
 
+  const checkInboundWarning = (events: CombatEvent[]): void => {
+    for (const event of events) {
+      if (event.kind !== 'inbound-warning' || event.sourceTeamId === undefined) continue;
+      if (!areTeamsHostile(sim, localTeam, event.sourceTeamId)) continue;
+      const missile = event.targetId !== undefined ? sim.byId.get(event.targetId) : undefined;
+      if (missile) unitView.addEntity(missile);
+      if (sim.tick - lastInboundWarningTick < 90) continue;
+      lastInboundWarningTick = sim.tick;
+      sidebar.signalUnderAttack(event.toX, event.toZ, event.targetLabel ?? 'Inbound');
+      hud.showBaseUnderAttack(event.targetType === 'drone' ? 'Inbound drone' : 'Inbound missile');
+      audio.playUi('error');
+    }
+  };
+
   const checkBaseUnderAttack = (events: CombatEvent[]): void => {
     if (lineupStart) return;
     const alert = baseUnderAttackGate.tryTrigger(sim.tick, () => findFriendlyBuildingUnderAttack(events, sim.byId, localTeam));
@@ -3393,6 +3412,24 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       if (uiPaused || networkPaused) return;
       if (collectorPreview) return;
       firstPerson.simTick();
+      if (inboundDemo && sim.tick >= nextInboundDemoTick) {
+        const hostileTeam = armies.find((army) => areTeamsHostile(sim, localTeam, army.team))?.team ?? (localTeam === 1 ? 2 : 1);
+        const profile = inboundDemoVolley % 3 === 2 ? 'drone' : 'ballistic';
+        const sizeScale = inboundDemoVolley % 4 === 3 ? 1.8 : 1;
+        const missile = launchStrategicMissile(sim, hf, {
+          teamId: hostileTeam,
+          fromX: localBase.transform.x + 210,
+          fromZ: localBase.transform.z - 36,
+          toX: localBase.transform.x,
+          toZ: localBase.transform.z,
+          profile,
+          sizeScale,
+        });
+        unitView.addEntity(missile);
+        console.info(`[inbound-demo] ${profile} volley ${inboundDemoVolley + 1} id=${missile.id} scale=${sizeScale}`);
+        inboundDemoVolley += 1;
+        nextInboundDemoTick = sim.tick + 150;
+      }
       const tickResult = advanceTick({
         sim,
         hf,
@@ -3406,6 +3443,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       const spawned = tickResult.spawned;
       for (const entity of spawned) {
         unitView.addEntity(entity);
+      }
+      for (const entity of sim.world.entities) {
+        if (entity.inboundMissile && !entity.destroyed) unitView.addEntity(entity);
       }
       if (sim.tick % 3 === 0) {
         for (const entity of sim.world.entities) {
@@ -3511,6 +3551,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       economyFx.push(events);
       combatView.push(events);
       checkBaseUnderAttack(events);
+      checkInboundWarning(events);
       checkFirstContact();
       checkOutcome();
       simTicks++;
@@ -3620,12 +3661,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   overlay.remove();
   loop.start();
   fadeOutLandingMusic(40_000);
+  if (inboundDemo) {
+    console.info('[inbound-demo] armed — look at your Command Yard. First volley in ~2s.');
+    hud.showBaseUnderAttack('Inbound demo armed');
+  }
   if (debriefPreview) {
     window.setTimeout(() => {
       showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount), undefined);
     }, 500);
   }
-  if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview) {
+  if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview && !inboundDemo) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     const memberId = enlistedCommander()?.memberId;
     if (shouldShowOpeningBriefing(window.localStorage, memberId)) {

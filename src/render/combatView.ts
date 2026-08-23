@@ -145,7 +145,7 @@ export function selectCombatVisualEvents(
 }
 
 function isCriticalVisualEvent(event: CombatEvent): boolean {
-  return event.killed || event.kind === 'crash' || event.kind === 'aircraft-crash-smoke';
+  return event.killed || event.kind === 'crash' || event.kind === 'aircraft-crash-smoke' || event.kind === 'inbound-warning' || event.kind === 'inbound-impact';
 }
 
 function addSpreadSelection(selected: Set<number>, candidates: IndexedCombatEvent[], count: number): void {
@@ -169,6 +169,8 @@ export class CombatView {
   private readonly aviationCannonMaterial = new LineBasicMaterial({ color: 0x77dfff, transparent: true, opacity: 0.88 });
   private readonly sniperMaterial = new LineBasicMaterial({ color: 0xd8ffd0, transparent: true, opacity: 0.96 });
   private readonly microLaserMaterial = new LineBasicMaterial({ color: 0x67f4ff, transparent: true, opacity: 0.94 });
+  private readonly skyguardLaserMaterial = new LineBasicMaterial({ color: 0xe7fff8, transparent: true, opacity: 0.98 });
+  private readonly inboundWarningMaterial = new LineBasicMaterial({ color: 0xffb14a, transparent: true, opacity: 0.55 });
   private readonly tracers: Tracer[] = [];
   private readonly bursts: Burst[] = [];
   private readonly bombProjectiles: BombProjectile[] = [];
@@ -206,9 +208,10 @@ export class CombatView {
       const sourceVisible = this.isVisible(event.fromX, event.fromZ);
       const impactVisible = this.isVisible(event.toX, event.toZ);
       const playerHiddenHit = event.sourceTeamId === this.localTeam && event.damage > 0;
+      const inboundAlert = event.kind === 'inbound-warning' || event.kind === 'inbound-impact';
       // fights entirely inside the fog stay hidden, except brief player-fired hit confirmations
-      if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
-      const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : event.kind === 'microLaser' ? 2.75 : 2.2;
+      if (!sourceVisible && !impactVisible && !playerHiddenHit && !inboundAlert) continue;
+      const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : event.kind === 'microLaser' || event.kind === 'skyguardLaser' ? 2.75 : 2.2;
       const fromY = event.fromY ?? sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
       const toY = event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
       if (event.kind === 'aircraft-crash-smoke') {
@@ -217,6 +220,21 @@ export class CombatView {
       }
       if (event.kind === 'crash') {
         this.spawnCrashBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.6, event.toZ);
+        continue;
+      }
+      if (event.kind === 'inbound-warning') {
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new Float32BufferAttribute([event.fromX, fromY, event.fromZ, event.toX, toY, event.toZ], 3));
+        const line = new Line(geometry, this.inboundWarningMaterial);
+        line.renderOrder = 52;
+        this.group.add(line);
+        this.tracers.push({ line, ttl: 1.35, total: 1.35 });
+        this.spawnSmallImpact(event.fromX, fromY, event.fromZ, false, 0.7);
+        continue;
+      }
+      if (event.kind === 'inbound-impact') {
+        this.spawnBombBlast(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.4, event.toZ, true, 1.35);
+        this.spawnHitIndicator(event);
         continue;
       }
       if (isProjectileLaunch(event.kind)) {
@@ -251,8 +269,10 @@ export class CombatView {
       geometry.setAttribute('position', new Float32BufferAttribute([event.fromX, fromY, event.fromZ, event.toX, toY, event.toZ], 3));
       const line = new Line(
         geometry,
-        event.kind === 'microLaser'
-          ? this.microLaserMaterial
+        event.kind === 'skyguardLaser'
+          ? this.skyguardLaserMaterial
+          : event.kind === 'microLaser'
+            ? this.microLaserMaterial
           : event.kind === 'waspAutocannon'
             ? this.aviationCannonMaterial
           : event.kind === 'autocannon'
@@ -265,6 +285,7 @@ export class CombatView {
       );
       line.renderOrder = 50;
       const tracerTtl = event.kind === 'sniperRifle' || event.kind === 'railShot' ? 0.34
+        : event.kind === 'skyguardLaser' ? 0.16
         : event.kind === 'microLaser' ? 0.11
           : event.kind === 'waspAutocannon' ? 0.055
             : event.kind === 'autocannon' ? 0.075
@@ -277,7 +298,7 @@ export class CombatView {
       this.trimTracers();
 
       this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, (event.impactScale ?? 1) * smallImpactScale(event.weaponKind ?? event.kind));
-      if (event.kind !== 'microLaser' && (event.damage > 0 || event.killed)) {
+      if (event.kind !== 'microLaser' && event.kind !== 'skyguardLaser' && (event.damage > 0 || event.killed)) {
         this.spawnHitIndicator(event);
         this.spawnHitFragments(event, toY);
       }
@@ -1090,10 +1111,10 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
     bodyRadius: 0.2, tipRadius: 0.12, bodyLength: 2.5, noseLength: 0.72, bandWidth: 0.14,
     glowRadius: 0.56, fins: 4, finThickness: 0.06, finLength: 0.72, finWidth: 0.58, scale: 1.65,
   };
-  if (weaponKind === 'aaMissile') return {
+  if (weaponKind === 'aaMissile' || weaponKind === 'skyguardInterceptor') return {
     ...base, bodyColor: 0xd8dde0, noseColor: 0x70d8ff, bandColor: 0x4ea4d8, glowColor: 0x9eeaff,
     bodyRadius: 0.12, tipRadius: 0.07, bodyLength: 2.15, noseLength: 0.62, bandWidth: 0.12,
-    glowRadius: 0.38, fins: 4, finThickness: 0.045, finLength: 0.52, finWidth: 0.38, scale: 1.3,
+    glowRadius: 0.38, fins: 4, finThickness: 0.045, finLength: 0.52, finWidth: 0.38, scale: weaponKind === 'skyguardInterceptor' ? 1.18 : 1.3,
   };
   return projectileKind === 'tankBomb' ? { ...base, bodyRadius: 0.4, bodyLength: 2.3, scale: 2.2 } : base;
 }
@@ -1118,7 +1139,7 @@ function projectileSmokeColor(weaponKind: string, projectileKind: string, homing
   if (isBombKind(projectileKind)) return 0x3a3026;
   if (projectileKind === 'kineticShell') return 0xffd875;
   if (projectileKind === 'artilleryShell') return 0x71675a;
-  if (weaponKind === 'aaMissile') return 0xdbeeff;
+  if (weaponKind === 'aaMissile' || weaponKind === 'skyguardInterceptor') return 0xdbeeff;
   if (weaponKind === 'rocketPod') return 0xaaa397;
   return homing ? 0xd8d3c7 : 0xb7b0a1;
 }
@@ -1154,7 +1175,7 @@ function impactBlastScale(kind: string, weaponKind?: string): number {
 }
 
 function smallImpactScale(weaponKind: string): number {
-  if (weaponKind === 'rifle' || weaponKind === 'microLaser') return 0.42;
+  if (weaponKind === 'rifle' || weaponKind === 'microLaser' || weaponKind === 'skyguardLaser') return 0.42;
   if (weaponKind === 'autocannon') return 0.62;
   if (weaponKind === 'waspAutocannon') return 0.54;
   if (weaponKind === 'sniperRifle' || weaponKind === 'railShot') return 0.76;

@@ -37,6 +37,7 @@ export function isCombatRankEligible(entity: Entity): boolean {
 }
 
 export function unitCombatCost(entity: Entity): number {
+  if (entity.inboundMissile) return entity.inboundMissile.profile === 'drone' ? 180 : 400;
   const kind = unitKindForUpgrade(entity);
   if (kind && UNITS[kind]) return UNITS[kind].cost;
   if (entity.flight) return 650;

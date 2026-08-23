@@ -1,5 +1,5 @@
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
-import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, type FortressTowerKind } from '../content/fortress';
+import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, SKYGUARD_TOWER, type FortressTowerKind } from '../content/fortress';
 import { startPosition } from '../content/startPositions';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
 import { WEAPONS } from '../content/phase4';
@@ -248,7 +248,9 @@ function createPlacedStructure(
     weapons: fortressWeapons?.weapons,
     specialWeapon: fortressWeapons?.specialWeapon,
     turret: def.weaponKind ? { yaw: 0, turnRate: fortressKind ? FORTRESS_TOWER.turretTurnRate : 2.4 } : undefined,
-    possessable: fortressKind ? { socketHeight: FORTRESS_TOWER.socketHeight } : undefined,
+    possessable: fortressKind
+      ? { socketHeight: fortressKind === 'aa-tower' ? SKYGUARD_TOWER.socketHeight : FORTRESS_TOWER.socketHeight }
+      : undefined,
     collider: { radius: def.blocksMovement ? footprintRadius(hf, def.footprint) : Math.max(def.footprint.w, def.footprint.h) },
     armor: { kind: 'building' },
   });

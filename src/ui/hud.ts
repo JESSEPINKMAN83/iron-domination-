@@ -1,6 +1,7 @@
 import type { Entity } from '../sim/components';
 import { unitKindForUpgrade } from '../sim/upgrades';
 import { UNIT_ARSENALS, type WeaponHudFamily } from '../content/unitArsenal';
+import { isSkyguardTower } from '../content/fortress';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 
 // Debug HUD: performance stats (top-left) and controls help (bottom-left).
@@ -115,15 +116,7 @@ export class Hud {
       'position:fixed;inset:18px;display:none;pointer-events:none;z-index:12;color:#f3ce69;' +
       'border:1px solid rgba(232,190,72,.28);box-shadow:inset 0 0 60px rgba(210,155,35,.035);' +
       'font:700 9px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.12em;text-shadow:0 1px 2px #000;';
-    this.fortressFrame.innerHTML =
-      '<div style="position:absolute;left:-1px;top:-1px;width:74px;height:22px;border-left:3px solid #e7bd4d;border-top:3px solid #e7bd4d"></div>' +
-      '<div style="position:absolute;right:-1px;top:-1px;width:74px;height:22px;border-right:3px solid #e7bd4d;border-top:3px solid #e7bd4d"></div>' +
-      '<div style="position:absolute;left:-1px;bottom:-1px;width:74px;height:22px;border-left:3px solid #e7bd4d;border-bottom:3px solid #e7bd4d"></div>' +
-      '<div style="position:absolute;right:-1px;bottom:-1px;width:74px;height:22px;border-right:3px solid #e7bd4d;border-bottom:3px solid #e7bd4d"></div>' +
-      '<div style="position:absolute;left:15px;top:14px"><span style="color:#fff0b0">FORTRESS FIRE CONTROL</span><br><span style="color:#9d8d64">HOLD T // EXPAND SCAN · RELEASE // LOCK TARGET</span></div>' +
-      '<div style="position:absolute;right:15px;top:14px;color:#9d8d64;text-align:right">MOUSE WHEEL // OPTICAL ZOOM</div>' +
-      '<div style="position:absolute;left:15px;bottom:12px;color:#9d8d64">DUAL HEAVY INTERCEPTOR // ONLINE</div>' +
-      '<div style="position:absolute;right:15px;bottom:12px;color:#9d8d64">TACTICAL WARHEAD INTERLOCK // ARMED</div>';
+    this.fortressFrame.innerHTML = fortressFrameMarkup(false);
     container.appendChild(this.fortressFrame);
 
     this.weaponFrame = document.createElement('div');
@@ -175,13 +168,22 @@ export class Hud {
     this.reticleFamily = arsenal?.hud ?? 'rifle';
     const primary = weaponLabel(entity?.weapons?.primary.kind ?? entity?.weapon?.kind);
     const secondary = weaponLabel(entity?.weapons?.secondary?.kind);
+    const skyguard = Boolean(entity && isSkyguardTower(entity));
+    this.fortressFrame.innerHTML = fortressFrameMarkup(skyguard);
     this.modeBanner.innerHTML = this.fortressMode
-      ? '<div style="font-size:14px;color:#ffd96a;letter-spacing:.14em;">FORTRESS V-MODE</div>' +
-        `<div style="margin-top:4px;font-size:10px;color:#d7c897;letter-spacing:.04em;">${mobileTouch ? 'Drag to aim · Hold SCAN, release to lock · FIRE interceptor · MISSILE barrage' : 'MOUSE AIM · WHEEL OPTICAL ZOOM · HOLD T SCAN · RELEASE TO LOCK · LMB/RMB FIRE · V EXIT'}</div>`
+      ? skyguard
+        ? '<div style="font-size:14px;color:#9defff;letter-spacing:.14em;">SKYGUARD V-MODE</div>' +
+          `<div style="margin-top:4px;font-size:10px;color:#b7e4ef;letter-spacing:.04em;">${mobileTouch ? 'Drag to aim · Hold SCAN, release to lock · FIRE interceptor · LASER drones' : 'MOUSE AIM · WHEEL OPTICAL ZOOM · HOLD T SCAN · LMB INTERCEPTOR · RMB LASER · AIR ONLY · V EXIT'}</div>`
+        : '<div style="font-size:14px;color:#ffd96a;letter-spacing:.14em;">FORTRESS V-MODE</div>' +
+          `<div style="margin-top:4px;font-size:10px;color:#d7c897;letter-spacing:.04em;">${mobileTouch ? 'Drag to aim · Hold SCAN, release to lock · FIRE interceptor · MISSILE barrage' : 'MOUSE AIM · WHEEL OPTICAL ZOOM · HOLD T SCAN · RELEASE TO LOCK · LMB/RMB FIRE · V EXIT'}</div>`
       : `<div style="font-size:13px;color:#f0d56a;letter-spacing:.1em;">${arsenal?.designation ?? 'DIRECT CONTROL'}</div>` +
         `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${arsenal?.fireControl ?? 'MANUAL FIRE CONTROL'} · ${mobileTouch ? 'DRAG TO AIM' : 'V / ESC EXIT'}</div>`;
     this.modeBanner.style.minWidth = this.fortressMode ? '520px' : '260px';
-    this.modeBanner.style.borderColor = this.fortressMode ? 'rgba(255,199,69,.88)' : 'rgba(240,213,106,.58)';
+    this.modeBanner.style.borderColor = this.fortressMode
+      ? (skyguard ? 'rgba(120,220,235,.88)' : 'rgba(255,199,69,.88)')
+      : 'rgba(240,213,106,.58)';
+    this.fortressFrame.style.color = skyguard ? '#9defff' : '#f3ce69';
+    this.fortressFrame.style.borderColor = skyguard ? 'rgba(120,220,235,.42)' : 'rgba(232,190,72,.28)';
     this.fortressFrame.style.display = this.fortressMode ? 'block' : 'none';
     this.weaponFrame.style.display = active && !this.fortressMode ? 'block' : 'none';
     this.weaponFrame.innerHTML = active && !this.fortressMode
@@ -316,6 +318,26 @@ export class Hud {
 
 function weaponLabel(kind: string | undefined): string {
   return kind && kind in WEAPONS ? WEAPONS[kind as WeaponKind].label.toUpperCase() : 'NONE';
+}
+
+function fortressFrameMarkup(skyguard: boolean): string {
+  const corners =
+    '<div style="position:absolute;left:-1px;top:-1px;width:74px;height:22px;border-left:3px solid currentColor;border-top:3px solid currentColor"></div>' +
+    '<div style="position:absolute;right:-1px;top:-1px;width:74px;height:22px;border-right:3px solid currentColor;border-top:3px solid currentColor"></div>' +
+    '<div style="position:absolute;left:-1px;bottom:-1px;width:74px;height:22px;border-left:3px solid currentColor;border-bottom:3px solid currentColor"></div>' +
+    '<div style="position:absolute;right:-1px;bottom:-1px;width:74px;height:22px;border-right:3px solid currentColor;border-bottom:3px solid currentColor"></div>';
+  if (skyguard) {
+    return corners +
+      '<div style="position:absolute;left:15px;top:14px"><span style="color:#e7fff8">SKYGUARD FIRE CONTROL</span><br><span style="color:#7fb8c4">HOLD T // SCAN AIR THREATS · RELEASE // LOCK</span></div>' +
+      '<div style="position:absolute;right:15px;top:14px;color:#7fb8c4;text-align:right">MOUSE WHEEL // OPTICAL ZOOM</div>' +
+      '<div style="position:absolute;left:15px;bottom:12px;color:#7fb8c4">INTERCEPTOR // AUTO ON LAUNCH</div>' +
+      '<div style="position:absolute;right:15px;bottom:12px;color:#7fb8c4">CLOSE-IN LASER // DRONES</div>';
+  }
+  return corners +
+    '<div style="position:absolute;left:15px;top:14px"><span style="color:#fff0b0">FORTRESS FIRE CONTROL</span><br><span style="color:#9d8d64">HOLD T // EXPAND SCAN · RELEASE // LOCK TARGET</span></div>' +
+    '<div style="position:absolute;right:15px;top:14px;color:#9d8d64;text-align:right">MOUSE WHEEL // OPTICAL ZOOM</div>' +
+    '<div style="position:absolute;left:15px;bottom:12px;color:#9d8d64">DUAL HEAVY INTERCEPTOR // ONLINE</div>' +
+    '<div style="position:absolute;right:15px;bottom:12px;color:#9d8d64">TACTICAL WARHEAD INTERLOCK // ARMED</div>';
 }
 
 function weaponFrameMarkup(designation: string, fireControl: string, primary: string, secondary: string): string {

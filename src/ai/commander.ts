@@ -8,6 +8,7 @@ import { buildings, canBuildStructure, placeStructure, queueUnit, startStructure
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { areTeamsHostile, attackStandoffPoint, issueMoveOrder, type GameSim } from '../sim/world';
+import { tryLaunchAiStrategicStrike } from '../sim/strategicWarfare';
 
 interface Squad {
   units: Entity[];
@@ -51,6 +52,8 @@ export class EnemyCommander {
 
   step(dt: number): void {
     this.elapsed += dt;
+    const strike = tryLaunchAiStrategicStrike(this.sim, this.hf, this.economy.team);
+    if (strike) this.log(`strategic strike — ${strike.name}`);
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = this.difficulty.reactionDelay;

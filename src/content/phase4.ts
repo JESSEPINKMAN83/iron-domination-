@@ -17,6 +17,8 @@ export type WeaponKind =
   | 'rocketPod'
   | 'agMissile'
   | 'aaMissile'
+  | 'skyguardInterceptor'
+  | 'skyguardLaser'
   | 'microLaser'
   | 'overchargeRifle'
   | 'clusterGrenade'
@@ -253,6 +255,31 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     targetTypes: ['air'],
     vs: { infantry: 0, light: 0, heavy: 0, building: 0, air: 1.0 },
     projectile: { kind: 'aaMissile', speed: 110, trajectory: 'homing', impactRadius: 2.5, fizzleRange: 160 },
+  },
+  skyguardInterceptor: {
+    kind: 'skyguardInterceptor',
+    label: 'Skyguard Interceptor',
+    damage: 58,
+    cooldown: 1.15,
+    range: 420,
+    airRange: 420,
+    canTargetAir: true,
+    splashRadius: 3.2,
+    targetTypes: ['air'],
+    vs: { infantry: 0, light: 0, heavy: 0, building: 0, air: 1.0 },
+    projectile: { kind: 'aaMissile', speed: 280, trajectory: 'homing', impactRadius: 2.4, fizzleRange: 1800 },
+  },
+  skyguardLaser: {
+    kind: 'skyguardLaser',
+    label: 'Close-In Laser',
+    damage: 8,
+    cooldown: 0.1,
+    range: 110,
+    airRange: 110,
+    canTargetAir: true,
+    splashRadius: 0,
+    targetTypes: ['air'],
+    vs: { infantry: 0, light: 0, heavy: 0, building: 0, air: 1.25 },
   },
   overchargeRifle: {
     kind: 'overchargeRifle',

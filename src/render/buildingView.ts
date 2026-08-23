@@ -37,6 +37,7 @@ import type { RenderContext } from './renderer';
 import { createHullPanelTexture } from './textures';
 
 const DEFAULT_BUILDING_HEIGHT = 5.4;
+const BUILDING_HULL_REV = 3;
 const DESTROYED_TOTAL = 20;
 const COLLAPSE_SECONDS = 1.2;
 const BLOCK_GAP = 0.08;
@@ -202,10 +203,10 @@ export class BuildingView {
         metalness: 0.16,
       })),
       'aa-tower': ctx.setupLitMaterial(new MeshStandardMaterial({
-        color: 0xa8b8c4,
+        color: 0x4e5b66,
         map: hullSteel,
-        roughness: 0.74,
-        metalness: 0.2,
+        roughness: 0.52,
+        metalness: 0.42,
       })),
     };
     this.ensureGhostCount(1);
@@ -255,6 +256,14 @@ export class BuildingView {
 
     for (const entity of buildings(this.sim)) {
       let object = this.objects.get(entity);
+      if (object && object.hullRev !== BUILDING_HULL_REV) {
+        this.clearEffects(object);
+        this.group.remove(object.root);
+        this.disposeTree(object.root);
+        object = this.createBuildingObject(entity);
+        this.objects.set(entity, object);
+        this.group.add(object.root);
+      }
       if (!object && entity.building) {
         object = this.createBuildingObject(entity);
         this.objects.set(entity, object);
@@ -419,15 +428,21 @@ export class BuildingView {
       }
       tierBaseY += tierH;
     }
+    if (kind === 'aa-tower' || kind === 'guard-tower') {
+      for (const block of blocks) block.mesh.visible = false;
+    }
 
-    const isTower = kind === 'guard-tower' || kind === 'aa-tower';
+    const isSkyguard = kind === 'aa-tower';
+    const isTower = kind === 'guard-tower' || isSkyguard;
     const isPowerPlant = kind === 'power-plant';
-    const accentY = isTower
-      ? buildingHeight * profile[0]!.heightShare + 0.16
-      : buildingHeight + (isPowerPlant ? 0.42 : 0.16);
-    const accentZ = isTower ? fullD * 0.48 : fullD * (isPowerPlant ? 0.36 : 0.4);
+    const accentY = isSkyguard
+      ? 0.74
+      : isTower
+        ? buildingHeight * profile[0]!.heightShare + 0.16
+        : buildingHeight + (isPowerPlant ? 0.42 : 0.16);
+    const accentZ = isSkyguard ? fullD * 0.38 : isTower ? fullD * 0.48 : fullD * (isPowerPlant ? 0.36 : 0.4);
     const accent = new Mesh(
-      new BoxGeometry(fullW * (isTower ? 0.42 : 0.5), 0.22, Math.max(0.5, fullD * 0.12)),
+      new BoxGeometry(fullW * (isSkyguard ? 0.28 : isTower ? 0.42 : 0.5), 0.22, Math.max(0.5, fullD * (isSkyguard ? 0.08 : 0.12))),
       this.accentMaterials[factionId(entity.team?.id)],
     );
     // Towers keep the identity plate on the plinth front edge; other buildings
@@ -435,7 +450,7 @@ export class BuildingView {
     // power plant needs extra clearance for its larger roof equipment.
     accent.position.set(0, accentY, accentZ);
     accent.castShadow = true;
-    const label = createBuildingLabel(entity.building?.label ?? entity.name ?? 'Building', fullW * (isTower ? 0.42 : 0.5), Math.max(0.5, fullD * 0.12), buildingHeight);
+    const label = createBuildingLabel(entity.building?.label ?? entity.name ?? 'Building', fullW * (isSkyguard ? 0.28 : isTower ? 0.42 : 0.5), Math.max(0.5, fullD * (isSkyguard ? 0.08 : 0.12)), buildingHeight);
     label.position.copy(accent.position);
     // The label plane needs a meaningful gap above the accent box; a 2 cm
     // separation is below depth-buffer precision at far RTS zoom levels.
@@ -468,6 +483,7 @@ export class BuildingView {
       lastHealth: entity.health?.current ?? 0,
       lastDamageTick: -9999,
       impactPunch: 0,
+      hullRev: BUILDING_HULL_REV,
     };
   }
 
@@ -517,6 +533,9 @@ export class BuildingView {
       if (debrisBudget > 0 && value >= 58) {
         this.addDebrisChip(entity, object, block, damage, value);
         debrisBudget--;
+      }
+      if ((entity.building?.kind === 'aa-tower' || entity.building?.kind === 'guard-tower') && !entity.destroyed) {
+        block.mesh.visible = false;
       }
     }
 
@@ -913,6 +932,7 @@ interface BuildingObject {
   lastHealth: number;
   lastDamageTick: number;
   impactPunch: number;
+  hullRev: number;
 }
 
 interface RefineryDock {
@@ -962,7 +982,14 @@ interface BodyTierProfile {
 }
 
 function bodyProfileFor(kind?: string): BodyTierProfile[] | undefined {
-  if (kind === 'guard-tower' || kind === 'aa-tower') {
+  if (kind === 'aa-tower') {
+    return [
+      { widthScale: 0.68, depthScale: 0.68, heightShare: 0.24 },
+      { widthScale: 0.48, depthScale: 0.48, heightShare: 0.42 },
+      { widthScale: 0.36, depthScale: 0.36, heightShare: 0.34 },
+    ];
+  }
+  if (kind === 'guard-tower') {
     return [
       { widthScale: 1, depthScale: 1, heightShare: 0.2 },
       { widthScale: 0.42, depthScale: 0.42, heightShare: 0.45 },
@@ -1224,7 +1251,8 @@ function facadeOutward(block: DamageBlock, damage: StructureDamage): { x: number
 
 function heightForStructure(kind?: string): number {
   if (kind === 'wall') return 2.6;
-  if (kind === 'guard-tower' || kind === 'aa-tower') return 10.5;
+  if (kind === 'aa-tower') return 7.4;
+  if (kind === 'guard-tower') return 10.5;
   if (kind === 'helipad') return 4.8;
   if (kind === 'refinery') return 6.8;
   if (kind === 'factory') return 7.0;
@@ -1378,8 +1406,11 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     // signal, gauge, and façade light that happens to share the base material.
     box(name, 0.34, 0.2, 0.18, x, y, z, signal.clone(), fragility);
 
-  const isDefenseTower = kind === 'guard-tower' || kind === 'aa-tower';
-  box('foundation', width * (isDefenseTower ? 1.02 : 1.06), 0.38, depth * (isDefenseTower ? 1.02 : 1.06), 0, 0.18, 0, dark, 10);
+  const isGuardTower = kind === 'guard-tower';
+  const isDefenseTower = isGuardTower || kind === 'aa-tower';
+  if (!isDefenseTower) {
+    box('foundation', width * 1.06, 0.38, depth * 1.06, 0, 0.18, 0, dark, 10);
+  }
   if (kind !== 'wall' && kind !== 'power-plant' && !isDefenseTower) {
     box('front-armored-skirt', width * 0.9, 0.52, 0.28, 0, 0.48, depth * 0.512, metal, 8);
     box('side-armored-skirt', 0.28, 0.52, depth * 0.9, width * 0.512, 0.48, 0, metal, 8);
@@ -1778,32 +1809,82 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     const headW = width * 0.58;
     const headTop = height;
     const shaftTop = plinthH + shaftH;
+    const hullSteel = detailMaterial(0xa7b0b4, 0.7, 0.2);
+    const hullConcrete = detailMaterial(0x8f8c82, 0.9, 0.05);
+    const plinthR = width * 0.48;
+    const shaftR = shaftW * 0.58;
+    const headR = headW * 0.5;
+
+    // Voxel slabs are hidden; this is the in-world tower, not card art.
+    cyl('guard-plinth-hull', plinthR, plinthR * 1.04, plinthH, 0, plinthH * 0.5, 0, hullConcrete, 10, 20);
+    cyl('guard-plinth-lip', plinthR * 1.02, plinthR * 0.92, 0.26, 0, plinthH + 0.06, 0, metal, 9, 20);
+    cyl('guard-shaft-hull', shaftR * 0.92, shaftR, shaftH, 0, plinthH + shaftH * 0.5, 0, hullSteel, 10, 16);
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      box(
+        'guard-shaft-rib',
+        0.22,
+        shaftH * 0.88,
+        0.28,
+        Math.sin(angle) * shaftR * 0.96,
+        plinthH + shaftH * 0.5,
+        Math.cos(angle) * shaftR * 0.96,
+        metal,
+        8,
+      ).rotation.y = angle;
+    }
+    for (let ring = 0; ring < 3; ring++) {
+      for (let i = 0; i < 4; i++) {
+        const angle = (i / 4) * Math.PI * 2 + Math.PI * 0.25;
+        const pane = box(
+          'guard-shaft-window',
+          0.7,
+          0.42,
+          0.1,
+          Math.sin(angle) * shaftR * 1.01,
+          plinthH + shaftH * (0.28 + ring * 0.22),
+          Math.cos(angle) * shaftR * 1.01,
+          glass,
+          4,
+        );
+        pane.rotation.y = angle;
+      }
+    }
+    cyl('guard-head-hull', headR, headR * 0.96, height * 0.32, 0, shaftTop + height * 0.18, 0, roof, 10, 18);
+    cyl('guard-head-cap', headR * 1.04, headR * 1.04, 0.22, 0, headTop - 0.06, 0, metal, 8, 18);
 
     // --- Plinth surface detail ---
-    door(1.2, 1.8, 0, depth * 0.51, 5);
-    for (const x of [-width * 0.28, width * 0.28]) {
-      frontPanel('guard-plinth-armor', width * 0.22, plinthH * 0.55, x, plinthH * 0.55, metal, 7);
+    door(1.2, 1.8, 0, plinthR * 0.98, 5);
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const mark = box(
+        'guard-plinth-hazard',
+        i % 2 === 0 ? 1.4 : 0.7,
+        0.1,
+        0.34,
+        Math.sin(angle) * plinthR * 0.9,
+        plinthH + 0.08,
+        Math.cos(angle) * plinthR * 0.9,
+        i % 2 === 0 ? warning : dark,
+        6,
+      );
+      mark.rotation.y = angle;
     }
-    for (const z of [-depth * 0.22, depth * 0.22]) {
-      sidePanel('guard-plinth-side-armor', depth * 0.2, plinthH * 0.5, z, plinthH * 0.52, metal, 7);
-    }
-    box('guard-plinth-warning', width * 0.96, 0.1, 0.14, 0, plinthH + 0.05, depth * 0.5, warning, 6);
-    box('guard-plinth-warning-side', 0.14, 0.1, depth * 0.96, width * 0.5, plinthH + 0.05, 0, warning, 6);
 
     // --- Shaft detail ---
-    const ladderX = -shaftW * 0.52;
-    box('guard-ladder-rail-l', 0.08, shaftH * 0.92, 0.08, ladderX - 0.22, plinthH + shaftH * 0.5, shaftW * 0.52, metal, 6);
-    box('guard-ladder-rail-r', 0.08, shaftH * 0.92, 0.08, ladderX + 0.22, plinthH + shaftH * 0.5, shaftW * 0.52, metal, 6);
+    const ladderZ = shaftR * 1.02;
+    box('guard-ladder-rail-l', 0.08, shaftH * 0.92, 0.08, -0.22, plinthH + shaftH * 0.5, ladderZ, metal, 6);
+    box('guard-ladder-rail-r', 0.08, shaftH * 0.92, 0.08, 0.22, plinthH + shaftH * 0.5, ladderZ, metal, 6);
     for (let i = 0; i < 7; i++) {
-      box(`guard-ladder-rung-${i}`, 0.44, 0.06, 0.08, ladderX, plinthH + 0.35 + i * (shaftH * 0.12), shaftW * 0.52, dark, 6);
+      box(`guard-ladder-rung-${i}`, 0.44, 0.06, 0.08, 0, plinthH + 0.35 + i * (shaftH * 0.12), ladderZ, dark, 6);
     }
-    box('guard-shaft-vent-a', 0.55, 0.35, 0.1, shaftW * 0.52, plinthH + shaftH * 0.35, 0, dark, 5).rotation.y = Math.PI / 2;
-    box('guard-shaft-vent-b', 0.55, 0.35, 0.1, shaftW * 0.52, plinthH + shaftH * 0.62, depth * 0.08, dark, 5).rotation.y = Math.PI / 2;
-    box('guard-shaft-accent-band', shaftW * 1.02, 0.22, shaftW * 1.02, 0, shaftTop - 0.35, 0, accentMaterial, 4);
-    box('guard-cable-conduit', 0.18, shaftH * 0.95, 0.18, shaftW * 0.28, plinthH + shaftH * 0.48, -shaftW * 0.52, dark, 5);
+    box('guard-shaft-vent-a', 0.55, 0.35, 0.1, shaftR * 1.01, plinthH + shaftH * 0.35, 0, dark, 5).rotation.y = Math.PI / 2;
+    box('guard-shaft-vent-b', 0.55, 0.35, 0.1, shaftR * 1.01, plinthH + shaftH * 0.62, 0.18, dark, 5).rotation.y = Math.PI / 2;
+    cyl('guard-shaft-accent-band', shaftR * 1.08, shaftR * 1.08, 0.28, 0, shaftTop - 0.28, 0, accentMaterial, 4, 16);
+    box('guard-cable-conduit', 0.18, shaftH * 0.95, 0.18, -shaftR * 0.35, plinthH + shaftH * 0.48, -shaftR * 0.92, dark, 5);
 
     // --- Head / deck ---
-    box('guard-head-ring', headW * 1.02, 0.16, headW * 1.02, 0, shaftTop + 0.08, 0, metal, 5);
+    cyl('guard-head-ring', headR * 1.06, headR * 1.06, 0.18, 0, shaftTop + 0.08, 0, metal, 5, 18);
     const railH = 0.55;
     const railY = headTop - 0.2;
     const halfDeck = headW * 0.48;
@@ -1878,98 +1959,119 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     activity(rangefinder, 'pulse', 2.6, 0.8, 0.7);
     add(launcher, 4);
     root.userData.turretPivot = launcher;
-    stripe(width * 0.22, depth * 0.06, 0, depth * 0.48, 4);
+    stripe(width * 0.22, depth * 0.06, 0, plinthR * 0.72, 4);
   } else if (kind === 'aa-tower') {
-    const plinthH = height * 0.2;
-    const shaftH = height * 0.45;
-    const shaftW = width * 0.42;
-    const headW = width * 0.58;
-    const headTop = height;
-    const shaftTop = plinthH + shaftH;
+    // Voxel hull is hidden; this mesh is the in-world building. Keep forms
+    // large and high-contrast so they read from the RTS camera.
+    const padR = width * 0.5;
+    const drumR = width * 0.32;
+    const padH = 0.95;
+    const drumH = 3.35;
+    const drumY = padH + drumH * 0.5;
+    const roofY = padH + drumH;
+    const concretePad = detailMaterial(0xc4bfb0, 0.92, 0.04);
+    const drumSteel = detailMaterial(0x8b969e, 0.58, 0.32);
+    const armor = detailMaterial(0x4a545c, 0.48, 0.4);
+    const hazard = detailMaterial(0xf0c85a, 0.5, 0.08);
+    const cyan = new MeshStandardMaterial({
+      color: 0x9af6ff,
+      emissive: 0x2ec8de,
+      emissiveIntensity: 1.4,
+      roughness: 0.28,
+      metalness: 0.12,
+    });
 
-    door(1.2, 1.8, 0, depth * 0.51, 5);
-    for (const x of [-width * 0.28, width * 0.28]) {
-      frontPanel('aa-plinth-armor', width * 0.22, plinthH * 0.55, x, plinthH * 0.55, metal, 7);
+    cyl('aa-pad', padR, padR, padH, 0, padH * 0.5, 0, concretePad, 10, 20);
+    cyl('aa-pad-lip', padR * 0.98, padR * 0.9, 0.22, 0, padH + 0.05, 0, armor, 8, 20);
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const stripeW = i % 2 === 0 ? 1.15 : 0.55;
+      const mark = box('aa-hazard', stripeW, 0.08, 0.42, Math.sin(angle) * padR * 0.78, padH + 0.08, Math.cos(angle) * padR * 0.78, i % 2 === 0 ? hazard : dark, 6);
+      mark.rotation.y = angle;
     }
-    for (const z of [-depth * 0.22, depth * 0.22]) {
-      sidePanel('aa-plinth-side-armor', depth * 0.2, plinthH * 0.5, z, plinthH * 0.52, metal, 7);
-    }
-    box('aa-plinth-warning', width * 0.96, 0.1, 0.14, 0, plinthH + 0.05, depth * 0.5, warning, 6);
-    box('aa-plinth-warning-side', 0.14, 0.1, depth * 0.96, width * 0.5, plinthH + 0.05, 0, warning, 6);
+    box('aa-nameplate', 2.4, 0.18, 0.12, 0, padH * 0.55, padR * 0.62, accentMaterial, 4);
 
-    const ladderX = shaftW * 0.52;
-    box('aa-ladder-rail-l', 0.08, shaftH * 0.92, 0.08, ladderX - 0.22, plinthH + shaftH * 0.5, shaftW * 0.5, metal, 6);
-    box('aa-ladder-rail-r', 0.08, shaftH * 0.92, 0.08, ladderX + 0.22, plinthH + shaftH * 0.5, shaftW * 0.5, metal, 6);
-    for (let i = 0; i < 7; i++) {
-      box(`aa-ladder-rung-${i}`, 0.44, 0.06, 0.08, ladderX, plinthH + 0.35 + i * (shaftH * 0.12), shaftW * 0.5, dark, 6);
+    cyl('aa-drum', drumR, drumR * 1.05, drumH, 0, drumY, 0, drumSteel, 7, 16);
+    cyl('aa-drum-band', drumR * 1.07, drumR * 1.07, 0.32, 0, drumY + 0.55, 0, armor, 5, 16);
+    cyl('aa-drum-band-lo', drumR * 1.06, drumR * 1.06, 0.22, 0, drumY - 0.85, 0, hazard, 5, 16);
+    box('aa-door', 1.6, 2.1, 0.28, 0, padH + 1.15, drumR * 1.02, dark, 6);
+    box('aa-door-frame', 1.85, 2.35, 0.12, 0, padH + 1.15, drumR * 0.98, armor, 6);
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2 + Math.PI * 0.25;
+      const pane = box('aa-window', 0.9, 0.55, 0.12, Math.sin(angle) * drumR * 1.01, drumY + 0.85, Math.cos(angle) * drumR * 1.01, cyan.clone(), 4);
+      pane.rotation.y = angle;
+      activity(pane, 'pulse', 1.6, 0.45, i * 0.5);
     }
-    box('aa-shaft-vent-a', 0.55, 0.35, 0.1, -shaftW * 0.52, plinthH + shaftH * 0.38, 0, dark, 5).rotation.y = Math.PI / 2;
-    box('aa-shaft-vent-b', 0.55, 0.35, 0.1, -shaftW * 0.52, plinthH + shaftH * 0.65, -depth * 0.06, dark, 5).rotation.y = Math.PI / 2;
-    box('aa-shaft-accent-band', shaftW * 1.02, 0.22, shaftW * 1.02, 0, shaftTop - 0.35, 0, accentMaterial, 4);
-    box('aa-cable-conduit', 0.18, shaftH * 0.95, 0.18, -shaftW * 0.28, plinthH + shaftH * 0.48, -shaftW * 0.52, dark, 5);
-
-    box('aa-head-ring', headW * 1.02, 0.16, headW * 1.02, 0, shaftTop + 0.08, 0, metal, 5);
-    const railH = 0.55;
-    const railY = headTop - 0.2;
-    const halfDeck = headW * 0.48;
-    for (const [x, z, w, d] of [
-      [0, halfDeck, headW * 0.9, 0.08],
-      [0, -halfDeck, headW * 0.9, 0.08],
-      [halfDeck, 0, 0.08, headW * 0.9],
-      [-halfDeck, 0, 0.08, headW * 0.9],
-    ] as const) {
-      box('aa-deck-rail', w, railH, d, x, railY, z, metal, 4);
+    for (const side of [-1, 1]) {
+      box('aa-buttress', 0.55, drumH * 0.85, 0.7, side * drumR * 0.92, drumY - 0.15, 0, armor, 6);
     }
-    const antenna = cyl('aa-antenna', 0.06, 0.06, 2.2, -headW * 0.3, headTop + 1.1, headW * 0.28, metal, 3, 8);
-    activity(perimeterLight('aa-antenna-tip', antenna.position.x, headTop + 2.25, antenna.position.z), 'pulse', 2.8, 1, 0.9);
-    box('aa-floodlight', 0.35, 0.22, 0.4, headW * 0.28, headTop + 0.35, headW * 0.32, brass, 4).rotation.x = 0.35;
 
-    // Compact AA launcher (~1/3 of head visual weight)
+    cyl('aa-roof', drumR * 1.08, drumR * 1.12, 0.38, 0, roofY + 0.12, 0, armor, 5, 16);
+    const roofRing = new Mesh(new RingGeometry(drumR * 0.35, drumR * 0.95, 24), hazard);
+    roofRing.rotation.x = -Math.PI / 2;
+    roofRing.position.set(0, roofY + 0.34, 0);
+    add(roofRing, 4);
+
+    const radarX = -drumR * 0.15;
+    const radarZ = -drumR * 0.92;
+    cyl('aa-radar-mast', 0.18, 0.24, 3.2, radarX, roofY + 1.55, radarZ, drumSteel, 3, 10);
+    const dish = new Mesh(new SphereGeometry(2.05, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.58), armor);
+    dish.position.set(radarX, roofY + 3.25, radarZ);
+    dish.rotation.x = 0.85;
+    dish.castShadow = true;
+    add(dish, 3);
+    const dishFace = new Mesh(new CircleGeometry(1.7, 22), cyan.clone());
+    dishFace.position.set(radarX, roofY + 3.4, radarZ + 0.5);
+    dishFace.rotation.x = -0.55;
+    add(dishFace, 3);
+    activity(dishFace, 'pulse', 2.2, 0.6, 0.3);
+    const radarSweep = new Group();
+    radarSweep.position.set(radarX, roofY + 3.45, radarZ);
+    const radarArm = new Mesh(new BoxGeometry(3.4, 0.12, 0.16), cyan);
+    radarArm.position.x = 1.0;
+    radarSweep.add(radarArm);
+    add(radarSweep, 3);
+    activity(radarSweep, 'spin-y', 1.2, 1, 0.15);
+
     const launcher = new Group();
-    launcher.position.set(0, headTop + 0.4, 0);
-    launcher.rotation.y = -0.5;
-    const aaHousing = new Mesh(new BoxGeometry(1.6, 0.85, 1.5), metal);
-    aaHousing.position.y = 0.55;
-    aaHousing.castShadow = true;
-    launcher.add(aaHousing);
-    for (const y of [-0.22, 0.22]) {
-      for (const z of [-0.28, 0.28]) {
-        const rail = new Mesh(new CylinderGeometry(0.22, 0.22, 2.6, 12), metal);
-        rail.rotation.z = Math.PI * 0.5;
-        rail.position.set(0.15, 0.55 + y, z);
-        rail.castShadow = true;
-        launcher.add(rail);
-        const nose = new Mesh(new ConeGeometry(0.24, 0.55, 12), warning);
-        nose.rotation.z = -Math.PI * 0.5;
-        nose.position.set(1.55, 0.55 + y, z);
-        nose.castShadow = true;
-        launcher.add(nose);
+    launcher.name = 'fortress-launcher-pivot';
+    launcher.position.set(0, roofY + 0.45, drumR * 0.12);
+    const turretBase = new Mesh(new CylinderGeometry(2.15, 2.4, 0.48, 16), armor);
+    turretBase.castShadow = true;
+    launcher.add(turretBase);
+    const crate = new Mesh(new BoxGeometry(5.4, 1.9, 3.1), drumSteel);
+    crate.position.set(0, 1.25, 0.2);
+    crate.rotation.x = -0.42;
+    crate.castShadow = true;
+    launcher.add(crate);
+    const crateLip = new Mesh(new BoxGeometry(5.55, 0.22, 3.25), armor);
+    crateLip.position.set(0, 2.05, 0.52);
+    crateLip.rotation.x = -0.42;
+    launcher.add(crateLip);
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < 4; col++) {
+        const tube = new Mesh(new CylinderGeometry(0.42, 0.48, 5.4, 12), armor);
+        tube.position.set((col - 1.5) * 1.05, 1.35 + row * 0.78, 0.7 + row * 0.16);
+        tube.rotation.x = Math.PI * 0.5 - 0.72;
+        tube.castShadow = true;
+        launcher.add(tube);
+        const cap = new Mesh(new CylinderGeometry(0.32, 0.44, 0.28, 12), hazard);
+        cap.position.set(tube.position.x, tube.position.y + 1.9, tube.position.z + 1.9);
+        cap.rotation.copy(tube.rotation);
+        launcher.add(cap);
       }
     }
+    const laserMount = new Mesh(new BoxGeometry(0.9, 0.55, 1.15), armor);
+    laserMount.position.set(0, 0.62, 2.05);
+    launcher.add(laserMount);
+    const laserLens = new Mesh(new CylinderGeometry(0.22, 0.3, 0.9, 12), cyan.clone());
+    laserLens.rotation.x = Math.PI * 0.5;
+    laserLens.position.set(0, 0.62, 2.65);
+    launcher.add(laserLens);
+    activity(laserLens, 'pulse', 4.2, 0.7, 1.1);
     add(launcher, 4);
     root.userData.turretPivot = launcher;
 
-    // Lattice mast for radar (not floating)
-    const mastX = -headW * 0.28;
-    const mastZ = -headW * 0.22;
-    const mastBaseY = headTop + 0.2;
-    box('aa-lattice-a', 0.08, 1.4, 0.08, mastX - 0.18, mastBaseY + 0.7, mastZ - 0.18, metal, 3);
-    box('aa-lattice-b', 0.08, 1.4, 0.08, mastX + 0.18, mastBaseY + 0.7, mastZ + 0.18, metal, 3);
-    box('aa-lattice-cross', 0.08, 0.08, 0.55, mastX, mastBaseY + 0.55, mastZ, metal, 3).rotation.y = Math.PI / 4;
-    box('aa-lattice-cross-2', 0.08, 0.08, 0.55, mastX, mastBaseY + 1.0, mastZ, metal, 3).rotation.y = -Math.PI / 4;
-    const dish = cyl('aa-radar-dish', 0.55, 0.55, 0.1, mastX, mastBaseY + 1.55, mastZ, metal, 3, 20);
-    dish.rotation.x = Math.PI * 0.5;
-    dish.rotation.z = 0.38;
-    const radarSweep = new Group();
-    radarSweep.name = 'aa-radar-sweep';
-    radarSweep.position.set(mastX, mastBaseY + 1.7, mastZ);
-    const radarArm = new Mesh(new BoxGeometry(1.35, 0.08, 0.1), signal);
-    radarArm.position.x = 0.4;
-    radarSweep.add(radarArm);
-    add(radarSweep, 3);
-    activity(radarSweep, 'spin-y', 1.15, 1, 0.2);
-    activity(perimeterLight('aa-lock-light', headW * 0.28, headTop + 0.55, headW * 0.22), 'pulse', 3.2, 1, 1.8);
-    stripe(width * 0.22, depth * 0.06, 0, depth * 0.48, 4);
   } else {
     stripe(width * 0.4, depth * 0.08, 0, depth * 0.12, 4);
   }

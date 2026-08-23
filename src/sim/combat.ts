@@ -1,5 +1,5 @@
 import { WEAPONS, type ArmorClass, type WeaponKind } from '../content/phase4';
-import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
+import { fortressMuzzleHeight, isFortressTower, isSkyguardTower } from '../content/fortress';
 import { angleDelta, slewAngle } from './angles';
 import type { Entity, Weapon } from './components';
 import {
@@ -15,6 +15,14 @@ import { hasTerrainLineOfSight, sampleHeight } from './heightfield';
 import { directionalImpactResponse } from './impactModel';
 import { applyStructureDamage } from './structureDamage';
 import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, stopEntities, type GameSim } from './world';
+import {
+  inboundThreatensTeam,
+  isBallisticInbound,
+  isDroneThreat,
+  isInboundMissile,
+  skyguardInterceptRange,
+  stepInboundMissiles,
+} from './strategicWarfare';
 
 /** Cannons may only fire once the turret has traversed onto the bearing. */
 const AIM_TOLERANCE = 0.12;
@@ -57,6 +65,7 @@ const LOCKED_MISSILE_DAMAGE_SCALE = 0.96;
 const LOCKED_MISSILE_FORCE_SCALE = 0.72;
 const LOCKED_MISSILE_IMPACT_SCALE = 0.9;
 const LOCKED_MISSILE_LIFETIME = 6.5;
+const SKYGUARD_INTERCEPT_LIFETIME = 8.5;
 const LOCKED_MISSILE_AIR_TURN_RATE = 0.9;
 const LOCKED_MISSILE_GROUND_TURN_RATE = 1.4;
 const DEFENSE_TOWER_MIN_LEAD_SPEED = 0.55;
@@ -89,7 +98,12 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
   // entities, including buildings. One linear rebuild replaces many O(n²)
   // battlefield scans below.
   sim.spatial.rebuild(sim.world.entities);
+  const arrivedInbounds = stepInboundMissiles(sim, dt);
+  sim.spatial.rebuild(sim.world.entities);
   stepProjectiles(sim, dt);
+  for (const missile of arrivedInbounds) {
+    if (!missile.destroyed && (missile.health?.current ?? 0) > 0) detonateInboundMissile(sim, missile);
+  }
   tickWeaponCooldowns(sim, dt);
   stepEscortDrones(sim, dt, options.autoFire !== false);
   if (options.autoFire === false) {
@@ -100,26 +114,34 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
   const combatants = Array.from(sim.world.entities).filter(
     (entity) => weaponSlots(entity).length > 0 && entity.health && entity.team && !entity.destroyed,
   );
+  // Batteries intercept on launch even in manual combat or while possessed.
+  for (const attacker of combatants) {
+    if (isSkyguardTower(attacker)) fireSkyguardInboundInterceptors(sim, attacker);
+  }
   for (const attacker of combatants) {
     if (!attacker.health || !attacker.team) continue;
     if (attacker.playerControlled) continue; // brain bypassed; stepSim slews the turret to the crosshair
     const commandDrivenCombat = !sim.rules.autoCombat;
-    if (commandDrivenCombat && !attacker.mover?.attackMove && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined)) continue;
+    if (commandDrivenCombat && !attacker.mover?.attackMove && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined) && !isSkyguardTower(attacker)) continue;
 
     const orderedTarget = explicitOrderTarget(sim, attacker);
     let turretGoalYaw: number | undefined;
     let engagementTarget: Entity | undefined;
     for (const weapon of weaponSlots(attacker)) {
-      // Secondary fortress salvos are a deliberate V-mode advantage. Leaving
-      // them on auto made unattended tower clusters disproportionately lethal.
-      if (isFortressTower(attacker) && weapon === attacker.weapons?.secondary) continue;
+      // Secondary fortress salvos are a V-mode advantage on ground towers.
+      // Skyguard batteries auto-fire their close-in laser against drones.
+      if (isFortressTower(attacker) && weapon === attacker.weapons?.secondary && !isSkyguardTower(attacker)) continue;
       const def = WEAPONS[weapon.kind as WeaponKind];
       if (!def) continue;
       // a unit can only auto-engage what it can see — no shelling into the fog
       const weaponRange = weapon.range || def.range;
       const range = Math.min(weaponRange, attacker.vision?.radius ?? weaponRange);
+      const autonomousSkyguard = isSkyguardTower(attacker) && (weapon.kind === 'skyguardInterceptor' || weapon.kind === 'skyguardLaser');
       let target: Entity | undefined;
-      if (orderedTarget) {
+      if (weapon.kind === 'skyguardInterceptor') {
+        target = acquireSkyguardInboundTarget(sim, attacker);
+      }
+      if (!target && orderedTarget) {
         if (!isWeaponTargetable(sim, attacker, weapon, orderedTarget)) {
           weapon.targetId = undefined;
           continue;
@@ -127,11 +149,11 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
         weapon.targetId = orderedTarget.id;
         target = validTarget(sim, attacker, weapon, range);
         if (!target) continue;
-      } else {
+      } else if (!target) {
         target = validTarget(sim, attacker, weapon, range);
       }
       if (!target) {
-        if (commandDrivenCombat && !attacker.mover?.attackMove) {
+        if (commandDrivenCombat && !attacker.mover?.attackMove && !autonomousSkyguard) {
           weapon.targetId = undefined;
           continue;
         }
@@ -144,10 +166,12 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
       engagementTarget ??= target;
       const defenseAim = predictiveDefenseTowerAimPoint(sim, attacker, weapon, target);
       const bearing = Math.atan2(defenseAim.x - attacker.transform.x, defenseAim.z - attacker.transform.z);
-      // direct-fire weapons wait for the turret; bombs are lobbed from the hull
+      const hotLaunch = def.kind === 'skyguardInterceptor' && isInboundMissile(target);
+      // direct-fire weapons wait for the turret; bombs are lobbed from the hull.
+      // Interceptors hot-launch toward an inbound the moment it is detected.
       if (def.kind !== 'bomb' && attacker.turret) {
         turretGoalYaw ??= bearing;
-        if (Math.abs(angleDelta(attacker.turret.yaw, bearing)) > AIM_TOLERANCE) continue;
+        if (!hotLaunch && Math.abs(angleDelta(attacker.turret.yaw, bearing)) > AIM_TOLERANCE) continue;
       }
       if (weapon.cooldown > 0) continue;
       if (def.kind === 'bomb' || def.kind === 'tankBomb') {
@@ -487,6 +511,7 @@ export function manualFireAt(
     isTankDirectMissile(def.kind) && !!attacker.playerControlled,
     Boolean(attacker.playerControlled),
   );
+  if (isSkyguardTower(attacker) && (!target || target.armor?.kind !== 'air')) return false;
   const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
   const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
   if (def.projectile || lockedTarget) {
@@ -577,6 +602,7 @@ export function issueGroundAttack(sim: GameSim, attackers: Entity[], targetX: nu
   let fired = false;
   for (const attacker of attackers) {
     if (!attacker.weapons || !attacker.team || attacker.destroyed) continue;
+    if (isSkyguardTower(attacker)) continue;
     const aimYaw = Math.atan2(targetX - attacker.transform.x, targetZ - attacker.transform.z);
     if (attacker.turret) attacker.turret.yaw = aimYaw;
     fired = manualFireAt(sim, attacker, targetX, targetZ, 'primary') || fired;
@@ -685,29 +711,49 @@ function launchWeaponProjectile(
   // In V-mode a target crossing the raw aim ray is not the same as a completed
   // lock. Unlocked shots retain full speed and fly straight; AI fire and an
   // explicit player lock use the guided flight model.
+  const interceptShot = def.kind === 'skyguardInterceptor';
+  const interceptingInbound = interceptShot && isInboundMissile(target);
+  const interceptReach = interceptingInbound ? skyguardInterceptRange(sim) : 0;
   const isLocked = target?.id !== undefined && (
-    forceHoming || (!attacker.playerControlled && projectileDef.trajectory === 'homing')
+    forceHoming
+    || interceptingInbound
+    || (!attacker.playerControlled && projectileDef.trajectory === 'homing')
   );
-  const speed = projectileDef.speed * (isLocked ? LOCKED_MISSILE_SPEED_SCALE : speedScale);
+  const speed = projectileDef.speed * (isLocked && !interceptShot ? LOCKED_MISSILE_SPEED_SCALE : interceptShot ? 1 : speedScale);
   const aimDy = resolvedTargetY - fromY;
   const aimDistance = Math.max(0.001, Math.hypot(dx, aimDy, dz));
-  const duration = isLocked
-    ? LOCKED_MISSILE_LIFETIME
-    : Math.min(3.2, Math.max(0.045, distanceToAim / speed));
+  let directionX = dx / aimDistance;
+  let directionY = aimDy / aimDistance;
+  let directionZ = dz / aimDistance;
+  if (interceptingInbound) {
+    const loft = target?.inboundMissile?.profile === 'drone' ? 0.18 : 0.46;
+    directionY = Math.max(directionY, loft);
+    const loftLength = Math.max(0.001, Math.hypot(directionX, directionY, directionZ));
+    directionX /= loftLength;
+    directionY /= loftLength;
+    directionZ /= loftLength;
+  }
+  const duration = interceptingInbound
+    ? SKYGUARD_INTERCEPT_LIFETIME
+    : isLocked
+      ? LOCKED_MISSILE_LIFETIME
+      : Math.min(3.2, Math.max(0.045, distanceToAim / speed));
   const homing =
     isLocked && target
       ? {
           targetId: target.id,
           speed,
-          fizzleRange: forceHoming
-            ? Math.max(projectileDef.fizzleRange ?? 0, sim.nav.size * Math.SQRT2 + 64)
+          fizzleRange: interceptingInbound || forceHoming
+            ? Math.max(projectileDef.fizzleRange ?? 0, interceptReach, sim.nav.size * Math.SQRT2 + 64)
             : projectileDef.fizzleRange ?? def.range * 1.15,
-          remainingLifetime: LOCKED_MISSILE_LIFETIME,
+          remainingLifetime: interceptingInbound ? SKYGUARD_INTERCEPT_LIFETIME : LOCKED_MISSILE_LIFETIME,
           traveledDistance: 0,
-          directionX: dx / aimDistance,
-          directionY: aimDy / aimDistance,
-          directionZ: dz / aimDistance,
-          turnRate: target.flight ? LOCKED_MISSILE_AIR_TURN_RATE : LOCKED_MISSILE_GROUND_TURN_RATE,
+          directionX,
+          directionY,
+          directionZ,
+          turnRate: isInboundMissile(target) || interceptShot
+            ? 2.85
+            : target.flight ? LOCKED_MISSILE_AIR_TURN_RATE : LOCKED_MISSILE_GROUND_TURN_RATE,
         }
       : undefined;
   const trajectory = homing ? 'homing' : projectileDef.trajectory === 'homing' ? 'flat' : projectileDef.trajectory;
@@ -726,11 +772,13 @@ function launchWeaponProjectile(
     elapsed: 0,
     duration,
     speed,
-    damageScale: isLocked ? Math.min(1, damageScale) * LOCKED_MISSILE_DAMAGE_SCALE : damageScale,
-    forceScale: isLocked ? Math.min(1, forceScale) * LOCKED_MISSILE_FORCE_SCALE : forceScale,
-    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale,
+    damageScale: interceptShot ? damageScale : isLocked ? Math.min(1, damageScale) * LOCKED_MISSILE_DAMAGE_SCALE : damageScale,
+    forceScale: interceptShot ? forceScale : isLocked ? Math.min(1, forceScale) * LOCKED_MISSILE_FORCE_SCALE : forceScale,
+    impactScale: interceptShot ? impactScale : isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale,
     manualAim: Boolean(attacker.playerControlled),
-    maxDistance: projectileDef.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
+    maxDistance: interceptingInbound
+      ? Math.max(projectileDef.fizzleRange ?? 0, interceptReach)
+      : projectileDef.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
     directTargetId: target?.id,
     trajectory,
     homing,
@@ -775,7 +823,8 @@ export function isManualTargetLockWeapon(kind: string | undefined): boolean {
     || kind === 'siegeMissile'
     || kind === 'rocketLauncher'
     || kind === 'agMissile'
-    || kind === 'aaMissile';
+    || kind === 'aaMissile'
+    || kind === 'skyguardInterceptor';
 }
 
 export function canManualWeaponLockTarget(kind: string | undefined, target: Entity): boolean {
@@ -793,13 +842,13 @@ function isTankDirectMissile(kind: WeaponKind): boolean {
 
 function bombMuzzleY(attacker: Entity): number | undefined {
   if (attacker.transform.y === undefined) return undefined;
-  if (isFortressTower(attacker)) return attacker.transform.y + FORTRESS_TOWER.muzzleHeight;
+  if (isFortressTower(attacker)) return attacker.transform.y + fortressMuzzleHeight(attacker);
   return attacker.flight ? attacker.transform.y - 0.45 : attacker.transform.y + 3.1;
 }
 
 function directMuzzleY(attacker: Entity): number | undefined {
   if (attacker.transform.y === undefined) return undefined;
-  if (isFortressTower(attacker)) return attacker.transform.y + FORTRESS_TOWER.muzzleHeight;
+  if (isFortressTower(attacker)) return attacker.transform.y + fortressMuzzleHeight(attacker);
   if (attacker.flight) return attacker.transform.y - 0.15;
   if (attacker.weapon?.kind === 'sniperRifle' || attacker.weapons?.primary.kind === 'sniperRifle') return attacker.transform.y + 1.72;
   return attacker.transform.y + (attacker.selectable?.type === 'infantry' ? 1.35 : 2.2);
@@ -1107,13 +1156,48 @@ function weaponKindSalt(kind: string): number {
   return hash >>> 0;
 }
 
+function fireSkyguardInboundInterceptors(sim: GameSim, attacker: Entity): void {
+  if (!attacker.team || attacker.destroyed) return;
+  const weapon = attacker.weapons?.primary.kind === 'skyguardInterceptor'
+    ? attacker.weapons.primary
+    : attacker.weapon?.kind === 'skyguardInterceptor' ? attacker.weapon : undefined;
+  if (!weapon || weapon.cooldown > 0) return;
+  const target = acquireSkyguardInboundTarget(sim, attacker);
+  if (!target) return;
+  weapon.targetId = target.id;
+  launchWeaponProjectileAtEntity(sim, attacker, weapon, target);
+}
+
+function acquireSkyguardInboundTarget(sim: GameSim, attacker: Entity): Entity | undefined {
+  if (!attacker.team) return undefined;
+  const interceptRange = skyguardInterceptRange(sim);
+  let best: Entity | undefined;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const candidate of sim.world.entities) {
+    if (!isInboundMissile(candidate) || !isWeaponTargetable(sim, attacker, { kind: 'skyguardInterceptor', range: interceptRange, cooldown: 0 }, candidate)) {
+      continue;
+    }
+    if (!inboundThreatensTeam(sim, candidate, attacker.team.id)) continue;
+    const d = distance(attacker, candidate);
+    if (d > interceptRange) continue;
+    const remaining = Math.max(0, candidate.inboundMissile.flightTime - candidate.inboundMissile.elapsed);
+    let score = remaining * 4 + d * 0.002;
+    if (isBallisticInbound(candidate)) score *= 0.35;
+    if (score < bestScore || (score === bestScore && candidate.id < (best?.id ?? Number.POSITIVE_INFINITY))) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
 function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
   if (!weapon.targetId) return undefined;
   const target = entityById(sim, weapon.targetId);
   if (!target || !isWeaponTargetable(sim, attacker, weapon, target)) return undefined;
   const visionCap = attacker.vision?.radius ?? range;
   const d = distance(attacker, target);
-  return d <= effectiveRangeForTarget(weapon.kind as WeaponKind, target, range, visionCap) &&
+  return d <= effectiveRangeForTarget(sim, attacker, weapon.kind as WeaponKind, target, range, visionCap) &&
     d >= minimumRangeForWeapon(weapon.kind as WeaponKind) &&
     hasWeaponTerrainLineOfSight(sim, attacker, weapon, target)
     ? target
@@ -1124,15 +1208,22 @@ function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: nu
   let best: Entity | undefined;
   let bestScore = Number.POSITIVE_INFINITY;
   const visionCap = attacker.vision?.radius ?? range;
-  const searchRadius = Math.max(range, visionCap);
+  const skyguard = isSkyguardTower(attacker);
+  if (skyguard && weapon.kind === 'skyguardInterceptor') {
+    const inbound = acquireSkyguardInboundTarget(sim, attacker);
+    if (inbound) return inbound;
+  }
+  const searchRadius = skyguard ? Math.max(range, WEAPONS[weapon.kind as WeaponKind]?.airRange ?? range, visionCap) : Math.max(range, visionCap);
+  const laserRange = attacker.weapons?.secondary?.kind === 'skyguardLaser' ? attacker.weapons.secondary.range : 110;
   sim.spatial.visitNearby(attacker.transform.x, attacker.transform.z, searchRadius, (candidate) => {
     if (!isWeaponTargetable(sim, attacker, weapon, candidate)) return;
     const d = distance(attacker, candidate);
-    if (d > effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range, visionCap)) return;
+    if (d > effectiveRangeForTarget(sim, attacker, weapon.kind as WeaponKind, candidate, range, visionCap)) return;
     if (d < minimumRangeForWeapon(weapon.kind as WeaponKind)) return;
     if (!hasWeaponTerrainLineOfSight(sim, attacker, weapon, candidate)) return;
-    // the player's possessed unit reads as high-value — AI applies pressure to it
-    const score = candidate.playerControlled ? d * (attacker.aiCombat?.possessedTargetPriority ?? 0.55) : d;
+    let score = candidate.playerControlled ? d * (attacker.aiCombat?.possessedTargetPriority ?? 0.55) : d;
+    if (skyguard && weapon.kind === 'skyguardInterceptor' && isDroneThreat(candidate) && d <= laserRange) score = d * 2.8;
+    if (skyguard && weapon.kind === 'skyguardLaser' && isDroneThreat(candidate)) score = d * 0.18;
     if (score < bestScore || (score === bestScore && candidate.id < (best?.id ?? Number.POSITIVE_INFINITY))) {
       bestScore = score;
       best = candidate;
@@ -1145,6 +1236,7 @@ function hasWeaponTerrainLineOfSight(sim: GameSim, attacker: Entity, weapon: Wea
   const def = WEAPONS[weapon.kind as WeaponKind];
   const trajectory = def?.projectile?.trajectory;
   if (def?.kind === 'bomb' || def?.kind === 'tankBomb' || trajectory === 'arc' || trajectory === 'drop') return true;
+  if (isInboundMissile(target)) return true;
   const terrain = sim.nav.heightfield;
   const fromY = directMuzzleY(attacker) ?? sampleHeight(terrain, attacker.transform.x, attacker.transform.z) + 1.6;
   const targetBaseY = target.transform.y ?? sampleHeight(terrain, target.transform.x, target.transform.z);
@@ -1193,7 +1285,7 @@ function acquireLineTarget(
     const dx = candidate.transform.x - attacker.transform.x;
     const dz = candidate.transform.z - attacker.transform.z;
     const horizontalAlong = dx * ux + dz * uz;
-    const targetRange = effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range, visionCap);
+    const targetRange = effectiveRangeForTarget(sim, attacker, weapon.kind as WeaponKind, candidate, range, visionCap);
     if (horizontalAlong < 0 || horizontalAlong > targetRange) continue;
     if (horizontalAlong < minimumRangeForWeapon(weapon.kind as WeaponKind)) continue;
     const radius = candidate.collider?.radius ?? candidate.selectable?.radius ?? 2.4;
@@ -1222,6 +1314,11 @@ function isWeaponTargetable(sim: GameSim, attacker: Entity, weapon: Weapon, targ
   const kind = weapon.kind as WeaponKind;
   const def = WEAPONS[kind];
   if (!def || !def.targetTypes.includes(target.armor.kind)) return false;
+  if (isSkyguardTower(attacker) && target.armor.kind !== 'air') return false;
+  if (kind === 'skyguardLaser' && isBallisticInbound(target)) return false;
+  if (kind === 'skyguardInterceptor' && isInboundMissile(target) && attacker.team && !inboundThreatensTeam(sim, target, attacker.team.id)) {
+    return false;
+  }
   if (target.armor.kind === 'air') return !!def.canTargetAir && def.vs.air > 0;
   return true;
 }
@@ -1295,7 +1392,7 @@ function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: Dama
     });
   }
   if (target.health.current <= 0 && !target.destroyed) {
-    target.destroyed = { remaining: 20 };
+    target.destroyed = { remaining: isInboundMissile(target) ? 0.35 : 20 };
     target.selectable && (target.selectable.selected = false);
     stopEntities([target]);
     if (target.building) sim.nav.removeDynamicBlocker(target.id);
@@ -1424,10 +1521,22 @@ function directDamageForTarget(kind: WeaponKind, target: Entity): number {
 // Air targets use the weapon's dedicated airRange, but a unit may never auto-engage
 // beyond its own vision (fog-honesty invariant). visionCap carries that limit; ground
 // targets already had it folded into `range` by the caller.
-function effectiveRangeForTarget(kind: WeaponKind, target: Entity, range: number, visionCap: number): number {
+function effectiveRangeForTarget(
+  sim: GameSim,
+  attacker: Entity,
+  kind: WeaponKind,
+  target: Entity,
+  range: number,
+  visionCap: number,
+): number {
   const def = WEAPONS[kind];
   if (target.armor?.kind !== 'air') return range;
-  return Math.min(def.airRange ?? range, visionCap);
+  const airRange = def.airRange ?? range;
+  if (kind === 'skyguardInterceptor' && isSkyguardTower(attacker) && isInboundMissile(target)) {
+    return skyguardInterceptRange(sim);
+  }
+  if (isSkyguardTower(attacker) && isInboundMissile(target)) return airRange;
+  return Math.min(airRange, visionCap);
 }
 
 function minimumRangeForWeapon(kind: WeaponKind): number {
@@ -1438,7 +1547,7 @@ function splashDamageForTarget(kind: WeaponKind, target: Entity, falloff: number
   if (!target.armor) return 0;
   const def = WEAPONS[kind];
   if (target.armor.kind === 'air' && !def.canTargetAir) return 0;
-  const multiplier = kind === 'bomb' || kind === 'tankBomb' || kind === 'agMissile' || kind === 'aaMissile' ? 1 : 0.55;
+  const multiplier = kind === 'bomb' || kind === 'tankBomb' || kind === 'agMissile' || kind === 'aaMissile' || kind === 'skyguardInterceptor' ? 1 : 0.55;
   return damageForArmor(kind, target.armor.kind) * falloff * multiplier;
 }
 
@@ -1491,7 +1600,7 @@ function summarizeHit(target: Entity, damage: number): HitSummary | undefined {
   return {
     targetId: target.id,
     targetLabel: target.name ?? target.building?.label ?? target.selectable?.type ?? 'target',
-    targetType: target.flight ? 'aircraft' : target.building ? 'building' : target.selectable?.type ?? 'unit',
+    targetType: isInboundMissile(target) ? (target.inboundMissile?.profile ?? 'inbound') : target.flight ? 'aircraft' : target.building ? 'building' : target.selectable?.type ?? 'unit',
     targetHealth: target.health.current,
     targetMaxHealth: target.health.max,
     damage,
@@ -1565,4 +1674,59 @@ function offsetSalvoImpact(x: number, z: number, aimYaw: number, count: number, 
     x: x + rightX * side + forwardX * forward,
     z: z + rightZ * side + forwardZ * forward,
   };
+}
+
+const INBOUND_WARHEAD_VS: Record<ArmorClass, number> = {
+  infantry: 0.85,
+  light: 0.9,
+  heavy: 0.72,
+  building: 1,
+  air: 0.18,
+};
+
+function detonateInboundMissile(sim: GameSim, missile: Entity): void {
+  const inbound = missile.inboundMissile;
+  if (!inbound || !missile.team) return;
+  const x = missile.transform.x;
+  const z = missile.transform.z;
+  const y = sampleHeight(sim.nav.heightfield, x, z) + 0.35;
+  const radius = inbound.splashRadius;
+  sim.spatial.visitNearby(x, z, radius, (target) => {
+    if (target === missile || !target.health || !target.armor || !target.team) return;
+    if (!areTeamsHostile(sim, missile.team!.id, target.team.id)) return;
+    const d = Math.hypot(target.transform.x - x, target.transform.z - z);
+    if (d > radius) return;
+    const falloff = 1 - d / radius;
+    applyDamage(sim, target, inbound.warheadDamage * INBOUND_WARHEAD_VS[target.armor.kind] * falloff, {
+      hitX: x,
+      hitZ: z,
+      hitY: y,
+      fromX: inbound.fromX,
+      fromY: inbound.launchY,
+      fromZ: inbound.fromZ,
+      splashRadius: radius,
+      trajectory: inbound.profile === 'drone' ? 'flat' : 'arc',
+      weaponKind: inbound.profile === 'drone' ? 'bomb' : 'siegeMissile',
+    }, missile);
+  });
+  if (!missile.destroyed) {
+    if (missile.health) missile.health.current = 0;
+    missile.destroyed = { remaining: 0.28 };
+    missile.selectable && (missile.selectable.selected = false);
+  }
+  sim.events.push({
+    kind: 'inbound-impact',
+    fromX: inbound.fromX,
+    fromY: inbound.launchY,
+    fromZ: inbound.fromZ,
+    toX: x,
+    toY: y,
+    toZ: z,
+    sourceTeamId: missile.team.id,
+    targetId: missile.id,
+    targetLabel: missile.name,
+    targetType: inbound.profile,
+    damage: inbound.warheadDamage,
+    killed: true,
+  });
 }

@@ -5,7 +5,7 @@ import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import { canManualWeaponLockTarget, isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
 import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
-import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
+import { fortressSocketHeight, isFortressTower, isSkyguardTower } from '../content/fortress';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
 import { unitDisplayName } from '../ui/unitDisplayName';
 import {
@@ -667,7 +667,7 @@ export class FirstPersonController {
   private fortressPoseFor(entity: Entity, yaw: number, pitch: number): CameraPose {
     const center = this.interpolatedCenter(entity, 1);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-    const position = new Vector3(center.x, center.y + FORTRESS_TOWER.socketHeight, center.z)
+    const position = new Vector3(center.x, center.y + fortressSocketHeight(entity), center.z)
       .addScaledVector(this.tmpForward, 1.1);
     const terrainAim = this.rayTerrainPoint(position, this.tmpForward, this.hf.size * 2.2);
     this.tmpAimTarget.copy(terrainAim ?? position.clone().addScaledVector(this.tmpForward, this.hf.size * 1.9));
@@ -935,9 +935,9 @@ export class FirstPersonController {
       if ((!candidate.flight && (aircraftOnly || (!tankTarget && !fortressTarget))) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
       if (![entity.weapons?.primary ?? entity.weapon, entity.weapons?.secondary]
         .some((weapon) => canManualWeaponLockTarget(weapon?.kind, candidate))) continue;
-      if (isFortressTower(entity) && entity.weapons?.primary.kind === 'aaMissile' && candidate.armor?.kind !== 'air') continue;
+      if (isSkyguardTower(entity) && candidate.armor?.kind !== 'air') continue;
       if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
-      if (!this.isVisible(candidate.transform.x, candidate.transform.z)) continue;
+      if (!candidate.inboundMissile && !this.isVisible(candidate.transform.x, candidate.transform.z)) continue;
       const offsetX = candidate.transform.x - this.camera.position.x;
       const baseY = candidate.transform.y ?? sampleHeight(this.hf, candidate.transform.x, candidate.transform.z);
       const candidateY = baseY + (candidate.flight ? 0 : candidate.building ? 3.2 : candidate.selectable?.type === 'infantry' ? 1 : 1.5);

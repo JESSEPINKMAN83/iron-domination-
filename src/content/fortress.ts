@@ -16,6 +16,11 @@ export const FORTRESS_TOWER = {
   specialRange: 520,
 } as const;
 
+export const SKYGUARD_TOWER = {
+  socketHeight: 8.8,
+  muzzleHeight: 7.5,
+} as const;
+
 export function isFortressTower(entity: Entity | undefined): boolean {
   return Boolean(
     entity?.possessable &&
@@ -23,28 +28,57 @@ export function isFortressTower(entity: Entity | undefined): boolean {
   );
 }
 
+export function isSkyguardTower(entity: Entity | undefined): boolean {
+  return entity?.building?.kind === 'aa-tower';
+}
+
+export function fortressSocketHeight(entity: Entity | undefined): number {
+  return isSkyguardTower(entity) ? SKYGUARD_TOWER.socketHeight : FORTRESS_TOWER.socketHeight;
+}
+
+export function fortressMuzzleHeight(entity: Entity | undefined): number {
+  return isSkyguardTower(entity) ? SKYGUARD_TOWER.muzzleHeight : FORTRESS_TOWER.muzzleHeight;
+}
+
 export function createFortressWeapons(kind: FortressTowerKind): {
   weapon: Weapon;
   weapons: WeaponRack;
-  specialWeapon: Weapon;
+  specialWeapon?: Weapon;
 } {
+  if (kind === 'aa-tower') {
+    const primary: Weapon = {
+      kind: 'skyguardInterceptor',
+      range: 420,
+      cooldown: 0,
+      salvoCount: 1,
+    };
+    return {
+      weapon: primary,
+      weapons: {
+        primary,
+        secondary: {
+          kind: 'skyguardLaser',
+          range: 110,
+          cooldown: 0,
+        },
+      },
+    };
+  }
   const primary: Weapon = {
-    kind: kind === 'aa-tower' ? 'aaMissile' : 'siegeMissile',
-    range: kind === 'aa-tower' ? 320 : FORTRESS_TOWER.primaryRange,
+    kind: 'siegeMissile',
+    range: FORTRESS_TOWER.primaryRange,
     cooldown: 0,
-    // The ground fortress keeps its heavy multi-shot rack for manual V-mode
-    // control; unattended defense should delay an assault, not erase it.
-    salvoCount: kind === 'aa-tower' ? 2 : 1,
+    salvoCount: 1,
   };
   return {
     weapon: primary,
     weapons: {
       primary,
       secondary: {
-        kind: kind === 'aa-tower' ? 'swarmRocket' : 'tankBomb',
-        range: kind === 'aa-tower' ? 360 : FORTRESS_TOWER.secondaryRange,
+        kind: 'tankBomb',
+        range: FORTRESS_TOWER.secondaryRange,
         cooldown: 0,
-        salvoCount: kind === 'aa-tower' ? 2 : 4,
+        salvoCount: 4,
       },
     },
     specialWeapon: {

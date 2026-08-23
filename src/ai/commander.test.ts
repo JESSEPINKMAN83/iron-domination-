@@ -69,6 +69,13 @@ describe('phase 6 enemy commander', () => {
     expect(first.commander.stats).toEqual(second.commander.stats);
   });
 
+  it('fires Ashfall or Ember at the hostile command yard so Skyguard has inbound targets', () => {
+    const { sim } = runMatch(30 * 12);
+    const inFlight = Array.from(sim.world.entities).filter((entity) => entity.inboundMissile && !entity.destroyed);
+    const warned = sim.events.some((event) => event.kind === 'inbound-warning' || event.kind === 'inbound-impact');
+    expect(inFlight.length > 0 || warned).toBe(true);
+  });
+
   it('raids visible economy targets before ordinary buildings', () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     const hf = generateHeightfield(MAP01);

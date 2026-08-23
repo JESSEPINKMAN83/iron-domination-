@@ -34,6 +34,7 @@ export function findFirstVisibleHostileEntity(
     const team = entity.team?.id;
     if (team === undefined || entity.destroyed || (entity.health && entity.health.current <= 0)) continue;
     if (!entity.selectable && !entity.building) continue;
+    if (entity.selectable?.type === 'inbound-missile') continue;
     if (!areHostile(localTeam, team)) continue;
     if (!isVisible(entity.transform.x, entity.transform.z)) continue;
     return entity;

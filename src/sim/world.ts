@@ -1556,6 +1556,13 @@ export function hashSim(sim: GameSim): number {
       mix(Math.round(entity.flight.rollAttitude * 1000));
       mix(Math.round(entity.flight.verticalVelocity * 1000));
     }
+    if (entity.inboundMissile) {
+      mix(entity.inboundMissile.profile === 'drone' ? 2 : 1);
+      mix(Math.round(entity.inboundMissile.elapsed * 1000));
+      mix(Math.round(entity.inboundMissile.toX * 100));
+      mix(Math.round(entity.inboundMissile.toZ * 100));
+      mix(Math.round(entity.inboundMissile.sizeScale * 100));
+    }
     if (entity.destroyed?.aircraftCrash) {
       mix(Math.round(entity.destroyed.aircraftCrash.velocityX * 1000));
       mix(Math.round(entity.destroyed.aircraftCrash.velocityZ * 1000));

@@ -4,6 +4,7 @@ import {
   BoxGeometry,
   CanvasTexture,
   CircleGeometry,
+  ConeGeometry,
   CylinderGeometry,
   DoubleSide,
   DynamicDrawUsage,
@@ -701,7 +702,14 @@ export class UnitView {
     const kind = unitVisualKind(entity);
     const materials = this.teamMaterials[factionId(entity.team?.id)];
     let built: BuiltUnit;
-    if (kind === 'rifle' || kind === 'grenadier' || kind === 'rocket' || kind === 'sniper') {
+    if (entity.inboundMissile) {
+      built = createInboundObject(entity, materials);
+      const shadow = new Mesh(AIR_SHADOW_GEOM, this.airShadowMaterial);
+      shadow.rotation.x = -Math.PI / 2;
+      shadow.renderOrder = 18;
+      this.airShadows.set(entity, shadow);
+      this.group.add(shadow);
+    } else if (kind === 'rifle' || kind === 'grenadier' || kind === 'rocket' || kind === 'sniper') {
       const rig = buildSoldier(this.soldierMaterials(materials), kind);
       this.soldierRigs.set(entity, rig);
       this.anims.set(entity, {
@@ -759,7 +767,7 @@ export class UnitView {
     this.refs.set(entity, built.refs);
     this.group.add(unit);
 
-    if (entity.health && kind !== 'rifle' && kind !== 'grenadier' && kind !== 'rocket' && kind !== 'sniper') {
+    if (entity.health && !entity.inboundMissile && kind !== 'rifle' && kind !== 'grenadier' && kind !== 'rocket' && kind !== 'sniper') {
       const overlay = createUnitDamageOverlay(
         entity,
         kind,
@@ -1005,7 +1013,7 @@ export class UnitView {
       const ring = this.selectedRings.get(entity);
       if (!obj || !ring) continue;
       const gone = entity === this.hiddenEntity;
-      const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
+      const fogged = entity.team?.id !== this.localTeam && !entity.inboundMissile && !this.isVisible(entity.transform.x, entity.transform.z);
       if (gone || fogged) {
         obj.visible = false;
         ring.visible = false;
@@ -1101,7 +1109,7 @@ export class UnitView {
       const wash = this.rotorWashes.get(entity);
       if (wash) wash.mesh.visible = false;
       const gone = entity === this.hiddenEntity;
-      const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
+      const fogged = entity.team?.id !== this.localTeam && !entity.inboundMissile && !this.isVisible(entity.transform.x, entity.transform.z);
       if (gone || fogged) {
         ring.visible = false;
         const healthBar = this.healthBars.get(entity);
@@ -1415,7 +1423,7 @@ export class UnitView {
       }
       for (const tailRotor of refs?.tailRotors ?? []) tailRotor.rotation.x += dt * (24 + speed * 2.2);
       updateMissileRack(refs?.missileRack, entity);
-      if (!entity.destroyed) obj.position.y += Math.sin(performance.now() * 0.004 + entity.id) * 0.035;
+      if (!entity.destroyed && !entity.inboundMissile) obj.position.y += Math.sin(performance.now() * 0.004 + entity.id) * 0.035;
       return;
     }
 
@@ -1839,7 +1847,7 @@ export class UnitView {
 
   private isPickable(entity: Entity): boolean {
     if (entity === this.hiddenEntity || entity.destroyed) return false;
-    if (entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z)) return false;
+    if (entity.team?.id !== this.localTeam && !entity.inboundMissile && !this.isVisible(entity.transform.x, entity.transform.z)) return false;
     return true;
   }
 
@@ -1849,9 +1857,11 @@ export class UnitView {
     const pct = Math.max(0, Math.min(1, entity.health.current / entity.health.max));
     const selected = entity.selectable?.selected ?? false;
     const nearCamera = !compact || camera.position.distanceToSquared(this.lowDetailTransform.position.set(x, y, z)) < 90_000;
-    healthBar.root.visible = !entity.destroyed && (compact
-      ? (this.selectionOverlayVisible && selected) || (pct < 0.65 && nearCamera)
-      : (this.selectionOverlayVisible && selected) || pct < 0.995);
+    healthBar.root.visible = !entity.destroyed && (entity.inboundMissile
+      ? true
+      : compact
+        ? (this.selectionOverlayVisible && selected) || (pct < 0.65 && nearCamera)
+        : (this.selectionOverlayVisible && selected) || pct < 0.995);
     if (!healthBar.root.visible) return;
     const lift = unitChromeLift(entity);
     const rankVisible = (entity.combatRank?.rank ?? 0) > 0;
@@ -1894,6 +1904,7 @@ export class UnitView {
 }
 
 function unitChromeLift(entity: Entity): number {
+  if (entity.inboundMissile) return 2.35;
   if (entity.selectable?.type === 'infantry') return 2.85;
   if (entity.selectable?.type === 'vulture') return 3.45;
   return 5.15;
@@ -2922,6 +2933,41 @@ function createHarvesterObject(materials: TeamMaterials, gunmetal: Material): Bu
   };
 }
 
+function createInboundObject(entity: Entity, materials: TeamMaterials): BuiltUnit {
+  const group = new Group();
+  const drone = entity.inboundMissile?.profile === 'drone';
+  if (drone) {
+    group.add(box(0.55, 0.22, 1.35, materials.hull, 0, 0, 0.1));
+    group.add(box(1.85, 0.06, 0.42, materials.dark, 0, 0.02, -0.05));
+    group.add(box(0.28, 0.16, 0.42, materials.accent, 0, 0.12, 0.62));
+    const glow = new Mesh(sharedCylinderGeometry(0.08, 0.14, 0.28, 8), materials.lightBar);
+    glow.rotation.x = Math.PI / 2;
+    glow.position.set(0, 0, -0.72);
+    group.add(glow);
+  } else {
+    const body = new Mesh(sharedCylinderGeometry(0.18, 0.28, 3.4, 10), materials.hull);
+    body.rotation.x = Math.PI / 2;
+    group.add(body);
+    const nose = new Mesh(new ConeGeometry(0.28, 0.85, 10), materials.accent);
+    nose.rotation.x = Math.PI / 2;
+    nose.position.z = 2.05;
+    group.add(nose);
+    const band = new Mesh(sharedCylinderGeometry(0.3, 0.3, 0.16, 10), materials.lightBar);
+    band.rotation.x = Math.PI / 2;
+    band.position.z = 1.15;
+    group.add(band);
+    for (const side of [-1, 1]) {
+      group.add(box(0.06, 0.42, 0.55, materials.dark, side * 0.28, 0, -1.15));
+      group.add(box(0.42, 0.06, 0.55, materials.dark, 0, side * 0.28, -1.15));
+    }
+    const exhaust = new Mesh(sharedCylinderGeometry(0.08, 0.2, 0.55, 8), materials.lightBar);
+    exhaust.rotation.x = Math.PI / 2;
+    exhaust.position.z = -1.9;
+    group.add(exhaust);
+  }
+  return { root: group, refs: {} };
+}
+
 function createAircraftObject(kind: UnitVisualKind, materials: TeamMaterials, rotorMaterial: Material): BuiltUnit {
   const group = new Group();
   const mainRotors: Object3D[] = [];
@@ -3021,6 +3067,10 @@ function soldierWeaponBasePose(kit: SoldierRig['kit']): { x: number; y: number; 
 
 function visualScaleForEntity(entity: Entity): { x: number; y: number; z: number } {
   const name = entity.name ?? '';
+  if (entity.inboundMissile) {
+    const scale = entity.inboundMissile.sizeScale;
+    return { x: scale, y: scale, z: scale };
+  }
   if (entity.weapon?.kind === 'sniperRifle') return { x: 0.96, y: 1.05, z: 0.96 };
   if (entity.selectable?.type === 'harvester') return { x: 1.08, y: 1.0, z: 1.05 };
   if (name.includes('Jackal')) return { x: 0.82, y: 0.82, z: 0.88 };

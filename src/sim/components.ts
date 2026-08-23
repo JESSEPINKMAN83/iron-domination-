@@ -79,6 +79,25 @@ export interface Mover {
   tactic?: TacticPlan;
 }
 
+export type InboundProfile = 'ballistic' | 'drone';
+
+/** One-way strategic inbound: ballistic strike or slow attack drone. */
+export interface InboundMissile {
+  profile: InboundProfile;
+  fromX: number;
+  fromZ: number;
+  toX: number;
+  toZ: number;
+  elapsed: number;
+  flightTime: number;
+  peakAltitude: number;
+  launchY: number;
+  impactY: number;
+  warheadDamage: number;
+  splashRadius: number;
+  sizeScale: number;
+}
+
 export interface Flight {
   cruiseAltitude: number;
   minAGL: number;
@@ -238,6 +257,7 @@ export interface Entity {
   selectable?: Selectable;
   mover?: Mover;
   flight?: Flight;
+  inboundMissile?: InboundMissile;
   weapon?: Weapon;
   weapons?: WeaponRack;
   specialWeapon?: Weapon;

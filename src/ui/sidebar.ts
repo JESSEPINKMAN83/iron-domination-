@@ -760,7 +760,7 @@ export class Sidebar {
     if (def?.powerProduced) chips.push(`POWER +${def.powerProduced}`);
     if (def?.powerUsed) chips.push(`POWER -${def.powerUsed}`);
     if (kind === 'refinery') chips.push('CREDITS');
-    if (def?.weaponKind) chips.push(def.weaponKind === 'aaMissile' ? 'ANTI-AIR' : 'GROUND DEFENSE');
+    if (def?.weaponKind) chips.push(def.weaponKind === 'aaMissile' || def.weaponKind === 'skyguardInterceptor' ? 'ANTI-AIR' : 'GROUND DEFENSE');
     if (def?.blocksMovement) chips.push('BLOCKS');
     if (chips.length === 0) chips.push('BASE NODE');
     for (const text of chips) {
@@ -1095,9 +1095,14 @@ export class Sidebar {
     this.drawRadarResources();
     for (const entity of this.sim.world.entities) {
       if (!entity.transform || entity.destroyed) continue;
-      if (entity.team?.id !== this.economy.team && !this.fog.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
+      if (entity.team?.id !== this.economy.team && !entity.inboundMissile && !this.fog.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
       const p = this.worldToRadar(entity.transform.x, entity.transform.z);
       if (p.x < 0 || p.y < 0 || p.x >= this.radar.width || p.y >= this.radar.height) continue;
+      if (entity.inboundMissile) {
+        this.radarCtx.fillStyle = entity.inboundMissile.profile === 'drone' ? '#7de7ff' : '#ffb14a';
+        this.radarCtx.fillRect(Math.round(p.x) - 2, Math.round(p.y) - 2, 4, 4);
+        continue;
+      }
       const isBuilding = !!entity.building;
       this.radarCtx.fillStyle = entity.team?.id !== this.economy.team ? '#df5742' : entity.selectable?.selected ? '#f0d56a' : '#56d184';
       this.radarCtx.fillRect(Math.round(p.x) - (isBuilding ? 2 : 1), Math.round(p.y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);

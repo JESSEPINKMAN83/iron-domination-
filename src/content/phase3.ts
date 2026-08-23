@@ -132,7 +132,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
   },
   'aa-tower': {
     kind: 'aa-tower',
-    label: 'AA Missile Tower',
+    label: 'Skyguard Battery',
     tab: 'defense',
     cost: 780,
     buildTime: 7,
@@ -142,9 +142,9 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     powerUsed: 8,
     requires: 'power-plant',
     blocksMovement: true,
-    weaponKind: 'aaMissile',
-    weaponRange: 320,
-    visionRadius: 300,
+    weaponKind: 'skyguardInterceptor',
+    weaponRange: 420,
+    visionRadius: 380,
   },
 };
 

@@ -123,6 +123,7 @@ export function controlGuideSections(mobile: boolean): GuideSection[] {
         { control: 'W/S · A/D · Shift', action: 'Drive, steer, and boost. Move the mouse to aim.' },
         { control: 'Left / right click', action: 'Fire primary and secondary weapons. F uses a special ability.' },
         { control: 'Defense tower', action: 'In V-mode, use the wheel for optical zoom. Hold T to scan; release to lock.' },
+        { control: 'Skyguard Battery', action: 'Detects inbound missiles at launch and fires interceptors immediately. Close-in laser burns drones. Cannot fire at ground units.' },
         { control: 'Tab', action: 'Swap to the next unit in the currently selected squad.' },
         { control: 'Aircraft', action: 'Q/E hard turn, Space climbs, and C descends.' },
       ],
@@ -186,6 +187,7 @@ function guideMarkup(mobile: boolean): string {
         <div class="iron-howto__section-heading"><span>02</span><h3>What you can do</h3></div>
         <div class="iron-howto__capabilities">
           <article><b>Build a base</b><span>Power, economy, production, walls, and defensive towers.</span></article>
+          <article><b>Skyguard Battery</b><span>Fires interceptors the moment an inbound missile is launched, then burns leaking drones with a close-in laser. It cannot fire at the ground.</span></article>
           <article><b>Field an army</b><span>Infantry, snipers, rockets, tanks, artillery, and aircraft.</span></article>
           <article><b>Control any unit</b><span>Switch from command view to direct combat whenever it matters.</span></article>
           <article><b>Adapt your force</b><span>Use upgrades and unit counters to answer the enemy composition.</span></article>

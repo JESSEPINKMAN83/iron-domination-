@@ -9,6 +9,7 @@ describe('match startup routing', () => {
   it('autostarts explicit match and QA query links', () => {
     expect(shouldAutostartFromUrl(new URLSearchParams('map=frostbite-pass&seed=42'))).toBe(true);
     expect(shouldAutostartFromUrl(new URLSearchParams('start=test'))).toBe(true);
+    expect(shouldAutostartFromUrl(new URLSearchParams('inbound-demo=1'))).toBe(true);
     expect(shouldAutostartFromUrl(new URLSearchParams('relief=150'))).toBe(true);
   });
 
