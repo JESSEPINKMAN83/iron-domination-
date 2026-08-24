@@ -8,6 +8,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   RingGeometry,
+  Vector3,
   type Object3D,
 } from 'three';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
@@ -92,6 +93,8 @@ export class OrderMarkerView {
   private preview?: FacingPreview;
   private targetHover?: TargetHover;
   private strategicAreaTarget?: StrategicAreaTarget;
+  private readonly worldUp = new Vector3(0, 1, 0);
+  private readonly terrainNormal = new Vector3();
 
   constructor(private readonly hf: Heightfield) {}
 
@@ -203,8 +206,20 @@ export class OrderMarkerView {
     const marker = this.strategicAreaTarget;
     marker.materials.forEach((material) => material.color.setHex(color));
     marker.root.visible = true;
-    marker.root.position.set(x, sampleHeight(this.hf, x, z) + 0.35, z);
     const visibleRadius = Math.max(3, radius);
+    const normalStep = Math.max(
+      0.75,
+      Math.min(this.hf.cellSize * 2.5, Math.max(this.hf.cellSize * 0.45, visibleRadius * 0.08)),
+    );
+    const left = sampleHeight(this.hf, x - normalStep, z);
+    const right = sampleHeight(this.hf, x + normalStep, z);
+    const back = sampleHeight(this.hf, x, z - normalStep);
+    const front = sampleHeight(this.hf, x, z + normalStep);
+    this.terrainNormal.set(left - right, normalStep * 2, back - front).normalize();
+    marker.root.quaternion.setFromUnitVectors(this.worldUp, this.terrainNormal);
+    marker.root.position
+      .set(x, sampleHeight(this.hf, x, z), z)
+      .addScaledVector(this.terrainNormal, 0.35);
     marker.ring.scale.setScalar(visibleRadius);
     marker.fill.scale.setScalar(visibleRadius);
     marker.center.scale.setScalar(radius <= 0 ? 2.2 : 1.25);
