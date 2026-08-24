@@ -16,6 +16,7 @@ import { NARRATIVE_CHARACTERS_ENABLED } from './experienceFlags';
 import './setup.css';
 import './mobile.css';
 import './durabilityPreview.css';
+import './smokePreview.css';
 import './outcomeScreen.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
@@ -219,6 +220,17 @@ interface ArmyRuntime {
   base: ReturnType<typeof createInitialBase>;
   vision: VisibilityGrid;
   commander?: EnemyCommander;
+}
+
+interface SmokePreviewStage {
+  focus: { x: number; z: number };
+  forward: { x: number; z: number };
+  right: { x: number; z: number };
+  points: {
+    missile: { x: number; z: number };
+    tank: { x: number; z: number };
+    strategic: { x: number; z: number };
+  };
 }
 
 type CinematicShot = 'overview' | 'frontline' | 'base' | 'air';
@@ -2559,6 +2571,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     startMode === 'impact-demo' && !multiplayerMode && !isPublicHost(location.hostname);
   const missileDoctrinePreview =
     startMode === 'missile-test' && !multiplayerMode && !isPublicHost(location.hostname);
+  const smokePreview =
+    startMode === 'smoke-preview' && !multiplayerMode && !isPublicHost(location.hostname);
+  if (smokePreview) document.documentElement.classList.add('smoke-preview-mode');
   const debriefPreview =
     startMode === 'debrief-preview' && !multiplayerMode && !isPublicHost(location.hostname);
   const cinematicWar =
@@ -2580,7 +2595,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const collectorPreview =
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
-  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview || missileDoctrinePreview;
+  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview || missileDoctrinePreview || smokePreview;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   const impactPreview =
@@ -2683,11 +2698,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   } else if ((testStart || buildingShowcase) && !multiplayerMode && !loadedFromSave) {
     seedTestStartBase(sim, hf, economy, localBase);
   }
-  const isVisibleToPlayer = lineupStart || destructionPreview
+  const smokePreviewStage = smokePreview ? createSmokePreviewStage(sim, armies, localTeam) : undefined;
+  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview
     ? () => true
     : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
-    if (durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || !aiTeams.has(army.team)) continue;
+    if (durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
@@ -2918,6 +2934,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       },
       138,
       -6,
+    );
+  } else if (smokePreviewStage) {
+    rig.focusOn(
+      smokePreviewStage.focus.x,
+      smokePreviewStage.focus.z,
+      {
+        x: smokePreviewStage.focus.x - smokePreviewStage.forward.x * 78 + smokePreviewStage.right.x * 8,
+        z: smokePreviewStage.focus.z - smokePreviewStage.forward.z * 78 + smokePreviewStage.right.z * 8,
+      },
+      64,
+      -12,
     );
   } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else {
@@ -3784,6 +3811,23 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   overlay.remove();
   loop.start();
+  if (smokePreviewStage) {
+    const previewPanel = createSmokePreviewPanel();
+    const runSmokePreview = (): void => {
+      setSmokePreviewPanelState(previewPanel, 'missile');
+      combatView.push([createSmokePreviewEvent('missile', smokePreviewStage.points.missile, hf)]);
+      window.setTimeout(() => {
+        setSmokePreviewPanelState(previewPanel, 'tank');
+        combatView.push([createSmokePreviewEvent('tank', smokePreviewStage.points.tank, hf)]);
+      }, 2_600);
+      window.setTimeout(() => {
+        setSmokePreviewPanelState(previewPanel, 'strategic');
+        combatView.push([createSmokePreviewEvent('strategic', smokePreviewStage.points.strategic, hf)]);
+      }, 5_200);
+    };
+    window.setTimeout(runSmokePreview, 700);
+    window.setInterval(runSmokePreview, 16_000);
+  }
   fadeOutLandingMusic(40_000);
   if (debriefPreview) {
     window.setTimeout(() => {
@@ -4792,6 +4836,98 @@ function createImpactPreviewEvents(
     trajectory: reaction.trajectory,
   };
   return [impactFx, reaction];
+}
+
+function createSmokePreviewStage(
+  sim: ReturnType<typeof createGameSim>,
+  armies: ArmyRuntime[],
+  localTeam: number,
+): SmokePreviewStage {
+  const friendly = armies.find((army) => army.team === localTeam) ?? armies[0];
+  const hostile = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
+  const rawForward = hostile
+    ? {
+        x: hostile.base.transform.x - friendly.base.transform.x,
+        z: hostile.base.transform.z - friendly.base.transform.z,
+      }
+    : { x: -friendly.base.transform.x, z: -friendly.base.transform.z };
+  const length = Math.hypot(rawForward.x, rawForward.z) || 1;
+  const forward = { x: rawForward.x / length, z: rawForward.z / length };
+  const right = { x: forward.z, z: -forward.x };
+  const stagingDistance = Math.min(104, Math.max(82, length * 0.32));
+  const desiredFocus = {
+    x: friendly.base.transform.x + forward.x * stagingDistance,
+    z: friendly.base.transform.z + forward.z * stagingDistance,
+  };
+  const focusCell = sim.nav.nearestWalkableCell(desiredFocus.x, desiredFocus.z, 12);
+  const focus = focusCell ? sim.nav.cellCenter(focusCell.x, focusCell.y) : desiredFocus;
+  const pointAt = (offset: number): { x: number; z: number } => {
+    const desired = { x: focus.x + right.x * offset, z: focus.z + right.z * offset };
+    const cell = sim.nav.nearestWalkableCell(desired.x, desired.z, 8);
+    return cell ? sim.nav.cellCenter(cell.x, cell.y) : desired;
+  };
+  return {
+    focus,
+    forward,
+    right,
+    points: {
+      missile: pointAt(30),
+      tank: pointAt(0),
+      strategic: pointAt(-30),
+    },
+  };
+}
+
+function createSmokePreviewEvent(
+  type: 'missile' | 'tank' | 'strategic',
+  point: { x: number; z: number },
+  hf: ReturnType<typeof generateHeightfield>,
+): CombatEvent {
+  const strategic = type === 'strategic';
+  const destroyedTank = type === 'tank';
+  const groundY = sampleHeight(hf, point.x, point.z) + 0.4;
+  return {
+    kind: strategic ? 'siegeMissile-impact' : 'tankMissile-impact',
+    weaponKind: strategic ? 'strategicMissile' : 'tankMissile',
+    fromX: point.x - 34,
+    fromY: groundY + (strategic ? 32 : 9),
+    fromZ: point.z - 24,
+    toX: point.x,
+    toY: groundY,
+    toZ: point.z,
+    sourceTeamId: 2,
+    targetType: destroyedTank ? 'tank' : 'ground',
+    targetLabel: destroyedTank ? 'Preview tank' : strategic ? 'Strategic impact zone' : 'Missile impact zone',
+    targetHealth: destroyedTank ? 0 : strategic ? 20 : 82,
+    targetMaxHealth: 100,
+    damage: destroyedTank ? 100 : strategic ? 80 : 18,
+    killed: destroyedTank,
+    trajectory: strategic ? 'arc' : 'homing',
+    impactScale: strategic ? 1.9 : destroyedTank ? 1.05 : 1,
+  };
+}
+
+function createSmokePreviewPanel(): HTMLElement {
+  document.querySelector('.smoke-preview')?.remove();
+  const panel = document.createElement('section');
+  panel.className = 'smoke-preview';
+  panel.innerHTML = `
+    <h1>Smoke effects showcase</h1>
+    <p>Three staged impacts repeat automatically every 16 seconds. Watch each cloud rise, spread, and fade.</p>
+    <ol>
+      <li data-smoke-preview="missile"><strong>Left · Missile hit</strong>Compact 3–4 second smoke</li>
+      <li data-smoke-preview="tank"><strong>Center · Tank destroyed</strong>Dark wreck plume for 5–8 seconds</li>
+      <li data-smoke-preview="strategic"><strong>Right · Strategic impact</strong>Broad aftermath for 7–10 seconds</li>
+    </ol>
+  `;
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function setSmokePreviewPanelState(panel: HTMLElement, active: 'missile' | 'tank' | 'strategic'): void {
+  for (const item of Array.from(panel.querySelectorAll<HTMLElement>('[data-smoke-preview]'))) {
+    item.classList.toggle('is-active', item.dataset.smokePreview === active);
+  }
 }
 
 function spawnDurabilityPreview(

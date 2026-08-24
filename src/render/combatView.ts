@@ -1052,10 +1052,10 @@ export class CombatView {
     this.softSmokeTexture ??= makeSoftSmokeTexture();
     const qualityDensity = this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 0.68 : 0.42;
     const heavyImpact = strategic || isBombImpact(event.kind) || event.kind === 'artilleryShell-impact' || event.kind === 'siegeMissile-impact';
-    const fullCount = strategic ? 22 : destroyedTank ? 9 : heavyImpact ? 6 : 3;
+    const fullCount = strategic ? 22 : destroyedTank ? 12 : heavyImpact ? 9 : 6;
     const count = Math.max(2, Math.round(fullCount * qualityDensity));
     const warheadScale = strategic ? Math.max(1.6, event.impactScale ?? 1.6) : Math.max(0.55, event.impactScale ?? 1);
-    const baseSize = strategic ? 1.8 * warheadScale : destroyedTank ? 1.15 : heavyImpact ? 1.05 * warheadScale : 0.72 * warheadScale;
+    const baseSize = strategic ? 1.8 * warheadScale : destroyedTank ? 2.2 : heavyImpact ? 2.35 * warheadScale : 1.8 * warheadScale;
     const baseTtl = strategic ? 7.2 : destroyedTank ? 5.6 : heavyImpact ? 4.2 : 3.1;
     const spread = strategic ? 4.6 * warheadScale : destroyedTank ? 1.45 : heavyImpact ? 1.35 * warheadScale : 0.75 * warheadScale;
     const delayStep = strategic ? 0.07 : destroyedTank ? 0.2 : 0.09;
@@ -1066,14 +1066,14 @@ export class CombatView {
       const angle = rng() * Math.PI * 2;
       const radius = spread * Math.sqrt(rng());
       const size = baseSize * (0.72 + rng() * 0.62);
-      const opacity = (strategic ? 0.62 : destroyedTank ? 0.56 : 0.46) * (0.82 + rng() * 0.18);
+      const opacity = (strategic ? 0.68 : destroyedTank ? 0.82 : 0.76) * (0.88 + rng() * 0.12);
       const material = new SpriteMaterial({
         map: this.softSmokeTexture,
         color: strategic
           ? rng() > 0.42 ? 0x3c3a36 : 0x5c554c
           : destroyedTank
-            ? rng() > 0.35 ? 0x282a28 : 0x45433e
-            : rng() > 0.5 ? 0x4c4944 : 0x686159,
+            ? rng() > 0.35 ? 0x343734 : 0x5b5751
+            : rng() > 0.5 ? 0x67635e : 0x89817a,
         transparent: true,
         opacity: 0,
         depthWrite: false,
@@ -1090,7 +1090,7 @@ export class CombatView {
       puff.renderOrder = 57;
       this.group.add(puff);
       const ttl = baseTtl * (0.82 + rng() * 0.42);
-      const drift = (strategic ? 0.75 : destroyedTank ? 0.42 : 0.3) * (0.45 + rng());
+      const drift = (strategic ? 0.75 : destroyedTank ? 0.62 : 0.48) * (0.45 + rng());
       this.smokePuffs.push({
         mesh: puff,
         material,
