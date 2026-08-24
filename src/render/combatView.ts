@@ -73,12 +73,14 @@ interface HitIndicator {
 }
 
 interface SmokePuff {
-  mesh: Mesh;
-  material: MeshBasicMaterial;
+  mesh: Mesh | Sprite;
+  material: MeshBasicMaterial | SpriteMaterial;
   velocity: Vector3;
   ttl: number;
   total: number;
   spin: number;
+  baseScale?: Vector3;
+  growth?: number;
 }
 
 interface HitFragment {
@@ -187,6 +189,7 @@ export class CombatView {
   private readonly bombProjectiles: BombProjectile[] = [];
   private readonly hitIndicators: HitIndicator[] = [];
   private readonly smokePuffs: SmokePuff[] = [];
+  private strategicSmokeTexture?: CanvasTexture;
   private readonly hitFragments: HitFragment[] = [];
   private readonly groundScorches: GroundScorch[] = [];
   private readonly up = new Vector3(0, 1, 0);
@@ -662,8 +665,55 @@ export class CombatView {
     const pos = projectile.group.position.clone();
     const back = tangent.clone().multiplyScalar(projectileSmokeOffset(visualKind, projectile.event.kind));
     pos.add(back);
-    pos.x += Math.sin(projectile.elapsed * 19 + projectile.event.fromX) * (strategic ? 0.24 : 0.12);
-    pos.z += Math.cos(projectile.elapsed * 17 + projectile.event.fromZ) * (strategic ? 0.24 : 0.12);
+    const phase = projectile.elapsed * 37 + projectile.event.fromX * 0.071 + projectile.event.toZ * 0.043;
+    const noiseA = 0.5 + Math.sin(phase * 1.73) * 0.5;
+    const noiseB = 0.5 + Math.cos(phase * 2.11 + 1.7) * 0.5;
+    const lateral = new Vector3(-tangent.z, 0, tangent.x);
+    if (lateral.lengthSq() < 0.001) lateral.set(1, 0, 0);
+    else lateral.normalize();
+    if (strategic) {
+      pos.addScaledVector(lateral, (noiseA - 0.5) * 1.35 * warheadVisualScale);
+      pos.y += (noiseB - 0.5) * 0.75 * warheadVisualScale;
+    } else {
+      pos.x += Math.sin(projectile.elapsed * 19 + projectile.event.fromX) * 0.12;
+      pos.z += Math.cos(projectile.elapsed * 17 + projectile.event.fromZ) * 0.12;
+    }
+
+    if (strategic) {
+      this.strategicSmokeTexture ??= makeStrategicSmokeTexture();
+      const opacity = projectileSmokeOpacity(visualKind, projectile.event.kind, homing) * (0.72 + noiseB * 0.28);
+      const smokeMaterial = new SpriteMaterial({
+        map: this.strategicSmokeTexture,
+        color: noiseA > 0.66 ? 0xb6bab6 : noiseB > 0.45 ? 0x969b97 : 0x7d8480,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+      });
+      smokeMaterial.userData.baseOpacity = opacity;
+      smokeMaterial.rotation = (noiseA - 0.5) * 0.65;
+      const puff = new Sprite(smokeMaterial);
+      const size = projectileSmokeSize(visualKind, projectile.event.kind, homing) * warheadVisualScale * (0.72 + noiseA * 0.52);
+      puff.scale.set(size * (1.65 + noiseB * 0.6), size * (1.24 + noiseA * 0.44), 1);
+      puff.position.copy(pos);
+      puff.renderOrder = 57;
+      this.group.add(puff);
+      const ttl = 2.65 + noiseB * 1.25;
+      this.smokePuffs.push({
+        mesh: puff,
+        material: smokeMaterial,
+        velocity: new Vector3(-tangent.x * 0.18, 0.16 + noiseA * 0.38, -tangent.z * 0.18)
+          .addScaledVector(lateral, (noiseB - 0.5) * 0.62),
+        ttl,
+        total: ttl,
+        spin: (noiseA - 0.5) * 0.48,
+        baseScale: puff.scale.clone(),
+        growth: 1.45 + noiseB * 1.35,
+      });
+      const maxSmoke = this.visualQuality === 0 ? 170 : this.visualQuality === 1 ? 104 : 62;
+      while (this.smokePuffs.length > maxSmoke) this.disposeSmokePuff(this.smokePuffs.shift());
+      return;
+    }
+
     const smokeMaterial = new MeshBasicMaterial({
       color: projectileSmokeColor(visualKind, projectile.event.kind, homing),
       transparent: true,
@@ -671,21 +721,19 @@ export class CombatView {
       depthWrite: false,
     });
     smokeMaterial.userData.baseOpacity = smokeMaterial.opacity;
-    const puff = new Mesh(new SphereGeometry(projectileSmokeSize(visualKind, projectile.event.kind, homing) * warheadVisualScale, 8, 5), smokeMaterial);
+    const puff = new Mesh(new SphereGeometry(projectileSmokeSize(visualKind, projectile.event.kind, homing), 8, 5), smokeMaterial);
     puff.position.copy(pos);
     puff.renderOrder = 57;
     this.group.add(puff);
     this.smokePuffs.push({
       mesh: puff,
       material: smokeMaterial,
-      velocity: new Vector3(-tangent.x * (strategic ? 0.35 : 0.9), (strategic ? 0.28 : 0.5) + Math.abs(tangent.y) * 0.2, -tangent.z * (strategic ? 0.35 : 0.9)),
-      ttl: strategic ? 3.4 : isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
-      total: strategic ? 3.4 : isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
+      velocity: new Vector3(-tangent.x * 0.9, 0.5 + Math.abs(tangent.y) * 0.2, -tangent.z * 0.9),
+      ttl: isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
+      total: isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
       spin: Math.sin(projectile.elapsed * 11 + projectile.event.toX) * 0.6,
     });
-    const maxSmoke = strategic
-      ? this.visualQuality === 0 ? 220 : this.visualQuality === 1 ? 132 : 76
-      : this.visualQuality === 0 ? 90 : this.visualQuality === 1 ? 58 : 36;
+    const maxSmoke = this.visualQuality === 0 ? 90 : this.visualQuality === 1 ? 58 : 36;
     while (this.smokePuffs.length > maxSmoke) this.disposeSmokePuff(this.smokePuffs.shift());
   }
 
@@ -696,8 +744,17 @@ export class CombatView {
       const life = Math.max(0, puff.ttl / puff.total);
       const age = 1 - life;
       puff.mesh.position.addScaledVector(puff.velocity, dt);
-      puff.mesh.rotation.y += puff.spin * dt;
-      puff.mesh.scale.setScalar(1 + age * 2.6);
+      if (puff.mesh instanceof Sprite && puff.material instanceof SpriteMaterial) {
+        puff.material.rotation += puff.spin * dt;
+      } else {
+        puff.mesh.rotation.y += puff.spin * dt;
+      }
+      if (puff.baseScale) {
+        const growth = 1 + age * (puff.growth ?? 2.6);
+        puff.mesh.scale.set(puff.baseScale.x * growth, puff.baseScale.y * growth, puff.baseScale.z);
+      } else {
+        puff.mesh.scale.setScalar(1 + age * 2.6);
+      }
       puff.material.opacity = (puff.material.userData.baseOpacity as number) * life * life;
       if (puff.ttl <= 0) {
         this.disposeSmokePuff(puff);
@@ -709,7 +766,7 @@ export class CombatView {
   private disposeSmokePuff(puff?: SmokePuff): void {
     if (!puff) return;
     this.group.remove(puff.mesh);
-    puff.mesh.geometry.dispose();
+    if (puff.mesh instanceof Mesh) puff.mesh.geometry.dispose();
     puff.material.dispose();
   }
 
@@ -1351,7 +1408,7 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
 }
 
 function projectileSmokeCadence(weaponKind: string, projectileKind: string, homing: boolean): number {
-  if (weaponKind === 'strategicMissile') return 0.018;
+  if (weaponKind === 'strategicMissile') return 0.022;
   if (weaponKind === 'emberDrone') return 0.055;
   if (isBombKind(projectileKind)) return 0.075;
   if (projectileKind === 'grenade') return weaponKind === 'rifleGrenade' ? 0.18 : 0.12;
@@ -1382,7 +1439,7 @@ function projectileSmokeColor(weaponKind: string, projectileKind: string, homing
 }
 
 function projectileSmokeOpacity(weaponKind: string, projectileKind: string, homing: boolean): number {
-  if (weaponKind === 'strategicMissile') return 0.5;
+  if (weaponKind === 'strategicMissile') return 0.72;
   if (weaponKind === 'emberDrone') return 0.54;
   if (projectileKind === 'kineticShell') return 0.12;
   if (projectileKind === 'artilleryShell') return 0.18;
@@ -1392,7 +1449,7 @@ function projectileSmokeOpacity(weaponKind: string, projectileKind: string, homi
 }
 
 function projectileSmokeSize(weaponKind: string, projectileKind: string, homing: boolean): number {
-  if (weaponKind === 'strategicMissile') return 1.55;
+  if (weaponKind === 'strategicMissile') return 1.7;
   if (weaponKind === 'emberDrone') return 0.42;
   if (isBombKind(projectileKind)) return 0.42;
   if (projectileKind === 'kineticShell') return 0.12;
@@ -1400,6 +1457,36 @@ function projectileSmokeSize(weaponKind: string, projectileKind: string, homing:
   if (weaponKind === 'rocketPod') return 0.2;
   if (weaponKind === 'tankMissile' || weaponKind === 'rocketLauncher') return 0.42;
   return homing ? 0.34 : 0.27;
+}
+
+function makeStrategicSmokeTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const lobes = [
+    { x: 64, y: 65, radius: 48, alpha: 0.52 },
+    { x: 39, y: 65, radius: 31, alpha: 0.34 },
+    { x: 88, y: 59, radius: 35, alpha: 0.38 },
+    { x: 56, y: 39, radius: 30, alpha: 0.28 },
+    { x: 70, y: 87, radius: 28, alpha: 0.25 },
+  ];
+  for (const lobe of lobes) {
+    const gradient = ctx.createRadialGradient(lobe.x, lobe.y, 0, lobe.x, lobe.y, lobe.radius);
+    gradient.addColorStop(0, `rgba(255,255,255,${lobe.alpha})`);
+    gradient.addColorStop(0.38, `rgba(255,255,255,${lobe.alpha * 0.72})`);
+    gradient.addColorStop(0.72, `rgba(255,255,255,${lobe.alpha * 0.2})`);
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  const texture = new CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
 }
 
 function impactBlastScale(kind: string, weaponKind?: string): number {
