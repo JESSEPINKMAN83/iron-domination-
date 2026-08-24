@@ -1,6 +1,6 @@
 import { WEAPONS } from '../content/phase4';
 import { buildings, hasStructure, spendCredits, type EconomyState } from './economy';
-import { sampleHeight } from './heightfield';
+import { sampleHeight, type Heightfield } from './heightfield';
 import { areTeamsHostile, type CombatEvent, type GameSim } from './world';
 
 export const STRATEGIC_MISSILE_COST = 225;
@@ -10,6 +10,40 @@ export const EMBER_DRONE_COOLDOWN = 5;
 export const EMBER_DRONE_MAX_IN_FLIGHT = 6;
 export const EMBER_DRONE_SCATTER_RADIUS = 10;
 export const EMBER_DRONE_HEALTH = 32;
+
+/**
+ * Finds the smallest smooth arc that clears the terrain between launch and
+ * impact. Flat/rolling maps retain the authored baseline; mountain routes
+ * gain only the extra altitude required by the ridges they actually cross.
+ */
+export function strategicTerrainClearanceLift(
+  hf: Heightfield,
+  fromX: number,
+  fromY: number,
+  fromZ: number,
+  toX: number,
+  toY: number,
+  toZ: number,
+  baselineLift: number,
+  clearance: number,
+): number {
+  const distance = Math.hypot(toX - fromX, toZ - fromZ);
+  const steps = Math.max(20, Math.min(96, Math.ceil(distance / Math.max(4, hf.cellSize * 2))));
+  let lift = baselineLift;
+  for (let step = 1; step < steps; step++) {
+    const t = step / steps;
+    // Deployment shelves protect the immediate launch/impact zones. Sampling
+    // the route core avoids an extreme near-vertical arc from endpoint noise.
+    if (t < 0.06 || t > 0.94) continue;
+    const x = fromX + (toX - fromX) * t;
+    const z = fromZ + (toZ - fromZ) * t;
+    const directY = fromY + (toY - fromY) * t;
+    const arcWeight = Math.sin(Math.PI * t);
+    const required = (sampleHeight(hf, x, z) + clearance - directY) / arcWeight;
+    lift = Math.max(lift, required);
+  }
+  return Math.ceil(lift * 2) / 2;
+}
 
 export interface StrategicAccuracy {
   label: 'BLIND' | 'LOW' | 'MEDIUM' | 'PINPOINT';
@@ -107,6 +141,17 @@ export function launchEmberDroneAt(
   const toZ = targetZ + Math.sin(scatterAngle) * scatterDistance;
   const toY = sampleHeight(sim.nav.heightfield, toX, toZ) + 2.2;
   const distance = Math.max(0.001, Math.hypot(toX - fromX, toZ - fromZ));
+  const strategicLift = strategicTerrainClearanceLift(
+    sim.nav.heightfield,
+    fromX,
+    fromY,
+    fromZ,
+    toX,
+    toY,
+    toZ,
+    5,
+    4.5,
+  );
   const duration = Math.max(5, distance / def.projectile!.speed);
   const strategicId = (sim.tick + 1) * 1_000_000 + center.id;
   sim.projectiles.push({
@@ -133,6 +178,7 @@ export function launchEmberDroneAt(
     attackerId: center.id,
     strategic: true,
     strategicProfile: 'drone',
+    strategicLift,
     strategicId,
     strategicTargetTeamId: enemyTeam,
     strategicHealth: EMBER_DRONE_HEALTH,
@@ -158,6 +204,7 @@ export function launchEmberDroneAt(
     trajectory: 'flat',
     impactScale: 0.95,
     strategicId,
+    strategicLift,
     targetHealth: EMBER_DRONE_HEALTH,
     targetMaxHealth: EMBER_DRONE_HEALTH,
   };
@@ -215,6 +262,17 @@ function launchAtArea(
   const toZ = targetZ + Math.sin(scatterAngle) * scatterDistance;
   const toY = sampleHeight(sim.nav.heightfield, toX, toZ) + 1.1;
   const distance = Math.max(0.001, Math.hypot(toX - fromX, toY - fromY, toZ - fromZ));
+  const strategicLift = strategicTerrainClearanceLift(
+    sim.nav.heightfield,
+    fromX,
+    fromY,
+    fromZ,
+    toX,
+    toY,
+    toZ,
+    Math.min(28, Math.hypot(toX - fromX, toZ - fromZ) * 0.32),
+    8,
+  );
   const duration = Math.max(2.8, distance / def.projectile!.speed);
   const strategicId = (sim.tick + 1) * 1_000_000 + silo.id;
   sim.projectiles.push({
@@ -241,6 +299,7 @@ function launchAtArea(
     attackerId: silo.id,
     strategic: true,
     strategicProfile: 'ballistic',
+    strategicLift,
     strategicId,
     strategicTargetTeamId: enemyTeam,
     strategicHealth: warhead.interceptionHealth,
@@ -266,6 +325,7 @@ function launchAtArea(
     trajectory: 'arc',
     impactScale: warhead.impactScale,
     strategicId,
+    strategicLift,
     targetHealth: warhead.interceptionHealth,
     targetMaxHealth: warhead.interceptionHealth,
   };

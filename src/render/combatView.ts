@@ -426,16 +426,17 @@ export class CombatView {
     const flat = event.trajectory === 'flat' || event.trajectory === 'homing';
     const strategic = event.strategicId !== undefined;
     const ember = event.weaponKind === 'emberDrone';
+    const strategicLift = event.strategicLift;
     const controlY = drop
       ? Math.max(toY + 2, (fromY + toY) * 0.46 - Math.min(16, distance * 0.04))
       : ember
-        ? (fromY + toY) * 0.5 + 10
+        ? (fromY + toY) * 0.5 + 2 * (strategicLift ?? 5)
       : flat
         ? (fromY + toY) * 0.5
         : strategic
           // Match the simulation's capped strategic arc so interceptor trails
           // visibly meet the missile instead of flying below cosmetic altitude.
-          ? (fromY + toY) * 0.5 + Math.min(56, distance * 0.64)
+          ? (fromY + toY) * 0.5 + 2 * (strategicLift ?? Math.min(28, distance * 0.32))
           : Math.max(fromY, toY) + Math.min(190, distance * 0.24);
     const control = new Vector3((event.fromX + event.toX) / 2, controlY, (event.fromZ + event.toZ) / 2);
     const group = this.makeProjectileMesh(event);

@@ -980,7 +980,7 @@ function stepProjectiles(sim: GameSim, dt: number): void {
     if (projectile.strategicProfile === 'drone') {
       const fromY = projectile.fromY ?? 8;
       const toY = projectile.toY ?? 2.2;
-      projectile.y = fromY + (toY - fromY) * t + Math.sin(t * Math.PI) * 5;
+      projectile.y = fromY + (toY - fromY) * t + Math.sin(t * Math.PI) * (projectile.strategicLift ?? 5);
     } else if (projectile.trajectory === 'arc') {
       const fromY = projectile.fromY ?? 1.8;
       const toY = projectile.toY ?? 1.2;
@@ -1299,8 +1299,8 @@ function strategicPositionAt(projectile: GameSim['projectiles'][number], elapsed
   const fromY = projectile.fromY ?? 1.8;
   const toY = projectile.toY ?? 1.2;
   const lift = projectile.strategicProfile === 'drone'
-    ? 5
-    : Math.min(28, Math.hypot(projectile.toX - projectile.fromX, projectile.toZ - projectile.fromZ) * 0.32);
+    ? (projectile.strategicLift ?? 5)
+    : (projectile.strategicLift ?? Math.min(28, Math.hypot(projectile.toX - projectile.fromX, projectile.toZ - projectile.fromZ) * 0.32));
   return { x, y: fromY + (toY - fromY) * t + Math.sin(t * Math.PI) * lift, z };
 }
 

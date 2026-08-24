@@ -14,6 +14,7 @@ import {
   launchEmberDroneAt,
   launchStrategicMissileAt,
   strategicAccuracy,
+  strategicTerrainClearanceLift,
   STRATEGIC_MISSILE_COOLDOWN,
   STRATEGIC_MISSILE_COST,
 } from './strategicWarfare';
@@ -63,6 +64,35 @@ function missileFixture(): {
 }
 
 describe('Missile Command strategic warfare', () => {
+  it('raises strategic flight only when a ridge crosses the route', () => {
+    const makeField = (ridgeHeight: number): Heightfield => {
+      const cells = 8;
+      const samples = cells + 1;
+      const heights = new Float32Array(samples * samples);
+      for (let z = 0; z < samples; z++) {
+        for (let x = 3; x <= 5; x++) heights[z * samples + x] = ridgeHeight;
+      }
+      return {
+        kind: 'highlands',
+        cells,
+        cellSize: 10,
+        size: 80,
+        samples,
+        waterLevel: -10,
+        maxHeight: ridgeHeight,
+        heights,
+        walkable: new Uint8Array(cells * cells),
+        splat: new Uint8Array(samples * samples * 4),
+        oreFields: [],
+      };
+    };
+
+    const flatLift = strategicTerrainClearanceLift(makeField(0), -35, 6, 0, 35, 3, 0, 5, 4.5);
+    const mountainLift = strategicTerrainClearanceLift(makeField(34), -35, 6, 0, 35, 3, 0, 5, 4.5);
+    expect(flatLift).toBe(5);
+    expect(mountainLift).toBeGreaterThan(30);
+  });
+
   it('keeps specialist structures exclusive to the selected doctrine', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
