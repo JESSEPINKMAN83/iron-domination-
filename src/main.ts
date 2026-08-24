@@ -12,6 +12,7 @@ import { installActiveMatchExitGuard, type ActiveMatchExitGuard } from './active
 import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHowToPlayWidget } from './howToPlay';
 import { showMissionBriefing } from './missionBriefing';
 import { markOpeningBriefingSeen, shouldShowOpeningBriefing } from './openingBriefing';
+import { NARRATIVE_CHARACTERS_ENABLED } from './experienceFlags';
 import './setup.css';
 import './mobile.css';
 import './durabilityPreview.css';
@@ -3495,6 +3496,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const missionComms = new MissionComms();
 
   const showEnemyFirstContact = (): void => {
+    if (!NARRATIVE_CHARACTERS_ENABLED) return;
     showMissionBriefing({
       variant: 'hostile',
       audioUrl: '/assets/audio/enemy-first-contact.mp3',
@@ -3791,7 +3793,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     const memberId = enlistedCommander()?.memberId;
-    if (shouldShowOpeningBriefing(window.localStorage, memberId)) {
+    if (NARRATIVE_CHARACTERS_ENABLED && shouldShowOpeningBriefing(window.localStorage, memberId)) {
       showMissionBriefing({ enemyCount: hostileArmyCount, narrationVolume: 0.18 });
       markOpeningBriefingSeen(window.localStorage, memberId);
     }
