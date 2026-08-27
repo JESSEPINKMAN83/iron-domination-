@@ -267,7 +267,7 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
           </div>`;
     const splitActions = `
         <div class="iron-landing__actions">
-          <button class="iron-landing__cta" data-action="choose-primary" type="button">${inviteRoom ? 'Join room' : 'Play now'}</button>
+          <button class="iron-landing__cta" data-action="choose-primary" type="button">${inviteRoom ? 'Join room' : 'Single Player'}</button>
           <button class="iron-landing__cta iron-landing__cta--ghost" data-action="choose-secondary" type="button">${inviteRoom ? 'Play single player' : 'Multiplayer'}</button>
         </div>
         <form class="iron-landing__form" name="${FORM_NAME}" method="POST" action="${BETA_SIGNUP_ENDPOINT}" novalidate>${signupFields}
