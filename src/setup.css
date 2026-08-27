@@ -42,7 +42,7 @@
   display: flex;
   justify-content: space-between;
   gap: 28px;
-  padding: 28px 32px 24px;
+  padding: 18px 32px 16px;
   border-bottom: 1px solid var(--war-line);
 }
 
@@ -64,8 +64,8 @@
   letter-spacing: 0.06em;
 }
 
-.war-setup__title { margin-top: 11px; font-size: clamp(38px, 5vw, 64px); }
-.war-setup__intro { max-width: 610px; margin: 12px 0 0; color: var(--war-muted); font-size: 14px; }
+.war-setup__title { margin-top: 7px; font-size: clamp(32px, 3.5vw, 46px); }
+.war-setup__intro { max-width: 610px; margin: 8px 0 0; color: var(--war-muted); font-size: 13px; }
 
 .war-setup__badge {
   align-self: center;
@@ -411,9 +411,21 @@
 .war-armies__header { display: flex; justify-content: space-between; gap: 12px; color: #b9c1bc; font: 700 9px ui-monospace, monospace; letter-spacing: 0.12em; }
 .war-armies__header small { color: var(--war-dim); font-size: 9px; }
 .war-armies__rows { display: grid; gap: 5px; }
-.war-army-row { display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); gap: 5px; align-items: center; }
-.war-army-row__label { color: #aeb8b2; font: 700 9px ui-monospace, monospace; }
-.war-choice--side { height: 34px; font-size: 9px; }
+.war-armies__table-head, .war-army-row { display: grid; grid-template-columns: 86px minmax(82px, .75fr) minmax(150px, 1.4fr); gap: 7px; align-items: center; }
+.war-armies__table-head { padding: 0 8px; color: var(--war-dim); font: 700 8px/1 ui-monospace, monospace; letter-spacing: .12em; }
+.war-army-row { min-height: 46px; padding: 6px 7px; border: 1px solid rgba(126,143,137,.3); border-radius: 4px; background: rgba(9,14,14,.64); }
+.war-army-row__label { display: grid; gap: 2px; color: #d9dfda; font: 700 9px/1 ui-monospace, monospace; }
+.war-army-row__label small { color: var(--war-gold); font-size: 7px; letter-spacing: .08em; }
+.war-army-row__select {
+  width: 100%; min-width: 0; height: 32px; padding: 0 25px 0 9px;
+  border: 1px solid #4c5955; border-radius: 4px;
+  color: #e2e7e3; background: #151d1c;
+  font: 700 9px/1 ui-monospace, monospace; letter-spacing: .03em;
+}
+.war-army-row__select--doctrine[data-doctrine="iron-legion"] { border-color: #4d94b4; color: #8edbff; }
+.war-army-row__select--doctrine[data-doctrine="missile-command"] { border-color: #a8684b; color: #ffad83; }
+.war-army-row__select:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+.war-army-row__select:disabled { opacity: .52; cursor: not-allowed; }
 .war-armies__matchup {
   padding: 11px 13px;
   border: 1px solid rgba(223, 189, 100, .38);
@@ -617,9 +629,9 @@
 @media (max-width: 700px) {
   .war-setup { padding: 0; }
   .war-setup__shell { min-height: 100vh; border-width: 0; }
-  .war-setup__header { padding: 22px 18px 18px; }
+  .war-setup__header { padding: 16px 18px 14px; }
   .war-setup__badge { display: none; }
-  .war-setup__title { font-size: 39px; }
+  .war-setup__title { font-size: 32px; }
   .war-tab { min-height: 62px; padding: 10px 6px; }
   .war-tab span { font-size: 17px; }
   .war-tab small { font-size: 9px; }
@@ -630,8 +642,7 @@
   .war-terrain-row { grid-template-columns: 1fr; }
   .war-rules-grid .war-field:last-child { grid-column: auto; }
   .war-field__description { min-height: 0; }
-  .war-army-row { grid-template-columns: 72px repeat(4, minmax(0,1fr)); gap: 3px; }
-  .war-choice--side { padding: 0 3px; font-size: 8px; }
+  .war-armies__table-head, .war-army-row { grid-template-columns: 68px minmax(75px, .7fr) minmax(128px, 1.3fr); gap: 4px; }
   .war-multiplayer__join { grid-template-columns: 1fr; }
   .war-brief { grid-template-columns: 1fr; }
   .war-brief .war-history { grid-row: auto; }
@@ -646,8 +657,8 @@
   .war-setup__eyebrow { gap: 8px; }
   .war-setup__intro { font-size: 12px; }
   .war-armies__header { align-items: flex-start; flex-direction: column; }
-  .war-army-row { grid-template-columns: repeat(4, minmax(0,1fr)); }
-  .war-army-row__label { grid-column: 1 / -1; margin-top: 5px; }
+  .war-armies__table-head { display: none; }
+  .war-army-row { grid-template-columns: 62px minmax(70px, .7fr) minmax(125px, 1.3fr); }
   .war-controls { grid-template-columns: 1fr; }
 }
 

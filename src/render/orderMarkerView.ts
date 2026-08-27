@@ -1,5 +1,7 @@
 import {
   BoxGeometry,
+  CircleGeometry,
+  Color,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
@@ -7,6 +9,8 @@ import {
   Mesh,
   MeshBasicMaterial,
   RingGeometry,
+  ShaderMaterial,
+  Vector3,
   type Object3D,
 } from 'three';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
@@ -36,6 +40,8 @@ const slotFacingGeometry = new BoxGeometry(0.28, 0.16, 1.65);
 const targetRingGeometry = new RingGeometry(2.8, 3.5, 56);
 const targetInnerRingGeometry = new RingGeometry(1.25, 1.45, 44);
 const targetBracketGeometry = new BoxGeometry(1.8, 0.16, 0.32);
+const strategicAreaRingGeometry = new RingGeometry(0.965, 1, 96);
+const strategicAreaFillGeometry = new CircleGeometry(1, 96);
 const MAX_FACING_ARROW_LENGTH = 72;
 const MAX_FORMATION_PREVIEW_SLOTS = 48;
 const FORMATION_SLOT_LIFT = 2.55;
@@ -75,11 +81,25 @@ interface TargetHover {
   pulse: number;
 }
 
+interface StrategicAreaTarget {
+  root: Group;
+  ring: Mesh;
+  fill: Mesh;
+  center: Mesh;
+  materials: MeshBasicMaterial[];
+  fillMaterial: ShaderMaterial;
+  ringMaterial: MeshBasicMaterial;
+  centerMaterial: MeshBasicMaterial;
+}
+
 export class OrderMarkerView {
   readonly group = new Group();
   private readonly markers: Marker[] = [];
   private preview?: FacingPreview;
   private targetHover?: TargetHover;
+  private strategicAreaTarget?: StrategicAreaTarget;
+  private readonly worldUp = new Vector3(0, 1, 0);
+  private readonly terrainNormal = new Vector3();
 
   constructor(private readonly hf: Heightfield) {}
 
@@ -186,8 +206,41 @@ export class OrderMarkerView {
     this.targetHover.target = undefined;
   }
 
+  showStrategicAreaTarget(x: number, z: number, radius: number, color: number, uncertainty = 1): void {
+    if (!this.strategicAreaTarget) this.strategicAreaTarget = this.createStrategicAreaTarget(color);
+    const marker = this.strategicAreaTarget;
+    marker.materials.forEach((material) => material.color.setHex(color));
+    marker.fillMaterial.uniforms.uColor.value.setHex(color);
+    const clampedUncertainty = Math.max(0, Math.min(1, uncertainty));
+    marker.fillMaterial.uniforms.uUncertainty.value = clampedUncertainty;
+    marker.ringMaterial.opacity = 0.02 + Math.pow(1 - clampedUncertainty, 1.6) * 0.88;
+    marker.centerMaterial.opacity = 0.72 + (1 - clampedUncertainty) * 0.23;
+    marker.root.visible = true;
+    const visibleRadius = Math.max(3, radius);
+    const normalStep = Math.max(
+      0.75,
+      Math.min(this.hf.cellSize * 2.5, Math.max(this.hf.cellSize * 0.45, visibleRadius * 0.08)),
+    );
+    const left = sampleHeight(this.hf, x - normalStep, z);
+    const right = sampleHeight(this.hf, x + normalStep, z);
+    const back = sampleHeight(this.hf, x, z - normalStep);
+    const front = sampleHeight(this.hf, x, z + normalStep);
+    this.terrainNormal.set(left - right, normalStep * 2, back - front).normalize();
+    marker.root.quaternion.setFromUnitVectors(this.worldUp, this.terrainNormal);
+    marker.root.position
+      .set(x, sampleHeight(this.hf, x, z), z)
+      .addScaledVector(this.terrainNormal, 0.35);
+    marker.ring.scale.setScalar(visibleRadius);
+    marker.fill.scale.setScalar(visibleRadius * 1.08);
+    marker.center.scale.setScalar(radius <= 0 ? 2.2 : 1.25);
+  }
+
+  clearStrategicAreaTarget(): void {
+    if (this.strategicAreaTarget) this.strategicAreaTarget.root.visible = false;
+  }
+
   update(dt: number): void {
-    this.updateTargetHover(dt);
+    this.updateTargetHover(this.targetHover, dt, () => this.clearTargetHover());
     for (let i = this.markers.length - 1; i >= 0; i--) {
       const marker = this.markers[i];
       marker.ttl -= dt;
@@ -357,11 +410,64 @@ export class OrderMarkerView {
     return { root, ring, innerRing, brackets, materials: [core, soft, dark], radius: 4, pulse: 0 };
   }
 
-  private updateTargetHover(dt: number): void {
-    const hover = this.targetHover;
+  private createStrategicAreaTarget(color: number): StrategicAreaTarget {
+    const ringMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false, side: DoubleSide });
+    const fillMaterial = new ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      side: DoubleSide,
+      uniforms: {
+        uColor: { value: new Color(color) },
+        uUncertainty: { value: 1 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform vec3 uColor;
+        uniform float uUncertainty;
+        void main() {
+          vec2 point = (vUv - 0.5) * 2.0;
+          float angle = atan(point.y, point.x);
+          float wobble = (sin(angle * 5.0 + 0.7) + sin(angle * 9.0 - 1.1) * 0.55) * 0.055 * uUncertainty;
+          float edge = 0.925 + wobble;
+          float softness = mix(0.045, 0.34, uUncertainty);
+          float distanceFromCenter = length(point);
+          float alpha = (1.0 - smoothstep(edge - softness, edge, distanceFromCenter)) * mix(0.16, 0.11, uUncertainty);
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
+    });
+    const centerMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false, side: DoubleSide });
+    const root = new Group();
+    root.visible = false;
+    root.renderOrder = 118;
+    const fill = new Mesh(strategicAreaFillGeometry, fillMaterial);
+    fill.rotation.x = -Math.PI / 2;
+    fill.renderOrder = 116;
+    const ring = new Mesh(strategicAreaRingGeometry, ringMaterial);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    ring.renderOrder = 119;
+    const center = new Mesh(targetInnerRingGeometry, centerMaterial);
+    center.rotation.x = -Math.PI / 2;
+    center.position.y = 0.1;
+    center.renderOrder = 120;
+    root.add(fill, ring, center);
+    this.group.add(root);
+    return { root, ring, fill, center, materials: [ringMaterial, centerMaterial], fillMaterial, ringMaterial, centerMaterial };
+  }
+
+  private updateTargetHover(hover: TargetHover | undefined, dt: number, clear: () => void): void {
     if (!hover || !hover.root.visible) return;
     if (!hover.target || hover.target.destroyed || (hover.target.health && hover.target.health.current <= 0)) {
-      this.clearTargetHover();
+      clear();
       return;
     }
     hover.radius = targetHoverRadius(hover.target, this.hf.cellSize);

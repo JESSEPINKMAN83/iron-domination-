@@ -8,6 +8,7 @@ import { buildings, canBuildStructure, placeStructure, queueUnit, startStructure
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { areTeamsHostile, attackStandoffPoint, issueMoveOrder, type GameSim } from '../sim/world';
+import { emberLaunchReadiness, launchEmberDroneAt, launchStrategicMissileAt } from '../sim/strategicWarfare';
 
 interface Squad {
   units: Entity[];
@@ -31,6 +32,7 @@ export class EnemyCommander {
   private timer = 0;
   private elapsed = 0;
   private scoutIndex = 0;
+  private strategicTargetIndex = 0;
 
   constructor(
     private readonly sim: GameSim,
@@ -41,11 +43,15 @@ export class EnemyCommander {
     difficulty: Difficulty = 'normal',
     /** map-geography scouting hints (e.g. known start locations) — not unit intel */
     private readonly scoutHints: { x: number; z: number }[] = [],
+    /** Faction intel is known at deployment, so Aegis can prepare for a Vesper opponent. */
+    strategicDefenseNeeded = false,
   ) {
     this.personality = AI_PERSONALITY[personality];
     this.difficulty = AI_DIFFICULTY[difficulty];
     economy.incomeMultiplier = this.difficulty.incomeMultiplier;
-    this.buildQueue = [...this.personality.buildOrder];
+    this.buildQueue = economy.doctrine === 'missile-command'
+      ? ['power-plant', 'refinery', 'power-plant', 'factory', 'intelligence-center', 'strategic-silo', 'guard-tower', 'aa-tower']
+      : [...this.personality.buildOrder, ...(strategicDefenseNeeded ? ['skylance-ciws' as const, 'missile-defense' as const] : [])];
     this.log(`online — ${personality}/${difficulty}, build order: ${this.buildQueue.join(' → ')}`);
   }
 
@@ -61,6 +67,7 @@ export class EnemyCommander {
     this.applyCombatProfile();
     this.maintainBase();
     this.maintainProduction();
+    this.commandStrategicStrike();
     this.commandSquads();
   }
 
@@ -91,7 +98,7 @@ export class EnemyCommander {
       else if (this.count('refinery') < this.personality.targetRefineries) next = 'refinery';
       else if (this.count('factory') < this.personality.targetFactories) next = 'factory';
       else if (this.personality.wantsBarracks && this.count('barracks') < 1) next = 'barracks';
-      else if (this.count('factory') > 0 && this.count('helipad') < 1 && this.economy.credits > 1200) next = 'helipad';
+      else if (this.economy.doctrine === 'iron-legion' && this.count('factory') > 0 && this.count('helipad') < 1 && this.economy.credits > 1200) next = 'helipad';
       rebuilding = next !== undefined && this.everCompleted.has(next) && this.count(next) === 0;
     }
     if (!next) return;
@@ -199,6 +206,50 @@ export class EnemyCommander {
 
   private nextAircraftKind(count: number): UnitKind {
     return (['wasp', 'vulture', 'wasp', 'hammerhead'] as UnitKind[])[count % 4];
+  }
+
+  private commandStrategicStrike(): void {
+    if (this.economy.doctrine !== 'missile-command') return;
+    let target: Entity | undefined;
+    for (const entity of this.sim.world.entities) {
+      if (
+        !entity.building ||
+        entity.destroyed ||
+        !entity.team ||
+        !areTeamsHostile(this.sim, this.economy.team, entity.team.id) ||
+        !this.vision.isVisibleWorld(entity.transform.x, entity.transform.z)
+      ) continue;
+      if (!target || entity.id < target.id) target = entity;
+    }
+    if (target?.team) {
+      const droneReady = emberLaunchReadiness(this.sim, this.economy).ready;
+      const launchingDrone = this.economy.strategicMissileCooldown > 0 && droneReady;
+      const result = !launchingDrone && this.economy.strategicMissileCooldown <= 0
+        ? launchStrategicMissileAt(this.sim, this.economy, target.team.id, target.transform.x, target.transform.z)
+        : launchingDrone
+          ? launchEmberDroneAt(this.sim, this.economy, target.team.id, target.transform.x, target.transform.z)
+          : undefined;
+      if (result?.ok) this.log(`${launchingDrone ? 'drone' : 'strategic'} launch against visible ${target.building?.label ?? target.name ?? 'target'}`);
+      return;
+    }
+
+    const base = this.base();
+    const hostileTeams = Object.keys(this.sim.rules.allianceSides)
+      .map(Number)
+      .filter((team) => areTeamsHostile(this.sim, this.economy.team, team))
+      .sort((a, b) => a - b);
+    if (!base || hostileTeams.length === 0 || this.scoutHints.length === 0) return;
+    const possible = this.scoutHints
+      .filter((hint) => Math.hypot(hint.x - base.transform.x, hint.z - base.transform.z) > 90)
+      .sort((a, b) => a.x - b.x || a.z - b.z);
+    if (possible.length === 0) return;
+    const mark = possible[this.strategicTargetIndex++ % possible.length];
+    const result = this.economy.strategicMissileCooldown <= 0
+      ? launchStrategicMissileAt(this.sim, this.economy, hostileTeams[0], mark.x, mark.z)
+      : emberLaunchReadiness(this.sim, this.economy).ready
+        ? launchEmberDroneAt(this.sim, this.economy, hostileTeams[0], mark.x, mark.z)
+        : undefined;
+    if (result?.ok) this.log('blind strategic launch toward a known deployment sector');
   }
 
   private myUnits(): Entity[] {

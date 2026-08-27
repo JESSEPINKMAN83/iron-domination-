@@ -49,15 +49,23 @@ export interface CombatEvent {
   toY?: number;
   toZ: number;
   sourceTeamId?: number;
+  /** Defending army for warnings or effects that are aimed at a team rather than one entity. */
+  targetTeamId?: number;
   targetId?: number;
   targetLabel?: string;
   targetType?: string;
   targetHealth?: number;
   targetMaxHealth?: number;
+  /** Stable id used to keep strategic-missile flight FX and defense UI in sync. */
+  strategicId?: number;
+  /** Terrain-aware peak lift above the straight launch-to-impact line. */
+  strategicLift?: number;
   damage: number;
   killed: boolean;
   /** flight time in seconds for ballistic launches ('bomb') */
   duration?: number;
+  /** Cosmetic launch hold used to stagger a salvo without changing its route. */
+  launchDelay?: number;
   /** Visual energy multiplier for player-fired high-velocity primary impacts. */
   impactScale?: number;
   trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
@@ -89,6 +97,8 @@ export interface Projectile {
   toZ: number;
   elapsed: number;
   duration: number;
+  /** Seconds remaining before this projectile becomes active in the simulation. */
+  launchDelay?: number;
   speed?: number;
   damageScale?: number;
   forceScale?: number;
@@ -112,6 +122,34 @@ export interface Projectile {
   };
   teamId: number;
   attackerId: number;
+  /** Long-range silo round eligible for dedicated missile-defense interception. */
+  strategic?: boolean;
+  /** Threat class used by layered defenses and flight rendering. */
+  strategicProfile?: 'ballistic' | 'drone';
+  /** Ember's local seeker. The marked point remains its fallback destination. */
+  strategicSeeker?: {
+    radius: number;
+    fallbackX: number;
+    fallbackY: number;
+    fallbackZ: number;
+    fallbackTargetTeamId: number;
+    lockedTargetId?: number;
+  };
+  /** Terrain-aware peak lift above the straight launch-to-impact line. */
+  strategicLift?: number;
+  /** Stable id shared with interceptor rounds and strategic-missile combat events. */
+  strategicId?: number;
+  /** Only this defending army may automatically engage the strategic round. */
+  strategicTargetTeamId?: number;
+  /** Interception durability; separate from the warhead's ground damage. */
+  strategicHealth?: number;
+  strategicMaxHealth?: number;
+  /** Small defense round that damages a strategic projectile instead of the ground. */
+  strategicInterceptor?: {
+    targetStrategicId: number;
+    damage: number;
+    sourceKind: 'tower' | 'aircraft';
+  };
 }
 
 export interface ResourceNode {
@@ -1595,7 +1633,31 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round(projectile.toX * 100));
     mix(Math.round(projectile.toZ * 100));
     mix(Math.round(projectile.elapsed * 1000));
+    mix(Math.round((projectile.launchDelay ?? 0) * 1000));
     mix(projectile.manualAim ? 1 : 0);
+    mix(projectile.strategic ? 1 : 0);
+    mix(projectile.strategicProfile === 'ballistic' ? 1 : projectile.strategicProfile === 'drone' ? 2 : 0);
+    mix(projectile.directTargetId ?? 0);
+    mix(projectile.homing?.targetId ?? 0);
+    mix(Math.round((projectile.homing?.remainingLifetime ?? 0) * 1000));
+    mix(Math.round((projectile.homing?.traveledDistance ?? 0) * 100));
+    mix(Math.round((projectile.homing?.directionX ?? 0) * 10000));
+    mix(Math.round((projectile.homing?.directionY ?? 0) * 10000));
+    mix(Math.round((projectile.homing?.directionZ ?? 0) * 10000));
+    mix(Math.round((projectile.strategicSeeker?.radius ?? 0) * 100));
+    mix(Math.round((projectile.strategicSeeker?.fallbackX ?? 0) * 100));
+    mix(Math.round((projectile.strategicSeeker?.fallbackY ?? 0) * 100));
+    mix(Math.round((projectile.strategicSeeker?.fallbackZ ?? 0) * 100));
+    mix(projectile.strategicSeeker?.fallbackTargetTeamId ?? 0);
+    mix(projectile.strategicSeeker?.lockedTargetId ?? 0);
+    mix(Math.round((projectile.strategicLift ?? 0) * 100));
+    mix(projectile.strategicId ?? 0);
+    mix(projectile.strategicTargetTeamId ?? 0);
+    mix(Math.round((projectile.strategicHealth ?? 0) * 100));
+    mix(Math.round((projectile.strategicMaxHealth ?? 0) * 100));
+    mix(projectile.strategicInterceptor?.targetStrategicId ?? 0);
+    mix(Math.round((projectile.strategicInterceptor?.damage ?? 0) * 100));
+    mix(projectile.strategicInterceptor?.sourceKind === 'tower' ? 1 : projectile.strategicInterceptor?.sourceKind === 'aircraft' ? 2 : 0);
     mix(projectile.attackerId);
   }
   for (const node of sim.resourceNodes) {

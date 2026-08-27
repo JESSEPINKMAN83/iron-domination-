@@ -12,9 +12,11 @@ import { installActiveMatchExitGuard, type ActiveMatchExitGuard } from './active
 import { configureHowToPlayLifecycle, hideHowToPlayWidget, openHowToPlay, showHowToPlayWidget } from './howToPlay';
 import { showMissionBriefing } from './missionBriefing';
 import { markOpeningBriefingSeen, shouldShowOpeningBriefing } from './openingBriefing';
+import { NARRATIVE_CHARACTERS_ENABLED } from './experienceFlags';
 import './setup.css';
 import './mobile.css';
 import './durabilityPreview.css';
+import './smokePreview.css';
 import './outcomeScreen.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
@@ -45,6 +47,13 @@ import {
   type MapAtmosphere,
 } from './content/maps';
 import { STRUCTURES, type StructureKind, type UnitKind } from './content/phase3';
+import {
+  ARMY_DOCTRINE_IDS,
+  defaultArmyDoctrines,
+  sanitizeArmyDoctrine,
+  sanitizeArmyDoctrines,
+  type ArmyDoctrineAssignments,
+} from './content/armyDoctrines';
 import { WEAPONS, type WeaponKind } from './content/phase4';
 import { arsenalForUnit } from './content/unitArsenal';
 import { isFortressTower } from './content/fortress';
@@ -124,9 +133,23 @@ import {
   spawnInfantryAt,
   startStructureBuild,
   stepEconomy,
+  upgradeEmberDroneQuantity,
+  upgradeEmberDroneWarhead,
+  upgradeStrategicAccuracy,
+  upgradeStrategicMissile,
   updatePlacement,
 } from './sim/economy';
+import {
+  emberScatterRadius,
+  emberLaunchReadiness,
+  launchEmberDroneAt,
+  launchStrategicMissileAt,
+  strategicAccuracy,
+  strategicLaunchReadiness,
+  strategicMissileAccuracyLevel,
+} from './sim/strategicWarfare';
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
+import { chooseStrategicSeed } from './sim/strategicSeed';
 import { damageForArmor, issueAttackOrder } from './sim/combat';
 import { directionalImpactResponse } from './sim/impactModel';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from './sim/serialize';
@@ -183,6 +206,7 @@ interface SkirmishSettings {
   aiStyle: Personality;
   debug: boolean;
   combatMode: CombatMode;
+  armyDoctrines: ArmyDoctrineAssignments;
   armyCount: ArmyCount;
   armySides: ArmySides;
   spawnSlots: ArmySpawnSlots;
@@ -200,6 +224,17 @@ interface ArmyRuntime {
   base: ReturnType<typeof createInitialBase>;
   vision: VisibilityGrid;
   commander?: EnemyCommander;
+}
+
+interface SmokePreviewStage {
+  focus: { x: number; z: number };
+  forward: { x: number; z: number };
+  right: { x: number; z: number };
+  points: {
+    missile: { x: number; z: number };
+    tank: { x: number; z: number };
+    strategic: { x: number; z: number };
+  };
 }
 
 type CinematicShot = 'overview' | 'frontline' | 'base' | 'air';
@@ -394,6 +429,13 @@ function randomSeed(): number {
   return Math.floor(100000 + Math.random() * 900000000);
 }
 
+function strategicRandomSeed(mapId: MapId, mapSize: MapSize, oreAmount: number, terrainRelief: number): number {
+  return chooseStrategicSeed(
+    { mapId, mapSize, oreAmount, terrainRelief },
+    Array.from({ length: 7 }, () => randomSeed()),
+  );
+}
+
 function defaultArmySides(): ArmySides {
   return [1, 2, 3, 4];
 }
@@ -449,6 +491,9 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
       aiStyle: PERSONALITIES.includes(parsed.aiStyle as Personality) ? parsed.aiStyle : undefined,
       debug: parsed.debug === true,
       combatMode: COMBAT_MODES.includes(parsed.combatMode as CombatMode) ? parsed.combatMode : undefined,
+      // The retired global faction choice cannot express independent armies,
+      // so old local settings fall back to the new Aegis-vs-Vesper defaults.
+      armyDoctrines: sanitizeArmyDoctrines(parsed.armyDoctrines),
       armyCount: sanitizeArmyCount(parsed.armyCount),
       armySides: sanitizeArmySides(parsed.armySides),
       spawnSlots: sanitizeSpawnSlots(parsed.spawnSlots),
@@ -474,6 +519,8 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
   const ai = params.get('ai');
   const aiStyle = params.get('ai-style');
   const combat = params.get('combat');
+  const legacyArmyDoctrine = sanitizeArmyDoctrine(params.get('army'));
+  const armyDoctrines = sanitizeArmyDoctrines(params.get('doctrines')?.split(','), legacyArmyDoctrine);
   const armyCount = sanitizeArmyCount(params.get('armies'));
   const sides = params.get('sides');
   const spawns = params.get('spawns');
@@ -489,6 +536,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
     aiStyle: PERSONALITIES.includes(aiStyle as Personality) ? (aiStyle as Personality) : undefined,
     debug: params.get('debug') === 'armies' ? true : undefined,
     combatMode: COMBAT_MODES.includes(combat as CombatMode) ? (combat as CombatMode) : undefined,
+    armyDoctrines,
     armyCount,
     armySides: sides ? sanitizeArmySides(sides.split(',')) : undefined,
     spawnSlots: spawns ? sanitizeSpawnSlots(spawns.split(',')) : undefined,
@@ -533,6 +581,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     aiStyle: fromUrl.aiStyle ?? stored.aiStyle ?? 'balanced',
     debug: fromUrl.debug ?? stored.debug ?? false,
     combatMode: fromUrl.combatMode ?? stored.combatMode ?? 'assisted',
+    armyDoctrines: fromUrl.armyDoctrines ?? stored.armyDoctrines ?? defaultArmyDoctrines(),
     armyCount,
     armySides: ensureOpposingSides(armyCount, armySides),
     spawnSlots,
@@ -710,7 +759,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     const difficulty = createSegmentedControl('Difficulty', DIFFICULTIES, defaults.ai, DIFFICULTY_DESCRIPTIONS, undefined, () => refresh());
     const commander = createSegmentedControl('Enemy commander', PERSONALITIES, defaults.aiStyle, PERSONALITY_DESCRIPTIONS, undefined, () => refresh());
     const combatMode = createSegmentedControl('Combat mode', COMBAT_MODES, defaults.combatMode, COMBAT_MODE_DESCRIPTIONS, undefined, () => refresh());
-    const armies = createArmySetupControl(defaults.armyCount, defaults.armySides, () => refresh());
+    const armies = createArmySetupControl(defaults.armyCount, defaults.armySides, defaults.armyDoctrines, () => refresh());
 
     const mapPreview = document.createElement('div');
     mapPreview.className = 'war-map-preview';
@@ -738,9 +787,21 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     randomize.type = 'button';
     randomize.className = 'war-button war-button--quiet';
     randomize.textContent = 'RANDOMIZE';
-    randomize.onclick = () => {
-      seedInput.value = String(randomSeed());
+    randomize.onclick = async () => {
+      randomize.disabled = true;
+      randomize.textContent = 'SCOUTING…';
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const mapId = mapChoice.value();
+      const seed = strategicRandomSeed(
+        mapId,
+        mapSizeChoice.value(),
+        sanitizeOreAmount(oreAmountInput.value) ?? DEFAULT_ORE_AMOUNT,
+        sanitizeTerrainRelief(terrainReliefInput.value) ?? defaultTerrainRelief(mapId),
+      );
+      seedInput.value = String(seed);
       refresh();
+      randomize.textContent = 'RANDOMIZE';
+      randomize.disabled = false;
       randomize.blur();
     };
     seedRow.append(seedWrap, randomize);
@@ -822,6 +883,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       aiStyle: commander.value(),
       debug: defaults.debug,
       combatMode: combatMode.value(),
+      armyDoctrines: armies.armyDoctrines(),
       armyCount: armies.armyCount(),
       armySides: armies.armySides(),
       spawnSlots: multiplayerSpawnSlots,
@@ -839,7 +901,11 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       terrainReliefInput.value = String(sanitizeTerrainRelief(room.terrainRelief) ?? defaultTerrainRelief(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID));
       timeOfDayChoice.setValue(sanitizeTimeOfDay(room.timeOfDay) ?? 'day');
       weatherChoice.setValue(sanitizeWeather(room.weather) ?? 'clear');
-      armies.setState(sanitizeArmyCount(room.armyCount) ?? 2, sanitizeArmySides(room.armySides) ?? defaultArmySides());
+      armies.setState(
+        sanitizeArmyCount(room.armyCount) ?? 2,
+        sanitizeArmySides(room.armySides) ?? defaultArmySides(),
+        sanitizeArmyDoctrines(room.armyDoctrines, room.armyDoctrine) ?? defaultArmyDoctrines(),
+      );
       multiplayerSpawnSlots = sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots();
       currentSpawnPoints = sanitizeSpawnPoints(room.spawnPoints) ?? spawnPointsFromSlots(multiplayerSpawnSlots);
       const roomPlayer = room.players.find((player) => player.index === playerIndex);
@@ -1090,7 +1156,7 @@ function createSetupSection(index: string, title: string, description: string, c
 
 function createSegmentedControl<T extends string>(
   label: string,
-  values: T[],
+  values: readonly T[],
   initial: T,
   descriptions: Record<T, string>,
   format: (value: T) => string = (value) => value.toUpperCase(),
@@ -1156,11 +1222,17 @@ function createSegmentedControl<T extends string>(
   };
 }
 
-function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides, onChange: () => void = () => {}): {
+function createArmySetupControl(
+  initialCount: ArmyCount,
+  initialSides: ArmySides,
+  initialDoctrines: ArmyDoctrineAssignments,
+  onChange: () => void = () => {},
+): {
   root: HTMLDivElement;
   armyCount: () => ArmyCount;
   armySides: () => ArmySides;
-  setState: (count: ArmyCount, sides: ArmySides) => void;
+  armyDoctrines: () => ArmyDoctrineAssignments;
+  setState: (count: ArmyCount, sides: ArmySides, doctrines: ArmyDoctrineAssignments) => void;
   setPlayerIndex: (playerIndex: number) => void;
   setDisabled: (disabled: boolean) => void;
 } {
@@ -1168,6 +1240,7 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   let playerIndex = 1;
   let disabled = false;
   const sides: ArmySides = ensureOpposingSides(initialCount, initialSides);
+  const doctrines: ArmyDoctrineAssignments = [...initialDoctrines];
   const root = document.createElement('div');
   root.className = 'war-armies';
   const title = document.createElement('div');
@@ -1178,6 +1251,9 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
   countButtons.style.setProperty('--option-count', '3');
   const sideRows = document.createElement('div');
   sideRows.className = 'war-armies__rows';
+  const tableHead = document.createElement('div');
+  tableHead.className = 'war-armies__table-head';
+  tableHead.innerHTML = '<span>ARMY</span><span>SIDE</span><span>TYPE</span>';
   const matchup = document.createElement('div');
   matchup.className = 'war-armies__matchup';
   matchup.setAttribute('aria-live', 'polite');
@@ -1198,17 +1274,17 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
       const army = Number(row.dataset.army);
       row.style.display = army <= count ? 'grid' : 'none';
       const label = row.querySelector('.war-army-row__label');
-      if (label) label.textContent = army === playerIndex ? `ARMY ${army} YOU` : `ARMY ${army} PLAYER / AI`;
-      for (const button of Array.from(row.querySelectorAll('button')) as HTMLButtonElement[]) {
-        const side = Number(button.dataset.side);
-        const active = side === sides[army - 1];
-        const proposedSides = sides.slice(0, count);
-        proposedSides[army - 1] = side;
-        const removesLastOpponent = new Set(proposedSides).size < 2;
-        button.classList.toggle('is-active', active);
-        button.setAttribute('aria-pressed', String(active));
-        button.disabled = disabled || removesLastOpponent;
-        button.title = removesLastOpponent ? 'At least two opposing sides are required.' : '';
+      if (label) label.innerHTML = `<strong>ARMY ${army}</strong><small>${army === playerIndex ? 'YOU' : 'PLAYER / AI'}</small>`;
+      const sideSelect = row.querySelector<HTMLSelectElement>('[data-role="side"]');
+      const doctrineSelect = row.querySelector<HTMLSelectElement>('[data-role="doctrine"]');
+      if (sideSelect) {
+        sideSelect.value = String(sides[army - 1]);
+        sideSelect.disabled = disabled;
+      }
+      if (doctrineSelect) {
+        doctrineSelect.value = doctrines[army - 1];
+        doctrineSelect.disabled = disabled;
+        doctrineSelect.dataset.doctrine = doctrines[army - 1];
       }
     }
     matchup.textContent = formatArmyMatchup(count, sides);
@@ -1243,33 +1319,53 @@ function createArmySetupControl(initialCount: ArmyCount, initialSides: ArmySides
     const label = document.createElement('div');
     label.className = 'war-army-row__label';
     row.appendChild(label);
+    const sideSelect = document.createElement('select');
+    sideSelect.className = 'war-army-row__select war-army-row__select--side';
+    sideSelect.dataset.role = 'side';
+    sideSelect.setAttribute('aria-label', `Army ${army} side`);
     for (let side = 1; side <= 4; side++) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'war-choice war-choice--side';
-      button.dataset.side = String(side);
-      button.textContent = `SIDE ${side}`;
-      button.onclick = () => {
-        sides[army - 1] = side;
-        normalizeSides();
-        render();
-        onChange();
-        button.blur();
-      };
-      row.appendChild(button);
+      const option = document.createElement('option');
+      option.value = String(side);
+      option.textContent = String(side);
+      sideSelect.appendChild(option);
     }
+    sideSelect.onchange = () => {
+      const previous = sides[army - 1];
+      sides[army - 1] = Math.max(1, Math.min(4, Number(sideSelect.value) || army));
+      if (new Set(sides.slice(0, count)).size < 2) sides[army - 1] = previous;
+      render();
+      onChange();
+    };
+    const doctrineSelect = document.createElement('select');
+    doctrineSelect.className = 'war-army-row__select war-army-row__select--doctrine';
+    doctrineSelect.dataset.role = 'doctrine';
+    doctrineSelect.setAttribute('aria-label', `Army ${army} type`);
+    for (const doctrine of ARMY_DOCTRINE_IDS) {
+      const option = document.createElement('option');
+      option.value = doctrine;
+      option.textContent = doctrine === 'iron-legion' ? 'AEGIS · AIR FORCE' : 'VESPER · MISSILES';
+      doctrineSelect.appendChild(option);
+    }
+    doctrineSelect.onchange = () => {
+      doctrines[army - 1] = sanitizeArmyDoctrine(doctrineSelect.value) ?? doctrines[army - 1];
+      render();
+      onChange();
+    };
+    row.append(sideSelect, doctrineSelect);
     sideRows.appendChild(row);
   }
 
-  root.append(title, countButtons, sideRows, matchup);
+  root.append(title, countButtons, tableHead, sideRows, matchup);
   render();
   return {
     root,
     armyCount: () => count,
     armySides: () => ensureOpposingSides(count, sides),
-    setState: (nextCount, nextSides) => {
+    armyDoctrines: () => [...doctrines] as ArmyDoctrineAssignments,
+    setState: (nextCount, nextSides, nextDoctrines) => {
       count = nextCount;
       for (let index = 0; index < sides.length; index++) sides[index] = nextSides[index];
+      for (let index = 0; index < doctrines.length; index++) doctrines[index] = nextDoctrines[index];
       normalizeSides();
       render();
       onChange();
@@ -1310,10 +1406,6 @@ function createMultiplayerSetupPanel(
 
   const hostEntry = document.createElement('div');
   hostEntry.className = 'war-operation__entry';
-  hostEntry.innerHTML =
-    '<div class="war-aside__kicker">HOST COMMAND</div>' +
-    '<h2>START YOUR BATTLE</h2>' +
-    '<p>Launch an instant skirmish against AI, or open an online room when another commander is joining.</p>';
 
   const hostCard = document.createElement('section');
   hostCard.className = 'war-mode-card war-mode-card--primary war-action-bar';
@@ -1712,11 +1804,23 @@ function createRoomLobbyView(
   randomizeSeed.type = 'button';
   randomizeSeed.textContent = 'RANDOMIZE';
   randomizeSeed.setAttribute('aria-label', 'Generate a new random map seed');
-  randomizeSeed.onclick = () => {
+  randomizeSeed.onclick = async () => {
     if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
-    const seed = randomSeed();
+    randomizeSeed.disabled = true;
+    randomizeSeed.textContent = 'SCOUTING…';
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const mapId = sanitizeMapId(latestRoom.mapId) ?? DEFAULT_MAP_ID;
+    const mapSize = sanitizeMapSize(latestRoom.mapSize) ?? DEFAULT_MAP_SIZE;
+    const seed = strategicRandomSeed(
+      mapId,
+      mapSize,
+      sanitizeOreAmount(latestRoom.oreAmount) ?? DEFAULT_ORE_AMOUNT,
+      sanitizeTerrainRelief(latestRoom.terrainRelief) ?? defaultTerrainRelief(mapId),
+    );
     seedInput.value = String(seed);
     client.updateSettings(latestRoom.code, session.player.id, { ...settings(), seed });
+    randomizeSeed.textContent = 'RANDOMIZE';
+    randomizeSeed.disabled = false;
     randomizeSeed.blur();
   };
   seedSetting.choices.append(seedInput, randomizeSeed);
@@ -2270,6 +2374,7 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
     aiStyle: room.aiStyle,
     debug: false,
     combatMode: room.combatMode ?? 'assisted',
+    armyDoctrines: sanitizeArmyDoctrines(room.armyDoctrines, room.armyDoctrine) ?? defaultArmyDoctrines(),
     armyCount: sanitizeArmyCount(room.armyCount) ?? 2,
     armySides: sanitizeArmySides(room.armySides) ?? defaultArmySides(),
     spawnSlots: sanitizeSpawnSlots(room.spawnSlots) ?? defaultSpawnSlots(),
@@ -2495,6 +2600,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const lineupStart = startMode === 'lineup' || weaponsLab;
   const impactMovementDemo =
     startMode === 'impact-demo' && !multiplayerMode && !isPublicHost(location.hostname);
+  const missileDoctrinePreview =
+    startMode === 'missile-test' && !multiplayerMode && !isPublicHost(location.hostname);
+  const smokePreview =
+    startMode === 'smoke-preview' && !multiplayerMode && !isPublicHost(location.hostname);
+  if (smokePreview) document.documentElement.classList.add('smoke-preview-mode');
   const debriefPreview =
     startMode === 'debrief-preview' && !multiplayerMode && !isPublicHost(location.hostname);
   const cinematicWar =
@@ -2516,7 +2626,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const collectorPreview =
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
-  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview;
+  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview || missileDoctrinePreview || smokePreview;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   const impactPreview =
@@ -2575,7 +2685,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         : aiTeams.has(team)
           ? AI_DIFFICULTY[aiDifficulty].startCredits
           : 4600;
-    const economy = createEconomy(team, credits);
+    const doctrine = missileDoctrinePreview && team === localTeam
+      ? 'missile-command'
+      : settings.armyDoctrines[team - 1] ?? defaultArmyDoctrines()[team - 1];
+    const economy = createEconomy(team, credits, doctrine);
     const start = armyStartPosition(hf.size, team, settings.spawnPoints);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
     const vision = new VisibilityGrid(hf, team);
@@ -2605,7 +2718,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       console.warn('[save] failed to load saved match', err);
     }
   }
-  if (largeBattleScenario && !loadedFromSave) {
+  if (missileDoctrinePreview && !loadedFromSave) {
+    for (const army of armies) seedTestStartBase(sim, hf, army.economy, army.base);
+    seedMissileDoctrinePreview(sim, hf, armies, localTeam);
+  } else if (largeBattleScenario && !loadedFromSave) {
     for (const army of armies) seedCinematicBase(sim, hf, army.economy, army.base);
   } else if ((durabilityPreview || destructionPreview) && !loadedFromSave) {
     const hostileArmy = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
@@ -2613,13 +2729,19 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   } else if ((testStart || buildingShowcase) && !multiplayerMode && !loadedFromSave) {
     seedTestStartBase(sim, hf, economy, localBase);
   }
-  const isVisibleToPlayer = lineupStart || destructionPreview ? () => true : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
+  const smokePreviewStage = smokePreview ? createSmokePreviewStage(sim, armies, localTeam) : undefined;
+  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview
+    ? () => true
+    : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
-    if (durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || !aiTeams.has(army.team)) continue;
+    if (durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
-    army.commander = new EnemyCommander(sim, hf, army.economy, army.vision, aiPersonality, aiDifficulty, hints);
+    const strategicDefenseNeeded = armies.some(
+      (candidate) => areTeamsHostile(sim, army.team, candidate.team) && candidate.economy.doctrine === 'missile-command',
+    );
+    army.commander = new EnemyCommander(sim, hf, army.economy, army.vision, aiPersonality, aiDifficulty, hints, strategicDefenseNeeded);
   }
   const commanders = armies.map((army) => army.commander).filter((commander): commander is EnemyCommander => !!commander);
   const debriefTracker = new BattleDebriefTracker(
@@ -2744,7 +2866,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   activeMatchExitGuard = installActiveMatchExitGuard();
   const impactDemoPanel = impactDemoScene ? createImpactMovementDemoPanel() : undefined;
   let sidebar!: Sidebar;
+  let selectionBar!: SelectionBar;
   let tacticalPingKind: TacticalPingKind | undefined;
+  let strategicMissileTargeting: { enemyTeam: number; radius: number; color: number; weapon: 'missile' | 'ember' } | undefined;
   let networkPaused = false;
   let lastNetworkStatus = '';
   const setNetworkStatus = (message: string, bad = false): void => {
@@ -2843,6 +2967,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       138,
       -6,
     );
+  } else if (smokePreviewStage) {
+    rig.focusOn(
+      smokePreviewStage.focus.x,
+      smokePreviewStage.focus.z,
+      {
+        x: smokePreviewStage.focus.x - smokePreviewStage.forward.x * 78 + smokePreviewStage.right.x * 8,
+        z: smokePreviewStage.focus.z - smokePreviewStage.forward.z * 78 + smokePreviewStage.right.z * 8,
+      },
+      64,
+      -12,
+    );
   } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else {
     rig.jumpToOpeningView(
@@ -2851,6 +2986,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       openingThreat ? { x: openingThreat.transform.x, z: openingThreat.transform.z } : undefined,
       localTeam,
     );
+  }
+  if (missileDoctrinePreview) {
+    window.setTimeout(() => {
+      const focusBuilding = buildings(sim, localTeam).find((entity) => entity.building?.kind === 'strategic-silo')
+        ?? buildings(sim, localTeam).find((entity) => entity.building?.kind === 'intelligence-center');
+      if (!focusBuilding) return;
+      const focusX = focusBuilding.transform.x;
+      const focusZ = focusBuilding.transform.z;
+      rig.focusOn(focusX, focusZ, { x: focusX + 54, z: focusZ + 66 }, 72);
+    }, 140);
   }
   const tacticalPing = {
     isActive: () => tacticalPingKind !== undefined,
@@ -2872,11 +3017,52 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     sim,
     unitView,
     {
-      isPlacing: () => economy.placement !== undefined,
+      isPlacing: () => economy.placement !== undefined || strategicMissileTargeting !== undefined,
       preview: (x, z) => {
+        if (strategicMissileTargeting) {
+          const radius = strategicMissileTargeting.weapon === 'missile'
+            ? strategicAccuracy(strategicMissileAccuracyLevel(economy)).radius
+            : emberScatterRadius();
+          const maximumRadius = strategicMissileTargeting.weapon === 'missile'
+            ? strategicAccuracy(0).radius
+            : emberScatterRadius();
+          strategicMissileTargeting.radius = radius;
+          orderMarkers.showStrategicAreaTarget(
+            x,
+            z,
+            radius,
+            strategicMissileTargeting.color,
+            maximumRadius > 0 ? radius / maximumRadius : 0,
+          );
+          return;
+        }
         if (economy.selectedStructure) economy.placement = updatePlacement(sim, hf, economy.selectedStructure, x, z, economy.team, economy);
       },
       confirm: (x, z) => {
+        if (strategicMissileTargeting) {
+          const targeting = strategicMissileTargeting;
+          const issued = lockstep
+            ? lockstep.issue({ type: 'launch-strategic', weapon: targeting.weapon, enemyTeam: targeting.enemyTeam, x, z })
+            : undefined;
+          const result = lockstep
+            ? { ok: issued === true, reason: issued ? '' : 'Launch command rejected' }
+            : targeting.weapon === 'ember'
+              ? launchEmberDroneAt(sim, economy, targeting.enemyTeam, x, z)
+              : launchStrategicMissileAt(sim, economy, targeting.enemyTeam, x, z);
+          if (result.ok) {
+            strategicMissileTargeting = undefined;
+            orderMarkers.clearStrategicAreaTarget();
+            ctx.renderer.domElement.style.cursor = '';
+            audio.playUi('order');
+            sidebar.finishStrategicTargeting(targeting.weapon === 'ember'
+              ? 'EMBER AWAY · IMPACT POINT CONFIRMED'
+              : 'MISSILE AWAY · IMPACT POINT CONFIRMED');
+          } else {
+            audio.playUi('error');
+            sidebar.notify(result.reason.toUpperCase());
+          }
+          return;
+        }
         if (!economy.selectedStructure) return;
         if (lockstep) {
           const kind = economy.selectedStructure;
@@ -2899,6 +3085,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         }
       },
       cancel: () => {
+        if (strategicMissileTargeting) {
+          strategicMissileTargeting = undefined;
+          orderMarkers.clearStrategicAreaTarget();
+          ctx.renderer.domElement.style.cursor = '';
+          sidebar.finishStrategicTargeting('MISSILE TARGETING CANCELLED');
+          audio.playUi('cancel');
+          return;
+        }
         economy.selectedStructure = undefined;
         economy.placement = undefined;
         audio.playUi('cancel');
@@ -3009,8 +3203,32 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     orderMap: (x, z, attackGround) => attackGround ? controller.attackGroundAt(x, z) : controller.orderSelectedTo(x, z),
     radarYaw: () => rig.yawRadians,
     radarViewport: () => rig.getGroundViewportFootprint(),
+    upgradeStrategicAccuracy: () => upgradeStrategicAccuracy(sim, economy),
+    upgradeStrategicMissile: () => upgradeStrategicMissile(sim, economy),
+    beginStrategicTargeting: (enemyTeam, color) => {
+      const readiness = strategicLaunchReadiness(sim, economy);
+      if (!readiness.ready) return { ok: false, reason: readiness.reason };
+      const accuracy = strategicAccuracy(strategicMissileAccuracyLevel(economy));
+      strategicMissileTargeting = { enemyTeam, radius: accuracy.radius, color, weapon: 'missile' };
+      ctx.renderer.domElement.style.cursor = 'crosshair';
+      audio.playUi('select');
+      return { ok: true, reason: '' };
+    },
+    beginEmberTargeting: (enemyTeam, color) => {
+      const readiness = emberLaunchReadiness(sim, economy);
+      if (!readiness.ready) return { ok: false, reason: readiness.reason };
+      strategicMissileTargeting = { enemyTeam, radius: emberScatterRadius(), color, weapon: 'ember' };
+      ctx.renderer.domElement.style.cursor = 'crosshair';
+      audio.playUi('select');
+      return { ok: true, reason: '' };
+    },
+    cancelStrategicTargeting: () => {
+      strategicMissileTargeting = undefined;
+      orderMarkers.clearStrategicAreaTarget();
+      ctx.renderer.domElement.style.cursor = '';
+    },
   });
-  const selectionBar = new SelectionBar(sim, {
+  selectionBar = new SelectionBar(sim, {
     selectEntities: (entities) => {
       audio.playUi('select');
       const available = entities.filter((entity) => !entity.destroyed && sim.world.has(entity));
@@ -3035,6 +3253,69 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     openTacticPlanner: (entities) => {
       audio.playUi('select');
       tacticPlanner.open(entities);
+    },
+    strategic: {
+      economy,
+      upgradeAccuracy: () => {
+        if (!canManageArmy) {
+          commanderOnly();
+          return false;
+        }
+        audio.playUi('build');
+        return lockstep ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'accuracy' }) : upgradeStrategicAccuracy(sim, economy);
+      },
+      upgradeWarhead: () => {
+        if (!canManageArmy) {
+          commanderOnly();
+          return false;
+        }
+        audio.playUi('build');
+        return lockstep ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'warhead' }) : upgradeStrategicMissile(sim, economy);
+      },
+      upgradeEmberQuantity: () => {
+        if (!canManageArmy) {
+          commanderOnly();
+          return false;
+        }
+        audio.playUi('build');
+        return lockstep
+          ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'ember-quantity' })
+          : upgradeEmberDroneQuantity(sim, economy);
+      },
+      upgradeEmberWarhead: () => {
+        if (!canManageArmy) {
+          commanderOnly();
+          return false;
+        }
+        audio.playUi('build');
+        return lockstep
+          ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'ember-warhead' })
+          : upgradeEmberDroneWarhead(sim, economy);
+      },
+      beginTargeting: (weapon, enemyTeam, color) => {
+        const readiness = weapon === 'missile' ? strategicLaunchReadiness(sim, economy) : emberLaunchReadiness(sim, economy);
+        if (!readiness.ready) {
+          audio.playUi('error');
+          sidebar.notify(readiness.reason.toUpperCase());
+          return { ok: false, reason: readiness.reason };
+        }
+        strategicMissileTargeting = {
+          enemyTeam,
+          radius: weapon === 'missile' ? strategicAccuracy(strategicMissileAccuracyLevel(economy)).radius : emberScatterRadius(),
+          color,
+          weapon,
+        };
+        ctx.renderer.domElement.style.cursor = 'crosshair';
+        audio.playUi('select');
+        return { ok: true, reason: '' };
+      },
+      cancelTargeting: () => {
+        strategicMissileTargeting = undefined;
+        orderMarkers.clearStrategicAreaTarget();
+        ctx.renderer.domElement.style.cursor = '';
+        audio.playUi('cancel');
+      },
+      activeTargeting: () => strategicMissileTargeting?.weapon,
     },
   }, localTeam, ctx.camera, hf);
   const tacticPlanner = new TacticPlanner(
@@ -3350,6 +3631,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const missionComms = new MissionComms();
 
   const showEnemyFirstContact = (): void => {
+    if (!NARRATIVE_CHARACTERS_ENABLED) return;
     showMissionBriefing({
       variant: 'hostile',
       audioUrl: '/assets/audio/enemy-first-contact.mp3',
@@ -3503,6 +3785,24 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       firstPerson.handleCombatEvents(events);
       audio.handleCombatEvents(events, firstPerson.possessedEntity?.id);
       for (const event of events) {
+        if (event.kind === 'strategic-missile-warning' && event.targetTeamId === localTeam) {
+          const attackerTeam = event.sourceTeamId ?? 0;
+          sidebar.signalIncomingMissile(attackerTeam);
+          hud.showBaseUnderAttack('Incoming strategic missile', true);
+          missionComms.announceIncomingMissile(attackerTeam);
+          audio.playUi('error');
+        }
+        if (event.kind === 'ember-drone-warning' && event.targetTeamId === localTeam) {
+          const attackerTeam = event.sourceTeamId ?? 0;
+          sidebar.signalIncomingMissile(attackerTeam, 'EMBER DRONE');
+          hud.showBaseUnderAttack('Incoming Ember drone', true);
+          missionComms.announceIncomingMissile(attackerTeam);
+          audio.playUi('error');
+        }
+        if (event.kind === 'strategic-missile-intercepted') {
+          const intercepted = event.targetLabel?.toUpperCase() ?? 'STRATEGIC THREAT INTERCEPTED';
+          sidebar.notify(intercepted);
+        }
         if (event.kind === 'rank-up' && event.sourceTeamId === localTeam) {
           audio.playUi('build');
           showRankUpToast(event.targetLabel ?? 'Veteran');
@@ -3619,6 +3919,23 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   overlay.remove();
   loop.start();
+  if (smokePreviewStage) {
+    const previewPanel = createSmokePreviewPanel();
+    const runSmokePreview = (): void => {
+      setSmokePreviewPanelState(previewPanel, 'missile');
+      combatView.push([createSmokePreviewEvent('missile', smokePreviewStage.points.missile, hf)]);
+      window.setTimeout(() => {
+        setSmokePreviewPanelState(previewPanel, 'tank');
+        combatView.push([createSmokePreviewEvent('tank', smokePreviewStage.points.tank, hf)]);
+      }, 2_600);
+      window.setTimeout(() => {
+        setSmokePreviewPanelState(previewPanel, 'strategic');
+        combatView.push([createSmokePreviewEvent('strategic', smokePreviewStage.points.strategic, hf)]);
+      }, 5_200);
+    };
+    window.setTimeout(runSmokePreview, 700);
+    window.setInterval(runSmokePreview, 16_000);
+  }
   fadeOutLandingMusic(40_000);
   if (debriefPreview) {
     window.setTimeout(() => {
@@ -3628,7 +3945,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     const memberId = enlistedCommander()?.memberId;
-    if (shouldShowOpeningBriefing(window.localStorage, memberId)) {
+    if (NARRATIVE_CHARACTERS_ENABLED && shouldShowOpeningBriefing(window.localStorage, memberId)) {
       showMissionBriefing({ enemyCount: hostileArmyCount, narrationVolume: 0.18 });
       markOpeningBriefingSeen(window.localStorage, memberId);
     }
@@ -3809,7 +4126,7 @@ function createGameMenu(
 ): void {
   const wrap = document.createElement('div');
   wrap.className = 'game-chrome-controls';
-  wrap.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:30;display:flex;gap:6px;align-items:center;';
+  wrap.style.cssText = 'position:fixed;left:10px;top:10px;z-index:30;display:flex;gap:6px;align-items:center;';
   const help = gameChromeButton('HOW TO PLAY', 'Open the field manual');
   help.classList.add('game-chrome-controls__help');
   help.setAttribute('aria-label', 'How to play');
@@ -3837,7 +4154,7 @@ function createGameMenu(
       onHelp: () => openHowToPlay(),
     });
   };
-  wrap.append(help, menu);
+  wrap.append(menu, help);
   document.body.appendChild(wrap);
 }
 
@@ -4013,6 +4330,7 @@ function copyMatchLink(settings: SkirmishSettings, status: HTMLElement): void {
   url.searchParams.set('combat', settings.combatMode);
   url.searchParams.set('armies', String(settings.armyCount));
   url.searchParams.set('sides', settings.armySides.slice(0, settings.armyCount).join(','));
+  url.searchParams.set('doctrines', settings.armyDoctrines.slice(0, settings.armyCount).join(','));
   url.searchParams.set('spawns', settings.spawnSlots.slice(0, settings.armyCount).join(','));
   url.searchParams.set('spawnpts', serializeSpawnPoints(settings.spawnPoints, settings.armyCount));
   const write = navigator.clipboard?.writeText(url.toString());
@@ -4626,6 +4944,98 @@ function createImpactPreviewEvents(
     trajectory: reaction.trajectory,
   };
   return [impactFx, reaction];
+}
+
+function createSmokePreviewStage(
+  sim: ReturnType<typeof createGameSim>,
+  armies: ArmyRuntime[],
+  localTeam: number,
+): SmokePreviewStage {
+  const friendly = armies.find((army) => army.team === localTeam) ?? armies[0];
+  const hostile = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
+  const rawForward = hostile
+    ? {
+        x: hostile.base.transform.x - friendly.base.transform.x,
+        z: hostile.base.transform.z - friendly.base.transform.z,
+      }
+    : { x: -friendly.base.transform.x, z: -friendly.base.transform.z };
+  const length = Math.hypot(rawForward.x, rawForward.z) || 1;
+  const forward = { x: rawForward.x / length, z: rawForward.z / length };
+  const right = { x: forward.z, z: -forward.x };
+  const stagingDistance = Math.min(104, Math.max(82, length * 0.32));
+  const desiredFocus = {
+    x: friendly.base.transform.x + forward.x * stagingDistance,
+    z: friendly.base.transform.z + forward.z * stagingDistance,
+  };
+  const focusCell = sim.nav.nearestWalkableCell(desiredFocus.x, desiredFocus.z, 12);
+  const focus = focusCell ? sim.nav.cellCenter(focusCell.x, focusCell.y) : desiredFocus;
+  const pointAt = (offset: number): { x: number; z: number } => {
+    const desired = { x: focus.x + right.x * offset, z: focus.z + right.z * offset };
+    const cell = sim.nav.nearestWalkableCell(desired.x, desired.z, 8);
+    return cell ? sim.nav.cellCenter(cell.x, cell.y) : desired;
+  };
+  return {
+    focus,
+    forward,
+    right,
+    points: {
+      missile: pointAt(30),
+      tank: pointAt(0),
+      strategic: pointAt(-30),
+    },
+  };
+}
+
+function createSmokePreviewEvent(
+  type: 'missile' | 'tank' | 'strategic',
+  point: { x: number; z: number },
+  hf: ReturnType<typeof generateHeightfield>,
+): CombatEvent {
+  const strategic = type === 'strategic';
+  const destroyedTank = type === 'tank';
+  const groundY = sampleHeight(hf, point.x, point.z) + 0.4;
+  return {
+    kind: strategic ? 'siegeMissile-impact' : 'tankMissile-impact',
+    weaponKind: strategic ? 'strategicMissile' : 'tankMissile',
+    fromX: point.x - 34,
+    fromY: groundY + (strategic ? 32 : 9),
+    fromZ: point.z - 24,
+    toX: point.x,
+    toY: groundY,
+    toZ: point.z,
+    sourceTeamId: 2,
+    targetType: destroyedTank ? 'tank' : 'ground',
+    targetLabel: destroyedTank ? 'Preview tank' : strategic ? 'Strategic impact zone' : 'Missile impact zone',
+    targetHealth: destroyedTank ? 0 : strategic ? 20 : 82,
+    targetMaxHealth: 100,
+    damage: destroyedTank ? 100 : strategic ? 80 : 18,
+    killed: destroyedTank,
+    trajectory: strategic ? 'arc' : 'homing',
+    impactScale: strategic ? 1.9 : destroyedTank ? 1.05 : 1,
+  };
+}
+
+function createSmokePreviewPanel(): HTMLElement {
+  document.querySelector('.smoke-preview')?.remove();
+  const panel = document.createElement('section');
+  panel.className = 'smoke-preview';
+  panel.innerHTML = `
+    <h1>Smoke effects showcase</h1>
+    <p>Three staged impacts repeat automatically every 16 seconds. Watch each cloud rise, spread, and fade.</p>
+    <ol>
+      <li data-smoke-preview="missile"><strong>Left · Missile hit</strong>Compact 3–4 second smoke</li>
+      <li data-smoke-preview="tank"><strong>Center · Tank destroyed</strong>Dark wreck plume for 5–8 seconds</li>
+      <li data-smoke-preview="strategic"><strong>Right · Strategic impact</strong>Broad aftermath for 7–10 seconds</li>
+    </ol>
+  `;
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function setSmokePreviewPanelState(panel: HTMLElement, active: 'missile' | 'tank' | 'strategic'): void {
+  for (const item of Array.from(panel.querySelectorAll<HTMLElement>('[data-smoke-preview]'))) {
+    item.classList.toggle('is-active', item.dataset.smokePreview === active);
+  }
 }
 
 function spawnDurabilityPreview(
@@ -5280,6 +5690,8 @@ function seedTestStartBase(sim: ReturnType<typeof createGameSim>, hf: ReturnType
     { kind: 'aa-tower', offsets: [{ x: 68, z: -4 }, { x: -68, z: 30 }, { x: 28, z: 76 }] },
   ];
   for (const item of placements) {
+    const definition = STRUCTURES[item.kind];
+    if (definition.doctrine && definition.doctrine !== economy.doctrine) continue;
     economy.readyStructure = item.kind;
     const placement = findValidTestPlacement(sim, hf, economy, base.transform.x, base.transform.z, item.kind, item.offsets);
     if (!placement) {
@@ -5293,6 +5705,69 @@ function seedTestStartBase(sim: ReturnType<typeof createGameSim>, hf: ReturnType
   economy.readyStructure = undefined;
   economy.selectedStructure = undefined;
   economy.placement = undefined;
+}
+
+function seedMissileDoctrinePreview(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  armies: ArmyRuntime[],
+  localTeam: number,
+): void {
+  const local = armies.find((army) => army.team === localTeam);
+  if (!local) return;
+  local.economy.doctrine = 'missile-command';
+  local.economy.strategicMissileLevel = 1;
+  local.economy.strategicAccuracyLevel = 0;
+  local.economy.emberDroneQuantityLevel = 1;
+  local.economy.emberDroneWarheadLevel = 1;
+  // The regular test base intentionally runs close to its power ceiling. Give
+  // this focused scenario enough generation to operate both strategic systems.
+  placePreviewStructure(sim, hf, local.economy, local.base, 'power-plant', [
+    { x: -82, z: -34 }, { x: 82, z: -34 }, { x: -86, z: 34 },
+  ]);
+  placePreviewStructure(sim, hf, local.economy, local.base, 'power-plant', [
+    { x: 82, z: 34 }, { x: -88, z: 0 }, { x: 88, z: 0 },
+  ]);
+  placePreviewStructure(sim, hf, local.economy, local.base, 'intelligence-center', [
+    { x: -62, z: -52 }, { x: 54, z: -58 }, { x: -72, z: 8 },
+  ]);
+  const missileSilo = placePreviewStructure(sim, hf, local.economy, local.base, 'strategic-silo', [
+    { x: 66, z: 48 }, { x: -70, z: 52 }, { x: 74, z: -42 },
+  ]);
+  for (const defender of armies.filter((army) => army.team !== localTeam)) {
+    placePreviewStructure(sim, hf, defender.economy, defender.base, 'skylance-ciws', [
+      { x: -52, z: -28 }, { x: 52, z: -28 }, { x: -58, z: 26 },
+    ]);
+    placePreviewStructure(sim, hf, defender.economy, defender.base, 'skylance-ciws', [
+      { x: 52, z: 28 }, { x: -24, z: -58 }, { x: 24, z: 58 },
+    ]);
+  }
+  // The focused preview includes two short-range Skylance batteries per
+  // defender so the player can compare defended and undefended impact zones.
+  local.economy.credits = Math.max(local.economy.credits, 15000);
+  if (missileSilo) setSelected(sim, [missileSilo], false, localTeam);
+}
+
+function placePreviewStructure(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  economy: ReturnType<typeof createEconomy>,
+  base: ReturnType<typeof createInitialBase>,
+  kind: StructureKind,
+  offsets: Array<{ x: number; z: number }>,
+): Entity | undefined {
+  economy.readyStructure = kind;
+  const placement = findValidTestPlacement(sim, hf, economy, base.transform.x, base.transform.z, kind, offsets);
+  if (!placement) {
+    economy.readyStructure = undefined;
+    return undefined;
+  }
+  const placed = placeStructure(sim, hf, economy, placement);
+  if (placed?.building) placed.building.buildProgress = 1;
+  economy.readyStructure = undefined;
+  economy.selectedStructure = undefined;
+  economy.placement = undefined;
+  return placed;
 }
 
 function initialPlacementPoint(

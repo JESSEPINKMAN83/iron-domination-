@@ -26,7 +26,7 @@ describe('tactical map', () => {
     const abundant = createTacticalMapRaster('highlands', 'medium', 1337, 48, 200);
 
     expect(sparse.oreFields).toHaveLength(3);
-    expect(abundant.oreFields).toHaveLength(10);
+    expect(abundant.oreFields).toHaveLength(25);
   });
 
   it('renders the selected terrain relief in the tactical survey', () => {

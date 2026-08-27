@@ -35,6 +35,7 @@ const rooms = new Map();
  *   ai: string;
  *   aiStyle: string;
  *   combatMode: 'assisted' | 'manual';
+ *   armyDoctrines: Array<'iron-legion' | 'missile-command'>;
  *   inputDelay: number;
  *   createdAt: number;
  *   updatedAt: number;
@@ -273,6 +274,7 @@ function handleSettings(socket, body) {
   room.ai = String(next.ai ?? room.ai);
   room.aiStyle = String(next.aiStyle ?? room.aiStyle);
   room.combatMode = normalizeCombatMode(next.combatMode ?? room.combatMode);
+  room.armyDoctrines = normalizeArmyDoctrines(next.armyDoctrines ?? room.armyDoctrines, next.armyDoctrine);
   const requestedControllerCount = normalizeControllerCount(
     next.controllerCount ?? next.armyCount ?? room.controllerCount,
   );
@@ -285,6 +287,7 @@ function handleSettings(socket, body) {
   }
   room.playersPerArmy = 2;
   reconcileControllerAssignments(room);
+  room.armySides = normalizeArmySides(next.armySides ?? room.armySides, room.armyCount);
   room.spawnSlots = normalizeSpawnSlots(next.spawnSlots ?? room.spawnSlots);
   room.spawnPoints = normalizeSpawnPoints(next.spawnPoints ?? room.spawnPoints, room.spawnSlots);
   for (const candidate of room.players) candidate.ready = false;
@@ -424,7 +427,7 @@ function createRoom(body) {
   );
   const controllerTeams = normalizeControllerTeams(body?.controllerTeams, controllerCount);
   const armyCount = Math.max(2, new Set(controllerTeams.slice(0, controllerCount)).size);
-  const armySides = normalizeArmySides(undefined, armyCount);
+  const armySides = normalizeArmySides(body?.armySides, armyCount);
   const spawnSlots = normalizeSpawnSlots(body?.spawnSlots);
   const spawnPoints = normalizeSpawnPoints(body?.spawnPoints, spawnSlots);
   return {
@@ -439,6 +442,7 @@ function createRoom(body) {
     ai: String(body?.ai ?? 'normal'),
     aiStyle: String(body?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(body?.combatMode),
+    armyDoctrines: normalizeArmyDoctrines(body?.armyDoctrines, body?.armyDoctrine),
     inputDelay: 8,
     armyCount,
     controllerCount,
@@ -475,6 +479,7 @@ function restoreRoom(snapshot) {
     ai: String(snapshot?.ai ?? 'normal'),
     aiStyle: String(snapshot?.aiStyle ?? 'balanced'),
     combatMode: normalizeCombatMode(snapshot?.combatMode),
+    armyDoctrines: normalizeArmyDoctrines(snapshot?.armyDoctrines, snapshot?.armyDoctrine),
     inputDelay: Math.max(4, Math.min(12, Math.floor(Number(snapshot?.inputDelay) || 8))),
     armyCount,
     controllerCount,
@@ -649,6 +654,7 @@ function publicRoom(room) {
     ai: room.ai,
     aiStyle: room.aiStyle,
     combatMode: room.combatMode,
+    armyDoctrines: room.armyDoctrines,
     inputDelay: room.inputDelay,
     armyCount: room.armyCount,
     controllerCount: room.controllerCount,
@@ -746,6 +752,22 @@ function normalizeCombatMode(value) {
   return value === 'manual' ? 'manual' : 'assisted';
 }
 
+function normalizeArmyDoctrine(value, fallback = 'iron-legion') {
+  return value === 'missile-command' || value === 'iron-legion' ? value : fallback;
+}
+
+function normalizeArmyDoctrines(value, legacyPrimary) {
+  const defaults = ['iron-legion', 'missile-command', 'missile-command', 'missile-command'];
+  if (Array.isArray(value) && value.length > 0) {
+    return defaults.map((fallback, index) => normalizeArmyDoctrine(value[index], fallback));
+  }
+  if (legacyPrimary === 'missile-command' || legacyPrimary === 'iron-legion') {
+    const opponent = legacyPrimary === 'missile-command' ? 'iron-legion' : 'missile-command';
+    return [legacyPrimary, opponent, opponent, opponent];
+  }
+  return defaults;
+}
+
 
 function normalizeTimeOfDay(value) {
   return value === 'sunset' || value === 'night' || value === 'day' ? value : 'day';
@@ -790,10 +812,12 @@ function normalizeEngine(value) {
 
 function normalizeArmySides(value, armyCount) {
   const input = Array.isArray(value) ? value : [];
-  return Array.from({ length: 4 }, (_, index) => {
+  const sides = Array.from({ length: 4 }, (_, index) => {
     const side = Math.floor(Number(input[index]) || index + 1);
     return index < armyCount ? Math.max(1, Math.min(4, side)) : index + 1;
   });
+  if (new Set(sides.slice(0, armyCount)).size < 2) sides[1] = sides[0] === 1 ? 2 : 1;
+  return sides;
 }
 
 function normalizeSpawnSlots(value) {
@@ -883,7 +907,8 @@ function reconcileControllerAssignments(room) {
   const labels = Array.from(new Set(activeTeams));
   const actualArmy = new Map(labels.map((team, index) => [team, index + 1]));
   room.armyCount = Math.max(2, labels.length);
-  room.armySides = Array.from({ length: 4 }, (_, index) => index + 1);
+  room.armySides = normalizeArmySides(room.armySides, room.armyCount);
+  room.armyDoctrines = normalizeArmyDoctrines(room.armyDoctrines);
 
   const ordered = [...room.players].sort((a, b) => {
     if (a.id === room.hostPlayerId) return -1;

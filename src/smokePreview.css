@@ -1,0 +1,75 @@
+.smoke-preview-mode .game-sidebar,
+.smoke-preview-mode .game-selection-bar,
+.smoke-preview-mode .iron-feedback,
+.smoke-preview-mode .iron-howto {
+  display: none !important;
+}
+
+.smoke-preview {
+  position: fixed;
+  z-index: 1200;
+  top: 18px;
+  left: 50%;
+  width: min(660px, calc(100vw - 190px));
+  padding: 14px 16px;
+  border: 1px solid rgba(230, 197, 107, 0.58);
+  border-radius: 4px;
+  background: rgba(8, 12, 12, 0.9);
+  color: #e8eee9;
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.45);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.smoke-preview h1 {
+  margin: 0 0 4px;
+  color: #efd273;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.smoke-preview p {
+  margin: 0 0 10px;
+  color: #aebbb6;
+  font-size: 11px;
+}
+
+.smoke-preview ol {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.smoke-preview li {
+  padding: 8px 10px;
+  border: 1px solid rgba(121, 143, 135, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #8e9c97;
+  font-size: 10px;
+  line-height: 1.35;
+  transition: 160ms ease;
+}
+
+.smoke-preview li strong {
+  display: block;
+  color: #dce5e0;
+  font-size: 11px;
+}
+
+.smoke-preview li.is-active {
+  border-color: #efd273;
+  background: rgba(239, 210, 115, 0.12);
+  color: #f0dd9d;
+  box-shadow: inset 3px 0 #efd273;
+}
+
+@media (max-width: 760px) {
+  .smoke-preview { top: 58px; width: calc(100vw - 20px); }
+  .smoke-preview ol { grid-template-columns: 1fr; }
+}

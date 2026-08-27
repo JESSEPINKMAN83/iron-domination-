@@ -62,7 +62,11 @@ void main() {
 
   vec2 uv = (vWorldPos.xz + vec2(uHalf)) / (uHalf * 2.0);
   float terrainH = texture2D(uHeightTex, uv).r * uHeightScale + uHeightOffset;
-  float depth = clamp(uWaterLevel - terrainH, 0.0, 12.0);
+  float rawDepth = uWaterLevel - terrainH;
+  // The water mesh spans the map for lakes and coastlines, but dry terrain
+  // must not reveal it as a second floating sheet when viewed from the side.
+  if (rawDepth <= 0.04) discard;
+  float depth = clamp(rawDepth, 0.0, 12.0);
   float deepMix = smoothstep(0.0, 3.0, depth);
 
   vec3 col = mix(uShallowColor, uDeepColor, deepMix);

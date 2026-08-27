@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { Sprite } from 'three';
+import { MAP01 } from '../content/map01';
+import { generateHeightfield } from '../sim/heightfield';
 import type { CombatEvent } from '../sim/world';
-import { selectCombatVisualEvents } from './combatView';
+import { CombatView, selectCombatVisualEvents } from './combatView';
 
 function event(index: number, sourceTeamId: number, overrides: Partial<CombatEvent> = {}): CombatEvent {
   return {
@@ -50,7 +53,93 @@ describe('combat visual load shedding', () => {
 
   it('ignores non-visual bookkeeping before applying the budget', () => {
     const bookkeeping = Array.from({ length: 100 }, (_, index) => event(index, 1, { kind: 'impact-reaction' }));
+    bookkeeping.push(event(150, 2, { kind: 'strategic-missile-warning', targetTeamId: 1 }));
     const visible = Array.from({ length: 8 }, (_, index) => event(200 + index, 1));
     expect(selectCombatVisualEvents([...bookkeeping, ...visible], 1, 0)).toEqual(visible);
+  });
+
+  it('shows and updates strategic missile health for every player viewing the missile', () => {
+    const view = new CombatView(generateHeightfield(MAP01), () => true, () => undefined, 2);
+    view.push([event(0, 1, {
+      kind: 'siegeMissile',
+      weaponKind: 'strategicMissile',
+      targetTeamId: 2,
+      strategicId: 42,
+      targetHealth: 100,
+      targetMaxHealth: 100,
+      trajectory: 'arc',
+      duration: 8,
+      damage: 0,
+    })]);
+    const sprites: Sprite[] = [];
+    view.group.traverse((object) => {
+      if (object instanceof Sprite) sprites.push(object);
+    });
+    const fill = sprites.find((sprite) => sprite.renderOrder === 91);
+    expect(fill?.scale.x).toBeCloseTo(8.1);
+
+    view.push([event(1, 2, {
+      kind: 'impact-reaction',
+      strategicId: 42,
+      targetHealth: 40,
+      targetMaxHealth: 100,
+      damage: 20,
+    })]);
+    expect(fill?.scale.x).toBeCloseTo(3.24);
+
+    const attackerView = new CombatView(generateHeightfield(MAP01), () => true, () => undefined, 1);
+    attackerView.push([event(0, 1, {
+      kind: 'siegeMissile',
+      weaponKind: 'strategicMissile',
+      targetTeamId: 2,
+      strategicId: 43,
+      targetHealth: 100,
+      targetMaxHealth: 100,
+      trajectory: 'arc',
+      duration: 8,
+      damage: 0,
+    })]);
+    const attackerSprites: Sprite[] = [];
+    attackerView.group.traverse((object) => {
+      if (object instanceof Sprite) attackerSprites.push(object);
+    });
+    expect(attackerSprites.some((sprite) => sprite.renderOrder === 91)).toBe(true);
+  });
+
+  it('turns an intercepted strategic projectile into a persistent destroyed wreck', () => {
+    const view = new CombatView(generateHeightfield(MAP01), () => true, () => undefined, 2);
+    view.push([event(0, 1, {
+      kind: 'siegeMissile',
+      weaponKind: 'strategicMissile',
+      strategicId: 77,
+      targetTeamId: 2,
+      targetHealth: 100,
+      targetMaxHealth: 100,
+      fromY: 42,
+      toY: 18,
+      trajectory: 'arc',
+      duration: 8,
+      damage: 0,
+    })]);
+
+    view.push([event(1, 2, {
+      kind: 'strategic-missile-intercepted',
+      weaponKind: 'strategicMissile',
+      strategicId: 77,
+      targetTeamId: 1,
+      targetHealth: 0,
+      targetMaxHealth: 100,
+      fromY: 32,
+      toY: 32,
+      killed: true,
+      damage: 0,
+    })]);
+
+    expect(view.group.getObjectByName('destroyed-strategic-wreck')).toBeDefined();
+    const remainingHealthBars: Sprite[] = [];
+    view.group.traverse((object) => {
+      if (object instanceof Sprite && object.renderOrder === 91) remainingHealthBars.push(object);
+    });
+    expect(remainingHealthBars).toHaveLength(0);
   });
 });

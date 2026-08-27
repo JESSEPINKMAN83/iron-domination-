@@ -10,6 +10,7 @@ import {
   rememberLocalCommander,
 } from './identity/commander';
 import { enlist, enlistedCommander } from './identity/enlist';
+import { MUSIC_ENABLED } from './experienceFlags';
 
 const FORM_NAME = 'iron-dominion-beta';
 
@@ -130,6 +131,10 @@ function detachLandingMusicUnlock(): void {
 }
 
 export function startLandingMusic(): void {
+  if (!MUSIC_ENABLED) {
+    fadeOutLandingMusic(0);
+    return;
+  }
   if (landingMusicFading) return;
   ensureLandingMusic();
   attachLandingMusicUnlock();
@@ -172,6 +177,10 @@ export function fadeOutLandingMusic(durationMs = 20_000): void {
 }
 
 function setupLandingMusicControl(root: HTMLElement): void {
+  if (!MUSIC_ENABLED) {
+    root.querySelector('[data-action="toggle-music"]')?.remove();
+    return;
+  }
   const audio = ensureLandingMusic();
   const toggle = root.querySelector<HTMLButtonElement>('[data-action="toggle-music"]')!;
   const label = toggle.querySelector<HTMLElement>('[data-music-label]')!;
@@ -273,10 +282,12 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
           <source src="/assets/landing/home-page-bg-38.mp4" type="video/mp4">
         </video>
       </div>
-      <button class="iron-landing__music-toggle" data-action="toggle-music" type="button" aria-label="Play landing page music" aria-pressed="false">
-        <span class="iron-landing__music-meter" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span data-music-label>Play music</span>
-      </button>
+      ${MUSIC_ENABLED ? `
+        <button class="iron-landing__music-toggle" data-action="toggle-music" type="button" aria-label="Play landing page music" aria-pressed="false">
+          <span class="iron-landing__music-meter" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span data-music-label>Play music</span>
+        </button>
+      ` : ''}
       <section class="iron-landing__hero">
         <p class="iron-landing__eyebrow">${inviteRoom ? `Multiplayer invitation · Room ${inviteRoom}` : 'Beta access · Play free'}</p>
         <h1 aria-label="Iron Domination">

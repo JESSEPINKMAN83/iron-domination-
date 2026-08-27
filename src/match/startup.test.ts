@@ -10,6 +10,7 @@ describe('match startup routing', () => {
     expect(shouldAutostartFromUrl(new URLSearchParams('map=frostbite-pass&seed=42'))).toBe(true);
     expect(shouldAutostartFromUrl(new URLSearchParams('start=test'))).toBe(true);
     expect(shouldAutostartFromUrl(new URLSearchParams('relief=150'))).toBe(true);
+    expect(shouldAutostartFromUrl(new URLSearchParams('doctrines=iron-legion,missile-command'))).toBe(true);
   });
 
   it('does not autostart production matches from local visual QA queries', () => {

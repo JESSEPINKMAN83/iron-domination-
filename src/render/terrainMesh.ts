@@ -138,6 +138,20 @@ export class TerrainView {
         this.overlayGroup.add(overlay);
       }
     }
+    const skirt = new Mesh(
+      createTerrainSkirtGeometry(hf, Math.max(12, hf.size * 0.012)),
+      new MeshStandardMaterial({
+        color: terrainSkirtColor(hf),
+        roughness: 1,
+        metalness: 0,
+        flatShading: true,
+      }),
+    );
+    skirt.name = 'terrain-edge-skirt';
+    skirt.receiveShadow = true;
+    skirt.castShadow = false;
+    skirt.matrixAutoUpdate = false;
+    this.group.add(skirt);
     this.overlayGroup.visible = false;
     this.overlayGroup.renderOrder = 100;
     this.oreGlowGroup.renderOrder = 22;
@@ -240,6 +254,60 @@ export class TerrainView {
       });
     }
   }
+}
+
+export function createTerrainSkirtGeometry(hf: Heightfield, thickness = 12): BufferGeometry {
+  const { heights, samples, cellSize } = hf;
+  const half = hf.size / 2;
+  const perimeter: Array<Array<[number, number, number]>> = [[], [], [], []];
+  let minEdgeHeight = Number.POSITIVE_INFINITY;
+  const point = (gx: number, gz: number): [number, number, number] => {
+    const y = heights[gz * samples + gx];
+    minEdgeHeight = Math.min(minEdgeHeight, y);
+    return [gx * cellSize - half, y, gz * cellSize - half];
+  };
+  for (let i = 0; i < samples; i++) perimeter[0].push(point(i, 0));
+  for (let i = 0; i < samples; i++) perimeter[1].push(point(samples - 1, i));
+  for (let i = samples - 1; i >= 0; i--) perimeter[2].push(point(i, samples - 1));
+  for (let i = samples - 1; i >= 0; i--) perimeter[3].push(point(0, i));
+
+  const bottomY = minEdgeHeight - Math.max(4, thickness);
+  const vertexCount = perimeter.reduce((sum, edge) => sum + edge.length * 2, 0);
+  const segmentCount = perimeter.reduce((sum, edge) => sum + edge.length - 1, 0);
+  const positions = new Float32Array(vertexCount * 3);
+  const indices = new Uint32Array(segmentCount * 6);
+  let vertex = 0;
+  let index = 0;
+  for (const edge of perimeter) {
+    const edgeStart = vertex;
+    for (const [x, y, z] of edge) {
+      positions[vertex * 3] = x;
+      positions[vertex * 3 + 1] = y;
+      positions[vertex * 3 + 2] = z;
+      vertex++;
+      positions[vertex * 3] = x;
+      positions[vertex * 3 + 1] = bottomY;
+      positions[vertex * 3 + 2] = z;
+      vertex++;
+    }
+    for (let segment = 0; segment < edge.length - 1; segment++) {
+      const top = edgeStart + segment * 2;
+      const bottom = top + 1;
+      const nextTop = top + 2;
+      const nextBottom = top + 3;
+      indices[index++] = top;
+      indices[index++] = nextTop;
+      indices[index++] = bottom;
+      indices[index++] = nextTop;
+      indices[index++] = nextBottom;
+      indices[index++] = bottom;
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
+  geometry.setIndex(new BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 export function createTerrainDiscGeometry(
@@ -504,6 +572,12 @@ function terrainTextureStyle(hf: Heightfield): TerrainTextureStyle {
   if (hf.kind === 'crater-oasis') return 'desert';
   if (hf.kind === 'frostbite-pass') return 'snow';
   return 'temperate';
+}
+
+function terrainSkirtColor(hf: Heightfield): number {
+  if (hf.kind === 'crater-oasis') return 0x3b3027;
+  if (hf.kind === 'frostbite-pass') return 0x30383d;
+  return 0x263029;
 }
 
 function createWalkOverlayMaterial(hf: Heightfield): MeshBasicMaterial {

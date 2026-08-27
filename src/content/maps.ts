@@ -316,7 +316,10 @@ export function oreFieldCount(id: MapId, size: MapSize = DEFAULT_MAP_SIZE, oreAm
   const base = MAP_PRESETS[id]?.config ?? MAP_PRESETS[DEFAULT_MAP_ID].config;
   const selectedSize = MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
   const amount = sanitizeOreAmount(oreAmount) ?? DEFAULT_ORE_AMOUNT;
-  return Math.max(2, Math.round(base.oreFieldCount * selectedSize.oreMultiplier * amount / 100));
+  const linearMultiplier = amount / 100;
+  const maximumBoost = amount <= 150 ? 0 : 3 * ((amount - 150) / 50) ** 2;
+  const abundanceMultiplier = linearMultiplier + maximumBoost;
+  return Math.max(2, Math.round(base.oreFieldCount * selectedSize.oreMultiplier * abundanceMultiplier));
 }
 
 export function mapConfig(

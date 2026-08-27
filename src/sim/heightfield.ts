@@ -170,8 +170,12 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
   // --- ore fields: flat, dry, mutually spaced spots ---
   const rng = mulberry32(seed ^ 0x0be5);
   const oreFields: OreField[] = [];
-  const minSpacing =
+  const standardSpacing =
     kind === 'crater-oasis' ? Math.min(116, size * 0.22) : kind === 'frostbite-pass' ? Math.min(108, size * 0.2) : Math.min(150, size * 0.3);
+  // Maximum ore abundance deliberately creates a resource-rich battlefield.
+  // Keep the established spacing at normal counts, then gradually pack very
+  // dense fields closer together without allowing their centres to overlap.
+  const minSpacing = Math.max(72, standardSpacing * Math.sqrt(Math.min(1, 12 / cfg.oreFieldCount)));
   if (kind === 'crater-oasis') {
     const anchors = [
       [-0.28, -0.3],

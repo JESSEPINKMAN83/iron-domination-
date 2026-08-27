@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 import {
+  canManualWeaponLockStrategic,
   canManualWeaponLockTarget,
   damageForArmor,
   isManualTargetLockWeapon,
@@ -1039,6 +1040,47 @@ describe('phase 4 combat simulation', () => {
     expect(projectile?.weaponKind).toBe('rocketPod');
     expect(projectile?.trajectory).toBe('flat');
     expect(projectile?.homing).toBeUndefined();
+  });
+
+  it('lets a player lock and manually intercept a hostile strategic missile', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    sim.rules.autoDefense = false;
+    const hammerhead = spawnHammerheadAt(sim, hf, 0, 0, 'Interceptor', 1);
+    hammerhead.playerControlled = { throttle: 0, turn: 0, aimYaw: 0, climb: 0 };
+    hammerhead.turret!.yaw = 0;
+    const strategicId = 9001;
+    const strategic = {
+      kind: 'siegeMissile' as const,
+      weaponKind: 'strategicMissile',
+      fromX: 0,
+      fromY: 20,
+      fromZ: 60,
+      x: 0,
+      y: 20,
+      z: 60,
+      toX: 0,
+      toY: 1,
+      toZ: -120,
+      elapsed: 0,
+      duration: 8,
+      teamId: 2,
+      attackerId: 99,
+      strategic: true,
+      strategicId,
+      strategicTargetTeamId: 2,
+      strategicHealth: 100,
+      strategicMaxHealth: 100,
+    };
+    sim.projectiles.push(strategic);
+
+    expect(canManualWeaponLockStrategic(hammerhead.weapon?.kind, strategic)).toBe(true);
+    expect(manualFireAt(sim, hammerhead, 0, 60, 'primary', 20, undefined, strategicId)).toBe(true);
+    expect(sim.projectiles.some((projectile) => projectile.strategicInterceptor?.targetStrategicId === strategicId)).toBe(true);
+
+    settle(sim, 1);
+    expect(strategic.strategicHealth).toBe(90);
   });
 
   it('lets ground bomb splash only graze aircraft', () => {

@@ -3,6 +3,7 @@ import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, type Fortr
 import { startPosition } from '../content/startPositions';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
 import { WEAPONS } from '../content/phase4';
+import { ARMY_DOCTRINES, type ArmyDoctrineId } from '../content/armyDoctrines';
 import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
@@ -25,6 +26,7 @@ export interface LedgerEntry {
 export interface EconomyState {
   /** which team this economy belongs to (player = 1) */
   team: number;
+  doctrine: ArmyDoctrineId;
   credits: number;
   /** difficulty handicap applied to ore income (AI tiers use this) */
   incomeMultiplier: number;
@@ -38,6 +40,12 @@ export interface EconomyState {
   placement?: PlacementState;
   pendingSpawned: Entity[];
   harvesterReplacementTimers: Record<number, number>;
+  strategicMissileLevel: number;
+  strategicAccuracyLevel: number;
+  emberDroneQuantityLevel: number;
+  emberDroneWarheadLevel: number;
+  strategicMissileCooldown: number;
+  emberDroneCooldown: number;
 }
 
 export interface PlacementState {
@@ -52,9 +60,10 @@ export interface PlacementState {
 
 const WALL_CHAIN_MAX_SEGMENTS = 28;
 
-export function createEconomy(team = 1, initialCredits = 4600): EconomyState {
+export function createEconomy(team = 1, initialCredits = 4600, doctrine: ArmyDoctrineId = 'iron-legion'): EconomyState {
   return {
     team,
+    doctrine,
     credits: initialCredits,
     incomeMultiplier: 1,
     powerProduced: 0,
@@ -63,6 +72,12 @@ export function createEconomy(team = 1, initialCredits = 4600): EconomyState {
     primaryProducerIds: {},
     pendingSpawned: [],
     harvesterReplacementTimers: {},
+    strategicMissileLevel: 1,
+    strategicAccuracyLevel: 0,
+    emberDroneQuantityLevel: 1,
+    emberDroneWarheadLevel: 1,
+    strategicMissileCooldown: 0,
+    emberDroneCooldown: 0,
   };
 }
 
@@ -93,10 +108,17 @@ export function hashEconomy(economy: EconomyState): number {
   };
 
   mix(economy.team);
+  mixText(economy.doctrine);
   mix(Math.round(economy.credits * 100));
   mix(Math.round(economy.incomeMultiplier * 1000));
   mix(Math.round(economy.powerProduced * 100));
   mix(Math.round(economy.powerUsed * 100));
+  mix(economy.strategicMissileLevel);
+  mix(economy.strategicAccuracyLevel);
+  mix(economy.emberDroneQuantityLevel);
+  mix(economy.emberDroneWarheadLevel);
+  mix(Math.round(economy.strategicMissileCooldown * 1000));
+  mix(Math.round(economy.emberDroneCooldown * 1000));
   mixJob(economy.structureLine);
   mixText(economy.readyStructure);
   for (const refineryId of Object.keys(economy.harvesterReplacementTimers).map(Number).sort((a, b) => a - b)) {
@@ -144,6 +166,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
 
 export function canBuildStructure(sim: GameSim, economy: EconomyState, kind: StructureKind): { ok: boolean; reason: string } {
   const def = STRUCTURES[kind];
+  if (def.doctrine && def.doctrine !== economy.doctrine) return { ok: false, reason: `${ARMY_DOCTRINES[def.doctrine].label} only` };
   if (economy.structureLine || economy.readyStructure) return { ok: false, reason: 'Structure line busy' };
   if (economy.credits < def.cost) return { ok: false, reason: 'Insufficient credits' };
   if (def.requires && !hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}` };
@@ -155,6 +178,9 @@ export function canQueueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind
   const producers = buildings(sim, economy.team).filter(
     (entity) => entity.building?.complete && STRUCTURES[entity.building.kind as StructureKind]?.producer === def.producer,
   );
+  if (def.doctrine && def.doctrine !== economy.doctrine) {
+    return { ok: false, reason: `${ARMY_DOCTRINES[def.doctrine].label} only`, producers: [] };
+  }
   if (!hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}`, producers };
   if (producers.length === 0) return { ok: false, reason: 'No producer', producers };
   if (economy.credits < def.cost) return { ok: false, reason: 'Insufficient credits', producers };
@@ -385,6 +411,8 @@ export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState
   const spawned: Entity[] = economy.pendingSpawned.splice(0);
   const powered = economy.powerProduced >= economy.powerUsed;
   const productionScale = powered ? 1 : 0.45;
+  economy.strategicMissileCooldown = Math.max(0, economy.strategicMissileCooldown - dt * productionScale);
+  economy.emberDroneCooldown = Math.max(0, economy.emberDroneCooldown - dt * productionScale);
 
   const structureJob = economy.structureLine;
   if (structureJob) {
@@ -439,6 +467,112 @@ export function buildings(sim: GameSim, team?: number): Entity[] {
 
 export function hasStructure(sim: GameSim, kind: StructureKind, team = 1): boolean {
   return buildings(sim, team).some((entity) => entity.building?.kind === kind && entity.building.complete);
+}
+
+export const MAX_STRATEGIC_MISSILE_LEVEL = 8;
+export const MAX_STRATEGIC_ACCURACY_LEVEL = 8;
+export const MAX_EMBER_DRONE_QUANTITY_LEVEL = 10;
+export const MAX_EMBER_DRONE_WARHEAD_LEVEL = 8;
+
+export function strategicMissileUpgradeCost(currentLevel: number): number {
+  if (currentLevel >= MAX_STRATEGIC_MISSILE_LEVEL) return 0;
+  const completedUpgrades = Math.max(0, currentLevel - 1);
+  return 500 + completedUpgrades * 225 + completedUpgrades * completedUpgrades * 25;
+}
+
+export function canUpgradeStrategicMissile(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
+  const cost = strategicMissileUpgradeCost(economy.strategicMissileLevel);
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
+  if (economy.strategicMissileLevel >= MAX_STRATEGIC_MISSILE_LEVEL) return { ok: false, reason: 'Maximum missile level', cost: 0 };
+  if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
+  return { ok: true, reason: '', cost };
+}
+
+export function upgradeStrategicMissile(sim: GameSim, economy: EconomyState): boolean {
+  const check = canUpgradeStrategicMissile(sim, economy);
+  if (!check.ok) return false;
+  spend(economy, sim.tick, `Missile level ${economy.strategicMissileLevel + 1}`, check.cost);
+  economy.strategicMissileLevel++;
+  return true;
+}
+
+export function strategicAccuracyUpgradeCost(currentLevel: number): number {
+  if (currentLevel >= MAX_STRATEGIC_ACCURACY_LEVEL) return 0;
+  const level = Math.max(0, currentLevel);
+  return 250 + level * 150 + level * level * 25;
+}
+
+export function canUpgradeStrategicAccuracy(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
+  const cost = strategicAccuracyUpgradeCost(economy.strategicAccuracyLevel);
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
+  if (economy.strategicAccuracyLevel >= MAX_STRATEGIC_ACCURACY_LEVEL) return { ok: false, reason: 'Maximum accuracy level', cost: 0 };
+  if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
+  return { ok: true, reason: '', cost };
+}
+
+export function upgradeStrategicAccuracy(sim: GameSim, economy: EconomyState): boolean {
+  const check = canUpgradeStrategicAccuracy(sim, economy);
+  if (!check.ok) return false;
+  spend(economy, sim.tick, `Missile accuracy ${economy.strategicAccuracyLevel + 1}`, check.cost);
+  economy.strategicAccuracyLevel++;
+  return true;
+}
+
+export function emberDroneQuantityUpgradeCost(currentLevel: number): number {
+  if (currentLevel >= MAX_EMBER_DRONE_QUANTITY_LEVEL) return 0;
+  const completedUpgrades = Math.max(0, currentLevel - 1);
+  return 225 + completedUpgrades * 125 + completedUpgrades * completedUpgrades * 15;
+}
+
+export function canUpgradeEmberDroneQuantity(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
+  const cost = emberDroneQuantityUpgradeCost(economy.emberDroneQuantityLevel);
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
+  if (economy.emberDroneQuantityLevel >= MAX_EMBER_DRONE_QUANTITY_LEVEL) return { ok: false, reason: 'Maximum drone quantity', cost: 0 };
+  if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
+  return { ok: true, reason: '', cost };
+}
+
+export function upgradeEmberDroneQuantity(sim: GameSim, economy: EconomyState): boolean {
+  const check = canUpgradeEmberDroneQuantity(sim, economy);
+  if (!check.ok) return false;
+  spend(economy, sim.tick, `Ember salvo quantity ${economy.emberDroneQuantityLevel + 1}`, check.cost);
+  economy.emberDroneQuantityLevel++;
+  return true;
+}
+
+export function emberDroneWarheadUpgradeCost(currentLevel: number): number {
+  if (currentLevel >= MAX_EMBER_DRONE_WARHEAD_LEVEL) return 0;
+  const completedUpgrades = Math.max(0, currentLevel - 1);
+  return 300 + completedUpgrades * 175 + completedUpgrades * completedUpgrades * 20;
+}
+
+export function canUpgradeEmberDroneWarhead(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
+  const cost = emberDroneWarheadUpgradeCost(economy.emberDroneWarheadLevel);
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
+  if (economy.emberDroneWarheadLevel >= MAX_EMBER_DRONE_WARHEAD_LEVEL) return { ok: false, reason: 'Maximum drone warhead', cost: 0 };
+  if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
+  return { ok: true, reason: '', cost };
+}
+
+export function upgradeEmberDroneWarhead(sim: GameSim, economy: EconomyState): boolean {
+  const check = canUpgradeEmberDroneWarhead(sim, economy);
+  if (!check.ok) return false;
+  spend(economy, sim.tick, `Ember warhead level ${economy.emberDroneWarheadLevel + 1}`, check.cost);
+  economy.emberDroneWarheadLevel++;
+  return true;
+}
+
+export function spendCredits(economy: EconomyState, tick: number, label: string, amount: number): boolean {
+  if (!Number.isFinite(amount) || amount < 0 || economy.credits < amount) return false;
+  spend(economy, tick, label, amount);
+  return true;
 }
 
 export function recomputePower(sim: GameSim, economy: EconomyState): void {
@@ -829,8 +963,70 @@ function productionUnitRadius(kind: UnitKind): number {
 
 function orderToRally(sim: GameSim, producer: Entity, entity: Entity, defaultTarget: { x: number; z: number }): void {
   const rally = producer.producer?.rally;
-  const target = rally ?? defaultTarget;
+  // Preserve the producer's carefully authored exit lane when no rally was
+  // chosen. Spread only explicit rally destinations, where multiple completed
+  // units would otherwise reserve and occupy the exact same point.
+  const target = rally ? productionRallyTarget(sim, producer, entity, rally) : defaultTarget;
   issueMoveOrder(sim, [entity], target.x, target.z, false);
+}
+
+function productionRallyTarget(
+  sim: GameSim,
+  producer: Entity,
+  entity: Entity,
+  center: { x: number; z: number },
+): { x: number; z: number } {
+  const unitRadius = entity.mover?.radius ?? entity.collider?.radius ?? 1.5;
+  const ringSpacing = Math.max(4.8, unitRadius * 2.85);
+  const seed = Math.imul(producer.id + 17, 73856093) ^ Math.imul(entity.id + 31, 19349663);
+  const baseAngle = deterministicProductionUnit(seed) * Math.PI * 2;
+  let walkableFallback: { x: number; z: number } | undefined;
+
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const ring = Math.floor(attempt / 6) + 1;
+    const jitter = deterministicProductionUnit(seed + attempt * 83492791);
+    const radius = ringSpacing * ring * (0.9 + jitter * 0.2);
+    const angle = baseAngle + attempt * 2.399963229728653 + (jitter - 0.5) * 0.32;
+    const candidateX = center.x + Math.cos(angle) * radius;
+    const candidateZ = center.z + Math.sin(angle) * radius;
+    const cell = sim.nav.nearestWalkableCell(candidateX, candidateZ, 8);
+    if (!cell) continue;
+    const candidate = sim.nav.cellCenter(cell.x, cell.y);
+    if (Math.hypot(candidate.x - center.x, candidate.z - center.z) > ringSpacing * 5.6) continue;
+    walkableFallback ??= candidate;
+    if (productionRallySlotClear(sim, entity, candidate, center, ringSpacing * 6)) return candidate;
+  }
+
+  return walkableFallback ?? center;
+}
+
+function productionRallySlotClear(
+  sim: GameSim,
+  entity: Entity,
+  candidate: { x: number; z: number },
+  center: { x: number; z: number },
+  reservationRadius: number,
+): boolean {
+  const unitRadius = entity.mover?.radius ?? entity.collider?.radius ?? 1.5;
+  for (const other of sim.world.entities) {
+    if (other === entity || other.destroyed || !other.mover) continue;
+    const reserved = other.mover.target
+      && Math.hypot(other.mover.target.x - center.x, other.mover.target.z - center.z) <= reservationRadius
+      ? other.mover.target
+      : other.transform;
+    if (Math.hypot(reserved.x - center.x, reserved.z - center.z) > reservationRadius) continue;
+    const otherRadius = other.mover.radius ?? other.collider?.radius ?? 1.5;
+    if (Math.hypot(candidate.x - reserved.x, candidate.z - reserved.z) < unitRadius + otherRadius + 1.5) return false;
+  }
+  return true;
+}
+
+function deterministicProductionUnit(seed: number): number {
+  let value = seed | 0;
+  value = Math.imul(value ^ (value >>> 16), 0x45d9f3b);
+  value = Math.imul(value ^ (value >>> 16), 0x45d9f3b);
+  value ^= value >>> 16;
+  return (value >>> 0) / 0x100000000;
 }
 
 function snapToGrid(hf: Heightfield, x: number, z: number): { x: number; z: number } {

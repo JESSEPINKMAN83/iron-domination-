@@ -8,9 +8,12 @@ Expected filenames:
 - barracks.png
 - factory.png
 - helipad.png
+- intelligence-center.png
+- strategic-silo.png
 - wall.png
 - guard-tower.png
 - aa-tower.png
+- missile-defense.png
 - infantry.png
 - grenadier.png
 - sniper.png

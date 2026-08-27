@@ -2,8 +2,8 @@ import { MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
-import { canManualWeaponLockTarget, isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
-import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim } from '../sim/world';
+import { canManualWeaponLockStrategic, canManualWeaponLockTarget, isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
+import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim, type Projectile } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { hasUnitUpgrade, specialUpgradeForEntity } from '../sim/upgrades';
@@ -42,6 +42,18 @@ const FORTRESS_ZOOM_WIDE_FOV = 68;
 const FORTRESS_ZOOM_DEFAULT_FOV = 54;
 const FORTRESS_ZOOM_TIGHT_FOV = 18;
 const EXIT_TRANSITION_SECONDS = 0.72;
+
+type ManualLockTarget =
+  | { kind: 'entity'; entity: Entity }
+  | { kind: 'strategic'; projectile: Projectile };
+
+function manualLockId(target: ManualLockTarget): number {
+  return target.kind === 'entity' ? target.entity.id : -(target.projectile.strategicId! + 1);
+}
+
+function strategicIdFromManualLockId(id: number): number | undefined {
+  return id < 0 ? -id - 1 : undefined;
+}
 
 export interface CameraPose {
   position: Vector3;
@@ -121,7 +133,7 @@ export interface FirstPersonCommandSink {
     strafe?: number;
     boost?: boolean;
   }): void;
-  fire(command: { id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number }): void;
+  fire(command: { id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number; strategicTargetId?: number }): void;
   follow(command: { leaderId: number; followerIds: number[]; x: number; z: number; faceYaw: number }): void;
   release(id: number): void;
 }
@@ -337,7 +349,7 @@ export class FirstPersonController {
 
   get targetedEntity(): Entity | undefined {
     const id = this.targetScanCandidateId ?? this.lockedTargetId ?? this.lockCandidateId;
-    if (id === undefined) return undefined;
+    if (id === undefined || id < 0) return undefined;
     const target = this.sim.byId.get(id);
     return target && !target.destroyed && target.health && target.health.current > 0 ? target : undefined;
   }
@@ -745,8 +757,9 @@ export class FirstPersonController {
       return false;
     }
     const lockedTarget = isManualTargetLockWeapon(selectedWeapon?.kind) ? this.lockedTarget() : undefined;
-    const sharedGroundTarget = lockedTarget
-      ? new Vector3(lockedTarget.transform.x, lockedTarget.transform.y, lockedTarget.transform.z)
+    const lockedPosition = lockedTarget ? this.lockTargetPosition(lockedTarget) : undefined;
+    const sharedGroundTarget = lockedPosition
+      ? new Vector3(lockedPosition.x, lockedPosition.y, lockedPosition.z)
       : this.tmpAimTarget;
     const target = lockedTarget
       ? sharedGroundTarget
@@ -771,15 +784,26 @@ export class FirstPersonController {
           z: target.z,
           y: target.y,
           aimYaw: this.currentAimYaw(),
-          targetId: lockedTarget?.id,
+          targetId: lockedTarget?.kind === 'entity' ? lockedTarget.entity.id : undefined,
+          strategicTargetId: lockedTarget?.kind === 'strategic' ? lockedTarget.projectile.strategicId : undefined,
         });
       }
     } else {
-      fired = manualFireAt(this.sim, this.possessed, target.x, target.z, slot, target.y, lockedTarget?.id);
+      fired = manualFireAt(
+        this.sim,
+        this.possessed,
+        target.x,
+        target.z,
+        slot,
+        target.y,
+        lockedTarget?.kind === 'entity' ? lockedTarget.entity.id : undefined,
+        lockedTarget?.kind === 'strategic' ? lockedTarget.projectile.strategicId : undefined,
+      );
       for (const wingman of followers) {
         if (wingman.turret) wingman.turret.yaw = Math.atan2(target.x - wingman.transform.x, target.z - wingman.transform.z);
-        manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y);
-        if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y);
+        const strategicId = lockedTarget?.kind === 'strategic' ? lockedTarget.projectile.strategicId : undefined;
+        manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y, undefined, strategicId);
+        if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y, undefined, strategicId);
       }
     }
     if (slot === 'special') this.flashAbilityStatus(fired ? 'SPECIAL DEPLOYED' : 'ALIGN WEAPON WITH TARGET');
@@ -799,10 +823,9 @@ export class FirstPersonController {
       const target = this.lockedTarget();
       if (
         !target ||
-        !target.team ||
         !this.possessed.team ||
-        !areTeamsHostile(this.sim, this.possessed.team.id, target.team.id) ||
-        !this.isVisible(target.transform.x, target.transform.z)
+        !areTeamsHostile(this.sim, this.possessed.team.id, this.lockTargetTeamId(target)) ||
+        !this.isVisible(this.lockTargetPosition(target).x, this.lockTargetPosition(target).z)
       ) {
         this.resetTargetLock();
         return;
@@ -815,14 +838,15 @@ export class FirstPersonController {
       this.resetTargetLock();
       return;
     }
-    if (candidate.id !== this.lockCandidateId) {
-      this.lockCandidateId = candidate.id;
+    const candidateId = manualLockId(candidate);
+    if (candidateId !== this.lockCandidateId) {
+      this.lockCandidateId = candidateId;
       this.lockedTargetId = undefined;
       this.lockProgress = 0;
     }
     this.lockProgress = Math.min(TARGET_LOCK_SECONDS, this.lockProgress + dt);
-    if (this.lockProgress >= TARGET_LOCK_SECONDS) this.lockedTargetId = candidate.id;
-    const locked = this.lockedTargetId === candidate.id;
+    if (this.lockProgress >= TARGET_LOCK_SECONDS) this.lockedTargetId = candidateId;
+    const locked = this.lockedTargetId === candidateId;
     this.renderTargetLock(candidate, locked);
   }
 
@@ -838,33 +862,32 @@ export class FirstPersonController {
     }
     this.targetScanProgress = Math.min(1, this.targetScanProgress + dt / FORTRESS_SCAN_SECONDS);
     const candidate = this.reticleTarget(this.possessed, false, this.targetScanProgress);
-    this.targetScanCandidateId = candidate?.id;
+    this.targetScanCandidateId = candidate ? manualLockId(candidate) : undefined;
     this.renderTargetScan(candidate);
     if (this.targetScanProgress >= 1) this.completeTargetScan();
   }
 
   private completeTargetScan(): boolean {
-    const candidate = this.targetScanCandidateId === undefined
-      ? undefined
-      : this.sim.byId.get(this.targetScanCandidateId);
+    const candidate = this.targetScanCandidateId === undefined ? undefined : this.resolveLockTarget(this.targetScanCandidateId);
     this.targetScanActive = false;
     this.targetScanHud.style.display = 'none';
     this.targetScanCandidateId = undefined;
-    if (!candidate || candidate.destroyed || !candidate.health || candidate.health.current <= 0) {
+    if (!candidate) {
       this.lockHud.style.display = 'none';
       this.flashAbilityStatus('SCAN COMPLETE · NO VALID TARGET');
       return false;
     }
-    this.lockCandidateId = candidate.id;
-    this.lockedTargetId = candidate.id;
+    const candidateId = manualLockId(candidate);
+    this.lockCandidateId = candidateId;
+    this.lockedTargetId = candidateId;
     this.lockProgress = TARGET_LOCK_SECONDS;
     this.manualTargetLock = true;
     this.renderTargetLock(candidate, true);
-    this.flashAbilityStatus(`LOCKED ${unitDisplayName(candidate).toUpperCase()}`);
+    this.flashAbilityStatus(`LOCKED ${this.lockTargetLabel(candidate).toUpperCase()}`);
     return true;
   }
 
-  private renderTargetScan(candidate: Entity | undefined): void {
+  private renderTargetScan(candidate: ManualLockTarget | undefined): void {
     const progress = this.targetScanProgress;
     const size = fortressTargetScanRingSize(progress);
     this.targetScanHud.style.display = 'block';
@@ -875,13 +898,13 @@ export class FirstPersonController {
       `conic-gradient(from ${Math.round(progress * 1080)}deg,transparent 0 73%,rgba(240,213,106,.32) 88%,rgba(255,226,126,.72) 97%,transparent 100%)`;
     this.targetScanHud.style.borderColor = candidate ? 'rgba(255,190,72,.95)' : 'rgba(240,213,106,.62)';
     this.targetScanStatus.textContent = candidate
-      ? `CONTACT · ${unitDisplayName(candidate).toUpperCase()} · RELEASE T TO LOCK`
+      ? `CONTACT · ${this.lockTargetLabel(candidate).toUpperCase()} · RELEASE T TO LOCK`
       : `SCANNING ${Math.round(progress * 100)}% · HOLD T`;
     if (candidate) this.renderTargetLock(candidate, false, progress);
     else this.lockHud.style.display = 'none';
   }
 
-  private renderTargetLock(candidate: Entity, locked: boolean, scanProgress?: number): void {
+  private renderTargetLock(candidate: ManualLockTarget, locked: boolean, scanProgress?: number): void {
     const screen = this.targetScreenPosition(candidate);
     const size = scanProgress === undefined ? 76 : MathUtils.lerp(76, 124, scanProgress);
     this.lockHud.style.display = 'block';
@@ -896,7 +919,7 @@ export class FirstPersonController {
     this.lockHud.style.transform = `translate(-50%,-50%) scale(${locked ? 0.9 : scanProgress === undefined ? 1.04 - this.lockProgress * 0.04 : 1})`;
     this.lockStatus.style.color = locked ? '#ff6b57' : '#f0d56a';
     this.lockStatus.textContent = locked
-      ? `LOCKED  ${unitDisplayName(candidate).toUpperCase()}`
+      ? `LOCKED  ${this.lockTargetLabel(candidate).toUpperCase()}`
       : scanProgress === undefined
         ? `TRACKING  ${Math.round(this.lockProgress * 100)}%`
         : `ACQUIRING  ${Math.round(scanProgress * 100)}%`;
@@ -914,20 +937,20 @@ export class FirstPersonController {
     this.lockHud.style.display = 'none';
   }
 
-  private lockedTarget(): Entity | undefined {
+  private lockedTarget(): ManualLockTarget | undefined {
     if (this.lockedTargetId === undefined) return undefined;
-    const target = this.sim.byId.get(this.lockedTargetId);
-    if (!target || target.destroyed || !target.health || target.health.current <= 0) {
+    const target = this.resolveLockTarget(this.lockedTargetId);
+    if (!target) {
       this.resetTargetLock();
       return undefined;
     }
     return target;
   }
 
-  private reticleTarget(entity: Entity, aircraftOnly: boolean, scanProgress?: number): Entity | undefined {
+  private reticleTarget(entity: Entity, aircraftOnly: boolean, scanProgress?: number): ManualLockTarget | undefined {
     if (!entity.playerControlled || !entity.team) return undefined;
     const direction = this.camera.getWorldDirection(this.tmpCameraDirection);
-    let best: Entity | undefined;
+    let best: ManualLockTarget | undefined;
     let bestScore = Number.POSITIVE_INFINITY;
     for (const candidate of this.sim.world.entities) {
       const tankTarget = candidate.selectable?.type === 'tank' && !!candidate.mover;
@@ -954,16 +977,79 @@ export class FirstPersonController {
         ? along
         : perpendicular / Math.max(1, along) * 1000 + along * 0.0005;
       if (score >= bestScore) continue;
-      best = candidate;
+      best = { kind: 'entity', entity: candidate };
+      bestScore = score;
+    }
+    for (const projectile of this.sim.projectiles) {
+      if (!canManualWeaponLockStrategic(entity.weapons?.primary?.kind ?? entity.weapon?.kind, projectile)
+        && !canManualWeaponLockStrategic(entity.weapons?.secondary?.kind, projectile)) continue;
+      if (!areTeamsHostile(this.sim, entity.team.id, projectile.teamId)) continue;
+      const position = this.strategicPosition(projectile);
+      if (!this.isVisible(position.x, position.z)) continue;
+      const offsetX = position.x - this.camera.position.x;
+      const offsetY = position.y - this.camera.position.y;
+      const offsetZ = position.z - this.camera.position.z;
+      const along = offsetX * direction.x + offsetY * direction.y + offsetZ * direction.z;
+      if (along <= 0) continue;
+      const perpendicular = Math.sqrt(Math.max(0, offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ - along * along));
+      const tolerance = 4.5 + (scanProgress === undefined ? 2.2 : Math.max(5, along * fortressTargetScanConeRatio(scanProgress)));
+      if (perpendicular > tolerance) continue;
+      const score = scanProgress === undefined
+        ? along * 0.72
+        : perpendicular / Math.max(1, along) * 1000 + along * 0.00035;
+      if (score >= bestScore) continue;
+      best = { kind: 'strategic', projectile };
       bestScore = score;
     }
     return best;
   }
 
-  private targetScreenPosition(candidate: Entity): { x: number; y: number } {
-    const baseY = candidate.transform.y ?? sampleHeight(this.hf, candidate.transform.x, candidate.transform.z);
-    const candidateY = baseY + (candidate.flight ? 0 : candidate.building ? 3.2 : candidate.selectable?.type === 'infantry' ? 1 : 1.5);
-    this.tmpEntityCenter.set(candidate.transform.x, candidateY, candidate.transform.z).project(this.camera);
+  private resolveLockTarget(id: number): ManualLockTarget | undefined {
+    const strategicId = strategicIdFromManualLockId(id);
+    if (strategicId !== undefined) {
+      const projectile = this.sim.projectiles.find(
+        (candidate) => candidate.strategicId === strategicId
+          && candidate.strategic
+          && (candidate.strategicHealth ?? 0) > 0,
+      );
+      return projectile ? { kind: 'strategic', projectile } : undefined;
+    }
+    const entity = this.sim.byId.get(id);
+    return entity && !entity.destroyed && entity.health && entity.health.current > 0
+      ? { kind: 'entity', entity }
+      : undefined;
+  }
+
+  private strategicPosition(projectile: Projectile): { x: number; y: number; z: number } {
+    return {
+      x: projectile.x ?? projectile.fromX,
+      y: projectile.y ?? projectile.fromY ?? sampleHeight(this.hf, projectile.x ?? projectile.fromX, projectile.z ?? projectile.fromZ) + 2,
+      z: projectile.z ?? projectile.fromZ,
+    };
+  }
+
+  private lockTargetPosition(target: ManualLockTarget): { x: number; y: number; z: number } {
+    if (target.kind === 'strategic') return this.strategicPosition(target.projectile);
+    const entity = target.entity;
+    const baseY = entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z);
+    return {
+      x: entity.transform.x,
+      y: baseY + (entity.flight ? 0 : entity.building ? 3.2 : entity.selectable?.type === 'infantry' ? 1 : 1.5),
+      z: entity.transform.z,
+    };
+  }
+
+  private lockTargetTeamId(target: ManualLockTarget): number {
+    return target.kind === 'strategic' ? target.projectile.teamId : target.entity.team!.id;
+  }
+
+  private lockTargetLabel(target: ManualLockTarget): string {
+    return target.kind === 'strategic' ? 'Strategic missile' : unitDisplayName(target.entity);
+  }
+
+  private targetScreenPosition(candidate: ManualLockTarget): { x: number; y: number } {
+    const position = this.lockTargetPosition(candidate);
+    this.tmpEntityCenter.set(position.x, position.y, position.z).project(this.camera);
     if (this.tmpEntityCenter.z < -1 || this.tmpEntityCenter.z > 1) {
       return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     }

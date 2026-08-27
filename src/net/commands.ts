@@ -13,6 +13,10 @@ import {
   setPrimaryProducer,
   setProducerRally,
   startStructureBuild,
+  upgradeEmberDroneQuantity,
+  upgradeEmberDroneWarhead,
+  upgradeStrategicAccuracy,
+  upgradeStrategicMissile,
   updatePlacement,
   type EconomyState,
 } from '../sim/economy';
@@ -21,6 +25,7 @@ import { issueAttackOrder, issueGroundAttack, manualFireAt } from '../sim/combat
 import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
 import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
 import { issueTacticOrder } from '../sim/tactics';
+import { launchEmberDroneAt, launchStrategicMissileAt } from '../sim/strategicWarfare';
 import type { TacticEndAction } from '../sim/components';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from '../sim/serialize';
 import { MultiplayerClient, type MultiplayerEvent, type MultiplayerSession, type TacticalPing, type TacticalPingKind } from './multiplayer';
@@ -47,6 +52,8 @@ export type NetCommand =
   | { type: 'primary-producer'; producerId: number }
   | { type: 'rally'; producerId: number; x: number; z: number }
   | { type: 'upgrade-units'; ids: number[]; upgradeId: UnitUpgradeId }
+  | { type: 'upgrade-strategic'; upgrade: 'accuracy' | 'warhead' | 'ember-quantity' | 'ember-warhead' }
+  | { type: 'launch-strategic'; weapon: 'missile' | 'ember'; enemyTeam: number; x: number; z: number }
   | {
       type: 'possess-input';
       id: number;
@@ -57,7 +64,7 @@ export type NetCommand =
       strafe?: number;
       boost?: boolean;
     }
-  | { type: 'possess-fire'; id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number }
+  | { type: 'possess-fire'; id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number; strategicTargetId?: number }
   | { type: 'possess-follow'; leaderId: number; followerIds: number[]; x: number; z: number; faceYaw: number }
   | { type: 'possess-release'; id: number }
   | { type: 'tick-ready' }
@@ -506,6 +513,14 @@ export class LockstepRuntime {
       if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
     } else if (command.type === 'upgrade-units') {
       purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, team);
+    } else if (command.type === 'upgrade-strategic') {
+      if (command.upgrade === 'accuracy') upgradeStrategicAccuracy(this.options.sim, economy);
+      else if (command.upgrade === 'warhead') upgradeStrategicMissile(this.options.sim, economy);
+      else if (command.upgrade === 'ember-quantity') upgradeEmberDroneQuantity(this.options.sim, economy);
+      else upgradeEmberDroneWarhead(this.options.sim, economy);
+    } else if (command.type === 'launch-strategic') {
+      if (command.weapon === 'ember') launchEmberDroneAt(this.options.sim, economy, command.enemyTeam, command.x, command.z);
+      else launchStrategicMissileAt(this.options.sim, economy, command.enemyTeam, command.x, command.z);
     } else if (command.type === 'possess-input') {
       const entity = ownedEntity(this.options.sim, command.id, team);
       if (!entity?.possessable || (!entity.mover && !isFortressTower(entity))) return;
@@ -536,12 +551,12 @@ export class LockstepRuntime {
         boost: entity.playerControlled?.boost ?? false,
       };
       if (entity.turret) entity.turret.yaw = Math.atan2(command.x - entity.transform.x, command.z - entity.transform.z);
-      manualFireAt(this.options.sim, entity, command.x, command.z, command.slot, command.y, command.targetId);
+      manualFireAt(this.options.sim, entity, command.x, command.z, command.slot, command.y, command.targetId, command.strategicTargetId);
       const followers = ownedEntities(this.options.sim, command.followerIds ?? [], team).filter((follower) => follower.id !== entity.id);
       for (const follower of followers) {
         if (follower.turret) follower.turret.yaw = Math.atan2(command.x - follower.transform.x, command.z - follower.transform.z);
-        manualFireAt(this.options.sim, follower, command.x, command.z, command.slot, command.y);
-        if (command.slot === 'secondary') manualFireAt(this.options.sim, follower, command.x, command.z, 'primary', command.y);
+        manualFireAt(this.options.sim, follower, command.x, command.z, command.slot, command.y, undefined, command.strategicTargetId);
+        if (command.slot === 'secondary') manualFireAt(this.options.sim, follower, command.x, command.z, 'primary', command.y, undefined, command.strategicTargetId);
       }
     } else if (command.type === 'possess-follow') {
       if (!ownedEntity(this.options.sim, command.leaderId, team)) return;
@@ -731,7 +746,9 @@ function isEconomyCommand(command: NetCommand): boolean {
     command.type === 'queue-unit' ||
     command.type === 'cancel-unit' ||
     command.type === 'primary-producer' ||
-    command.type === 'upgrade-units';
+    command.type === 'upgrade-units' ||
+    command.type === 'upgrade-strategic' ||
+    command.type === 'launch-strategic';
 }
 
 function clampUnit(value: number): number {
