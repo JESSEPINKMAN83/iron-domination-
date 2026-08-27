@@ -862,9 +862,170 @@ function absoluteProjectileTargetY(sim: GameSim, target: Entity | undefined, x: 
   return ground + (target.building ? 2.8 : target.selectable?.type === 'infantry' ? 1.15 : 1.7);
 }
 
+const EMBER_SEEKER_TURN_RATE = 1.9;
+
+function emberSeekerTarget(sim: GameSim, projectile: Projectile): Entity | undefined {
+  const seeker = projectile.strategicSeeker;
+  if (!seeker) return undefined;
+  const px = projectile.x ?? projectile.fromX;
+  const py = projectile.y ?? projectile.fromY ?? sampleHeight(sim.nav.heightfield, px, projectile.fromZ) + 3;
+  const pz = projectile.z ?? projectile.fromZ;
+  let closest: Entity | undefined;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (const target of sim.world.entities) {
+    if (!targetableByTeam(sim, projectile.teamId, target)) continue;
+    const targetY = absoluteProjectileTargetY(sim, target, target.transform.x, target.transform.z);
+    const targetRadius = target.collider?.radius ?? target.selectable?.radius ?? 1.4;
+    const centerDistance = Math.hypot(target.transform.x - px, targetY - py, target.transform.z - pz);
+    const visibleDistance = Math.max(0, centerDistance - targetRadius);
+    if (visibleDistance > seeker.radius) continue;
+    if (!hasTerrainLineOfSight(
+      sim.nav.heightfield,
+      px,
+      py,
+      pz,
+      target.transform.x,
+      targetY,
+      target.transform.z,
+      0.2,
+    )) continue;
+    if (
+      visibleDistance < closestDistance - 0.001
+      || (Math.abs(visibleDistance - closestDistance) <= 0.001 && target.id < (closest?.id ?? Number.POSITIVE_INFINITY))
+    ) {
+      closest = target;
+      closestDistance = visibleDistance;
+    }
+  }
+  return closest;
+}
+
+function resumeEmberFallback(sim: GameSim, projectile: Projectile): void {
+  const seeker = projectile.strategicSeeker;
+  if (!seeker) return;
+  const x = projectile.x ?? projectile.fromX;
+  const y = projectile.y ?? projectile.fromY ?? sampleHeight(sim.nav.heightfield, x, projectile.fromZ) + 3;
+  const z = projectile.z ?? projectile.fromZ;
+  const speed = Math.max(1, projectile.speed ?? WEAPONS.emberDrone.projectile?.speed ?? 55);
+  const duration = Math.max(0.35, Math.hypot(seeker.fallbackX - x, seeker.fallbackY - y, seeker.fallbackZ - z) / speed);
+  projectile.fromX = x;
+  projectile.fromY = y;
+  projectile.fromZ = z;
+  projectile.toX = seeker.fallbackX;
+  projectile.toY = seeker.fallbackY;
+  projectile.toZ = seeker.fallbackZ;
+  projectile.elapsed = 0;
+  projectile.duration = duration;
+  projectile.trajectory = 'flat';
+  projectile.directTargetId = undefined;
+  projectile.homing = undefined;
+  projectile.strategicTargetTeamId = seeker.fallbackTargetTeamId;
+  seeker.lockedTargetId = undefined;
+  sim.events.push({
+    kind: 'ember-drone-resume',
+    weaponKind: 'emberDrone',
+    fromX: x,
+    fromY: y,
+    fromZ: z,
+    toX: seeker.fallbackX,
+    toY: seeker.fallbackY,
+    toZ: seeker.fallbackZ,
+    sourceTeamId: projectile.teamId,
+    targetTeamId: seeker.fallbackTargetTeamId,
+    targetLabel: `Army ${seeker.fallbackTargetTeamId} marked drone impact area`,
+    targetType: 'ground',
+    targetHealth: projectile.strategicHealth,
+    targetMaxHealth: projectile.strategicMaxHealth,
+    damage: 0,
+    killed: false,
+    duration,
+    trajectory: 'flat',
+    strategicId: projectile.strategicId,
+    strategicLift: projectile.strategicLift,
+  });
+}
+
+function lockEmberTarget(sim: GameSim, projectile: Projectile, target: Entity): void {
+  const seeker = projectile.strategicSeeker;
+  if (!seeker) return;
+  const x = projectile.x ?? projectile.fromX;
+  const y = projectile.y ?? projectile.fromY ?? sampleHeight(sim.nav.heightfield, x, projectile.fromZ) + 3;
+  const z = projectile.z ?? projectile.fromZ;
+  const speed = Math.max(1, projectile.speed ?? WEAPONS.emberDrone.projectile?.speed ?? 55);
+  const targetY = absoluteProjectileTargetY(sim, target, target.transform.x, target.transform.z);
+  const next = strategicPositionAt(projectile, projectile.elapsed + 1 / 30);
+  let directionX = next.x - x;
+  let directionY = next.y - y;
+  let directionZ = next.z - z;
+  let directionLength = Math.hypot(directionX, directionY, directionZ);
+  if (directionLength < 0.001) {
+    directionX = target.transform.x - x;
+    directionY = targetY - y;
+    directionZ = target.transform.z - z;
+    directionLength = Math.max(0.001, Math.hypot(directionX, directionY, directionZ));
+  }
+  const targetDistance = Math.hypot(target.transform.x - x, targetY - y, target.transform.z - z);
+  const remainingLifetime = Math.max(4, targetDistance / speed + 4);
+  projectile.homing = {
+    targetId: target.id,
+    speed,
+    fizzleRange: sim.nav.size * 2,
+    remainingLifetime,
+    traveledDistance: 0,
+    directionX: directionX / directionLength,
+    directionY: directionY / directionLength,
+    directionZ: directionZ / directionLength,
+    turnRate: EMBER_SEEKER_TURN_RATE,
+  };
+  projectile.trajectory = 'homing';
+  projectile.directTargetId = target.id;
+  projectile.strategicTargetTeamId = target.team?.id ?? seeker.fallbackTargetTeamId;
+  seeker.lockedTargetId = target.id;
+  sim.events.push({
+    kind: 'ember-drone-lock',
+    weaponKind: 'emberDrone',
+    fromX: x,
+    fromY: y,
+    fromZ: z,
+    toX: target.transform.x,
+    toY: targetY,
+    toZ: target.transform.z,
+    sourceTeamId: projectile.teamId,
+    targetTeamId: target.team?.id,
+    targetId: target.id,
+    targetLabel: target.name,
+    targetType: target.building ? 'building' : target.flight ? 'aircraft' : target.selectable?.type ?? 'unit',
+    targetHealth: projectile.strategicHealth,
+    targetMaxHealth: projectile.strategicMaxHealth,
+    damage: 0,
+    killed: false,
+    duration: remainingLifetime,
+    trajectory: 'homing',
+    homingSpeed: speed,
+    homingTurnRate: EMBER_SEEKER_TURN_RATE,
+    strategicId: projectile.strategicId,
+  });
+}
+
+function stepEmberSeeker(sim: GameSim, projectile: Projectile): void {
+  if (projectile.strategicProfile !== 'drone' || !projectile.strategicSeeker) return;
+  if (projectile.homing) {
+    const target = entityById(sim, projectile.homing.targetId);
+    if (!target || !targetableByTeam(sim, projectile.teamId, target)) resumeEmberFallback(sim, projectile);
+  }
+  if (!projectile.homing) {
+    const target = emberSeekerTarget(sim, projectile);
+    if (target) lockEmberTarget(sim, projectile, target);
+  }
+}
+
 function stepProjectiles(sim: GameSim, dt: number): void {
   for (let i = sim.projectiles.length - 1; i >= 0; i--) {
     const projectile = sim.projectiles[i];
+    if ((projectile.launchDelay ?? 0) > 0) {
+      projectile.launchDelay = Math.max(0, (projectile.launchDelay ?? 0) - dt);
+      continue;
+    }
     if (projectile.strategicInterceptor) {
       if (stepStrategicInterceptor(sim, projectile, dt)) sim.projectiles.splice(i, 1);
       continue;
@@ -873,6 +1034,7 @@ function stepProjectiles(sim: GameSim, dt: number): void {
       sim.projectiles.splice(i, 1);
       continue;
     }
+    stepEmberSeeker(sim, projectile);
     if (projectile.strategic) launchStrategicDefenses(sim, projectile);
     projectile.elapsed += dt;
     if (projectile.homing) {
@@ -1020,34 +1182,17 @@ function stepProjectiles(sim: GameSim, dt: number): void {
 
 const MISSILE_DEFENSE_RADIUS = 190;
 const MISSILE_DEFENSE_FIRE_INTERVAL_TICKS = 18;
-const AIRCRAFT_INTERCEPT_RADIUS = 145;
-const AIRCRAFT_INTERCEPT_INTERVAL_TICKS = 45;
 const DEFENSE_INTERCEPTOR_SPEED = 132;
 const MISSILE_DEFENSE_DAMAGE = 20;
 const AIRCRAFT_INTERCEPT_DAMAGE = 10;
-const SKYLANCE_RADIUS = 110;
-const SKYLANCE_FIRE_INTERVAL_TICKS = 6;
 const SKYLANCE_DAMAGE = 8;
 
 function launchStrategicDefenses(sim: GameSim, projectile: GameSim['projectiles'][number]): void {
   if (projectile.strategicId === undefined || projectile.strategicTargetTeamId === undefined) return;
   const px = projectile.x ?? projectile.fromX;
   const pz = projectile.z ?? projectile.fromZ;
-  if (projectile.strategicProfile === 'drone') {
-    for (const defense of sim.buildingsQuery) {
-      if (
-        defense.destroyed ||
-        !defense.building?.complete ||
-        defense.building.kind !== 'skylance-ciws' ||
-        defense.team?.id !== projectile.strategicTargetTeamId
-      ) continue;
-      if ((sim.tick + defense.id * 5) % SKYLANCE_FIRE_INTERVAL_TICKS !== 0) continue;
-      if (Math.hypot(defense.transform.x - px, defense.transform.z - pz) > SKYLANCE_RADIUS) continue;
-      if (!isPreferredStrategicTarget(sim, projectile, defense.transform.x, defense.transform.z, SKYLANCE_RADIUS)) continue;
-      fireSkylanceBurst(sim, projectile, defense);
-      if ((projectile.strategicHealth ?? 0) <= 0) break;
-    }
-  }
+  engageStrategicProjectileWithAirDefenses(sim, projectile);
+  if ((projectile.strategicHealth ?? 0) <= 0) return;
 
   if (projectile.strategicProfile !== 'drone') {
     for (const defense of sim.buildingsQuery) {
@@ -1063,42 +1208,86 @@ function launchStrategicDefenses(sim: GameSim, projectile: GameSim['projectiles'
       launchStrategicInterceptor(sim, projectile, defense, 'tower', MISSILE_DEFENSE_DAMAGE);
     }
   }
+}
 
-  for (const aircraft of sim.world.entities) {
+function engageStrategicProjectileWithAirDefenses(
+  sim: GameSim,
+  strategic: GameSim['projectiles'][number],
+): void {
+  if (strategic.strategicId === undefined || (strategic.strategicHealth ?? 0) <= 0) return;
+  const targetX = strategic.x ?? strategic.fromX;
+  const targetY = strategic.y ?? strategic.fromY
+    ?? sampleHeight(sim.nav.heightfield, targetX, strategic.z ?? strategic.fromZ) + 4;
+  const targetZ = strategic.z ?? strategic.fromZ;
+  for (const defense of sim.world.entities) {
     if (
-      aircraft.destroyed ||
-      !aircraft.flight ||
-      !aircraft.health ||
-      aircraft.health.current <= 0 ||
-      aircraft.team?.id !== projectile.strategicTargetTeamId ||
-      !weaponSlots(aircraft).some((weapon) => {
-        const def = WEAPONS[weapon.kind as WeaponKind];
-        return def?.canTargetAir && (def.projectile?.kind === 'aaMissile' || def.projectile?.kind === 'agMissile');
-      })
+      defense.destroyed
+      || !defense.team
+      || !defense.health
+      || defense.health.current <= 0
+      || !areTeamsHostile(sim, strategic.teamId, defense.team.id)
+      || (defense.building && !defense.building.complete)
     ) continue;
-    if ((sim.tick + aircraft.id * 11) % AIRCRAFT_INTERCEPT_INTERVAL_TICKS !== 0) continue;
-    if (Math.hypot(aircraft.transform.x - px, aircraft.transform.z - pz) > AIRCRAFT_INTERCEPT_RADIUS) continue;
-    if (!isPreferredStrategicTarget(sim, projectile, aircraft.transform.x, aircraft.transform.z, AIRCRAFT_INTERCEPT_RADIUS)) continue;
-    launchStrategicInterceptor(sim, projectile, aircraft, 'aircraft', AIRCRAFT_INTERCEPT_DAMAGE);
+    for (const weapon of weaponSlots(defense)) {
+      const weaponKind = weapon.kind as WeaponKind;
+      const def = WEAPONS[weaponKind];
+      if (!def?.canTargetAir || def.vs.air <= 0 || weapon.cooldown > 0) continue;
+      const authoredRange = weapon.range || def.range;
+      const airRange = def.airRange ?? authoredRange;
+      const range = Math.min(authoredRange, airRange, defense.vision?.radius ?? authoredRange);
+      if (Math.hypot(defense.transform.x - targetX, defense.transform.z - targetZ) > range) continue;
+      const fromY = defense.flight
+        ? defense.transform.y ?? sampleHeight(sim.nav.heightfield, defense.transform.x, defense.transform.z) + 8
+        : (defense.transform.y ?? sampleHeight(sim.nav.heightfield, defense.transform.x, defense.transform.z)) + 3.4;
+      if (!hasTerrainLineOfSight(
+        sim.nav.heightfield,
+        defense.transform.x,
+        fromY,
+        defense.transform.z,
+        targetX,
+        targetY,
+        targetZ,
+        0.2,
+      )) continue;
+      if (!isPreferredStrategicTarget(sim, strategic, defense.transform.x, defense.transform.z, range)) continue;
+      const damage = damageForArmor(weaponKind, 'air');
+      weapon.cooldown = weaponCooldown(def.cooldown, defense);
+      if (def.projectile) {
+        launchStrategicInterceptor(
+          sim,
+          strategic,
+          defense,
+          defense.flight ? 'aircraft' : 'tower',
+          damage,
+          weaponKind,
+        );
+      } else {
+        fireStrategicAirDefenseBurst(sim, strategic, defense, weaponKind, damage);
+      }
+      if ((strategic.strategicHealth ?? 0) <= 0) return;
+    }
   }
 }
 
-function fireSkylanceBurst(
+function fireStrategicAirDefenseBurst(
   sim: GameSim,
   strategic: GameSim['projectiles'][number],
   defense: Entity,
+  weaponKind: WeaponKind = 'skylanceGun',
+  damage: number = SKYLANCE_DAMAGE,
 ): void {
   if (!defense.team || strategic.strategicId === undefined || (strategic.strategicHealth ?? 0) <= 0) return;
   const before = strategic.strategicHealth ?? 0;
-  const health = Math.max(0, before - SKYLANCE_DAMAGE);
+  const health = Math.max(0, before - damage);
   strategic.strategicHealth = health;
   const maxHealth = strategic.strategicMaxHealth ?? before;
   const x = strategic.x ?? strategic.toX;
   const y = strategic.y ?? strategic.toY;
   const z = strategic.z ?? strategic.toZ;
+  const targetLabel = strategic.strategicProfile === 'drone' ? 'Ember drone' : 'Strategic missile';
   sim.events.push({
-    kind: 'skylanceGun',
-    weaponKind: 'skylanceGun',
+    kind: weaponKind,
+    weaponKind,
     fromX: defense.transform.x,
     fromY: (defense.transform.y ?? sampleHeight(sim.nav.heightfield, defense.transform.x, defense.transform.z)) + 3.4,
     fromZ: defense.transform.z,
@@ -1107,11 +1296,11 @@ function fireSkylanceBurst(
     toZ: z,
     sourceTeamId: defense.team.id,
     targetTeamId: strategic.teamId,
-    targetLabel: 'Ember drone',
+    targetLabel,
     targetType: 'aircraft',
     targetHealth: health,
     targetMaxHealth: maxHealth,
-    damage: Math.min(SKYLANCE_DAMAGE, before),
+    damage: Math.min(damage, before),
     killed: health <= 0,
     trajectory: 'flat',
     impactScale: 0.45,
@@ -1120,7 +1309,7 @@ function fireSkylanceBurst(
   if (health > 0) return;
   sim.events.push({
     kind: 'strategic-missile-intercepted',
-    weaponKind: 'emberDrone',
+    weaponKind: strategic.strategicProfile === 'drone' ? 'emberDrone' : 'strategicMissile',
     fromX: x,
     fromY: y,
     fromZ: z,
@@ -1129,7 +1318,7 @@ function fireSkylanceBurst(
     toZ: z,
     sourceTeamId: defense.team.id,
     targetTeamId: strategic.teamId,
-    targetLabel: 'Ember drone intercepted',
+    targetLabel: `${targetLabel} intercepted`,
     targetType: 'aircraft',
     targetHealth: 0,
     targetMaxHealth: maxHealth,
@@ -1168,20 +1357,27 @@ function launchStrategicInterceptor(
   defender: Entity,
   sourceKind: 'tower' | 'aircraft',
   damage: number,
+  weaponKind?: WeaponKind,
 ): void {
   if (!defender.team || strategic.strategicId === undefined) return;
+  const resolvedWeaponKind = weaponKind ?? 'aaMissile';
+  const weaponDef = WEAPONS[resolvedWeaponKind];
+  const projectileKind = weaponDef.projectile?.kind ?? 'aaMissile';
+  const interceptorSpeed = weaponKind === undefined
+    ? DEFENSE_INTERCEPTOR_SPEED
+    : weaponDef.projectile?.speed ?? DEFENSE_INTERCEPTOR_SPEED;
   const fromX = defender.transform.x;
   const fromZ = defender.transform.z;
   const fromY = defender.flight
     ? defender.transform.y ?? sampleHeight(sim.nav.heightfield, fromX, fromZ) + 9
     : (defender.transform.y ?? sampleHeight(sim.nav.heightfield, fromX, fromZ)) + 4.8;
   let destination = strategicPositionAt(strategic, strategic.elapsed);
-  let duration = Math.max(0.2, Math.hypot(destination.x - fromX, destination.y - fromY, destination.z - fromZ) / DEFENSE_INTERCEPTOR_SPEED);
+  let duration = Math.max(0.2, Math.hypot(destination.x - fromX, destination.y - fromY, destination.z - fromZ) / interceptorSpeed);
   destination = strategicPositionAt(strategic, Math.min(strategic.duration, strategic.elapsed + duration));
-  duration = Math.max(0.2, Math.hypot(destination.x - fromX, destination.y - fromY, destination.z - fromZ) / DEFENSE_INTERCEPTOR_SPEED);
+  duration = Math.max(0.2, Math.hypot(destination.x - fromX, destination.y - fromY, destination.z - fromZ) / interceptorSpeed);
   sim.projectiles.push({
-    kind: 'aaMissile',
-    weaponKind: 'aaMissile',
+    kind: projectileKind,
+    weaponKind: resolvedWeaponKind,
     fromX,
     fromY,
     fromZ,
@@ -1193,7 +1389,7 @@ function launchStrategicInterceptor(
     toZ: destination.z,
     elapsed: 0,
     duration,
-    speed: DEFENSE_INTERCEPTOR_SPEED,
+    speed: interceptorSpeed,
     trajectory: 'flat',
     teamId: defender.team.id,
     attackerId: defender.id,
@@ -1205,8 +1401,8 @@ function launchStrategicInterceptor(
     },
   });
   sim.events.push({
-    kind: 'aaMissile',
-    weaponKind: 'aaMissile',
+    kind: projectileKind,
+    weaponKind: resolvedWeaponKind,
     fromX,
     fromY,
     fromZ,
@@ -1244,12 +1440,13 @@ function stepStrategicInterceptor(sim: GameSim, interceptor: GameSim['projectile
   strategic.strategicHealth = health;
   const maxHealth = strategic.strategicMaxHealth ?? health;
   const targetLabel = strategic.strategicProfile === 'drone' ? 'Ember drone' : 'Strategic missile';
+  const weaponKind = (interceptor.weaponKind ?? 'aaMissile') as WeaponKind;
   const x = strategic.x ?? interceptor.toX;
   const y = strategic.y ?? interceptor.toY;
   const z = strategic.z ?? interceptor.toZ;
   sim.events.push({
-    kind: 'aaMissile-impact',
-    weaponKind: 'aaMissile',
+    kind: `${interceptor.kind}-impact`,
+    weaponKind,
     fromX: interceptor.fromX,
     fromY: interceptor.fromY,
     fromZ: interceptor.fromZ,
@@ -1293,6 +1490,17 @@ function stepStrategicInterceptor(sim: GameSim, interceptor: GameSim['projectile
 }
 
 function strategicPositionAt(projectile: GameSim['projectiles'][number], elapsed: number): { x: number; y: number; z: number } {
+  if (projectile.homing) {
+    const secondsAhead = Math.max(0, elapsed - projectile.elapsed);
+    const x = projectile.x ?? projectile.fromX;
+    const y = projectile.y ?? projectile.fromY ?? 2;
+    const z = projectile.z ?? projectile.fromZ;
+    return {
+      x: x + projectile.homing.directionX * projectile.homing.speed * secondsAhead,
+      y: y + projectile.homing.directionY * projectile.homing.speed * secondsAhead,
+      z: z + projectile.homing.directionZ * projectile.homing.speed * secondsAhead,
+    };
+  }
   const t = Math.min(1, Math.max(0, elapsed / Math.max(0.001, projectile.duration)));
   const x = projectile.fromX + (projectile.toX - projectile.fromX) * t;
   const z = projectile.fromZ + (projectile.toZ - projectile.fromZ) * t;

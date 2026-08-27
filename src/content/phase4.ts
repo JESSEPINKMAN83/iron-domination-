@@ -341,8 +341,8 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     cooldown: 5,
     range: 1800,
     splashRadius: 5.5,
-    targetTypes: ['infantry', 'light', 'heavy', 'building'],
-    vs: { infantry: 0.8, light: 0.9, heavy: 0.72, building: 0.85, air: 0 },
+    targetTypes: ['infantry', 'light', 'heavy', 'building', 'air'],
+    vs: { infantry: 0.8, light: 0.9, heavy: 0.72, building: 0.85, air: 0.55 },
     projectile: { kind: 'agMissile', speed: 34, trajectory: 'flat', impactRadius: 2.6 },
   },
 };

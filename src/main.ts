@@ -133,19 +133,23 @@ import {
   spawnInfantryAt,
   startStructureBuild,
   stepEconomy,
+  upgradeEmberDroneQuantity,
+  upgradeEmberDroneWarhead,
   upgradeStrategicAccuracy,
   upgradeStrategicMissile,
   updatePlacement,
 } from './sim/economy';
 import {
-  EMBER_DRONE_SCATTER_RADIUS,
+  emberScatterRadius,
   emberLaunchReadiness,
   launchEmberDroneAt,
   launchStrategicMissileAt,
   strategicAccuracy,
   strategicLaunchReadiness,
+  strategicMissileAccuracyLevel,
 } from './sim/strategicWarfare';
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
+import { chooseStrategicSeed } from './sim/strategicSeed';
 import { damageForArmor, issueAttackOrder } from './sim/combat';
 import { directionalImpactResponse } from './sim/impactModel';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from './sim/serialize';
@@ -423,6 +427,13 @@ let pendingMultiplayer: { client: MultiplayerClient; session: MultiplayerSession
 
 function randomSeed(): number {
   return Math.floor(100000 + Math.random() * 900000000);
+}
+
+function strategicRandomSeed(mapId: MapId, mapSize: MapSize, oreAmount: number, terrainRelief: number): number {
+  return chooseStrategicSeed(
+    { mapId, mapSize, oreAmount, terrainRelief },
+    Array.from({ length: 7 }, () => randomSeed()),
+  );
 }
 
 function defaultArmySides(): ArmySides {
@@ -776,9 +787,21 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     randomize.type = 'button';
     randomize.className = 'war-button war-button--quiet';
     randomize.textContent = 'RANDOMIZE';
-    randomize.onclick = () => {
-      seedInput.value = String(randomSeed());
+    randomize.onclick = async () => {
+      randomize.disabled = true;
+      randomize.textContent = 'SCOUTING…';
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const mapId = mapChoice.value();
+      const seed = strategicRandomSeed(
+        mapId,
+        mapSizeChoice.value(),
+        sanitizeOreAmount(oreAmountInput.value) ?? DEFAULT_ORE_AMOUNT,
+        sanitizeTerrainRelief(terrainReliefInput.value) ?? defaultTerrainRelief(mapId),
+      );
+      seedInput.value = String(seed);
       refresh();
+      randomize.textContent = 'RANDOMIZE';
+      randomize.disabled = false;
       randomize.blur();
     };
     seedRow.append(seedWrap, randomize);
@@ -1383,10 +1406,6 @@ function createMultiplayerSetupPanel(
 
   const hostEntry = document.createElement('div');
   hostEntry.className = 'war-operation__entry';
-  hostEntry.innerHTML =
-    '<div class="war-aside__kicker">HOST COMMAND</div>' +
-    '<h2>START YOUR BATTLE</h2>' +
-    '<p>Launch an instant skirmish against AI, or open an online room when another commander is joining.</p>';
 
   const hostCard = document.createElement('section');
   hostCard.className = 'war-mode-card war-mode-card--primary war-action-bar';
@@ -1785,11 +1804,23 @@ function createRoomLobbyView(
   randomizeSeed.type = 'button';
   randomizeSeed.textContent = 'RANDOMIZE';
   randomizeSeed.setAttribute('aria-label', 'Generate a new random map seed');
-  randomizeSeed.onclick = () => {
+  randomizeSeed.onclick = async () => {
     if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
-    const seed = randomSeed();
+    randomizeSeed.disabled = true;
+    randomizeSeed.textContent = 'SCOUTING…';
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const mapId = sanitizeMapId(latestRoom.mapId) ?? DEFAULT_MAP_ID;
+    const mapSize = sanitizeMapSize(latestRoom.mapSize) ?? DEFAULT_MAP_SIZE;
+    const seed = strategicRandomSeed(
+      mapId,
+      mapSize,
+      sanitizeOreAmount(latestRoom.oreAmount) ?? DEFAULT_ORE_AMOUNT,
+      sanitizeTerrainRelief(latestRoom.terrainRelief) ?? defaultTerrainRelief(mapId),
+    );
     seedInput.value = String(seed);
     client.updateSettings(latestRoom.code, session.player.id, { ...settings(), seed });
+    randomizeSeed.textContent = 'RANDOMIZE';
+    randomizeSeed.disabled = false;
     randomizeSeed.blur();
   };
   seedSetting.choices.append(seedInput, randomizeSeed);
@@ -2835,6 +2866,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   activeMatchExitGuard = installActiveMatchExitGuard();
   const impactDemoPanel = impactDemoScene ? createImpactMovementDemoPanel() : undefined;
   let sidebar!: Sidebar;
+  let selectionBar!: SelectionBar;
   let tacticalPingKind: TacticalPingKind | undefined;
   let strategicMissileTargeting: { enemyTeam: number; radius: number; color: number; weapon: 'missile' | 'ember' } | undefined;
   let networkPaused = false;
@@ -2988,7 +3020,20 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       isPlacing: () => economy.placement !== undefined || strategicMissileTargeting !== undefined,
       preview: (x, z) => {
         if (strategicMissileTargeting) {
-          orderMarkers.showStrategicAreaTarget(x, z, strategicMissileTargeting.radius, strategicMissileTargeting.color);
+          const radius = strategicMissileTargeting.weapon === 'missile'
+            ? strategicAccuracy(strategicMissileAccuracyLevel(economy)).radius
+            : emberScatterRadius();
+          const maximumRadius = strategicMissileTargeting.weapon === 'missile'
+            ? strategicAccuracy(0).radius
+            : emberScatterRadius();
+          strategicMissileTargeting.radius = radius;
+          orderMarkers.showStrategicAreaTarget(
+            x,
+            z,
+            radius,
+            strategicMissileTargeting.color,
+            maximumRadius > 0 ? radius / maximumRadius : 0,
+          );
           return;
         }
         if (economy.selectedStructure) economy.placement = updatePlacement(sim, hf, economy.selectedStructure, x, z, economy.team, economy);
@@ -3163,7 +3208,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     beginStrategicTargeting: (enemyTeam, color) => {
       const readiness = strategicLaunchReadiness(sim, economy);
       if (!readiness.ready) return { ok: false, reason: readiness.reason };
-      const accuracy = strategicAccuracy(economy.strategicAccuracyLevel);
+      const accuracy = strategicAccuracy(strategicMissileAccuracyLevel(economy));
       strategicMissileTargeting = { enemyTeam, radius: accuracy.radius, color, weapon: 'missile' };
       ctx.renderer.domElement.style.cursor = 'crosshair';
       audio.playUi('select');
@@ -3172,7 +3217,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     beginEmberTargeting: (enemyTeam, color) => {
       const readiness = emberLaunchReadiness(sim, economy);
       if (!readiness.ready) return { ok: false, reason: readiness.reason };
-      strategicMissileTargeting = { enemyTeam, radius: EMBER_DRONE_SCATTER_RADIUS, color, weapon: 'ember' };
+      strategicMissileTargeting = { enemyTeam, radius: emberScatterRadius(), color, weapon: 'ember' };
       ctx.renderer.domElement.style.cursor = 'crosshair';
       audio.playUi('select');
       return { ok: true, reason: '' };
@@ -3183,7 +3228,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       ctx.renderer.domElement.style.cursor = '';
     },
   });
-  const selectionBar = new SelectionBar(sim, {
+  selectionBar = new SelectionBar(sim, {
     selectEntities: (entities) => {
       audio.playUi('select');
       const available = entities.filter((entity) => !entity.destroyed && sim.world.has(entity));
@@ -3208,6 +3253,69 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     openTacticPlanner: (entities) => {
       audio.playUi('select');
       tacticPlanner.open(entities);
+    },
+    strategic: {
+      economy,
+      upgradeAccuracy: () => {
+        if (!canManageArmy) {
+          commanderOnly();
+          return false;
+        }
+        audio.playUi('build');
+        return lockstep ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'accuracy' }) : upgradeStrategicAccuracy(sim, economy);
+      },
+      upgradeWarhead: () => {
+        if (!canManageArmy) {
+          commanderOnly();
+          return false;
+        }
+        audio.playUi('build');
+        return lockstep ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'warhead' }) : upgradeStrategicMissile(sim, economy);
+      },
+      upgradeEmberQuantity: () => {
+        if (!canManageArmy) {
+          commanderOnly();
+          return false;
+        }
+        audio.playUi('build');
+        return lockstep
+          ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'ember-quantity' })
+          : upgradeEmberDroneQuantity(sim, economy);
+      },
+      upgradeEmberWarhead: () => {
+        if (!canManageArmy) {
+          commanderOnly();
+          return false;
+        }
+        audio.playUi('build');
+        return lockstep
+          ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'ember-warhead' })
+          : upgradeEmberDroneWarhead(sim, economy);
+      },
+      beginTargeting: (weapon, enemyTeam, color) => {
+        const readiness = weapon === 'missile' ? strategicLaunchReadiness(sim, economy) : emberLaunchReadiness(sim, economy);
+        if (!readiness.ready) {
+          audio.playUi('error');
+          sidebar.notify(readiness.reason.toUpperCase());
+          return { ok: false, reason: readiness.reason };
+        }
+        strategicMissileTargeting = {
+          enemyTeam,
+          radius: weapon === 'missile' ? strategicAccuracy(strategicMissileAccuracyLevel(economy)).radius : emberScatterRadius(),
+          color,
+          weapon,
+        };
+        ctx.renderer.domElement.style.cursor = 'crosshair';
+        audio.playUi('select');
+        return { ok: true, reason: '' };
+      },
+      cancelTargeting: () => {
+        strategicMissileTargeting = undefined;
+        orderMarkers.clearStrategicAreaTarget();
+        ctx.renderer.domElement.style.cursor = '';
+        audio.playUi('cancel');
+      },
+      activeTargeting: () => strategicMissileTargeting?.weapon,
     },
   }, localTeam, ctx.camera, hf);
   const tacticPlanner = new TacticPlanner(
@@ -5610,6 +5718,8 @@ function seedMissileDoctrinePreview(
   local.economy.doctrine = 'missile-command';
   local.economy.strategicMissileLevel = 1;
   local.economy.strategicAccuracyLevel = 0;
+  local.economy.emberDroneQuantityLevel = 1;
+  local.economy.emberDroneWarheadLevel = 1;
   // The regular test base intentionally runs close to its power ceiling. Give
   // this focused scenario enough generation to operate both strategic systems.
   placePreviewStructure(sim, hf, local.economy, local.base, 'power-plant', [

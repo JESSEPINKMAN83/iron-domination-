@@ -19,7 +19,8 @@ describe('heightfield generation', () => {
   it('scales ore field count with the bounded setup ore amount', () => {
     expect(mapConfig('highlands', 'small', 50).oreFieldCount).toBe(2);
     expect(mapConfig('highlands', 'medium', 100).oreFieldCount).toBe(5);
-    expect(mapConfig('highlands', 'large', 200).oreFieldCount).toBe(13);
+    expect(mapConfig('highlands', 'medium', 150).oreFieldCount).toBe(8);
+    expect(mapConfig('highlands', 'large', 200).oreFieldCount).toBe(31);
     expect(sanitizeOreAmount(null)).toBeUndefined();
     expect(sanitizeOreAmount(37)).toBe(50);
     expect(sanitizeOreAmount(164)).toBe(175);

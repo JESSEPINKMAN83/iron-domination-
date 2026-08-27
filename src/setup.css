@@ -42,7 +42,7 @@
   display: flex;
   justify-content: space-between;
   gap: 28px;
-  padding: 28px 32px 24px;
+  padding: 18px 32px 16px;
   border-bottom: 1px solid var(--war-line);
 }
 
@@ -64,8 +64,8 @@
   letter-spacing: 0.06em;
 }
 
-.war-setup__title { margin-top: 11px; font-size: clamp(38px, 5vw, 64px); }
-.war-setup__intro { max-width: 610px; margin: 12px 0 0; color: var(--war-muted); font-size: 14px; }
+.war-setup__title { margin-top: 7px; font-size: clamp(32px, 3.5vw, 46px); }
+.war-setup__intro { max-width: 610px; margin: 8px 0 0; color: var(--war-muted); font-size: 13px; }
 
 .war-setup__badge {
   align-self: center;
@@ -629,9 +629,9 @@
 @media (max-width: 700px) {
   .war-setup { padding: 0; }
   .war-setup__shell { min-height: 100vh; border-width: 0; }
-  .war-setup__header { padding: 22px 18px 18px; }
+  .war-setup__header { padding: 16px 18px 14px; }
   .war-setup__badge { display: none; }
-  .war-setup__title { font-size: 39px; }
+  .war-setup__title { font-size: 32px; }
   .war-tab { min-height: 62px; padding: 10px 6px; }
   .war-tab span { font-size: 17px; }
   .war-tab small { font-size: 9px; }

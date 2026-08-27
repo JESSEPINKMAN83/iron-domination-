@@ -105,4 +105,41 @@ describe('combat visual load shedding', () => {
     });
     expect(attackerSprites.some((sprite) => sprite.renderOrder === 91)).toBe(true);
   });
+
+  it('turns an intercepted strategic projectile into a persistent destroyed wreck', () => {
+    const view = new CombatView(generateHeightfield(MAP01), () => true, () => undefined, 2);
+    view.push([event(0, 1, {
+      kind: 'siegeMissile',
+      weaponKind: 'strategicMissile',
+      strategicId: 77,
+      targetTeamId: 2,
+      targetHealth: 100,
+      targetMaxHealth: 100,
+      fromY: 42,
+      toY: 18,
+      trajectory: 'arc',
+      duration: 8,
+      damage: 0,
+    })]);
+
+    view.push([event(1, 2, {
+      kind: 'strategic-missile-intercepted',
+      weaponKind: 'strategicMissile',
+      strategicId: 77,
+      targetTeamId: 1,
+      targetHealth: 0,
+      targetMaxHealth: 100,
+      fromY: 32,
+      toY: 32,
+      killed: true,
+      damage: 0,
+    })]);
+
+    expect(view.group.getObjectByName('destroyed-strategic-wreck')).toBeDefined();
+    const remainingHealthBars: Sprite[] = [];
+    view.group.traverse((object) => {
+      if (object instanceof Sprite && object.renderOrder === 91) remainingHealthBars.push(object);
+    });
+    expect(remainingHealthBars).toHaveLength(0);
+  });
 });

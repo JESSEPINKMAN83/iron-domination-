@@ -64,6 +64,8 @@ export interface CombatEvent {
   killed: boolean;
   /** flight time in seconds for ballistic launches ('bomb') */
   duration?: number;
+  /** Cosmetic launch hold used to stagger a salvo without changing its route. */
+  launchDelay?: number;
   /** Visual energy multiplier for player-fired high-velocity primary impacts. */
   impactScale?: number;
   trajectory?: 'arc' | 'drop' | 'flat' | 'homing';
@@ -95,6 +97,8 @@ export interface Projectile {
   toZ: number;
   elapsed: number;
   duration: number;
+  /** Seconds remaining before this projectile becomes active in the simulation. */
+  launchDelay?: number;
   speed?: number;
   damageScale?: number;
   forceScale?: number;
@@ -122,6 +126,15 @@ export interface Projectile {
   strategic?: boolean;
   /** Threat class used by layered defenses and flight rendering. */
   strategicProfile?: 'ballistic' | 'drone';
+  /** Ember's local seeker. The marked point remains its fallback destination. */
+  strategicSeeker?: {
+    radius: number;
+    fallbackX: number;
+    fallbackY: number;
+    fallbackZ: number;
+    fallbackTargetTeamId: number;
+    lockedTargetId?: number;
+  };
   /** Terrain-aware peak lift above the straight launch-to-impact line. */
   strategicLift?: number;
   /** Stable id shared with interceptor rounds and strategic-missile combat events. */
@@ -1620,9 +1633,23 @@ export function hashSim(sim: GameSim): number {
     mix(Math.round(projectile.toX * 100));
     mix(Math.round(projectile.toZ * 100));
     mix(Math.round(projectile.elapsed * 1000));
+    mix(Math.round((projectile.launchDelay ?? 0) * 1000));
     mix(projectile.manualAim ? 1 : 0);
     mix(projectile.strategic ? 1 : 0);
     mix(projectile.strategicProfile === 'ballistic' ? 1 : projectile.strategicProfile === 'drone' ? 2 : 0);
+    mix(projectile.directTargetId ?? 0);
+    mix(projectile.homing?.targetId ?? 0);
+    mix(Math.round((projectile.homing?.remainingLifetime ?? 0) * 1000));
+    mix(Math.round((projectile.homing?.traveledDistance ?? 0) * 100));
+    mix(Math.round((projectile.homing?.directionX ?? 0) * 10000));
+    mix(Math.round((projectile.homing?.directionY ?? 0) * 10000));
+    mix(Math.round((projectile.homing?.directionZ ?? 0) * 10000));
+    mix(Math.round((projectile.strategicSeeker?.radius ?? 0) * 100));
+    mix(Math.round((projectile.strategicSeeker?.fallbackX ?? 0) * 100));
+    mix(Math.round((projectile.strategicSeeker?.fallbackY ?? 0) * 100));
+    mix(Math.round((projectile.strategicSeeker?.fallbackZ ?? 0) * 100));
+    mix(projectile.strategicSeeker?.fallbackTargetTeamId ?? 0);
+    mix(projectile.strategicSeeker?.lockedTargetId ?? 0);
     mix(Math.round((projectile.strategicLift ?? 0) * 100));
     mix(projectile.strategicId ?? 0);
     mix(projectile.strategicTargetTeamId ?? 0);

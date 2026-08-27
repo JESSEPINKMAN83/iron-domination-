@@ -473,13 +473,24 @@ describe('phase 3 economy and production', () => {
     expect(cancelUnitQueue(sim, economy, 'tank', factory)).toBe(true);
     expect(factory.producer?.queue.length).toBe(0);
 
-    expect(queueUnit(sim, economy, 'tank', factory)).toBe(true);
-    for (let i = 0; i < 30 * 12; i++) {
+    for (let index = 0; index < 3; index++) expect(queueUnit(sim, economy, 'tank', factory)).toBe(true);
+    for (let i = 0; i < 30 * 45; i++) {
       stepEconomy(sim, hf, economy, 1 / 30);
       stepSim(sim, hf, 1 / 30);
     }
-    const tank = Array.from(sim.world.entities).find((entity) => entity.selectable?.type === 'tank' && entity.team?.id === 1);
-    expect(tank?.mover?.target).toEqual(rally);
+    const tanks = Array.from(sim.world.entities).filter((entity) => entity.selectable?.type === 'tank' && entity.team?.id === 1);
+    expect(tanks).toHaveLength(3);
+    const destinations = tanks.map((tank) => tank.mover?.target ?? tank.transform);
+    expect(new Set(destinations.map((target) => `${target.x.toFixed(2)}:${target.z.toFixed(2)}`)).size).toBe(3);
+    expect(destinations.every((target) => Math.hypot(target.x - rally!.x, target.z - rally!.z) <= 36)).toBe(true);
+    for (let left = 0; left < tanks.length; left++) {
+      for (let right = left + 1; right < tanks.length; right++) {
+        expect(Math.hypot(
+          tanks[left].transform.x - tanks[right].transform.x,
+          tanks[left].transform.z - tanks[right].transform.z,
+        )).toBeGreaterThan(3.5);
+      }
+    }
   });
 
   it('moves newly produced units clear of the producer when no rally is set', () => {

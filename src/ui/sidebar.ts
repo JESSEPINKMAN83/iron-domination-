@@ -15,10 +15,10 @@ import {
 import {
   EMBER_DRONE_COST,
   EMBER_DRONE_MAX_IN_FLIGHT,
-  STRATEGIC_MISSILE_COST,
   emberLaunchReadiness,
   strategicAccuracy,
   strategicLaunchReadiness,
+  strategicMissileLaunchCost,
   strategicWarhead,
 } from '../sim/strategicWarfare';
 import type { Heightfield } from '../sim/heightfield';
@@ -235,7 +235,9 @@ export class Sidebar {
         this.renderTabs();
         this.lastBodyKey = '';
       }
-      this.tabs.style.display = selected?.building?.kind === 'strategic-silo' ? 'none' : 'grid';
+      const siloSelected = selected?.building?.kind === 'strategic-silo';
+      this.tabs.style.display = siloSelected ? 'none' : 'grid';
+      this.body.style.display = siloSelected ? 'none' : 'grid';
     }
 
     const possessed = this.firstPersonMode ? this.possessedUnit() : undefined;
@@ -500,10 +502,7 @@ export class Sidebar {
   private renderBody(): void {
     this.body.replaceChildren();
     const selected = this.selectedBuilding();
-    if (selected?.building?.kind === 'strategic-silo' || selected?.building?.kind === 'intelligence-center') {
-      this.body.appendChild(this.strategicOperationsPanel());
-      return;
-    }
+    if (selected?.building?.kind === 'strategic-silo') return;
     if (selected) this.body.appendChild(this.selectedBuildingStrip(selected));
     const selectedHarvester = this.selectedHarvester();
     if (selectedHarvester) this.body.appendChild(this.selectedHarvesterStrip(selectedHarvester));
@@ -687,12 +686,13 @@ export class Sidebar {
     panel.appendChild(upgradeChoices);
 
     const readiness = strategicLaunchReadiness(this.sim, this.economy);
+    const missileLaunchCost = strategicMissileLaunchCost(this.economy);
     const launchPanel = document.createElement('div');
     launchPanel.style.cssText = `display:grid;gap:6px;padding:8px;border:2px solid ${accent}99;background:linear-gradient(180deg,${accent}1f,rgba(6,9,9,.98));`;
     const launchHeading = document.createElement('div');
     launchHeading.style.cssText = 'display:flex;justify-content:space-between;gap:6px;font-size:10px;font-weight:900;';
     launchHeading.innerHTML =
-      `<span style="color:${accent}">LAUNCH CONTROL · WARHEAD $${STRATEGIC_MISSILE_COST}</span>` +
+      `<span style="color:${accent}">LAUNCH CONTROL · WARHEAD $${missileLaunchCost}</span>` +
       `<span style="color:${readiness.ready ? '#9cf3b1' : '#ffb59f'}">${readiness.ready ? 'READY' : readiness.reason.toUpperCase()}</span>`;
     const accuracyCopy = document.createElement('div');
     accuracyCopy.style.cssText = 'color:#aebbc4;font-size:9px;line-height:1.4;';
@@ -704,7 +704,7 @@ export class Sidebar {
     targetButton.disabled = !this.strategicTargeting && !readiness.ready;
     targetButton.textContent = this.strategicTargeting
       ? 'CANCEL IMPACT SELECTION · ESC / RIGHT-CLICK'
-      : `MARK IMPACT POINT · $${STRATEGIC_MISSILE_COST}`;
+      : `MARK IMPACT POINT · $${missileLaunchCost}`;
     targetButton.title = this.strategicTargeting ? 'Cancel missile targeting' : readiness.ready ? 'Choose any battlefield location' : readiness.reason;
     targetButton.style.cssText = strategicThemedButtonCss(this.strategicTargeting || readiness.ready, accent, this.strategicTargeting) + 'min-height:44px;font-size:10px;';
     targetButton.onclick = () => {

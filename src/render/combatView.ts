@@ -5,6 +5,7 @@ import {
   CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
+  DoubleSide,
   Float32BufferAttribute,
   Group,
   Line,
@@ -47,11 +48,21 @@ interface BombProjectile {
   to: Vector3;
   elapsed: number;
   duration: number;
+  launchDelay: number;
   event: CombatEvent;
   smokeTimer: number;
   direction?: Vector3;
   trailCapacity: number;
   healthBar?: StrategicHealthBar;
+}
+
+interface StrategicWreck {
+  group: Group;
+  velocity: Vector3;
+  spin: Vector3;
+  smokeTimer: number;
+  ttl: number;
+  weaponKind: 'strategicMissile' | 'emberDrone';
 }
 
 interface StrategicHealthBar {
@@ -130,7 +141,11 @@ export function selectCombatVisualEvents(
   totalLimit: number = COMBAT_EVENT_BUDGETS[quality].total,
 ): CombatEvent[] {
   const visualEvents = events.filter(
-    (event) => event.kind !== 'ore-delivery' && event.kind !== 'impact-reaction' && event.kind !== 'strategic-missile-warning',
+    (event) => event.kind !== 'ore-delivery'
+      && event.kind !== 'impact-reaction'
+      && event.kind !== 'strategic-missile-warning'
+      && event.kind !== 'ember-drone-lock'
+      && event.kind !== 'ember-drone-resume',
   );
   const budget = COMBAT_EVENT_BUDGETS[quality];
   const total = Math.min(budget.total, Math.max(0, Math.floor(totalLimit)));
@@ -190,6 +205,7 @@ export class CombatView {
   private readonly tracers: Tracer[] = [];
   private readonly bursts: Burst[] = [];
   private readonly bombProjectiles: BombProjectile[] = [];
+  private readonly strategicWrecks: StrategicWreck[] = [];
   private readonly hitIndicators: HitIndicator[] = [];
   private readonly smokePuffs: SmokePuff[] = [];
   private softSmokeTexture?: CanvasTexture;
@@ -220,7 +236,9 @@ export class CombatView {
       if (event.strategicId !== undefined && event.targetHealth !== undefined && event.targetMaxHealth !== undefined) {
         this.updateStrategicHealth(event.strategicId, event.targetHealth, event.targetMaxHealth);
       }
-      if (event.kind === 'strategic-missile-intercepted') this.removeStrategicProjectile(event.strategicId);
+      if (event.kind === 'ember-drone-lock') this.retargetEmberProjectile(event);
+      if (event.kind === 'ember-drone-resume') this.resumeEmberProjectile(event);
+      if (event.kind === 'strategic-missile-intercepted') this.crashStrategicProjectile(event.strategicId);
     }
     const frameBudget = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 30;
     const remaining = frameBudget - this.visualEventsThisFrame;
@@ -234,8 +252,9 @@ export class CombatView {
       // fights entirely inside the fog stay hidden, except brief player-fired hit confirmations
       if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
       if (event.kind === 'strategic-missile-intercepted') {
-        this.removeStrategicProjectile(event.strategicId);
+        this.crashStrategicProjectile(event.strategicId);
         this.spawnBombBlast(event.toX, event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.2, event.toZ, true, 1.45);
+        this.spawnHitFragments(event, event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.2);
         continue;
       }
       const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : event.kind === 'microLaser' ? 2.75 : 2.2;
@@ -325,6 +344,7 @@ export class CombatView {
 
   update(dt: number): void {
     this.updateBombProjectiles(dt);
+    this.updateStrategicWrecks(dt);
     this.updateSmokePuffs(dt);
     this.updateHitFragments(dt);
     this.updateGroundScorches(dt);
@@ -466,6 +486,9 @@ export class CombatView {
     trail.renderOrder = 58;
     this.group.add(trail);
 
+    const launchDelay = Math.max(0, event.launchDelay ?? 0);
+    group.visible = launchDelay <= 0;
+    trail.visible = launchDelay <= 0;
     this.bombProjectiles.push({
       group,
       trail,
@@ -476,6 +499,7 @@ export class CombatView {
       elapsed: 0,
       // matches the sim's flight time exactly — the blast lands when the damage does
       duration: event.duration ?? Math.min(8, Math.max(0.85, distance / 95)),
+      launchDelay,
       event,
       smokeTimer: 0,
       direction: homing ? to.clone().sub(from).normalize() : undefined,
@@ -485,6 +509,7 @@ export class CombatView {
         : undefined,
     });
     const spawned = this.bombProjectiles[this.bombProjectiles.length - 1];
+    if (spawned.healthBar) spawned.healthBar.group.visible = launchDelay <= 0;
     if (spawned.healthBar) this.syncStrategicHealthBar(spawned);
     const maxProjectiles = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 28;
     while (this.bombProjectiles.length > maxProjectiles) this.disposeBombProjectile(this.bombProjectiles.shift());
@@ -493,6 +518,15 @@ export class CombatView {
   private updateBombProjectiles(dt: number): void {
     for (let i = this.bombProjectiles.length - 1; i >= 0; i--) {
       const projectile = this.bombProjectiles[i];
+      if (projectile.launchDelay > 0) {
+        projectile.launchDelay = Math.max(0, projectile.launchDelay - dt);
+        if (projectile.launchDelay <= 0) {
+          projectile.group.visible = true;
+          projectile.trail.visible = true;
+          if (projectile.healthBar) projectile.healthBar.group.visible = true;
+        }
+        continue;
+      }
       projectile.elapsed += dt;
       if (
         projectile.event.trajectory === 'homing' &&
@@ -569,14 +603,153 @@ export class CombatView {
     }
   }
 
-  private removeStrategicProjectile(strategicId: number | undefined): void {
+  private retargetEmberProjectile(event: CombatEvent): void {
+    if (event.strategicId === undefined || event.targetId === undefined) return;
+    const projectile = this.bombProjectiles.find((candidate) => candidate.event.strategicId === event.strategicId);
+    if (!projectile) return;
+    const progress = Math.min(1, projectile.elapsed / Math.max(0.001, projectile.duration));
+    const currentDirection = projectile.direction?.clone()
+      ?? bezierTangent(projectile.from, projectile.control, projectile.to, progress).normalize();
+    const launchKind = projectile.event.kind;
+    projectile.event = { ...projectile.event, ...event, kind: launchKind };
+    projectile.to.set(event.toX, event.toY ?? projectile.to.y, event.toZ);
+    projectile.elapsed = 0;
+    projectile.duration = event.duration ?? 6;
+    projectile.direction = currentDirection.lengthSq() > 0.0001
+      ? currentDirection.normalize()
+      : projectile.to.clone().sub(projectile.group.position).normalize();
+  }
+
+  private resumeEmberProjectile(event: CombatEvent): void {
+    if (event.strategicId === undefined) return;
+    const projectile = this.bombProjectiles.find((candidate) => candidate.event.strategicId === event.strategicId);
+    if (!projectile) return;
+    const launchKind = projectile.event.kind;
+    projectile.event = { ...projectile.event, ...event, kind: launchKind, targetId: undefined };
+    projectile.from.copy(projectile.group.position);
+    projectile.to.set(event.toX, event.toY ?? projectile.to.y, event.toZ);
+    const lift = event.strategicLift ?? 5;
+    projectile.control.set(
+      (projectile.from.x + projectile.to.x) * 0.5,
+      (projectile.from.y + projectile.to.y) * 0.5 + lift * 2,
+      (projectile.from.z + projectile.to.z) * 0.5,
+    );
+    projectile.elapsed = 0;
+    projectile.duration = event.duration ?? 3;
+    projectile.direction = undefined;
+  }
+
+  private crashStrategicProjectile(strategicId: number | undefined): void {
     if (strategicId === undefined) return;
     for (let i = this.bombProjectiles.length - 1; i >= 0; i--) {
-      if (this.bombProjectiles[i].event.strategicId !== strategicId) continue;
-      this.disposeBombProjectile(this.bombProjectiles[i]);
+      const projectile = this.bombProjectiles[i];
+      if (projectile.event.strategicId !== strategicId) continue;
       this.bombProjectiles.splice(i, 1);
+      this.group.remove(projectile.trail);
+      projectile.trail.geometry.dispose();
+      (projectile.trail.material as LineBasicMaterial).dispose();
+      if (projectile.healthBar) {
+        this.group.remove(projectile.healthBar.group);
+        projectile.healthBar.group.traverse((object) => {
+          if (object instanceof Sprite) object.material.dispose();
+        });
+      }
+
+      let part = 0;
+      projectile.group.name = 'destroyed-strategic-wreck';
+      projectile.group.traverse((object) => {
+        if (!(object instanceof Mesh) || !(object.material instanceof MeshBasicMaterial)) return;
+        object.material.color.multiplyScalar(0.22);
+        if (object.material.transparent) object.material.opacity = Math.min(object.material.opacity, 0.12);
+        if (part > 0) {
+          object.position.x += Math.sin(strategicId * 0.17 + part * 2.1) * 0.16;
+          object.position.z += Math.cos(strategicId * 0.13 + part * 1.7) * 0.13;
+          object.rotation.x += Math.sin(part * 1.9) * 0.22;
+          object.rotation.z += Math.cos(part * 1.4) * 0.28;
+        }
+        part++;
+      });
+      const forward = new Vector3(0, 1, 0).applyQuaternion(projectile.group.quaternion).normalize();
+      const missile = projectile.event.weaponKind === 'strategicMissile';
+      this.strategicWrecks.push({
+        group: projectile.group,
+        velocity: forward.multiplyScalar(missile ? 13 : 9).setY(-2.5),
+        spin: new Vector3(missile ? 2.1 : 3.8, missile ? 1.4 : 2.9, missile ? 2.7 : 4.6),
+        smokeTimer: 0,
+        ttl: 8,
+        weaponKind: missile ? 'strategicMissile' : 'emberDrone',
+      });
+      while (this.strategicWrecks.length > 18) this.disposeStrategicWreck(this.strategicWrecks.shift());
       return;
     }
+  }
+
+  private updateStrategicWrecks(dt: number): void {
+    for (let i = this.strategicWrecks.length - 1; i >= 0; i--) {
+      const wreck = this.strategicWrecks[i];
+      wreck.ttl -= dt;
+      wreck.velocity.y -= 17 * dt;
+      wreck.group.position.addScaledVector(wreck.velocity, dt);
+      wreck.group.rotateX(wreck.spin.x * dt);
+      wreck.group.rotateY(wreck.spin.y * dt);
+      wreck.group.rotateZ(wreck.spin.z * dt);
+      wreck.smokeTimer -= dt;
+      if (wreck.smokeTimer <= 0) {
+        wreck.smokeTimer = wreck.weaponKind === 'strategicMissile' ? 0.045 : 0.075;
+        this.emitStrategicWreckSmoke(wreck);
+      }
+      const groundY = sampleHeight(this.hf, wreck.group.position.x, wreck.group.position.z);
+      if (wreck.group.position.y <= groundY + 0.45 || wreck.ttl <= 0) {
+        if (wreck.group.position.y <= groundY + 0.45) {
+          this.spawnCrashBlast(wreck.group.position.x, groundY + 0.55, wreck.group.position.z);
+        }
+        this.disposeStrategicWreck(wreck);
+        this.strategicWrecks.splice(i, 1);
+      }
+    }
+  }
+
+  private emitStrategicWreckSmoke(wreck: StrategicWreck): void {
+    this.softSmokeTexture ??= makeSoftSmokeTexture();
+    const missile = wreck.weaponKind === 'strategicMissile';
+    const material = new SpriteMaterial({
+      map: this.softSmokeTexture,
+      color: missile ? 0x343936 : 0x41423e,
+      transparent: true,
+      opacity: missile ? 0.66 : 0.52,
+      depthWrite: false,
+    });
+    material.userData.baseOpacity = material.opacity;
+    const puff = new Sprite(material);
+    const size = missile ? 2.6 : 1.15;
+    puff.scale.set(size * 1.5, size, 1);
+    puff.position.copy(wreck.group.position);
+    puff.renderOrder = 59;
+    this.group.add(puff);
+    const ttl = missile ? 2.4 : 1.65;
+    this.smokePuffs.push({
+      mesh: puff,
+      material,
+      velocity: new Vector3(-wreck.velocity.x * 0.025, 0.65, -wreck.velocity.z * 0.025),
+      ttl,
+      total: ttl,
+      spin: 0.22,
+      baseScale: puff.scale.clone(),
+      growth: 2.1,
+    });
+    const maxSmoke = this.visualQuality === 0 ? 170 : this.visualQuality === 1 ? 104 : 62;
+    while (this.smokePuffs.length > maxSmoke) this.disposeSmokePuff(this.smokePuffs.shift());
+  }
+
+  private disposeStrategicWreck(wreck?: StrategicWreck): void {
+    if (!wreck) return;
+    this.group.remove(wreck.group);
+    wreck.group.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      object.geometry.dispose();
+      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+      else object.material.dispose();
+    });
   }
 
   private makeStrategicHealthBar(health: number, maxHealth: number): StrategicHealthBar {
@@ -907,8 +1080,9 @@ export class CombatView {
   private makeProjectileMesh(event: CombatEvent): Group {
     const kind = event.kind;
     const visualKind = event.weaponKind ?? kind;
-    const profile = projectileProfile(visualKind, kind);
     if (visualKind === 'strategicMissile') return this.makeStrategicMissileMesh(event);
+    if (visualKind === 'emberDrone') return this.makeEmberDroneMesh(event);
+    const profile = projectileProfile(visualKind, kind);
     const group = new Group();
     const shellMaterial = new MeshBasicMaterial({ color: profile.bodyColor });
     const noseMaterial = new MeshBasicMaterial({ color: profile.noseColor });
@@ -933,6 +1107,76 @@ export class CombatView {
       group.add(fin);
     }
     group.scale.setScalar(profile.scale * (event.impactScale ?? 1));
+    return group;
+  }
+
+  private makeEmberDroneMesh(event: CombatEvent): Group {
+    const group = new Group();
+    const fuselageMaterial = new MeshBasicMaterial({ color: 0x292b28 });
+    const wingMaterial = new MeshBasicMaterial({ color: 0x3d4039, side: DoubleSide });
+    const darkMaterial = new MeshBasicMaterial({ color: 0x151817 });
+    const accentMaterial = new MeshBasicMaterial({ color: 0xb95a2d });
+    const sensorMaterial = new MeshBasicMaterial({ color: 0xff8a42 });
+    const engineGlowMaterial = new MeshBasicMaterial({
+      color: 0xffb15b,
+      transparent: true,
+      opacity: 0.48,
+      depthWrite: false,
+    });
+
+    // The projectile's local +Y axis is its direction of travel. A broad,
+    // swept planform makes Ember read as an aircraft even at RTS distance.
+    const wingGeometry = new BufferGeometry();
+    wingGeometry.setAttribute('position', new Float32BufferAttribute([
+      -0.12, 0.58, 0, -0.2, -0.82, 0, -2.28, -0.5, 0,
+      0.12, 0.58, 0, 2.28, -0.5, 0, 0.2, -0.82, 0,
+    ], 3));
+    const wings = new Mesh(wingGeometry, wingMaterial);
+    group.add(wings);
+
+    const body = new Mesh(new CylinderGeometry(0.27, 0.34, 1.9, 12), fuselageMaterial);
+    body.position.y = -0.05;
+    const nose = new Mesh(new ConeGeometry(0.27, 0.52, 12), darkMaterial);
+    nose.position.y = 1.16;
+    const payload = new Mesh(new BoxGeometry(0.48, 0.92, 0.3), darkMaterial.clone());
+    payload.position.set(0, -0.18, -0.18);
+    group.add(body, nose, payload);
+
+    const sensor = new Mesh(new SphereGeometry(0.2, 10, 7), sensorMaterial);
+    sensor.scale.set(0.82, 1, 0.64);
+    sensor.position.set(0, 0.92, 0.18);
+    group.add(sensor);
+
+    // Small panels and tail surfaces break up the silhouette without turning
+    // the low-cost drone into a polished fighter aircraft.
+    for (const side of [-1, 1]) {
+      const wingPanel = new Mesh(new BoxGeometry(0.72, 0.12, 0.035), accentMaterial.clone());
+      wingPanel.position.set(side * 0.96, -0.3, 0.035);
+      wingPanel.rotation.z = side * 0.14;
+      group.add(wingPanel);
+    }
+    const tailPlane = new Mesh(new BoxGeometry(1.2, 0.38, 0.08), wingMaterial.clone());
+    tailPlane.position.y = -0.94;
+    const tailFin = new Mesh(new BoxGeometry(0.09, 0.5, 0.5), darkMaterial.clone());
+    tailFin.position.set(0, -0.92, 0.25);
+    group.add(tailPlane, tailFin);
+
+    // Ember is propeller-driven. The compact pusher assembly and restrained
+    // engine glow replace the large rocket flame used by missile meshes.
+    const engine = new Mesh(new CylinderGeometry(0.2, 0.26, 0.42, 10), darkMaterial.clone());
+    engine.position.y = -1.2;
+    const propellerHub = new Mesh(new CylinderGeometry(0.1, 0.13, 0.18, 8), accentMaterial.clone());
+    propellerHub.position.y = -1.48;
+    const propellerX = new Mesh(new BoxGeometry(1.05, 0.055, 0.09), darkMaterial.clone());
+    propellerX.position.y = -1.58;
+    const propellerZ = new Mesh(new BoxGeometry(0.09, 0.055, 1.05), darkMaterial.clone());
+    propellerZ.position.y = -1.58;
+    const engineGlow = new Mesh(new SphereGeometry(0.19, 9, 6), engineGlowMaterial);
+    engineGlow.position.y = -1.53;
+    group.add(engine, propellerHub, propellerX, propellerZ, engineGlow);
+
+    const warheadScale = 1 + Math.max(0, (event.impactScale ?? 0.95) - 0.95) * 0.18;
+    group.scale.setScalar(1.35 * warheadScale);
     return group;
   }
 
@@ -1435,12 +1679,6 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
     ...base, bodyColor: 0x292e31, noseColor: 0xe0d2ad, bandColor: 0xd9a844, glowColor: 0xffbd58,
     bodyRadius: 0.22, tipRadius: 0.15, bodyLength: 2.05, noseLength: 0.58, bandWidth: 0.15,
     glowRadius: 0.52, fins: 4, finThickness: 0.07, finLength: 0.56, finWidth: 0.5, scale: 1.48,
-  };
-  if (weaponKind === 'emberDrone') return {
-    ...base, bodyColor: 0x27231f, noseColor: 0xe87534, bandColor: 0xffb05b, glowColor: 0xff7b2f,
-    glowOpacity: 0.82, bodyRadius: 0.22, tipRadius: 0.13, bodyLength: 1.45, noseLength: 0.42,
-    bandWidth: 0.12, glowRadius: 0.58, fins: 2, finThickness: 0.08, finLength: 1.2, finWidth: 1.35,
-    segments: 10, scale: 1.8,
   };
   if (weaponKind === 'agMissile') return {
     ...base, bodyColor: 0x252a2e, noseColor: 0xf2d66c, bandColor: 0xe2bc4f, glowColor: 0xffd76a,

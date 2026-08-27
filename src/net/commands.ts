@@ -13,6 +13,10 @@ import {
   setPrimaryProducer,
   setProducerRally,
   startStructureBuild,
+  upgradeEmberDroneQuantity,
+  upgradeEmberDroneWarhead,
+  upgradeStrategicAccuracy,
+  upgradeStrategicMissile,
   updatePlacement,
   type EconomyState,
 } from '../sim/economy';
@@ -48,6 +52,7 @@ export type NetCommand =
   | { type: 'primary-producer'; producerId: number }
   | { type: 'rally'; producerId: number; x: number; z: number }
   | { type: 'upgrade-units'; ids: number[]; upgradeId: UnitUpgradeId }
+  | { type: 'upgrade-strategic'; upgrade: 'accuracy' | 'warhead' | 'ember-quantity' | 'ember-warhead' }
   | { type: 'launch-strategic'; weapon: 'missile' | 'ember'; enemyTeam: number; x: number; z: number }
   | {
       type: 'possess-input';
@@ -508,6 +513,11 @@ export class LockstepRuntime {
       if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
     } else if (command.type === 'upgrade-units') {
       purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, team);
+    } else if (command.type === 'upgrade-strategic') {
+      if (command.upgrade === 'accuracy') upgradeStrategicAccuracy(this.options.sim, economy);
+      else if (command.upgrade === 'warhead') upgradeStrategicMissile(this.options.sim, economy);
+      else if (command.upgrade === 'ember-quantity') upgradeEmberDroneQuantity(this.options.sim, economy);
+      else upgradeEmberDroneWarhead(this.options.sim, economy);
     } else if (command.type === 'launch-strategic') {
       if (command.weapon === 'ember') launchEmberDroneAt(this.options.sim, economy, command.enemyTeam, command.x, command.z);
       else launchStrategicMissileAt(this.options.sim, economy, command.enemyTeam, command.x, command.z);
@@ -737,6 +747,7 @@ function isEconomyCommand(command: NetCommand): boolean {
     command.type === 'cancel-unit' ||
     command.type === 'primary-producer' ||
     command.type === 'upgrade-units' ||
+    command.type === 'upgrade-strategic' ||
     command.type === 'launch-strategic';
 }
 

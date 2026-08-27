@@ -3,20 +3,33 @@ import { MAP01 } from '../content/map01';
 import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity } from './components';
 import { stepCombat } from './combat';
-import { canBuildStructure, createEconomy, createInitialBase, recomputePower, upgradeStrategicAccuracy, upgradeStrategicMissile } from './economy';
+import {
+  canBuildStructure,
+  createEconomy,
+  createInitialBase,
+  recomputePower,
+  upgradeEmberDroneQuantity,
+  upgradeEmberDroneWarhead,
+  upgradeStrategicAccuracy,
+  upgradeStrategicMissile,
+} from './economy';
 import { generateHeightfield, type Heightfield } from './heightfield';
 import {
   EMBER_DRONE_COOLDOWN,
   EMBER_DRONE_COST,
   EMBER_DRONE_HEALTH,
   EMBER_DRONE_MAX_IN_FLIGHT,
+  EMBER_DRONE_SALVO_WINDOW,
+  emberDroneLaunchCost,
   emberLaunchReadiness,
   launchEmberDroneAt,
   launchStrategicMissileAt,
   strategicAccuracy,
+  strategicMissileLaunchCost,
   strategicTerrainClearanceLift,
   STRATEGIC_MISSILE_COOLDOWN,
   STRATEGIC_MISSILE_COST,
+  STRATEGIC_MISSILE_MAX_COST,
 } from './strategicWarfare';
 import { createGameSim, spawnWaspAt, type GameSim } from './world';
 
@@ -32,6 +45,8 @@ function addStructure(sim: GameSim, kind: StructureKind, team: number, x: number
     selectable: { selected: false, type: 'building', radius: Math.max(def.footprint.w, def.footprint.h) },
     collider: { radius: Math.max(def.footprint.w, def.footprint.h) },
     armor: { kind: 'building' },
+    weapon: def.weaponKind ? { kind: def.weaponKind, range: def.weaponRange ?? 0, cooldown: 0 } : undefined,
+    vision: def.visionRadius ? { radius: def.visionRadius } : undefined,
     building: {
       kind,
       label: def.label,
@@ -135,7 +150,83 @@ describe('Missile Command strategic warfare', () => {
     expect(Math.hypot(sim.projectiles[0].toX - target.transform.x, sim.projectiles[0].toZ - target.transform.z)).toBeLessThanOrEqual(10);
   });
 
-  it('caps Ember saturation at six airborne drones', () => {
+  it('diverts an Ember into a nearby visible enemy instead of its marked fallback point', () => {
+    const { sim, economy } = missileFixture();
+    const nearbyEnemy = addStructure(sim, 'factory', 2, -115, -12);
+    const markedX = 130;
+    const markedZ = 95;
+    const healthBefore = nearbyEnemy.health!.current;
+
+    expect(launchEmberDroneAt(sim, economy, 2, markedX, markedZ).ok).toBe(true);
+    expect(sim.projectiles[0].directTargetId).toBeUndefined();
+    expect(Math.hypot(
+      sim.projectiles[0].strategicSeeker!.fallbackX - markedX,
+      sim.projectiles[0].strategicSeeker!.fallbackZ - markedZ,
+    )).toBeLessThanOrEqual(10);
+
+    for (let tick = 0; tick < 30 * 12 && sim.projectiles.length > 0; tick++) {
+      sim.tick++;
+      stepCombat(sim, 1 / 30, { autoFire: false });
+    }
+
+    expect(sim.events.some((event) => event.kind === 'ember-drone-lock' && event.targetId === nearbyEnemy.id)).toBe(true);
+    expect(nearbyEnemy.health!.current).toBeLessThan(healthBefore);
+    expect(sim.events.some((event) =>
+      event.kind === 'agMissile-impact'
+      && event.weaponKind === 'emberDrone'
+      && event.targetId === nearbyEnemy.id
+    )).toBe(true);
+  });
+
+  it('keeps missile accuracy and warhead upgrades separate from Ember drones', () => {
+    const { sim, economy, target } = missileFixture();
+    economy.strategicAccuracyLevel = 8;
+    economy.strategicMissileLevel = 8;
+
+    expect(launchEmberDroneAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+    expect(sim.projectiles[0]).toMatchObject({
+      damageScale: 1,
+      impactScale: 0.95,
+      strategicHealth: EMBER_DRONE_HEALTH,
+      strategicMaxHealth: EMBER_DRONE_HEALTH,
+    });
+    expect(Math.hypot(sim.projectiles[0].toX - target.transform.x, sim.projectiles[0].toZ - target.transform.z)).toBeGreaterThan(0);
+  });
+
+  it('upgrades Ember salvo quantity to ten and applies its independent warhead to every drone', () => {
+    const { sim, economy, target } = missileFixture();
+    economy.credits = 100_000;
+    for (let level = 1; level < 10; level++) expect(upgradeEmberDroneQuantity(sim, economy)).toBe(true);
+    for (let level = 1; level < 8; level++) expect(upgradeEmberDroneWarhead(sim, economy)).toBe(true);
+    expect(economy.emberDroneQuantityLevel).toBe(10);
+    expect(economy.emberDroneWarheadLevel).toBe(8);
+    const creditsBefore = economy.credits;
+
+    expect(launchEmberDroneAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+    expect(economy.credits).toBe(creditsBefore - emberDroneLaunchCost(economy));
+    expect(sim.projectiles).toHaveLength(10);
+    expect(sim.projectiles.every((projectile) =>
+      projectile.strategicProfile === 'drone'
+      && projectile.damageScale === 2.7
+      && projectile.impactScale === 1.78
+      && projectile.strategicHealth === EMBER_DRONE_HEALTH
+    )).toBe(true);
+    expect(new Set(sim.projectiles.map((projectile) => projectile.strategicId)).size).toBe(10);
+    const launchDelays = sim.projectiles.map((projectile) => projectile.launchDelay ?? 0);
+    expect(launchDelays[0]).toBe(0);
+    expect(launchDelays.at(-1)).toBeLessThanOrEqual(EMBER_DRONE_SALVO_WINDOW);
+    expect(new Set(launchDelays.map((delay) => delay.toFixed(3))).size).toBe(10);
+    const finalDrone = sim.projectiles.at(-1)!;
+    stepCombat(sim, 0.1, { autoFire: false });
+    expect(finalDrone.elapsed).toBe(0);
+    for (let tick = 0; tick < 30 * EMBER_DRONE_SALVO_WINDOW; tick++) {
+      stepCombat(sim, 1 / 30, { autoFire: false });
+    }
+    expect(finalDrone.elapsed).toBeGreaterThan(0);
+    expect(sim.events.filter((event) => event.kind === 'ember-drone-warning')).toHaveLength(1);
+  });
+
+  it('caps Ember saturation at ten airborne drones', () => {
     const { sim, economy, target } = missileFixture();
     for (let index = 0; index < EMBER_DRONE_MAX_IN_FLIGHT; index++) {
       economy.emberDroneCooldown = 0;
@@ -143,10 +234,10 @@ describe('Missile Command strategic warfare', () => {
       expect(launchEmberDroneAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
     }
     economy.emberDroneCooldown = 0;
-    expect(emberLaunchReadiness(sim, economy)).toMatchObject({ ready: false, inFlight: 6 });
+    expect(emberLaunchReadiness(sim, economy)).toMatchObject({ ready: false, inFlight: EMBER_DRONE_MAX_IN_FLIGHT });
     expect(launchEmberDroneAt(sim, economy, 2, target.transform.x, target.transform.z)).toMatchObject({
       ok: false,
-      reason: 'Six drones already airborne',
+      reason: `Wait for ${EMBER_DRONE_MAX_IN_FLIGHT} airborne drones to clear`,
     });
   });
 
@@ -169,15 +260,66 @@ describe('Missile Command strategic warfare', () => {
     expect(target.health?.current).toBe(healthBefore);
   });
 
-  it('upgrades guidance independently and shrinks the visible scatter radius', () => {
+  it('lets a standard aircraft-capable AA tower intercept an Ember drone', () => {
+    const { sim, economy, target } = missileFixture();
+    addStructure(sim, 'aa-tower', 2, 135, 10);
+    const healthBefore = target.health!.current;
+    expect(launchEmberDroneAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+
+    for (let tick = 0; tick < 30 * 20 && !sim.events.some((event) => event.kind === 'strategic-missile-intercepted'); tick++) {
+      sim.tick++;
+      stepCombat(sim, 1 / 30, { autoFire: false });
+    }
+
+    expect(sim.events.some((event) =>
+      event.kind === 'aaMissile'
+      && event.weaponKind === 'aaMissile'
+      && event.strategicId !== undefined
+      && event.sourceTeamId === 2
+    )).toBe(true);
+    expect(sim.events.some((event) =>
+      event.kind === 'aaMissile-impact'
+      && event.targetLabel === 'Ember drone'
+      && event.killed
+    )).toBe(true);
+    expect(sim.events.some((event) => event.kind === 'strategic-missile-intercepted')).toBe(true);
+    expect(target.health?.current).toBe(healthBefore);
+  });
+
+  it('lets every aircraft-capable tower automatically engage a strategic missile', () => {
+    for (const kind of ['aa-tower', 'skylance-ciws'] as const) {
+      const { sim, economy, target } = missileFixture();
+      economy.strategicAccuracyLevel = 8;
+      addStructure(sim, kind, 2, 135, 10);
+      expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+
+      for (let tick = 0; tick < 30 * 20 && !sim.events.some((event) =>
+        event.strategicId !== undefined
+        && event.sourceTeamId === 2
+        && event.weaponKind === STRUCTURES[kind].weaponKind
+      ); tick++) {
+        sim.tick++;
+        stepCombat(sim, 1 / 30, { autoFire: false });
+      }
+
+      expect(sim.events.some((event) =>
+        event.strategicId !== undefined
+        && event.sourceTeamId === 2
+        && event.weaponKind === STRUCTURES[kind].weaponKind
+      )).toBe(true);
+    }
+  });
+
+  it('supports eight guidance upgrades and shrinks the visible scatter radius proportionally', () => {
     const { sim, economy } = missileFixture();
-    expect(strategicAccuracy(economy.strategicAccuracyLevel).radius).toBe(110);
-    expect(upgradeStrategicAccuracy(sim, economy)).toBe(true);
-    expect(strategicAccuracy(economy.strategicAccuracyLevel).radius).toBe(55);
-    expect(upgradeStrategicAccuracy(sim, economy)).toBe(true);
-    expect(strategicAccuracy(economy.strategicAccuracyLevel).radius).toBe(22);
-    expect(upgradeStrategicAccuracy(sim, economy)).toBe(true);
-    expect(strategicAccuracy(economy.strategicAccuracyLevel).radius).toBe(0);
+    economy.credits = 50_000;
+    const radii = [48];
+    for (let level = 1; level <= 8; level++) {
+      expect(upgradeStrategicAccuracy(sim, economy)).toBe(true);
+      radii.push(strategicAccuracy(economy.strategicAccuracyLevel).radius);
+    }
+    expect(radii).toEqual([48, 40, 33, 27, 21, 15, 10, 5, 0]);
+    expect(upgradeStrategicAccuracy(sim, economy)).toBe(false);
   });
 
   it('allows a marked-area launch and warns the chosen defender immediately', () => {
@@ -198,12 +340,27 @@ describe('Missile Command strategic warfare', () => {
     expect(sim.projectiles).toHaveLength(1);
     expect(sim.projectiles[0]).toMatchObject({ strategic: true, weaponKind: 'strategicMissile', trajectory: 'arc' });
     expect(sim.projectiles[0].directTargetId).toBeUndefined();
-    expect(Math.hypot(sim.projectiles[0].toX - target.transform.x, sim.projectiles[0].toZ - target.transform.z)).toBeLessThanOrEqual(110);
+    expect(Math.hypot(sim.projectiles[0].toX - target.transform.x, sim.projectiles[0].toZ - target.transform.z)).toBeLessThanOrEqual(48);
   });
 
-  it('becomes pinpoint after three accuracy upgrades and reaches the marked location', () => {
+  it('scales each launch price with warhead level up to $2,500', () => {
     const { sim, economy, target } = missileFixture();
-    economy.strategicAccuracyLevel = 3;
+    const costs: number[] = [];
+    for (let level = 1; level <= 8; level++) {
+      economy.strategicMissileLevel = level;
+      costs.push(strategicMissileLaunchCost(economy));
+    }
+    expect(costs).toEqual([225, 550, 875, 1200, 1525, 1850, 2175, STRATEGIC_MISSILE_MAX_COST]);
+
+    economy.strategicMissileLevel = 8;
+    economy.credits = STRATEGIC_MISSILE_MAX_COST;
+    expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+    expect(economy.credits).toBe(0);
+  });
+
+  it('becomes pinpoint after eight accuracy upgrades and reaches the marked location', () => {
+    const { sim, economy, target } = missileFixture();
+    economy.strategicAccuracyLevel = 8;
     const healthBefore = target.health!.current;
     expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
     expect(sim.projectiles[0]).toMatchObject({
@@ -234,15 +391,31 @@ describe('Missile Command strategic warfare', () => {
     expect(economy.strategicMissileLevel).toBe(2);
     expect(economy.credits).toBe(creditsBefore - 500);
     expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
-    expect(sim.projectiles[0]).toMatchObject({ damageScale: 1.75, impactScale: 2.25, strategicHealth: 140, strategicMaxHealth: 140 });
+    expect(sim.projectiles[0]).toMatchObject({ damageScale: 1.3, impactScale: 1.85, strategicHealth: 115, strategicMaxHealth: 115 });
+  });
+
+  it('keeps missile warhead power independent from missile accuracy', () => {
+    const { sim, economy, target } = missileFixture();
+    economy.strategicMissileLevel = 8;
+    economy.strategicAccuracyLevel = 0;
+
+    expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+    expect(Math.hypot(
+      sim.projectiles[0].toX - target.transform.x,
+      sim.projectiles[0].toZ - target.transform.z,
+    )).toBeGreaterThan(0);
+    expect(Math.hypot(
+      sim.projectiles[0].toX - target.transform.x,
+      sim.projectiles[0].toZ - target.transform.z,
+    )).toBeLessThanOrEqual(48);
   });
 
   it('makes a fully upgraded warhead devastating at the marked point', () => {
     const { sim, economy, target } = missileFixture();
-    economy.strategicAccuracyLevel = 3;
-    economy.strategicMissileLevel = 3;
+    economy.strategicAccuracyLevel = 8;
+    economy.strategicMissileLevel = 8;
     expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
-    expect(sim.projectiles[0]).toMatchObject({ damageScale: 2.8, impactScale: 3.1 });
+    expect(sim.projectiles[0]).toMatchObject({ damageScale: 4.2, impactScale: 3.7 });
 
     for (let tick = 0; tick < 30 * 20 && sim.projectiles.length > 0; tick++) {
       sim.tick++;
@@ -255,7 +428,7 @@ describe('Missile Command strategic warfare', () => {
 
   it('requires five missile-defense hits to destroy a standard strategic round', () => {
     const { sim, economy, target } = missileFixture();
-    economy.strategicAccuracyLevel = 3;
+    economy.strategicAccuracyLevel = 8;
     addStructure(sim, 'missile-defense', 2, 135, 14);
     const healthBefore = target.health!.current;
     expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
@@ -275,19 +448,25 @@ describe('Missile Command strategic warfare', () => {
     expect(target.health?.current).toBe(healthBefore);
   });
 
-  it('lets defending interceptor aircraft damage an incoming strategic round', () => {
+  it('lets defending aircraft use every air-capable weapon against an incoming strategic round', () => {
     const { sim, economy, target, hf } = missileFixture();
-    economy.strategicAccuracyLevel = 3;
+    economy.strategicAccuracyLevel = 8;
     const wasp = spawnWaspAt(sim, hf, 135, 8, 'Defense Wasp', 2);
     expect(launchStrategicMissileAt(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
 
-    for (let tick = 0; tick < 30 * 12 && !sim.events.some((event) => event.kind === 'aaMissile-impact' && event.sourceTeamId === 2); tick++) {
+    for (let tick = 0; tick < 30 * 12 && !sim.events.some((event) =>
+      event.strategicId !== undefined && event.sourceTeamId === 2 && event.damage > 0
+    ); tick++) {
       sim.tick++;
       stepCombat(sim, 1 / 30, { autoFire: false });
     }
 
-    expect(sim.events.some((event) => event.kind === 'aaMissile' && event.sourceTeamId === 2 && event.targetLabel === 'Aircraft interceptor')).toBe(true);
-    expect(sim.events.some((event) => event.kind === 'aaMissile-impact' && event.sourceTeamId === 2 && event.damage === 10)).toBe(true);
+    expect(sim.events.some((event) =>
+      event.strategicId !== undefined
+      && event.sourceTeamId === 2
+      && (event.weaponKind === 'waspAutocannon' || event.weaponKind === 'aaMissile')
+      && event.damage > 0
+    )).toBe(true);
     expect(wasp.health?.current).toBe(wasp.health?.max);
   });
 });

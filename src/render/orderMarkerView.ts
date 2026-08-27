@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   CircleGeometry,
+  Color,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
@@ -8,6 +9,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   RingGeometry,
+  ShaderMaterial,
   Vector3,
   type Object3D,
 } from 'three';
@@ -85,6 +87,9 @@ interface StrategicAreaTarget {
   fill: Mesh;
   center: Mesh;
   materials: MeshBasicMaterial[];
+  fillMaterial: ShaderMaterial;
+  ringMaterial: MeshBasicMaterial;
+  centerMaterial: MeshBasicMaterial;
 }
 
 export class OrderMarkerView {
@@ -201,10 +206,15 @@ export class OrderMarkerView {
     this.targetHover.target = undefined;
   }
 
-  showStrategicAreaTarget(x: number, z: number, radius: number, color: number): void {
+  showStrategicAreaTarget(x: number, z: number, radius: number, color: number, uncertainty = 1): void {
     if (!this.strategicAreaTarget) this.strategicAreaTarget = this.createStrategicAreaTarget(color);
     const marker = this.strategicAreaTarget;
     marker.materials.forEach((material) => material.color.setHex(color));
+    marker.fillMaterial.uniforms.uColor.value.setHex(color);
+    const clampedUncertainty = Math.max(0, Math.min(1, uncertainty));
+    marker.fillMaterial.uniforms.uUncertainty.value = clampedUncertainty;
+    marker.ringMaterial.opacity = 0.02 + Math.pow(1 - clampedUncertainty, 1.6) * 0.88;
+    marker.centerMaterial.opacity = 0.72 + (1 - clampedUncertainty) * 0.23;
     marker.root.visible = true;
     const visibleRadius = Math.max(3, radius);
     const normalStep = Math.max(
@@ -221,7 +231,7 @@ export class OrderMarkerView {
       .set(x, sampleHeight(this.hf, x, z), z)
       .addScaledVector(this.terrainNormal, 0.35);
     marker.ring.scale.setScalar(visibleRadius);
-    marker.fill.scale.setScalar(visibleRadius);
+    marker.fill.scale.setScalar(visibleRadius * 1.08);
     marker.center.scale.setScalar(radius <= 0 ? 2.2 : 1.25);
   }
 
@@ -402,7 +412,38 @@ export class OrderMarkerView {
 
   private createStrategicAreaTarget(color: number): StrategicAreaTarget {
     const ringMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false, side: DoubleSide });
-    const fillMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.1, depthWrite: false, depthTest: false, side: DoubleSide });
+    const fillMaterial = new ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      side: DoubleSide,
+      uniforms: {
+        uColor: { value: new Color(color) },
+        uUncertainty: { value: 1 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform vec3 uColor;
+        uniform float uUncertainty;
+        void main() {
+          vec2 point = (vUv - 0.5) * 2.0;
+          float angle = atan(point.y, point.x);
+          float wobble = (sin(angle * 5.0 + 0.7) + sin(angle * 9.0 - 1.1) * 0.55) * 0.055 * uUncertainty;
+          float edge = 0.925 + wobble;
+          float softness = mix(0.045, 0.34, uUncertainty);
+          float distanceFromCenter = length(point);
+          float alpha = (1.0 - smoothstep(edge - softness, edge, distanceFromCenter)) * mix(0.16, 0.11, uUncertainty);
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
+    });
     const centerMaterial = new MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false, side: DoubleSide });
     const root = new Group();
     root.visible = false;
@@ -420,7 +461,7 @@ export class OrderMarkerView {
     center.renderOrder = 120;
     root.add(fill, ring, center);
     this.group.add(root);
-    return { root, ring, fill, center, materials: [ringMaterial, fillMaterial, centerMaterial] };
+    return { root, ring, fill, center, materials: [ringMaterial, centerMaterial], fillMaterial, ringMaterial, centerMaterial };
   }
 
   private updateTargetHover(hover: TargetHover | undefined, dt: number, clear: () => void): void {
