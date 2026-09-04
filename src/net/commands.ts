@@ -45,7 +45,7 @@ export type NetCommand =
   | { type: 'return-harvesters'; ids: number[]; x: number; z: number }
   | { type: 'stop'; ids: number[] }
   | { type: 'start-structure'; kind: StructureKind }
-  | { type: 'cancel-structure' }
+  | { type: 'cancel-structure'; kind?: StructureKind }
   | { type: 'place-structure'; kind: StructureKind; x: number; z: number }
   | { type: 'queue-unit'; kind: UnitKind; producerId?: number }
   | { type: 'cancel-unit'; kind: UnitKind; producerId?: number }
@@ -494,7 +494,7 @@ export class LockstepRuntime {
     } else if (command.type === 'start-structure') {
       startStructureBuild(this.options.sim, economy, command.kind);
     } else if (command.type === 'cancel-structure') {
-      cancelStructureBuild(this.options.sim, economy);
+      cancelStructureBuild(this.options.sim, economy, command.kind);
     } else if (command.type === 'place-structure') {
       economy.selectedStructure = command.kind;
       const placement = updatePlacement(this.options.sim, this.options.hf, command.kind, command.x, command.z, economy.team, economy);

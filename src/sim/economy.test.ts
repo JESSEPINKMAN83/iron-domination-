@@ -295,6 +295,39 @@ describe('phase 3 economy and production', () => {
     expect(economy.credits).toBe(5200 + ledgerTotal);
   });
 
+  it('builds one defense and one regular structure at the same time', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 8000);
+    const base = createInitialBase(sim, hf, economy);
+
+    expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
+    for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z))).toBeDefined();
+
+    expect(startStructureBuild(sim, economy, 'barracks')).toBe(true);
+    expect(startStructureBuild(sim, economy, 'guard-tower')).toBe(true);
+    expect(economy.structureLine?.kind).toBe('barracks');
+    expect(economy.defenseStructureLine?.kind).toBe('guard-tower');
+    expect(canBuildStructure(sim, economy, 'refinery')).toMatchObject({ ok: false, reason: 'Building line busy' });
+    expect(canBuildStructure(sim, economy, 'aa-tower')).toMatchObject({ ok: false, reason: 'Defense line busy' });
+    expect(cancelStructureBuild(sim, economy, 'barracks')).toBe(true);
+    expect(economy.structureLine).toBeUndefined();
+    expect(economy.defenseStructureLine?.kind).toBe('guard-tower');
+    expect(startStructureBuild(sim, economy, 'barracks')).toBe(true);
+
+    for (let i = 0; i < 30 * 7; i++) stepEconomy(sim, hf, economy, 1 / 30);
+    expect(economy.readyStructure).toBe('barracks');
+    expect(economy.readyDefenseStructure).toBe('guard-tower');
+
+    const barracks = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'barracks', base.transform.x + 28, base.transform.z));
+    const tower = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'guard-tower', base.transform.x, base.transform.z + 28));
+    expect(barracks?.building?.kind).toBe('barracks');
+    expect(tower?.building?.kind).toBe('guard-tower');
+    expect(economy.readyStructure).toBeUndefined();
+    expect(economy.readyDefenseStructure).toBeUndefined();
+  });
+
   it('lets repeated unit clicks stack a full ten-job producer queue', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

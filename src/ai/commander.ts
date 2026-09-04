@@ -4,7 +4,17 @@
 import { STRUCTURES, type StructureKind, type UnitKind } from '../content/phase3';
 import { AI_DIFFICULTY, AI_PERSONALITY, type Difficulty, type DifficultyDef, type Personality, type PersonalityDef } from '../content/phase6';
 import type { Entity } from '../sim/components';
-import { buildings, canBuildStructure, placeStructure, queueUnit, startStructureBuild, updatePlacement, type EconomyState } from '../sim/economy';
+import {
+  buildings,
+  canBuildStructure,
+  placeStructure,
+  queueUnit,
+  readyStructureInLane,
+  startStructureBuild,
+  structureLineInLane,
+  updatePlacement,
+  type EconomyState,
+} from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { areTeamsHostile, attackStandoffPoint, issueMoveOrder, type GameSim } from '../sim/world';
@@ -102,10 +112,12 @@ export class EnemyCommander {
       rebuilding = next !== undefined && this.everCompleted.has(next) && this.count(next) === 0;
     }
     if (!next) return;
-    if (this.economy.readyStructure) {
-      const spot = this.findPlacement(this.economy.readyStructure);
+    const lane = STRUCTURES[next].tab;
+    const readyStructure = readyStructureInLane(this.economy, lane);
+    if (readyStructure) {
+      const spot = this.findPlacement(readyStructure);
       if (!spot) return;
-      const placedKind = this.economy.readyStructure;
+      const placedKind = readyStructure;
       if (!placeStructure(this.sim, this.hf, this.economy, spot)) return;
       if (this.buildQueue[0] === placedKind) this.buildQueue.shift();
       this.stats.structuresPlaced++;
@@ -117,7 +129,7 @@ export class EnemyCommander {
       }
       return;
     }
-    if (this.economy.structureLine) return;
+    if (structureLineInLane(this.economy, lane)) return;
     if (!canBuildStructure(this.sim, this.economy, next).ok) return;
     const spot = this.findPlacement(next);
     if (!spot) return;

@@ -5,7 +5,7 @@ export type UnitVoiceEvent = 'selected' | 'move' | 'attack' | 'tactic';
 export type UnitVoiceCategory = 'infantry' | 'vehicle' | 'aircraft';
 
 interface VoicePlayer {
-  playVoice(url: string, volume?: number): void;
+  playVoiceAt(url: string, x: number, z: number, volume?: number): void;
 }
 
 const INFANTRY_KINDS = new Set(['infantry', 'sniper', 'grenadier', 'rocket-infantry']);
@@ -76,11 +76,22 @@ export class UnitVoiceDirector {
   acknowledge(entities: Entity[], event: UnitVoiceEvent): void {
     const category = dominantUnitVoiceCategory(entities);
     if (!category) return;
+    const speakers = entities.filter((entity) => !entity.destroyed && unitVoiceCategory(entity) === category);
+    if (speakers.length === 0) return;
     const now = this.now();
     const cooldown = event === 'selected' ? 900 : 360;
     const key = `${category}:${event}`;
     if (now - (this.lastAt.get(key) ?? -Infinity) < cooldown) return;
     this.lastAt.set(key, now);
-    this.player.playVoice(VOICES[category][event], 0.58);
+    const origin = speakers.reduce(
+      (sum, entity) => ({ x: sum.x + entity.transform.x, z: sum.z + entity.transform.z }),
+      { x: 0, z: 0 },
+    );
+    this.player.playVoiceAt(
+      VOICES[category][event],
+      origin.x / speakers.length,
+      origin.z / speakers.length,
+      0.58,
+    );
   }
 }

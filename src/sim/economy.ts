@@ -34,8 +34,12 @@ export interface EconomyState {
   powerUsed: number;
   ledger: LedgerEntry[];
   selectedStructure?: StructureKind;
+  /** Economy/infrastructure construction lane. */
   structureLine?: ProductionJob;
   readyStructure?: StructureKind;
+  /** Defense construction lane; progresses independently from the regular structure line. */
+  defenseStructureLine?: ProductionJob;
+  readyDefenseStructure?: StructureKind;
   primaryProducerIds: Partial<Record<UnitProducerType, number>>;
   placement?: PlacementState;
   pendingSpawned: Entity[];
@@ -121,6 +125,8 @@ export function hashEconomy(economy: EconomyState): number {
   mix(Math.round(economy.emberDroneCooldown * 1000));
   mixJob(economy.structureLine);
   mixText(economy.readyStructure);
+  mixJob(economy.defenseStructureLine);
+  mixText(economy.readyDefenseStructure);
   for (const refineryId of Object.keys(economy.harvesterReplacementTimers).map(Number).sort((a, b) => a - b)) {
     mix(refineryId);
     mix(Math.round((economy.harvesterReplacementTimers[refineryId] ?? 0) * 1000));
@@ -164,10 +170,54 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
   return conyard;
 }
 
+export type StructureLane = 'structures' | 'defense';
+
+export function structureLineInLane(economy: EconomyState, lane: StructureLane): ProductionJob | undefined {
+  if (lane === 'defense') {
+    return economy.defenseStructureLine ??
+      (economy.structureLine && STRUCTURES[economy.structureLine.kind as StructureKind]?.tab === 'defense' ? economy.structureLine : undefined);
+  }
+  return economy.structureLine && STRUCTURES[economy.structureLine.kind as StructureKind]?.tab === 'structures'
+    ? economy.structureLine
+    : undefined;
+}
+
+export function readyStructureInLane(economy: EconomyState, lane: StructureLane): StructureKind | undefined {
+  if (lane === 'defense') {
+    return economy.readyDefenseStructure ??
+      (economy.readyStructure && STRUCTURES[economy.readyStructure]?.tab === 'defense' ? economy.readyStructure : undefined);
+  }
+  return economy.readyStructure && STRUCTURES[economy.readyStructure]?.tab === 'structures' ? economy.readyStructure : undefined;
+}
+
+export function isStructureReady(economy: EconomyState, kind: StructureKind): boolean {
+  return readyStructureInLane(economy, STRUCTURES[kind].tab) === kind;
+}
+
+function clearStructureLine(economy: EconomyState, lane: StructureLane): void {
+  if (lane === 'defense') {
+    economy.defenseStructureLine = undefined;
+    if (economy.structureLine && STRUCTURES[economy.structureLine.kind as StructureKind]?.tab === 'defense') economy.structureLine = undefined;
+  } else {
+    economy.structureLine = undefined;
+  }
+}
+
+function clearReadyStructure(economy: EconomyState, kind: StructureKind): void {
+  if (STRUCTURES[kind].tab === 'defense') {
+    economy.readyDefenseStructure = undefined;
+    if (economy.readyStructure === kind) economy.readyStructure = undefined;
+  } else {
+    economy.readyStructure = undefined;
+  }
+}
+
 export function canBuildStructure(sim: GameSim, economy: EconomyState, kind: StructureKind): { ok: boolean; reason: string } {
   const def = STRUCTURES[kind];
   if (def.doctrine && def.doctrine !== economy.doctrine) return { ok: false, reason: `${ARMY_DOCTRINES[def.doctrine].label} only` };
-  if (economy.structureLine || economy.readyStructure) return { ok: false, reason: 'Structure line busy' };
+  if (structureLineInLane(economy, def.tab) || readyStructureInLane(economy, def.tab)) {
+    return { ok: false, reason: `${def.tab === 'defense' ? 'Defense' : 'Building'} line busy` };
+  }
   if (economy.credits < def.cost) return { ok: false, reason: 'Insufficient credits' };
   if (def.requires && !hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}` };
   return { ok: true, reason: '' };
@@ -216,7 +266,7 @@ export function updatePlacement(
 
 export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomyState, placement: PlacementState): Entity | undefined {
   const def = STRUCTURES[placement.kind];
-  if (!placement.valid || economy.readyStructure !== placement.kind) return undefined;
+  if (!placement.valid || !isStructureReady(economy, placement.kind)) return undefined;
   const points = placement.wallLine?.length ? placement.wallLine : [{ x: placement.x, z: placement.z }];
   const extraCost = placement.extraCost ?? Math.max(0, points.length - 1) * def.cost;
   if (extraCost > 0) {
@@ -230,7 +280,7 @@ export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomySt
     if (harvester) economy.pendingSpawned.push(harvester);
     first ??= entity;
   }
-  economy.readyStructure = undefined;
+  clearReadyStructure(economy, placement.kind);
   recomputePower(sim, economy);
   return first;
 }
@@ -289,29 +339,48 @@ export function startStructureBuild(sim: GameSim, economy: EconomyState, kind: S
   if (!check.ok) return false;
   const def = STRUCTURES[kind];
   spend(economy, sim.tick, def.label, def.cost);
-  economy.structureLine = { kind, label: def.label, remaining: def.buildTime, total: def.buildTime, cost: def.cost };
-  economy.readyStructure = undefined;
+  const job = { kind, label: def.label, remaining: def.buildTime, total: def.buildTime, cost: def.cost };
+  if (def.tab === 'defense') {
+    economy.defenseStructureLine = job;
+    economy.readyDefenseStructure = undefined;
+  } else {
+    economy.structureLine = job;
+    economy.readyStructure = undefined;
+  }
   return true;
 }
 
-export function enterReadyStructurePlacement(sim: GameSim, hf: Heightfield, economy: EconomyState, x = 0, z = 0): boolean {
-  if (!economy.readyStructure) return false;
-  economy.selectedStructure = economy.readyStructure;
-  economy.placement = updatePlacement(sim, hf, economy.readyStructure, x, z, economy.team);
+export function enterReadyStructurePlacement(
+  sim: GameSim,
+  hf: Heightfield,
+  economy: EconomyState,
+  x = 0,
+  z = 0,
+  requestedKind?: StructureKind,
+): boolean {
+  const ready = requestedKind && isStructureReady(economy, requestedKind)
+    ? requestedKind
+    : readyStructureInLane(economy, 'structures') ?? readyStructureInLane(economy, 'defense');
+  if (!ready) return false;
+  economy.selectedStructure = ready;
+  economy.placement = updatePlacement(sim, hf, ready, x, z, economy.team);
   return true;
 }
 
-export function cancelStructureBuild(sim: GameSim, economy: EconomyState): boolean {
-  const job = economy.structureLine;
+export function cancelStructureBuild(sim: GameSim, economy: EconomyState, requestedKind?: StructureKind): boolean {
+  const lane = requestedKind ? STRUCTURES[requestedKind].tab : structureLineInLane(economy, 'structures') || readyStructureInLane(economy, 'structures')
+    ? 'structures'
+    : 'defense';
+  const job = structureLineInLane(economy, lane);
   if (job) {
-    economy.structureLine = undefined;
+    clearStructureLine(economy, lane);
     refund(economy, sim.tick, job.label, job.cost);
     return true;
   }
-  const ready = economy.readyStructure;
+  const ready = readyStructureInLane(economy, lane);
   if (ready) {
     const def = STRUCTURES[ready];
-    economy.readyStructure = undefined;
+    clearReadyStructure(economy, ready);
     if (economy.selectedStructure === ready) economy.selectedStructure = undefined;
     economy.placement = undefined;
     refund(economy, sim.tick, def.label, def.cost);
@@ -414,13 +483,15 @@ export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState
   economy.strategicMissileCooldown = Math.max(0, economy.strategicMissileCooldown - dt * productionScale);
   economy.emberDroneCooldown = Math.max(0, economy.emberDroneCooldown - dt * productionScale);
 
-  const structureJob = economy.structureLine;
-  if (structureJob) {
+  for (const lane of ['structures', 'defense'] as const) {
+    const structureJob = structureLineInLane(economy, lane);
+    if (!structureJob) continue;
     structureJob.remaining -= dt * productionScale;
-    if (structureJob.remaining <= 0) {
-      economy.readyStructure = structureJob.kind as StructureKind;
-      economy.structureLine = undefined;
-    }
+    if (structureJob.remaining > 0) continue;
+    const kind = structureJob.kind as StructureKind;
+    clearStructureLine(economy, lane);
+    if (lane === 'defense') economy.readyDefenseStructure = kind;
+    else economy.readyStructure = kind;
   }
 
   for (const entity of buildings(sim, economy.team)) {

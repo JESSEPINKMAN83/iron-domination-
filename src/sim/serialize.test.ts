@@ -19,6 +19,8 @@ describe('match state serialization', () => {
     expect(issueMoveOrder(sim, tanks, 95, 88, false, Math.PI * 0.35, 18, true)).toBe(true);
     expect(queueUnit(sim, economy, 'infantry')).toBe(false);
     sim.resourceNodes[0].remaining -= 123.45;
+    economy.structureLine = { kind: 'power-plant', label: 'Power Plant', remaining: 10, total: 10, cost: 300 };
+    economy.defenseStructureLine = { kind: 'guard-tower', label: 'Fortress Guard Tower', remaining: 12, total: 12, cost: 760 };
 
     for (let i = 0; i < 40; i++) {
       stepEconomy(sim, hf, economy, SIM_DT);
@@ -37,6 +39,8 @@ describe('match state serialization', () => {
     expect(loaded.nextEntityId).toBe(sim.nextEntityId);
     expect(loadedEconomy.credits).toBe(economy.credits);
     expect(loadedEconomy.ledger).toEqual(economy.ledger);
+    expect(loadedEconomy.structureLine).toEqual(economy.structureLine);
+    expect(loadedEconomy.defenseStructureLine).toEqual(economy.defenseStructureLine);
     expect(Array.from(loaded.world.entities).length).toBe(Array.from(sim.world.entities).length);
     expect(Array.from(loaded.world.entities).some((entity) => entity.mover?.target && entity.mover.flow)).toBe(true);
     expect(Array.from(loaded.world.entities).filter((entity) => entity.mover?.target).every((entity) => entity.mover?.sprint)).toBe(true);

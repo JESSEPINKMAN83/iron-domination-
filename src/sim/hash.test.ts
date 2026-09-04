@@ -92,6 +92,10 @@ describe('hashSim sensitivity', () => {
     const spent = hashEconomy(economy);
     economy.structureLine = { kind: 'power-plant', label: 'Power Plant', remaining: 5, total: 10, cost: 500 };
     expect(hashEconomy(economy)).not.toBe(spent);
+
+    const regularLine = hashEconomy(economy);
+    economy.defenseStructureLine = { kind: 'guard-tower', label: 'Fortress Guard Tower', remaining: 3, total: 6, cost: 760 };
+    expect(hashEconomy(economy)).not.toBe(regularLine);
   });
 });
 

@@ -3,11 +3,12 @@ import type { Entity } from '../sim/components';
 import { dominantUnitVoiceCategory, UnitVoiceDirector } from './unitVoiceDirector';
 
 function unit(kind: 'infantry' | 'tank' | 'aircraft' | 'future-ground', destroyed = false): Entity {
-  if (kind === 'aircraft') return { selectable: { type: 'future-gunship' }, flight: {}, destroyed } as unknown as Entity;
-  if (kind === 'future-ground') return { selectable: { type: 'future-rover' }, mover: {}, destroyed } as unknown as Entity;
+  const transform = { x: 20, y: 0, z: 30, rot: 0 };
+  if (kind === 'aircraft') return { selectable: { type: 'future-gunship' }, flight: {}, transform, destroyed } as unknown as Entity;
+  if (kind === 'future-ground') return { selectable: { type: 'future-rover' }, mover: {}, transform, destroyed } as unknown as Entity;
   return kind === 'infantry'
-    ? { selectable: { type: 'infantry' }, weapon: { kind: 'rifle' }, destroyed } as unknown as Entity
-    : { selectable: { type: 'tank' }, weapon: { kind: 'tankMissile' }, destroyed } as unknown as Entity;
+    ? { selectable: { type: 'infantry' }, weapon: { kind: 'rifle' }, transform, destroyed } as unknown as Entity
+    : { selectable: { type: 'tank' }, weapon: { kind: 'tankMissile' }, transform, destroyed } as unknown as Entity;
 }
 
 describe('unit voice acknowledgements', () => {
@@ -17,9 +18,9 @@ describe('unit voice acknowledgements', () => {
   });
 
   it('maps infantry commands to their dedicated voice clips', () => {
-    const playVoice = vi.fn();
+    const playVoiceAt = vi.fn();
     let now = 1_000;
-    const voices = new UnitVoiceDirector({ playVoice }, () => now);
+    const voices = new UnitVoiceDirector({ playVoiceAt }, () => now);
     const infantry = [unit('infantry')];
 
     voices.acknowledge(infantry, 'selected');
@@ -30,7 +31,7 @@ describe('unit voice acknowledgements', () => {
     now += 1_000;
     voices.acknowledge(infantry, 'tactic');
 
-    expect(playVoice.mock.calls.map(([url]) => url)).toEqual([
+    expect(playVoiceAt.mock.calls.map(([url]) => url)).toEqual([
       '/assets/voices/infantry/infantry-selected.mp3',
       '/assets/voices/infantry/infantry-move.mp3',
       '/assets/voices/infantry/infantry-attack.mp3',
@@ -39,11 +40,11 @@ describe('unit voice acknowledgements', () => {
   });
 
   it('maps vehicles and aircraft to distinct voices', () => {
-    const playVoice = vi.fn();
-    const voices = new UnitVoiceDirector({ playVoice }, () => 1_000);
+    const playVoiceAt = vi.fn();
+    const voices = new UnitVoiceDirector({ playVoiceAt }, () => 1_000);
     voices.acknowledge([unit('tank')], 'selected');
     voices.acknowledge([unit('aircraft')], 'selected');
-    expect(playVoice.mock.calls.map(([url]) => url)).toEqual([
+    expect(playVoiceAt.mock.calls.map(([url]) => url)).toEqual([
       '/assets/voices/vehicle/vehicle-selected.mp3',
       '/assets/voices/aircraft/aircraft-selected.mp3',
     ]);
@@ -54,12 +55,27 @@ describe('unit voice acknowledgements', () => {
   });
 
   it('does not spam repeated selection acknowledgements', () => {
-    const playVoice = vi.fn();
+    const playVoiceAt = vi.fn();
     let now = 1_000;
-    const voices = new UnitVoiceDirector({ playVoice }, () => now);
+    const voices = new UnitVoiceDirector({ playVoiceAt }, () => now);
     voices.acknowledge([unit('infantry')], 'selected');
     now += 200;
     voices.acknowledge([unit('infantry')], 'selected');
-    expect(playVoice).toHaveBeenCalledTimes(1);
+    expect(playVoiceAt).toHaveBeenCalledTimes(1);
+  });
+
+  it('plays a group acknowledgement from the average unit position', () => {
+    const playVoiceAt = vi.fn();
+    const first = unit('tank');
+    const second = unit('tank');
+    first.transform.x = 10;
+    first.transform.z = 20;
+    second.transform.x = 30;
+    second.transform.z = 60;
+    const voices = new UnitVoiceDirector({ playVoiceAt }, () => 1_000);
+
+    voices.acknowledge([first, second], 'move');
+
+    expect(playVoiceAt).toHaveBeenCalledWith('/assets/voices/vehicle/vehicle-move.mp3', 20, 40, 0.58);
   });
 });
