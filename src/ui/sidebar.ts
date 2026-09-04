@@ -10,6 +10,9 @@ import {
   canUpgradeStrategicAccuracy,
   canUpgradeStrategicMissile,
   hasStructure,
+  isStructureReady,
+  readyStructureInLane,
+  structureLineInLane,
   type EconomyState,
 } from '../sim/economy';
 import {
@@ -34,13 +37,13 @@ import {
 } from './radarTransform';
 import { unitDisplayName } from './unitDisplayName';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
-import { FACTION, factionId } from '../render/palette';
+import { colorCss, FACTION, factionId } from '../render/palette';
 
 type Tab = 'buildings' | 'defense' | 'infantry' | 'vehicles' | 'aircraft';
 
 export interface SidebarActions {
   buildStructure(kind: StructureKind): void;
-  cancelStructure(): void;
+  cancelStructure(kind: StructureKind): void;
   queueUnit(kind: UnitKind, producer?: Entity): void;
   cancelUnit(kind: UnitKind, producer?: Entity): void;
   setPrimaryProducer(producer: Entity): void;
@@ -514,7 +517,7 @@ export class Sidebar {
       )) {
         this.body.appendChild(
           this.card(def.kind, def.label, def.cost, 'STRUCTURE', this.structureCardState(def.kind), () => this.actions.buildStructure(def.kind), () =>
-            this.actions.cancelStructure(),
+            this.actions.cancelStructure(def.kind),
           ),
         );
       }
@@ -527,7 +530,7 @@ export class Sidebar {
       )) {
         this.body.appendChild(
           this.card(def.kind, def.label, def.cost, 'DEFENSE', this.structureCardState(def.kind), () => this.actions.buildStructure(def.kind), () =>
-            this.actions.cancelStructure(),
+            this.actions.cancelStructure(def.kind),
           ),
         );
       }
@@ -851,11 +854,11 @@ export class Sidebar {
 
   private structureCardState(kind: StructureKind): CardState {
     const def = STRUCTURES[kind];
-    const line = this.economy.structureLine;
-    const ready = this.economy.readyStructure === kind;
+    const line = structureLineInLane(this.economy, def.tab);
+    const ready = isStructureReady(this.economy, kind);
     const active = line?.kind === kind;
     const check = canBuildStructure(this.sim, this.economy, kind);
-    const lineBusy = !!line || !!this.economy.readyStructure;
+    const lineBusy = !!line || !!readyStructureInLane(this.economy, def.tab);
     return {
       enabled: ready || check.ok,
       reason: ready ? 'Ready to place' : active ? 'Building' : lineBusy ? 'Line busy' : check.reason,
@@ -1202,11 +1205,11 @@ export class Sidebar {
 
   private tabHasActivity(tab: Tab): boolean {
     if (tab === 'buildings') {
-      const kind = this.economy.readyStructure ?? (this.economy.structureLine?.kind as StructureKind | undefined);
+      const kind = readyStructureInLane(this.economy, 'structures') ?? (structureLineInLane(this.economy, 'structures')?.kind as StructureKind | undefined);
       return !!kind && STRUCTURES[kind]?.tab === 'structures';
     }
     if (tab === 'defense') {
-      const kind = this.economy.readyStructure ?? (this.economy.structureLine?.kind as StructureKind | undefined);
+      const kind = readyStructureInLane(this.economy, 'defense') ?? (structureLineInLane(this.economy, 'defense')?.kind as StructureKind | undefined);
       return !!kind && STRUCTURES[kind]?.tab === 'defense';
     }
     return this.unitProducers(tab).some((entity) => entity.producer?.active || (entity.producer?.queue.length ?? 0) > 0);
@@ -1234,7 +1237,8 @@ export class Sidebar {
       .filter((entity) => entity.team?.id === this.economy.team && entity.harvester && !entity.destroyed)
       .map((entity) => `${entity.id}:${entity.harvester?.state}:${entity.harvester?.nodeId ?? ''}:${entity.harvester?.refineryId ?? ''}`)
       .join('|');
-    const line = this.economy.structureLine;
+    const structureLine = structureLineInLane(this.economy, 'structures');
+    const defenseLine = structureLineInLane(this.economy, 'defense');
     const visibleCosts =
       this.activeTab === 'buildings' || this.activeTab === 'defense'
         ? Object.values(STRUCTURES)
@@ -1256,8 +1260,10 @@ export class Sidebar {
       Math.ceil(this.economy.emberDroneCooldown),
       this.strategicTargeting,
       this.strategicEnemyTeam ?? '',
-      `${line?.kind ?? ''}`,
-      this.economy.readyStructure ?? '',
+      `${structureLine?.kind ?? ''}`,
+      `${defenseLine?.kind ?? ''}`,
+      readyStructureInLane(this.economy, 'structures') ?? '',
+      readyStructureInLane(this.economy, 'defense') ?? '',
       this.economy.selectedStructure ?? '',
       JSON.stringify(this.economy.primaryProducerIds),
       visibleCosts,
@@ -1380,7 +1386,8 @@ export class Sidebar {
       const p = this.worldToRadar(entity.transform.x, entity.transform.z);
       if (p.x < 0 || p.y < 0 || p.x >= this.radar.width || p.y >= this.radar.height) continue;
       const isBuilding = !!entity.building;
-      this.radarCtx.fillStyle = entity.team?.id !== this.economy.team ? '#df5742' : entity.selectable?.selected ? '#f0d56a' : '#56d184';
+      const palette = FACTION[factionId(entity.team?.id)];
+      this.radarCtx.fillStyle = colorCss(entity.selectable?.selected ? palette.lightBar : palette.accent);
       this.radarCtx.fillRect(Math.round(p.x) - (isBuilding ? 2 : 1), Math.round(p.y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
     this.drawRadarFog();

@@ -31,7 +31,7 @@ import { escortDroneLocalPosition } from '../sim/combat';
 import type { ImpactZone } from '../sim/impactModel';
 import type { CombatEvent } from '../sim/world';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
-import { factionId, FACTION, type FactionId } from './palette';
+import { factionCamoColors, factionId, FACTION, type FactionId } from './palette';
 import type { RenderContext, VisualQualityTier } from './renderer';
 import { buildSoldier, type SoldierMaterials, type SoldierRig } from './soldier';
 import { unitVisualKind, type UnitVisualKind } from './unitKinds';
@@ -674,7 +674,7 @@ export class UnitView {
       toneMapped: false,
     });
     this.ringMaterial = new MeshBasicMaterial({
-      color: 0xf0d56a,
+      color: FACTION[factionId(localTeam)].lightBar,
       transparent: true,
       opacity: 0.94,
       depthWrite: false,
@@ -2232,14 +2232,7 @@ function createCamoTexture(id: FactionId): CanvasTexture {
   canvas.width = canvas.height = 128;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('camo canvas unavailable');
-  const colors =
-    id === 2
-      ? ['#4a3f38', '#604739', '#2f2b28', '#7a563c']
-      : id === 3
-        ? ['#3f5260', '#536a75', '#2e3f49', '#6c818c']
-        : id === 4
-          ? ['#4e5a3d', '#65754d', '#38432f', '#798a5f']
-          : ['#55603f', '#687151', '#3c4634', '#7a8060'];
+  const colors = factionCamoColors(id);
   ctx.fillStyle = colors[0];
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   let seed = 101 + id * 97;

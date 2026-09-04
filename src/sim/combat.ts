@@ -69,6 +69,7 @@ interface HitSummary {
   targetId: number;
   targetLabel: string;
   targetType: string;
+  targetBuildingKind?: string;
   targetHealth: number;
   targetMaxHealth: number;
   damage: number;
@@ -769,6 +770,13 @@ function launchWeaponProjectile(
     targetId: target?.id,
     targetLabel: target?.name ?? target?.building?.label ?? target?.selectable?.type,
     sourceTeamId: attacker.team.id,
+    sourceClass: attacker.flight
+      ? 'aircraft'
+      : attacker.building
+        ? 'tower'
+        : attacker.selectable?.type === 'infantry'
+          ? 'infantry'
+          : 'vehicle',
     damage: 0,
     killed: false,
     duration,
@@ -1410,6 +1418,7 @@ function launchStrategicInterceptor(
     toY: destination.y,
     toZ: destination.z,
     sourceTeamId: defender.team.id,
+    sourceClass: sourceKind === 'tower' ? 'tower' : 'aircraft',
     targetTeamId: strategic.teamId,
     targetLabel: sourceKind === 'tower' ? 'Missile defense interceptor' : 'Aircraft interceptor',
     targetType: 'aircraft',
@@ -2041,6 +2050,7 @@ function summarizeHit(target: Entity, damage: number): HitSummary | undefined {
     targetId: target.id,
     targetLabel: target.name ?? target.building?.label ?? target.selectable?.type ?? 'target',
     targetType: target.flight ? 'aircraft' : target.building ? 'building' : target.selectable?.type ?? 'unit',
+    targetBuildingKind: target.building?.kind,
     targetHealth: target.health.current,
     targetMaxHealth: target.health.max,
     damage,

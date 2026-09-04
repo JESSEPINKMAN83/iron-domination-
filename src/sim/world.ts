@@ -49,11 +49,14 @@ export interface CombatEvent {
   toY?: number;
   toZ: number;
   sourceTeamId?: number;
+  /** Broad launcher class used only for local sound selection. */
+  sourceClass?: 'infantry' | 'vehicle' | 'aircraft' | 'tower';
   /** Defending army for warnings or effects that are aimed at a team rather than one entity. */
   targetTeamId?: number;
   targetId?: number;
   targetLabel?: string;
   targetType?: string;
+  targetBuildingKind?: string;
   targetHealth?: number;
   targetMaxHealth?: number;
   /** Stable id used to keep strategic-missile flight FX and defense UI in sync. */

@@ -11,6 +11,7 @@ import {
 } from './identity/commander';
 import { enlist, enlistedCommander } from './identity/enlist';
 import { MUSIC_ENABLED } from './experienceFlags';
+import { installStandaloneButtonSounds } from './audio/uiMenuSounds';
 
 const FORM_NAME = 'iron-dominion-beta';
 
@@ -340,6 +341,7 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
       </section>
     `;
     document.body.appendChild(root);
+    installStandaloneButtonSounds(root);
     startLandingMusic();
     setupLandingMusicControl(root);
     const showCommanderChip = (): void => {

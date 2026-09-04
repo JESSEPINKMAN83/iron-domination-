@@ -4,6 +4,7 @@ import {
   BoxGeometry,
   CanvasTexture,
   CircleGeometry,
+  Color,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
@@ -407,7 +408,8 @@ export class BuildingView {
     const root = new Group();
     const damage = structureDamageFor(entity);
     const kind = entity.building?.kind;
-    const baseMaterial = this.materials[kind ?? 'command-yard'] ?? this.materials['command-yard'];
+    const sharedBaseMaterial = this.materials[kind ?? 'command-yard'] ?? this.materials['command-yard'];
+    const baseMaterial = createFactionBuildingMaterial(sharedBaseMaterial, factionId(entity.team?.id));
     const buildingHeight = heightForStructure(kind);
     const fullW = (entity.building?.footprint.w ?? 4) * this.hf.cellSize * 2;
     const fullD = (entity.building?.footprint.h ?? 4) * this.hf.cellSize * 2;
@@ -2377,6 +2379,16 @@ function glowMaterial(color: number, opacity: number): MeshBasicMaterial {
     side: DoubleSide,
     blending: AdditiveBlending,
   });
+}
+
+function createFactionBuildingMaterial(base: Material, id: FactionId): Material {
+  if (!(base instanceof MeshStandardMaterial)) return base;
+  const material = base.clone();
+  const palette = FACTION[id];
+  material.color.lerp(new Color(palette.hull), 0.34);
+  material.emissive.setHex(palette.accentEmissive);
+  material.emissiveIntensity = Math.max(material.emissiveIntensity, 0.08);
+  return material;
 }
 
 function createSelectionGlow(

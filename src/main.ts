@@ -20,6 +20,8 @@ import './smokePreview.css';
 import './outcomeScreen.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
+import { showSfxPreview } from './audio/sfxPreview';
+import { installStandaloneButtonSounds } from './audio/uiMenuSounds';
 import { UnitVoiceDirector } from './audio/unitVoiceDirector';
 import {
   DEFAULT_ORE_AMOUNT,
@@ -99,7 +101,7 @@ import { FogView } from './render/fogView';
 import { GroundTrailView } from './render/groundTrailView';
 import { InstancedMeshRegistry } from './render/instancing';
 import { OrderMarkerView } from './render/orderMarkerView';
-import { applyMultiplayerFactionColors } from './render/palette';
+import { applyArmyFactionColors, armyFactionPalettes, colorCss } from './render/palette';
 import { isExplicitQualityTier, qualityTierFromQuery, RenderContext } from './render/renderer';
 import { buildScatter } from './render/scatter';
 import { TerrainView } from './render/terrainMesh';
@@ -126,6 +128,7 @@ import {
   createEconomy,
   createInitialBase,
   enterReadyStructurePlacement,
+  isStructureReady,
   placeStructure,
   queueUnit,
   setPrimaryProducer,
@@ -351,15 +354,16 @@ function terrainReliefLabel(value: unknown): string {
 function setupMapDeployments(
   armyCount: ArmyCount,
   armySides: ArmySides,
+  armyDoctrines: ArmyDoctrineAssignments,
   spawnPoints: ArmySpawnPoints,
 ): TacticalMapDeployment[] {
-  const colors = Object.values(LOBBY_COLORS);
+  const palettes = armyFactionPalettes(armyDoctrines.slice(0, armyCount), armySides.slice(0, armyCount));
   return Array.from({ length: armyCount }, (_, offset) => {
     const army = offset + 1;
     return {
       army,
       side: armySides[offset] ?? army,
-      color: colors[offset] ?? '#d7dde0',
+      color: palettes[offset] ? colorCss(palettes[offset].accent) : '#d7dde0',
       label: army === 1 ? 'YOU' : `AI ARMY ${army}`,
       detail: army === 1 ? 'COMMAND' : 'AI START',
       isLocal: army === 1,
@@ -1055,7 +1059,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
         mapSizeChoice.value(),
         oreAmount,
         terrainRelief,
-        setupMapDeployments(armies.armyCount(), armies.armySides(), currentSpawnPoints),
+        setupMapDeployments(armies.armyCount(), armies.armySides(), armies.armyDoctrines(), currentSpawnPoints),
         spawnDragLocked
           ? undefined
           : (army, point) => {
@@ -1110,6 +1114,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     shell.append(header, tabs, mobileSteps, layout);
     root.appendChild(shell);
     document.body.appendChild(root);
+    installStandaloneButtonSounds(root);
     refresh();
     renderMode();
     if (options.intent === 'multiplayer') {
@@ -2113,6 +2118,7 @@ function createRoomLobbyView(
       controllerCount: room.controllerCount,
       controllerTeams: room.controllerTeams,
       armySides: room.armySides,
+      armyDoctrines: room.armyDoctrines,
       spawnSlots: room.spawnSlots,
       spawnPoints: room.spawnPoints,
       selectedArmy,
@@ -2131,6 +2137,10 @@ function createRoomLobbyView(
     const controllerTeams = room.controllerTeams ?? [1, 2, 3, 4];
     const teamLabels = Array.from(new Set(controllerTeams.slice(0, controllerCount)));
     const canPlace = isHost && room.status === 'waiting';
+    const armyPalettes = armyFactionPalettes(
+      (room.armyDoctrines ?? defaultArmyDoctrines()).slice(0, room.armyCount),
+      (room.armySides ?? [1, 2, 3, 4]).slice(0, room.armyCount),
+    );
     const deployments: TacticalMapDeployment[] = Array.from({ length: room.armyCount }, (_, offset) => {
       const armyIndex = offset + 1;
       const lobbyTeam = teamLabels[offset];
@@ -2139,12 +2149,10 @@ function createRoomLobbyView(
       const controllerNames = controllerSlots.map((index) => (
         room.players.find((candidate) => candidate.index === index)?.name ?? `COMPUTER ${index}`
       ));
-      const commander = room.players.find((candidate) => candidate.armyId === armyIndex && candidate.role === 'commander');
-      const color = commander?.color ?? (['jade', 'crimson', 'azure', 'amber'] as const)[offset];
       return {
         army: armyIndex,
         side: room.armySides?.[offset] ?? armyIndex,
-        color: LOBBY_COLORS[color],
+        color: armyPalettes[offset] ? colorCss(armyPalettes[offset].accent) : '#d7dde0',
         label: controllerNames.join(' + ') || `ARMY ${armyIndex}`,
         detail: `${controllerSlots.length > 1 ? 'SHARED · ' : ''}${armyIndex === hostArmyId ? 'YOUR FORCE' : 'ENEMY FORCE'}`,
         isLocal: armyIndex === hostArmyId,
@@ -2498,14 +2506,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   pendingMultiplayer = undefined;
   const multiplayerMode = multiplayer !== undefined;
   if (multiplayer) settings = settingsFromRoom(multiplayer.session.room);
-  applyMultiplayerFactionColors(
-    multiplayer
-      ? Object.fromEntries(
-          multiplayer.session.room.players
-            .filter((player) => player.role === 'commander')
-            .map((player) => [player.armyId, player.color]),
-        )
-      : {},
+  applyArmyFactionColors(
+    settings.armyDoctrines.slice(0, settings.armyCount),
+    settings.armySides.slice(0, settings.armyCount),
   );
   const localTeam = multiplayer?.session.player.armyId ?? multiplayer?.session.player.index ?? 1;
   const humanTeams = multiplayer
@@ -2598,6 +2601,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const startMode = params.get('start');
   const weaponsLab = startMode === 'weapons-lab' && !multiplayerMode && !isPublicHost(location.hostname);
   const lineupStart = startMode === 'lineup' || weaponsLab;
+  const soundBattlePreview =
+    startMode === 'sound-test' && !multiplayerMode && !isPublicHost(location.hostname);
   const impactMovementDemo =
     startMode === 'impact-demo' && !multiplayerMode && !isPublicHost(location.hostname);
   const missileDoctrinePreview =
@@ -2626,7 +2631,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const collectorPreview =
     lineupStart && !multiplayerMode && !isPublicHost(location.hostname) && params.get('collector-preview') === '1';
-  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview || missileDoctrinePreview || smokePreview;
+  const testStart = startMode === 'test' || startMode === 'sandbox' || largeBattleScenario || durabilityPreview || impactMovementDemo || debriefPreview || missileDoctrinePreview || smokePreview || soundBattlePreview;
   const debugArmies = startMode === 'armies' || startMode === 'debug-armies';
   const hitJuicePreview = !multiplayerMode && !isPublicHost(location.hostname) && params.get('hit-juice-preview') === '1';
   const impactPreview =
@@ -2685,9 +2690,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         : aiTeams.has(team)
           ? AI_DIFFICULTY[aiDifficulty].startCredits
           : 4600;
-    const doctrine = missileDoctrinePreview && team === localTeam
+    const doctrine = (missileDoctrinePreview || soundBattlePreview) && team === localTeam
       ? 'missile-command'
-      : settings.armyDoctrines[team - 1] ?? defaultArmyDoctrines()[team - 1];
+      : soundBattlePreview
+        ? 'iron-legion'
+        : settings.armyDoctrines[team - 1] ?? defaultArmyDoctrines()[team - 1];
     const economy = createEconomy(team, credits, doctrine);
     const start = armyStartPosition(hf.size, team, settings.spawnPoints);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
@@ -2718,9 +2725,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       console.warn('[save] failed to load saved match', err);
     }
   }
-  if (missileDoctrinePreview && !loadedFromSave) {
+  if ((missileDoctrinePreview || soundBattlePreview) && !loadedFromSave) {
     for (const army of armies) seedTestStartBase(sim, hf, army.economy, army.base);
     seedMissileDoctrinePreview(sim, hf, armies, localTeam);
+    if (soundBattlePreview) seedSoundBattleDefenses(sim, hf, armies, localTeam);
   } else if (largeBattleScenario && !loadedFromSave) {
     for (const army of armies) seedCinematicBase(sim, hf, army.economy, army.base);
   } else if ((durabilityPreview || destructionPreview) && !loadedFromSave) {
@@ -2730,7 +2738,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     seedTestStartBase(sim, hf, economy, localBase);
   }
   const smokePreviewStage = smokePreview ? createSmokePreviewStage(sim, armies, localTeam) : undefined;
-  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview
+  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview
     ? () => true
     : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
@@ -2788,12 +2796,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const impactDemoScene = impactMovementDemo && !loadedFromSave
     ? spawnImpactMovementDemo(sim, hf, armies, localTeam)
     : undefined;
+  const soundBattleUnits = soundBattlePreview && !loadedFromSave
+    ? armies.flatMap((army) => spawnSoundBattleUnits(sim, hf, army.economy, army.base))
+    : [];
   const startingUnits = impactDemoScene
     ? impactDemoScene.units
     : cinematicScene
     ? cinematicScene.units
     : durabilityScene
       ? durabilityScene.units
+    : soundBattlePreview
+      ? soundBattleUnits
     : lineupStart
       ? []
       : loadedFromSave
@@ -2855,6 +2868,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const unitVoices = new UnitVoiceDirector(audio);
   window.addEventListener('pointerdown', () => audio.unlock(), { passive: true });
   window.addEventListener('keydown', () => audio.unlock(), { passive: true });
+  audio.installButtonSounds();
   const orderMarkers = new OrderMarkerView(hf);
   ctx.scene.add(orderMarkers.group);
   const fogView = new FogView(playerVision, terrain.chunkGeometries);
@@ -2916,6 +2930,19 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       })
     : undefined;
   const canManageArmy = !multiplayerMode || multiplayer.session.player.role !== 'field-officer';
+  const playUpgradeConfirmation = (entityIds?: number[]): void => {
+    const candidates = entityIds
+      ? sim.world.entities.filter((entity) => entityIds.includes(entity.id) && !entity.destroyed)
+      : selectedEntities(sim, localTeam).filter((entity) => !entity.destroyed);
+    const source = candidates.find((entity) => entity.building?.kind === 'strategic-silo') ?? candidates[0] ?? localBase;
+    const x = candidates.length > 1
+      ? candidates.reduce((sum, entity) => sum + entity.transform.x, 0) / candidates.length
+      : source.transform.x;
+    const z = candidates.length > 1
+      ? candidates.reduce((sum, entity) => sum + entity.transform.z, 0) / candidates.length
+      : source.transform.z;
+    audio.playUpgrade(x, z, source.id);
+  };
   const commanderOnly = (): void => {
     audio.playUi('error');
     setNetworkStatus('Field Officer role: command and possess units while your Commander manages production.', true);
@@ -3158,9 +3185,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   sidebar = new Sidebar(sim, hf, economy, playerVision, {
     buildStructure: (kind) => {
       if (!canManageArmy) return commanderOnly();
-      if (economy.readyStructure === kind) {
+      if (isStructureReady(economy, kind)) {
         const start = initialPlacementPoint(sim, hf, economy, localBase, kind);
-        enterReadyStructurePlacement(sim, hf, economy, start.x, start.z);
+        enterReadyStructurePlacement(sim, hf, economy, start.x, start.z, kind);
         audio.playUi('select');
         return;
       }
@@ -3168,11 +3195,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       if (lockstep) lockstep.issue({ type: 'start-structure', kind });
       else startStructureBuild(sim, economy, kind);
     },
-    cancelStructure: () => {
+    cancelStructure: (kind) => {
       if (!canManageArmy) return commanderOnly();
       audio.playUi('cancel');
-      if (lockstep) lockstep.issue({ type: 'cancel-structure' });
-      else cancelStructureBuild(sim, economy);
+      if (lockstep) lockstep.issue({ type: 'cancel-structure', kind });
+      else cancelStructureBuild(sim, economy, kind);
     },
     queueUnit: (kind, producer) => {
       if (!canManageArmy) return commanderOnly();
@@ -3203,8 +3230,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     orderMap: (x, z, attackGround) => attackGround ? controller.attackGroundAt(x, z) : controller.orderSelectedTo(x, z),
     radarYaw: () => rig.yawRadians,
     radarViewport: () => rig.getGroundViewportFootprint(),
-    upgradeStrategicAccuracy: () => upgradeStrategicAccuracy(sim, economy),
-    upgradeStrategicMissile: () => upgradeStrategicMissile(sim, economy),
+    upgradeStrategicAccuracy: () => {
+      const upgraded = upgradeStrategicAccuracy(sim, economy);
+      if (upgraded) playUpgradeConfirmation();
+      return upgraded;
+    },
+    upgradeStrategicMissile: () => {
+      const upgraded = upgradeStrategicMissile(sim, economy);
+      if (upgraded) playUpgradeConfirmation();
+      return upgraded;
+    },
     beginStrategicTargeting: (enemyTeam, color) => {
       const readiness = strategicLaunchReadiness(sim, economy);
       if (!readiness.ready) return { ok: false, reason: readiness.reason };
@@ -3241,13 +3276,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         commanderOnly();
         return { ok: false, reason: 'Commander manages shared upgrades', upgraded: 0, cost: 0 };
       }
-      audio.playUi('build');
       if (lockstep) {
         lockstep.issue({ type: 'upgrade-units', ids, upgradeId });
+        playUpgradeConfirmation(ids);
         return { ok: true, reason: 'Upgrade order queued', upgraded: ids.length, cost: 0 };
       }
       const result = purchaseUnitUpgrade(sim, economy, ids, upgradeId, localTeam);
-      if (!result.ok) audio.playUi('error');
+      if (result.ok) playUpgradeConfirmation(ids);
+      else audio.playUi('error');
       return result;
     },
     openTacticPlanner: (entities) => {
@@ -3261,36 +3297,44 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           commanderOnly();
           return false;
         }
-        audio.playUi('build');
-        return lockstep ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'accuracy' }) : upgradeStrategicAccuracy(sim, economy);
+        const upgraded = lockstep ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'accuracy' }) : upgradeStrategicAccuracy(sim, economy);
+        if (upgraded) playUpgradeConfirmation();
+        else audio.playUi('error');
+        return upgraded;
       },
       upgradeWarhead: () => {
         if (!canManageArmy) {
           commanderOnly();
           return false;
         }
-        audio.playUi('build');
-        return lockstep ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'warhead' }) : upgradeStrategicMissile(sim, economy);
+        const upgraded = lockstep ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'warhead' }) : upgradeStrategicMissile(sim, economy);
+        if (upgraded) playUpgradeConfirmation();
+        else audio.playUi('error');
+        return upgraded;
       },
       upgradeEmberQuantity: () => {
         if (!canManageArmy) {
           commanderOnly();
           return false;
         }
-        audio.playUi('build');
-        return lockstep
+        const upgraded = lockstep
           ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'ember-quantity' })
           : upgradeEmberDroneQuantity(sim, economy);
+        if (upgraded) playUpgradeConfirmation();
+        else audio.playUi('error');
+        return upgraded;
       },
       upgradeEmberWarhead: () => {
         if (!canManageArmy) {
           commanderOnly();
           return false;
         }
-        audio.playUi('build');
-        return lockstep
+        const upgraded = lockstep
           ? lockstep.issue({ type: 'upgrade-strategic', upgrade: 'ember-warhead' })
           : upgradeEmberDroneWarhead(sim, economy);
+        if (upgraded) playUpgradeConfirmation();
+        else audio.playUi('error');
+        return upgraded;
       },
       beginTargeting: (weapon, enemyTeam, color) => {
         const readiness = weapon === 'missile' ? strategicLaunchReadiness(sim, economy) : emberLaunchReadiness(sim, economy);
@@ -3844,6 +3888,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       atmosphereTransition.update(dt, applyAtmosphereLook);
       atmosphere.update(time, ctx.camera, ctx.scene.fog as Fog, firstPerson.flying);
       weatherView.update(dt, ctx.camera, time);
+      audio.update(sim.world.entities);
       unitView.setFortressOpticsActive(firstPerson.fortress);
       unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
       unitView.update(alpha, dt, ctx.camera);
@@ -4616,6 +4661,48 @@ function spawnLineupUnits(
       orientLineupUnit(enemy, Math.PI);
       units.push(enemy);
     }
+  }
+  return units;
+}
+
+function spawnSoundBattleUnits(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  economy: ReturnType<typeof createEconomy>,
+  base: ReturnType<typeof createInitialBase>,
+): Entity[] {
+  const kinds = [
+    'rifle',
+    'grenadier',
+    'rocket',
+    'sniper',
+    'jackal',
+    'm17',
+    'mauler',
+    'wasp',
+    'vulture',
+    'hammerhead',
+    'hammerhead',
+    'hammerhead',
+    'hammerhead',
+  ] as const;
+  const team = economy.team;
+  const basis = openingFormationBasis(team);
+  const stagingDepth = openingDeploymentDepth(sim, hf, base.transform.x, base.transform.z, team, basis);
+  const columns = 5;
+  const units: Entity[] = [];
+  for (const [index, kind] of kinds.entries()) {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const side = (column - (columns - 1) / 2) * 10;
+    const target = openingFormationPoint(base.transform.x, base.transform.z, basis, side, stagingDepth + 8 + row * 11);
+    const cell = sim.nav.nearestWalkableCell(target.x, target.z, 26) ?? sim.nav.nearestWalkableCellGlobal(target.x, target.z);
+    if (!cell) continue;
+    const position = sim.nav.cellCenter(cell.x, cell.y);
+    const unit = spawnLineupKind(sim, hf, economy, kind, position.x, position.z, team);
+    if (!unit) continue;
+    orientLineupUnit(unit, Math.atan2(basis.forwardX, basis.forwardZ));
+    units.push(unit);
   }
   return units;
 }
@@ -5748,6 +5835,24 @@ function seedMissileDoctrinePreview(
   if (missileSilo) setSelected(sim, [missileSilo], false, localTeam);
 }
 
+function seedSoundBattleDefenses(
+  sim: ReturnType<typeof createGameSim>,
+  hf: ReturnType<typeof generateHeightfield>,
+  armies: ArmyRuntime[],
+  localTeam: number,
+): void {
+  for (const army of armies) {
+    army.economy.credits = Math.max(army.economy.credits, army.team === localTeam ? 50000 : 30000);
+    if (army.team === localTeam) continue;
+    placePreviewStructure(sim, hf, army.economy, army.base, 'missile-defense', [
+      { x: -68, z: -46 },
+      { x: 68, z: -46 },
+      { x: -76, z: 18 },
+      { x: 76, z: 18 },
+    ]);
+  }
+}
+
 function placePreviewStructure(
   sim: ReturnType<typeof createGameSim>,
   hf: ReturnType<typeof generateHeightfield>,
@@ -5825,10 +5930,15 @@ function findValidTestPlacement(
 }
 
 async function start(): Promise<void> {
+  const params = new URLSearchParams(location.search);
+  const sfxPreview = params.get('sfx-preview');
+  if (!isPublicHost(location.hostname) && (sfxPreview === 'all' || sfxPreview === 'strategic')) {
+    showSfxPreview();
+    return;
+  }
   sendTelemetryEvent('session-start');
   showFeedbackWidget();
   showHowToPlayWidget();
-  const params = new URLSearchParams(location.search);
   const inviteRoom = roomFromInvite(params);
   const mobileLandscape = new MobileLandscapeGate();
   mobileLandscape.activate();

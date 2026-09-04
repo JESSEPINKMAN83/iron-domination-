@@ -1,4 +1,5 @@
 import { FlowField, type DynamicBlockerSnapshot } from './flowfield';
+import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity, StructureDamage } from './components';
 import type { EconomyState } from './economy';
 import type { Heightfield } from './heightfield';
@@ -98,8 +99,13 @@ export function restoreEconomyState(target: EconomyState, sim: GameSim, state: S
   target.powerUsed = restored.powerUsed;
   target.ledger = clonePlain(restored.ledger);
   target.selectedStructure = restored.selectedStructure;
-  target.structureLine = clonePlain(restored.structureLine);
-  target.readyStructure = restored.readyStructure;
+  const legacyLine = clonePlain(restored.structureLine);
+  const legacyLineIsDefense = legacyLine && STRUCTURES[legacyLine.kind as StructureKind]?.tab === 'defense';
+  target.structureLine = legacyLineIsDefense ? undefined : legacyLine;
+  target.defenseStructureLine = clonePlain(restored.defenseStructureLine) ?? (legacyLineIsDefense ? legacyLine : undefined);
+  const legacyReadyIsDefense = restored.readyStructure && STRUCTURES[restored.readyStructure]?.tab === 'defense';
+  target.readyStructure = legacyReadyIsDefense ? undefined : restored.readyStructure;
+  target.readyDefenseStructure = restored.readyDefenseStructure ?? (legacyReadyIsDefense ? restored.readyStructure : undefined);
   target.primaryProducerIds = clonePlain(restored.primaryProducerIds);
   target.placement = clonePlain(restored.placement);
   target.harvesterReplacementTimers = clonePlain(restored.harvesterReplacementTimers);
