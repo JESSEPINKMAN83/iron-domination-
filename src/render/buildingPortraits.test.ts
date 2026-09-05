@@ -38,9 +38,49 @@ describe('building model and portrait parity', () => {
     const parts = designation.parent!.userData.detailParts as { object: unknown }[];
     expect(parts.some((part) => part.object === designation)).toBe(true);
     let triangles = 0;
-    model.traverse((child) => { if (child instanceof Mesh) triangles += (child.geometry.index?.count ?? child.geometry.attributes.position.count) / 3; });
-    expect(triangles).toBeLessThan(35000);
+    let shadowCasters = 0;
+    model.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      triangles += (child.geometry.index?.count ?? child.geometry.attributes.position.count) / 3;
+      if (child.castShadow) shadowCasters++;
+    });
+    expect(triangles).toBeLessThan(12000);
+    expect(shadowCasters).toBeLessThan(64);
     disposeBuildingPreview(model);
+  });
+
+  it('shares architecture geometry across copies and keeps it after preview disposal', () => {
+    const first = createBuildingPreview('command-yard');
+    const meshes: Mesh[] = [];
+    first.traverse((child) => { if (child instanceof Mesh) meshes.push(child); });
+    const shared = meshes.find((mesh) => mesh.geometry.userData.ironDominionSharedBuilding);
+    expect(shared).toBeDefined();
+    const onDispose = vi.fn();
+    shared!.geometry.addEventListener('dispose', onDispose);
+    disposeBuildingPreview(first);
+    expect(onDispose).not.toHaveBeenCalled();
+    const second = createBuildingPreview('command-yard');
+    let reused = false;
+    second.traverse((child) => { if (child instanceof Mesh && child.geometry === shared!.geometry) reused = true; });
+    expect(reused).toBe(true);
+    shared!.geometry.removeEventListener('dispose', onDispose);
+    disposeBuildingPreview(second);
+  });
+
+  it('keeps the full building catalog well below the pre-regression GPU load', () => {
+    let triangles = 0;
+    let shadowCasters = 0;
+    for (const kind of BUILDING_PORTRAIT_KINDS) {
+      const model = createBuildingPreview(kind);
+      model.traverse((child) => {
+        if (!(child instanceof Mesh)) return;
+        triangles += (child.geometry.index?.count ?? child.geometry.attributes.position.count) / 3;
+        if (child.castShadow) shadowCasters++;
+      });
+      disposeBuildingPreview(model);
+    }
+    expect(triangles).toBeLessThan(70_000);
+    expect(shadowCasters).toBeLessThan(500);
   });
 });
 

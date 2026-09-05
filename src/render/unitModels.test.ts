@@ -29,7 +29,7 @@ describe('unit model rendering contracts', () => {
     model.traverse(child => { if (child instanceof Mesh) meshes.push(child); });
     expect(meshes.length).toBeLessThan(100);
     const triangles = meshes.reduce((sum, mesh) => sum + (mesh.geometry.index?.count ?? mesh.geometry.attributes.position.count) / 3, 0);
-    expect(triangles).toBeLessThan(20000);
+    expect(triangles).toBeLessThan(15000);
     const shared = meshes.filter(mesh => mesh.geometry.userData.ironDominionSharedUnitGeometry);
     expect(shared.length).toBeGreaterThan(0);
     const onDispose = vi.fn();

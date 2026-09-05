@@ -31,7 +31,7 @@ export function armoredUnitHull(w: number, h: number, d: number, inset = 0.2): B
  * half-height, and vertical center. Shared by all copies of an aircraft. */
 export function unitFuselage(key: string, sections: readonly (readonly [number,number,number,number])[]): BufferGeometry {
   return sharedUnitGeometry(`fuselage:${key}`,()=>{
-    const positions:number[]=[],uv:number[]=[],indices:number[]=[];const sides=16;
+    const positions:number[]=[],uv:number[]=[],indices:number[]=[];const sides=10;
     for(let j=0;j<sections.length;j++){const [z,w,h,y]=sections[j];for(let i=0;i<=sides;i++){const a=i/sides*Math.PI*2;positions.push(Math.cos(a)*w,y+Math.sin(a)*h,z);uv.push(i/sides,j/(sections.length-1));}}
     for(let j=0;j<sections.length-1;j++)for(let i=0;i<sides;i++){const a=j*(sides+1)+i,b=a+sides+1;indices.push(a,a+1,b,b,a+1,b+1);}
     const geometry=new BufferGeometry();geometry.setAttribute('position',new Float32BufferAttribute(positions,3));geometry.setAttribute('uv',new Float32BufferAttribute(uv,2));geometry.setIndex(indices);geometry.computeVertexNormals();return geometry;
@@ -39,5 +39,5 @@ export function unitFuselage(key: string, sections: readonly (readonly [number,n
 }
 
 export function unitEllipsoid(w: number, h: number, d: number): BufferGeometry {
-  return sharedUnitGeometry(`ellipsoid:${w}:${h}:${d}`,()=>new SphereGeometry(1,16,12).scale(w,h,d));
+  return sharedUnitGeometry(`ellipsoid:${w}:${h}:${d}`,()=>new SphereGeometry(1,12,8).scale(w,h,d));
 }
