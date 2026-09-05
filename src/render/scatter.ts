@@ -61,10 +61,17 @@ function paint(geom: BufferGeometry, color: Color): BufferGeometry {
 }
 
 function pineGeometry(style: Heightfield['kind'] = 'highlands'): BufferGeometry {
+  if (style === 'highlands') {
+    const trunk = paint(new CylinderGeometry(0.14, 0.22, 2.15, 6).translate(0, 1.08, 0), new Color('#6b4a2f'));
+    const c1 = paint(new ConeGeometry(2.15, 1.55, 7).translate(0, 2.65, 0), new Color('#3a5a38'));
+    const c2 = paint(new ConeGeometry(1.55, 1.22, 7).translate(0, 3.45, 0), new Color('#476846'));
+    const c3 = paint(new ConeGeometry(0.82, 1.05, 7).translate(0, 4.2, 0), new Color('#547854'));
+    return mergeGeometries([trunk, c1, c2, c3]);
+  }
   const trunk = paint(new CylinderGeometry(0.16, 0.24, 1.6, 6).translate(0, 0.8, 0), new Color('#6b4a2f'));
-  const c1Color = style === 'frostbite-pass' ? '#7f9490' : style === 'crater-oasis' ? '#50683c' : '#2f5c33';
-  const c2Color = style === 'frostbite-pass' ? '#b7c9c5' : style === 'crater-oasis' ? '#617747' : '#356839';
-  const c3Color = style === 'frostbite-pass' ? '#d8e6e3' : style === 'crater-oasis' ? '#748457' : '#3c7440';
+  const c1Color = style === 'frostbite-pass' ? '#7f9490' : '#50683c';
+  const c2Color = style === 'frostbite-pass' ? '#b7c9c5' : '#617747';
+  const c3Color = style === 'frostbite-pass' ? '#d8e6e3' : '#748457';
   const c1 = paint(new ConeGeometry(1.5, 2.4, 7).translate(0, 2.4, 0), new Color(c1Color));
   const c2 = paint(new ConeGeometry(1.1, 2.0, 7).translate(0, 3.8, 0), new Color(c2Color));
   const c3 = paint(new ConeGeometry(0.7, 1.6, 7).translate(0, 5.0, 0), new Color(c3Color));
@@ -73,21 +80,47 @@ function pineGeometry(style: Heightfield['kind'] = 'highlands'): BufferGeometry 
 
 function spruceGeometry(style: Heightfield['kind'] = 'highlands'): BufferGeometry {
   const trunk = paint(new CylinderGeometry(0.14, 0.22, 2.1, 6).translate(0, 1.05, 0), new Color('#60432f'));
+  const highland = style === 'highlands';
   const colors = style === 'frostbite-pass'
     ? ['#617b76', '#78928c', '#a7bab5', '#d5e0dc']
-    : ['#244d32', '#285c36', '#316b3d', '#3b7945'];
+    : highland
+      ? ['#35553a', '#406244', '#4a6e4c', '#567a58']
+      : ['#244d32', '#285c36', '#316b3d', '#3b7945'];
+  const wide = highland ? 1.18 : 1;
   const layers = [
-    paint(new ConeGeometry(1.42, 2.3, 7).translate(0, 2.5, 0), new Color(colors[0])),
-    paint(new ConeGeometry(1.15, 2.15, 7).translate(0, 3.7, 0), new Color(colors[1])),
-    paint(new ConeGeometry(0.86, 1.95, 7).translate(0, 4.85, 0), new Color(colors[2])),
-    paint(new ConeGeometry(0.55, 1.55, 7).translate(0, 5.85, 0), new Color(colors[3])),
+    paint(new ConeGeometry(1.42 * wide, highland ? 1.95 : 2.3, 7).translate(0, 2.5, 0), new Color(colors[0])),
+    paint(new ConeGeometry(1.15 * wide, highland ? 1.92 : 2.15, 7).translate(0, 3.7, 0), new Color(colors[1])),
+    paint(new ConeGeometry(0.86 * wide, highland ? 1.8 : 1.95, 7).translate(0, 4.85, 0), new Color(colors[2])),
+    paint(new ConeGeometry(0.55 * wide, 1.55, 7).translate(0, 5.85, 0), new Color(colors[3])),
   ];
   return mergeGeometries([trunk, ...layers]);
 }
 
 function broadleafGeometry(rng: () => number, style: Heightfield['kind'] = 'highlands'): BufferGeometry {
-  const trunkColor = style === 'crater-oasis' ? '#7a5d35' : style === 'frostbite-pass' ? '#6e5c55' : '#71513a';
-  const canopyColor = style === 'crater-oasis' ? '#8a8147' : style === 'frostbite-pass' ? '#c5d4cf' : '#3f7a37';
+  if (style === 'highlands') {
+    const wood = new Color('#6b5a40');
+    const trunk = paint(new CylinderGeometry(0.16, 0.26, 2.05, 6).translate(0, 1.02, 0), wood);
+    const branchA = paint(
+      new CylinderGeometry(0.08, 0.13, 1.35, 6).rotateZ(-0.72).translate(0.42, 1.95, 0.04),
+      wood,
+    );
+    const branchB = paint(
+      new CylinderGeometry(0.07, 0.12, 1.2, 6).rotateZ(0.78).translate(-0.38, 2.08, -0.06),
+      wood,
+    );
+    const canopy = new IcosahedronGeometry(1.55, 1);
+    const pos = canopy.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      const k = 0.78 + rng() * 0.38;
+      pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * (0.72 + rng() * 0.22), pos.getZ(i) * k);
+    }
+    canopy.scale(1.08, 0.72, 1.02);
+    canopy.translate(0.08, 2.72, -0.04);
+    paint(canopy, new Color('#6e7c54'));
+    return mergeGeometries([trunk, branchA, branchB, canopy]);
+  }
+  const trunkColor = style === 'crater-oasis' ? '#7a5d35' : '#6e5c55';
+  const canopyColor = style === 'crater-oasis' ? '#8a8147' : '#c5d4cf';
   const trunk = paint(new CylinderGeometry(0.18, 0.28, 2.2, 6).translate(0, 1.1, 0), new Color(trunkColor));
   const canopy = new IcosahedronGeometry(1.7, 1);
   const pos = canopy.getAttribute('position');
@@ -103,13 +136,16 @@ function broadleafGeometry(rng: () => number, style: Heightfield['kind'] = 'high
 
 function birchGeometry(rng: () => number, style: Heightfield['kind'] = 'highlands'): BufferGeometry {
   const winter = style === 'frostbite-pass';
+  const olive = style === 'highlands';
   const trunk = paint(
-    new CylinderGeometry(0.13, 0.2, 3.2, 7).translate(0, 1.6, 0),
-    new Color(winter ? '#c6c9c3' : '#d7d2bd'),
+    new CylinderGeometry(0.13, 0.2, olive ? 2.7 : 3.2, 7).translate(0, olive ? 1.35 : 1.6, 0),
+    new Color(winter ? '#c6c9c3' : olive ? '#6e5c44' : '#d7d2bd'),
   );
   const crownColors = winter
     ? ['#9daea9', '#c4d0cc', '#dbe3e0']
-    : ['#769145', '#89a94f', '#a1b85b'];
+    : olive
+      ? ['#6e7c54', '#7e8c62', '#8a966c']
+      : ['#769145', '#89a94f', '#a1b85b'];
   const crowns: BufferGeometry[] = [];
   const placements = [
     [-0.7, 3.35, 0.05, 0.82],
@@ -123,8 +159,8 @@ function birchGeometry(rng: () => number, style: Heightfield['kind'] = 'highland
       const k = 0.82 + rng() * 0.32;
       pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k, pos.getZ(i) * k);
     }
-    crown.scale(size, size * 0.9, size);
-    crown.translate(x, y, z);
+    crown.scale(size, size * (olive ? 0.62 : 0.9), size);
+    crown.translate(x, olive ? y - 0.45 : y, z);
     crowns.push(paint(crown, new Color(crownColors[index])));
   });
   return mergeGeometries([trunk, ...crowns]);
@@ -179,7 +215,7 @@ function shrubGeometry(rng: () => number, style: Heightfield['kind'] = 'highland
     ? ['#71847e', '#9aaba5']
     : style === 'crater-oasis'
       ? ['#777143', '#938052']
-      : ['#426b3c', '#557e45'];
+      : ['#5a6e48', '#6e8258'];
   const parts: BufferGeometry[] = [];
   const placements = [
     [-0.45, 0.52, 0, 0.72],
@@ -193,7 +229,7 @@ function shrubGeometry(rng: () => number, style: Heightfield['kind'] = 'highland
       const k = 0.76 + rng() * 0.42;
       pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k, pos.getZ(i) * k);
     }
-    crown.scale(size, size * 0.68, size);
+    crown.scale(size, size * (style === 'highlands' ? 0.52 : 0.68), size);
     crown.translate(x, y, z);
     parts.push(paint(crown, new Color(colors[index % colors.length])));
   });
@@ -210,12 +246,13 @@ function fallenLogGeometry(style: Heightfield['kind'] = 'highlands'): BufferGeom
 function rockGeometry(rng: () => number, flatten: number, style: Heightfield['kind'] = 'highlands'): BufferGeometry {
   const rock = new IcosahedronGeometry(1, 1);
   const pos = rock.getAttribute('position');
+  const jagged = style === 'highlands' ? 0.7 : 0.55;
   for (let i = 0; i < pos.count; i++) {
-    const k = 0.75 + rng() * 0.55;
+    const k = 0.75 + rng() * jagged;
     pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * flatten, pos.getZ(i) * k);
   }
   rock.computeVertexNormals();
-  const color = style === 'crater-oasis' ? '#9c805b' : style === 'frostbite-pass' ? '#b6c0c6' : '#8a8d90';
+  const color = style === 'crater-oasis' ? '#9c805b' : style === 'frostbite-pass' ? '#b6c0c6' : '#c4b8a0';
   return paint(rock, new Color(color));
 }
 
@@ -304,8 +341,21 @@ function woodlandAffinity(kind: Heightfield['kind'], x: number, z: number, seed:
   const broad = Math.sin(x * 0.013 + salt) * Math.cos(z * 0.016 - salt * 1.7);
   const medium = Math.sin((x + z) * 0.027 - salt * 0.6) * 0.48;
   const fine = Math.cos((x - z) * 0.041 + salt * 2.1) * 0.2;
-  const biomeBias = kind === 'crater-oasis' ? -0.15 : kind === 'frostbite-pass' ? -0.04 : 0.08;
+  if (kind === 'highlands') {
+    const raw = 0.5 + broad * 0.42 + medium * 1.12 + fine;
+    const groves = Math.max(0, Math.min(1, (raw - 0.3) / 0.52));
+    return 0.05 + groves * groves * 0.9;
+  }
+  const biomeBias = kind === 'crater-oasis' ? -0.15 : -0.04;
   return Math.max(0.08, Math.min(0.96, 0.5 + broad * 0.34 + medium + fine + biomeBias));
+}
+
+function rockClusterAffinity(x: number, z: number, seed: number): number {
+  const salt = seed * 0.000019;
+  const patch = Math.sin(x * 0.021 + salt) * Math.cos(z * 0.019 - salt * 1.3);
+  const tight = Math.sin(x * 0.11 + z * 0.09 - salt);
+  const value = 0.42 + patch * 0.34 + tight * 0.28;
+  return Math.max(0.05, Math.min(0.98, value * value));
 }
 
 interface CrushableTree {
@@ -510,15 +560,26 @@ export function buildScatter(
       const x = (rng() * 2 - 1) * bound;
       const z = (rng() * 2 - 1) * bound;
       const h = sampleHeight(hf, x, z);
-      if (h < hf.waterLevel + 0.9) continue;
+      const nearShore = kind === 'highlands' && !def.isTree && h >= hf.waterLevel + 0.45 && h < hf.waterLevel + 0.9;
+      if (h < hf.waterLevel + 0.9 && !nearShore) continue;
       const gx = Math.abs(sampleHeight(hf, x + 1.4, z) - sampleHeight(hf, x - 1.4, z)) / 2.8;
       const gz = Math.abs(sampleHeight(hf, x, z + 1.4) - sampleHeight(hf, x, z - 1.4)) / 2.8;
       if (Math.max(gx, gz) > def.maxSlope) continue;
       if (hf.oreFields.some((f) => (x - f.x) ** 2 + (z - f.z) ** 2 < (f.radius + 6) ** 2)) continue;
       if (def.isVegetation) {
         const affinity = woodlandAffinity(kind, x, z, seed);
-        const chance = def.isTree ? 0.16 + affinity * 0.82 : 0.34 + affinity * 0.58;
+        let chance = def.isTree ? 0.16 + affinity * 0.82 : 0.34 + affinity * 0.58;
+        if (kind === 'highlands') {
+          const waterClearance = h - hf.waterLevel;
+          if (def.name.includes('shrub')) chance *= waterClearance < 7.5 ? 1.45 : 0.72;
+          else if (def.isTree && waterClearance < 6.5) chance *= 0.32;
+          if (def.name.includes('pine') || def.name.includes('spruce')) {
+            chance *= waterClearance > 9 ? 1.18 : 0.68;
+          }
+        }
         if (rng() > chance) continue;
+      } else if (kind === 'highlands' && rng() > rockClusterAffinity(x, z, seed) * (0.55 + Math.min(1, Math.max(gx, gz) / 0.42) * 0.7)) {
+        continue;
       }
 
       const v = 0.78 + rng() * 0.4;
@@ -528,7 +589,7 @@ export function buildScatter(
           : def.isVegetation && kind === 'crater-oasis'
             ? new Color(v * 1.08, v * 0.94, v * 0.72)
             : def.isVegetation
-              ? new Color(v * (0.92 + rng() * 0.12), v, v * (0.9 + rng() * 0.1))
+              ? new Color(v * (0.88 + rng() * 0.1), v * (0.96 + rng() * 0.08), v * (0.78 + rng() * 0.1))
               : new Color(v, v, v);
       list.push({
         x,
@@ -629,7 +690,7 @@ function createGroundTufts(hf: Heightfield, seed: number, macro?: MacroTintMap):
     ) / 1.8;
     if (slope > 0.55) continue;
     const macroColor = sampleMacroTint(macro, x, z);
-    const base = hf.kind === 'crater-oasis' ? new Color('#c0a465') : hf.kind === 'frostbite-pass' ? new Color('#d2dfdc') : new Color('#78975b');
+    const base = hf.kind === 'crater-oasis' ? new Color('#c0a465') : hf.kind === 'frostbite-pass' ? new Color('#d2dfdc') : new Color('#8a9a64');
     base.multiply(macroColor).multiplyScalar(0.86 + rng() * 0.24);
     result.push({ x, y: h + 0.02, z, rotY: rng() * Math.PI * 2, scale: 0.82 + rng() * 0.72, tint: base });
   }

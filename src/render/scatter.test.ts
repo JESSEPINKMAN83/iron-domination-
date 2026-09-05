@@ -36,6 +36,16 @@ describe('crushed vegetation lifecycle', () => {
 
 describe('map vegetation profiles', () => {
   it('reduces Highlands tree density while expanding silhouette variety', () => {
+    expect(VEGETATION_COUNTS.highlands).toEqual({
+      spruce: 720,
+      pine: 420,
+      broadleaf: 500,
+      birch: 320,
+      snag: 110,
+      shrub: 460,
+      fallenLog: 90,
+    });
+    expect(treeTotal('highlands')).toBe(2070);
     expect(treeTotal('highlands')).toBeLessThan(2300);
     expect(Object.keys(VEGETATION_COUNTS.highlands)).toEqual(
       expect.arrayContaining(['spruce', 'pine', 'broadleaf', 'birch', 'snag', 'shrub', 'fallenLog']),
