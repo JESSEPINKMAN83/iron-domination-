@@ -577,7 +577,7 @@ function terrainTextureStyle(hf: Heightfield): TerrainTextureStyle {
 function terrainSkirtColor(hf: Heightfield): number {
   if (hf.kind === 'crater-oasis') return 0x3b3027;
   if (hf.kind === 'frostbite-pass') return 0x30383d;
-  return 0x263029;
+  return 0x4a453a;
 }
 
 function createWalkOverlayMaterial(hf: Heightfield): MeshBasicMaterial {

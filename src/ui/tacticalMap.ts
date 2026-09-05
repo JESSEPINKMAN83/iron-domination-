@@ -94,15 +94,15 @@ type Palette = {
 
 const PALETTES: Record<MapId, Palette> = {
   highlands: {
-    base: [74, 112, 62],
-    loose: [138, 122, 78],
-    rock: [116, 120, 112],
-    ore: [184, 141, 48],
-    peak: [176, 178, 166],
-    basin: [52, 84, 55],
-    waterDeep: [8, 34, 51],
-    waterShallow: [46, 122, 126],
-    surf: [156, 208, 202],
+    base: [118, 124, 78],
+    loose: [168, 138, 92],
+    rock: [196, 186, 164],
+    ore: [176, 132, 52],
+    peak: [214, 206, 188],
+    basin: [92, 78, 58],
+    waterDeep: [11, 52, 66],
+    waterShallow: [52, 124, 120],
+    surf: [148, 168, 148],
   },
   'crater-oasis': {
     base: [163, 114, 69],
