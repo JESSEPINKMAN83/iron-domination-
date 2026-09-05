@@ -47,6 +47,7 @@ export interface OrderFeedback {
   inspectHover?(target?: Entity): void;
   tryRally?(x: number, z: number): boolean;
   selectionChanged?(entities: Entity[]): void;
+  focusGroup?(x: number, z: number): void;
 }
 
 export interface RtsCommandSink {
@@ -127,6 +128,7 @@ export class RtsController {
   private readonly controlGroups = new ControlGroups();
   private readonly controlGroupToast: HTMLDivElement;
   private controlGroupToastTimer?: number;
+  private lastGroupRecall?: { index: number; time: number };
   private pointerDown?: PointerState;
   private rightOrderStart?: { x: number; z: number };
   private rightCameraLookCandidate = false;
@@ -165,6 +167,7 @@ export class RtsController {
       'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;box-shadow:0 6px 22px rgba(0,0,0,.4),0 0 14px rgba(114,230,208,.13);' +
       'transition:opacity .14s,transform .14s;';
     document.body.appendChild(this.controlGroupToast);
+    this.controlGroupToast.setAttribute('role', 'status');
 
     dom.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     window.addEventListener('pointermove', (e) => this.onPointerMove(e));
@@ -181,6 +184,17 @@ export class RtsController {
     return selectedEntities(this.sim, this.localTeam).length;
   }
 
+  confirmOrder(kind: OrderMarkerKind): void {
+    const labels: Record<OrderMarkerKind, string> = {
+      move: 'MOVE', 'fast-move': 'FAST MOVE', 'attack-move': 'ATTACK MOVE', attack: 'ATTACK', rally: 'RALLY POINT',
+    };
+    this.flashControlGroup(labels[kind]);
+  }
+
+  showFeedback(message: string): void {
+    this.flashControlGroup(message);
+  }
+
   stopSelected(): void {
     const selected = selectedEntities(this.sim, this.localTeam);
     const ids = selected.map((entity) => entity.id).filter((id): id is number => id !== undefined);
@@ -191,9 +205,15 @@ export class RtsController {
     if (!this.enabled) return false;
     const movers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover);
     const moverIds = movers.map((entity) => entity.id).filter((id): id is number => id !== undefined);
-    if (moverIds.length === 0) return false;
+    if (moverIds.length === 0) {
+      this.flashControlGroup('SELECT A MOBILE UNIT FIRST');
+      return false;
+    }
     const issued = this.commandSink?.move?.(moverIds, x, z, attackMove) ?? issueMoveOrder(this.sim, movers, x, z, attackMove);
-    if (!issued) return false;
+    if (!issued) {
+      this.flashControlGroup('MOVE ORDER NOT ACCEPTED · TRY ANOTHER DESTINATION');
+      return false;
+    }
     this.orderFeedback?.showOrder(x, z, attackMove ? 'attack-move' : 'move');
     this.attackMoveQueued = false;
     return true;
@@ -203,9 +223,15 @@ export class RtsController {
     if (!this.enabled) return false;
     const attackers = this.selectedAttackers();
     const attackerIds = attackers.map((entity) => entity.id).filter((id): id is number => id !== undefined);
-    if (attackerIds.length === 0) return false;
+    if (attackerIds.length === 0) {
+      this.flashControlGroup('SELECT AN ARMED UNIT FIRST');
+      return false;
+    }
     const fired = this.commandSink?.attackGround?.(attackerIds, x, z) ?? issueGroundAttack(this.sim, attackers, x, z);
-    if (!fired) return false;
+    if (!fired) {
+      this.flashControlGroup('ATTACK ORDER NOT ACCEPTED');
+      return false;
+    }
     this.orderFeedback?.showOrder(x, z, 'attack');
     this.attackMoveQueued = false;
     return true;
@@ -225,6 +251,7 @@ export class RtsController {
       this.resetTouchGesture();
       this.attackMoveQueued = false;
       this.lastMoveOrderClick = undefined;
+      this.lastGroupRecall = undefined;
     }
   }
 
@@ -496,6 +523,7 @@ export class RtsController {
             const attackerIds = attackers.map((entity) => entity.id);
             const attackIssued = this.commandSink?.attack?.(attackerIds, attackTarget.id) ?? issueAttackOrder(this.sim, attackers, attackTarget);
             if (attackIssued) this.orderFeedback?.showOrder(attackTarget.transform.x, attackTarget.transform.z, 'attack');
+            else this.flashControlGroup('NO SELECTED UNIT CAN ATTACK THIS TARGET');
             this.attackMoveQueued = false;
             return;
           }
@@ -541,6 +569,8 @@ export class RtsController {
                 formationBaseSpacingForEntities(movers),
               );
             }
+          } else if (movers.length > 0 && !specialIssued) {
+            this.flashControlGroup('MOVE ORDER NOT ACCEPTED · TRY ANOTHER DESTINATION');
           }
         }
         this.attackMoveQueued = false;
@@ -599,18 +629,32 @@ export class RtsController {
     }
     const n = controlGroupIndex(e.code);
     if (n === undefined) return;
+    if (e.repeat) {
+      e.preventDefault();
+      return;
+    }
     if (e.ctrlKey || e.metaKey) {
+      this.lastGroupRecall = undefined;
       const members = this.controlGroups.assign(n, selectedEntities(this.sim, this.localTeam), this.localTeam);
       this.flashControlGroup(members.length > 0 ? `GROUP ${n} SAVED  ·  ${members.length} ${members.length === 1 ? 'UNIT' : 'UNITS'}` : `GROUP ${n} CLEARED`);
       e.preventDefault();
       e.stopPropagation();
     } else {
       const group = this.controlGroups.recall(n, this.sim, this.localTeam);
+      const now = performance.now();
+      const focus = this.lastGroupRecall?.index === n && now - this.lastGroupRecall.time <= 350;
+      this.lastGroupRecall = focus ? undefined : { index: n, time: now };
       if (group !== undefined) {
         this.updateSelection(group, false);
-        this.flashControlGroup(group.length > 0 ? `GROUP ${n} SELECTED  ·  ${group.length} ${group.length === 1 ? 'UNIT' : 'UNITS'}` : `GROUP ${n} EMPTY`);
+        if (focus && group.length > 0) {
+          const center = group.reduce((sum, entity) => ({ x: sum.x + entity.transform.x, z: sum.z + entity.transform.z }), { x: 0, z: 0 });
+          this.orderFeedback?.focusGroup?.(center.x / group.length, center.z / group.length);
+        }
+        this.flashControlGroup(group.length > 0 ? `GROUP ${n} ${focus ? 'CENTERED' : 'SELECTED'}  ·  ${group.length} ${group.length === 1 ? 'UNIT' : 'UNITS'}` : `GROUP ${n} EMPTY`);
         e.preventDefault();
         e.stopPropagation();
+      } else {
+        this.flashControlGroup(`GROUP ${n} EMPTY · CTRL/CMD + ${n} TO SAVE`);
       }
     }
   }
