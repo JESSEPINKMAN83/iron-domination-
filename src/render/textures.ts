@@ -109,19 +109,20 @@ export function createGrassTexture(style: TerrainTextureStyle = 'temperate'): Ca
       ctx.globalAlpha = 1;
       return;
     }
-    ctx.fillStyle = '#4e6b35';
+    ctx.fillStyle = '#6d7548';
     ctx.fillRect(0, 0, s, s);
-    blotches(ctx, rng, s, 26, ['#5a7a3c', '#43602e', '#557239'], 14, 40, 0.2);
-    speckle(ctx, rng, s, 24000, ['#5d7f40', '#43602c', '#6c8a4a', '#3a5527']);
+    blotches(ctx, rng, s, 22, ['#7d8254', '#5c6640', '#8b8658', '#9a8a5c'], 18, 58, 0.22);
+    blotches(ctx, rng, s, 14, ['#c4b48a', '#b39a6c', '#8f7a52'], 10, 32, 0.14);
+    speckle(ctx, rng, s, 24000, ['#7a824e', '#5a623c', '#8e8a5a', '#4e5634', '#b7a878']);
     ctx.lineWidth = 1;
-    for (let i = 0; i < 1200; i++) {
-      ctx.strokeStyle = rng() > 0.5 ? '#688748' : '#3f5c2c';
-      ctx.globalAlpha = 0.1 + rng() * 0.14;
+    for (let i = 0; i < 900; i++) {
+      ctx.strokeStyle = rng() > 0.55 ? '#8a9258' : '#4f5834';
+      ctx.globalAlpha = 0.08 + rng() * 0.12;
       const x = rng() * s;
       const y = rng() * s;
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(x + (rng() * 2 - 1), y - 2 - rng() * 2.5);
+      ctx.lineTo(x + (rng() * 2.4 - 1.2), y - 1.6 - rng() * 2.2);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -146,11 +147,26 @@ export function createDirtTexture(style: TerrainTextureStyle = 'temperate'): Can
       speckle(ctx, rng, s, 220, ['#f3f8fb', '#5f6f7b'], 1, 3);
       return;
     }
-    ctx.fillStyle = '#7a6142';
+    ctx.fillStyle = '#9a7d56';
     ctx.fillRect(0, 0, s, s);
-    blotches(ctx, rng, s, 30, ['#8a7050', '#66513a', '#71583e'], 12, 36, 0.22);
-    speckle(ctx, rng, s, 21000, ['#8a7050', '#66513a', '#93795a', '#5b4832']);
-    speckle(ctx, rng, s, 260, ['#8d8d8b', '#6f6f6d'], 1, 3);
+    blotches(ctx, rng, s, 28, ['#b39468', '#7e6244', '#c2a57a', '#6a5040'], 14, 42, 0.24);
+    blotches(ctx, rng, s, 10, ['#5a4638', '#4a3a30'], 8, 22, 0.16);
+    speckle(ctx, rng, s, 21000, ['#b0895c', '#7a5e42', '#c4a878', '#5e4a38', '#d2c09a']);
+    speckle(ctx, rng, s, 260, ['#cfc3a8', '#6a5a48'], 1, 3);
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 70; i++) {
+      ctx.strokeStyle = rng() > 0.5 ? '#6a5644' : '#c2ae88';
+      ctx.globalAlpha = 0.06 + rng() * 0.08;
+      const x = rng() * s;
+      const y = rng() * s;
+      const len = 16 + rng() * 48;
+      const a = rng() * Math.PI;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   });
 }
 
@@ -167,14 +183,16 @@ export function createRockTexture(style: TerrainTextureStyle = 'temperate'): Can
       blotches(ctx, rng, s, 24, ['#9eabb4', '#697681', '#c8d3d8'], 16, 44, 0.2);
       speckle(ctx, rng, s, 19000, ['#bfcbd1', '#5f6b75', '#e1e8eb', '#7a8790']);
     } else {
-      ctx.fillStyle = '#77797c';
+      ctx.fillStyle = '#c4bba4';
       ctx.fillRect(0, 0, s, s);
-      blotches(ctx, rng, s, 24, ['#82858a', '#6a6c70', '#8e9195'], 16, 44, 0.2);
-      speckle(ctx, rng, s, 19000, ['#8b8e91', '#5f6265', '#96999c', '#6d7073']);
+      blotches(ctx, rng, s, 22, ['#d4cbb4', '#a89d86', '#e0d6c0', '#8f8674'], 16, 48, 0.22);
+      speckle(ctx, rng, s, 19000, ['#d8d0ba', '#9a917c', '#ece6d4', '#7a7364', '#b7ad96']);
     }
     ctx.lineWidth = 1;
+    const veinDark = style === 'desert' ? '#5a4030' : style === 'snow' ? '#5a5d60' : '#6a6356';
+    const veinLight = style === 'desert' ? '#c2a16d' : style === 'snow' ? '#c8d3d8' : '#e8dfcc';
     for (let i = 0; i < 90; i++) {
-      ctx.strokeStyle = rng() > 0.5 ? '#5a5d60' : '#909396';
+      ctx.strokeStyle = rng() > 0.5 ? veinDark : veinLight;
       ctx.globalAlpha = 0.05 + rng() * 0.07;
       const x = rng() * s;
       const y = rng() * s;
@@ -209,11 +227,20 @@ export function createMacroTintMap(hf: Heightfield, seed: number): MacroTintMap 
     for (let px = 0; px < size; px++) {
       const u = px / (size - 1);
       const x = (u - 0.5) * hf.size;
-      const broad = fbm2(u * 4.2, v * 4.2, seed ^ 0x4d414352, 4);
-      const variation = fbm2(u * 13.1 + 7, v * 13.1 - 5, seed ^ 0x54494e54, 3);
+      const broadScale = style === 'temperate' ? 2.35 : 4.2;
+      const variationScale = style === 'temperate' ? 8.4 : 13.1;
+      const moistureRange = style === 'temperate' ? 18 : 12;
+      const broad = fbm2(u * broadScale, v * broadScale, seed ^ 0x4d414352, 4);
+      const variation = fbm2(u * variationScale + 7, v * variationScale - 5, seed ^ 0x54494e54, 3);
       const waterDistance = Math.max(0, sampleHeight(hf, x, z) - hf.waterLevel);
-      const moisture = Math.max(0, Math.min(1, 1 - waterDistance / 12));
-      const factors = macroTintFactors(style, broad, variation, moisture);
+      const moisture = Math.max(0, Math.min(1, 1 - waterDistance / moistureRange));
+      const factors = [...macroTintFactors(style, broad, variation, moisture)];
+      if (style === 'temperate') {
+        const pale = Math.max(0, Math.min(1, (waterDistance - 10) / 24)) * 0.05;
+        factors[0] += pale;
+        factors[1] += pale * 0.85;
+        factors[2] += pale * 0.7;
+      }
       const i = (py * size + px) * 4;
       image.data[i] = encodeMacroFactor(factors[0]);
       image.data[i + 1] = encodeMacroFactor(factors[1]);
@@ -239,7 +266,8 @@ export function macroTintFactors(
   const n = (broad - 0.5) * 0.44 + (variation - 0.5) * 0.13;
   if (style === 'desert') return [1 + n * 1.08, 1 + n * 0.68, 1 + n * 0.2 - moisture * 0.065];
   if (style === 'snow') return [1 + n * 0.38, 1 + n * 0.66, 1 + n * 1.02 + moisture * 0.04];
-  return [1 + n * 0.46 - moisture * 0.085, 1 + n * 1.08 + moisture * 0.035, 1 + n * 0.36 - moisture * 0.06];
+  const damp = moisture * 0.14;
+  return [1 + n * 0.62 - damp * 0.55, 1 + n * 0.48 - damp * 0.42, 1 + n * 0.22 - damp * 0.38];
 }
 
 function encodeMacroFactor(factor: number): number {

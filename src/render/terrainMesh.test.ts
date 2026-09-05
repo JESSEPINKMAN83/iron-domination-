@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAP_PRESETS } from '../content/maps';
 import { generateHeightfield, sampleHeight } from '../sim/heightfield';
-import { createTerrainDiscGeometry, createTerrainSkirtGeometry } from './terrainMesh';
+import { createTerrainDiscGeometry, createTerrainSkirtGeometry, oreDepositCount, oreIndicatorRadius } from './terrainMesh';
 
 describe('terrain-conforming resource fields', () => {
   it('drapes every marker vertex over the terrain instead of using one flat height', () => {
@@ -24,6 +24,15 @@ describe('terrain-conforming resource fields', () => {
 
     expect(maxY - minY).toBeGreaterThan(0.1);
     geometry.dispose();
+  });
+});
+
+describe('restrained resource presentation', () => {
+  it('keeps geological fragments and amber indicators smaller than the old crystal scatter', () => {
+    expect(oreDepositCount(20)).toBe(8);
+    expect(oreDepositCount(12)).toBe(6);
+    expect(oreIndicatorRadius(20)).toBeCloseTo(12.8);
+    expect(oreIndicatorRadius(20)).toBeLessThan(20);
   });
 });
 

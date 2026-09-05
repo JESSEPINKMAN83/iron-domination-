@@ -2577,6 +2577,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const water = new WaterView(hf, ctx.sunDirection, ctx.scene.fog as Fog, {
     deepColor: selectedMap.atmosphere.waterDeep,
     shallowColor: selectedMap.atmosphere.waterShallow,
+    profile: settings.mapId === 'highlands' ? 'highlands-reservoir' : 'classic',
   });
   water.refreshAtmosphere(ctx.sunDirection, ctx.scene.fog instanceof Fog ? ctx.scene.fog : undefined);
   ctx.scene.add(water.mesh);

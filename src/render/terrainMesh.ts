@@ -6,17 +6,24 @@ import {
   BufferAttribute,
   BufferGeometry,
   CircleGeometry,
+  Color,
   CylinderGeometry,
   DataTexture,
   DoubleSide,
+  Euler,
   Group,
+  IcosahedronGeometry,
+  InstancedMesh,
   LinearFilter,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   NearestFilter,
+  Quaternion,
   RGBAFormat,
   TetrahedronGeometry,
+  Vector3,
 } from 'three';
 import type { CSM } from 'three/addons/csm/CSM.js';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
@@ -42,8 +49,11 @@ interface OreGlow {
   rimMaterial: MeshBasicMaterial;
   statusMaterial: MeshBasicMaterial;
   rigMaterials: MeshStandardMaterial[];
-  crystals: Mesh[];
-  crystalMaterials: MeshStandardMaterial[];
+  deposits?: InstancedMesh;
+  depositMaterial?: MeshStandardMaterial;
+  crystals?: Mesh[];
+  crystalMaterials?: MeshStandardMaterial[];
+  lastPct: number;
 }
 
 function buildChunkGeometry(hf: Heightfield, startX: number, startY: number, chunkCells: number): BufferGeometry {
@@ -172,8 +182,6 @@ export class TerrainView {
       const glow = this.oreGlows[i];
       const pct = node ? Math.max(0, Math.min(1, node.remaining / node.capacity)) : 0;
       const visible = pct > 0.01;
-      glow.rim.visible = visible;
-      glow.rimMaterial.opacity = 0.02 + pct * 0.09;
       glow.rig.visible = pct > 0.005;
       glow.rig.scale.setScalar(0.92 + pct * 0.08);
       glow.pumpJack.rotation.x = Math.sin(now * 2.4 + i * 0.7) * (0.05 + pct * 0.14);
@@ -183,9 +191,23 @@ export class TerrainView {
         material.opacity = 0.35 + pct * 0.65;
         material.color.lerpColors(material.userData.depletedColor, material.userData.fullColor, pct);
       }
-      for (let c = 0; c < glow.crystals.length; c++) {
-        const crystal = glow.crystals[c];
-        const material = glow.crystalMaterials[c];
+      if (glow.deposits && glow.depositMaterial) {
+        if (glow.lastPct === pct) continue;
+        glow.lastPct = pct;
+        glow.rim.visible = visible;
+        glow.rimMaterial.opacity = 0.035 + pct * 0.1;
+        glow.deposits.visible = visible;
+        glow.depositMaterial.emissiveIntensity = 0.05 + pct * 0.24;
+        continue;
+      }
+      glow.rim.visible = visible;
+      glow.rimMaterial.opacity = 0.02 + pct * 0.09;
+      const crystals = glow.crystals;
+      const crystalMaterials = glow.crystalMaterials;
+      if (!crystals || !crystalMaterials) continue;
+      for (let c = 0; c < crystals.length; c++) {
+        const crystal = crystals[c];
+        const material = crystalMaterials[c];
         const seed = crystal.userData.seed as number;
         const baseScale = crystal.userData.baseScale as number;
         crystal.visible = visible;
@@ -198,6 +220,10 @@ export class TerrainView {
   }
 
   private buildOreGlow(hf: Heightfield): void {
+    if (hf.kind === 'highlands') {
+      this.buildHighlandsOreDeposits(hf);
+      return;
+    }
     for (const field of hf.oreFields) {
       const rimMaterial = oreGlowMaterial(0xd9b25a, 0.1);
       const rim = new Mesh(createTerrainDiscGeometry(hf, field.x, field.z, field.radius * 1.05, 72, 0.14), rimMaterial);
@@ -251,6 +277,75 @@ export class TerrainView {
         rigMaterials: rig.userData.materials as MeshStandardMaterial[],
         crystals,
         crystalMaterials,
+        lastPct: Number.NaN,
+      });
+    }
+  }
+
+  private buildHighlandsOreDeposits(hf: Heightfield): void {
+    const depositGeometry = createOreDepositGeometry();
+    const matrix = new Matrix4();
+    const quat = new Quaternion();
+    const euler = new Euler();
+    const pos = new Vector3();
+    const scale = new Vector3();
+    const tint = new Color();
+    for (const field of hf.oreFields) {
+      const rimMaterial = oreIndicatorMaterial(0xb8893a, 0.12);
+      const rim = new Mesh(createTerrainDiscGeometry(hf, field.x, field.z, oreIndicatorRadius(field.radius), 32, 0.08), rimMaterial);
+      rim.renderOrder = 22;
+      rim.visible = false;
+      this.oreGlowGroup.add(rim);
+
+      const rig = createOilFieldRig(field.radius);
+      rig.position.set(field.x, sampleHeight(hf, field.x, field.z) + 0.54, field.z);
+      rig.rotation.y = hashAngle(field.x, field.z);
+      this.oreGlowGroup.add(rig);
+
+      const count = oreDepositCount(field.radius);
+      const depositMaterial = new MeshStandardMaterial({
+        color: 0x5c5346,
+        emissive: 0x8a5a18,
+        emissiveIntensity: 0.22,
+        roughness: 0.84,
+        metalness: 0.16,
+      });
+      const deposits = new InstancedMesh(depositGeometry, depositMaterial, count);
+      const rng = mulberry32((Math.floor(field.x * 31) ^ Math.floor(field.z * 57) ^ 0x9e3779b9) >>> 0);
+      for (let c = 0; c < count; c++) {
+        const angle = rng() * Math.PI * 2;
+        const distance = field.radius * (0.08 + rng() * 0.48);
+        const x = field.x + Math.cos(angle) * distance;
+        const z = field.z + Math.sin(angle) * distance;
+        const size = 0.78 + rng() * 0.9;
+        euler.set(rng() * 0.5 - 0.25, rng() * Math.PI * 2, rng() * 0.4 - 0.2);
+        quat.setFromEuler(euler);
+        pos.set(x, sampleHeight(hf, x, z) + size * 0.2, z);
+        scale.set(size, size * (0.42 + rng() * 0.22), size);
+        matrix.compose(pos, quat, scale);
+        deposits.setMatrixAt(c, matrix);
+        tint.setRGB(0.82 + rng() * 0.16, 0.72 + rng() * 0.14, 0.5 + rng() * 0.12);
+        deposits.setColorAt(c, tint);
+      }
+      deposits.instanceMatrix.needsUpdate = true;
+      if (deposits.instanceColor) deposits.instanceColor.needsUpdate = true;
+      deposits.castShadow = false;
+      deposits.receiveShadow = true;
+      deposits.frustumCulled = true;
+      deposits.visible = false;
+      deposits.computeBoundingSphere();
+      this.oreGlowGroup.add(deposits);
+
+      this.oreGlows.push({
+        rim,
+        rig,
+        pumpJack: rig.getObjectByName('pumpJack') as Group,
+        rimMaterial,
+        statusMaterial: rig.getObjectByName('statusLight') instanceof Mesh ? (rig.getObjectByName('statusLight') as Mesh).material as MeshBasicMaterial : oreGlowMaterial(0x7df27d, 0.3),
+        rigMaterials: rig.userData.materials as MeshStandardMaterial[],
+        deposits,
+        depositMaterial,
+        lastPct: Number.NaN,
       });
     }
   }
@@ -387,6 +482,39 @@ function oreGlowMaterial(color: number, opacity: number): MeshBasicMaterial {
     blending: AdditiveBlending,
     toneMapped: false,
   });
+}
+
+function oreIndicatorMaterial(color: number, opacity: number): MeshBasicMaterial {
+  return new MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    side: DoubleSide,
+  });
+}
+
+function createOreDepositGeometry(): BufferGeometry {
+  const rock = new IcosahedronGeometry(1, 0);
+  const pos = rock.getAttribute('position');
+  const rng = mulberry32(0x0e11);
+  for (let i = 0; i < pos.count; i++) {
+    const k = 0.72 + rng() * 0.5;
+    pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * 0.58, pos.getZ(i) * k);
+  }
+  rock.computeVertexNormals();
+  return rock;
+}
+
+export function oreDepositCount(radius: number): number {
+  return Math.max(6, Math.round(radius * 0.42));
+}
+
+export function oreIndicatorRadius(radius: number): number {
+  return radius * 0.64;
 }
 
 function createOilFieldRig(radius: number): Group {
@@ -577,7 +705,7 @@ function terrainTextureStyle(hf: Heightfield): TerrainTextureStyle {
 function terrainSkirtColor(hf: Heightfield): number {
   if (hf.kind === 'crater-oasis') return 0x3b3027;
   if (hf.kind === 'frostbite-pass') return 0x30383d;
-  return 0x263029;
+  return 0x4a453a;
 }
 
 function createWalkOverlayMaterial(hf: Heightfield): MeshBasicMaterial {

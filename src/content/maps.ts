@@ -77,7 +77,7 @@ export const MAP_PRESETS = {
     id: 'highlands',
     label: 'Highlands',
     shortLabel: 'HIGHLANDS',
-    description: 'Rolling green plateaus, lakes, trees, and balanced oil fields. The classic Iron Dominion battlefield.',
+    description: 'Mediterranean upland reservoir, pale limestone, olive groves, and balanced oil fields. The classic Iron Dominion battlefield.',
     biome: 'temperate',
     atmosphere: {
       sky: '#8fb3d6',
@@ -120,8 +120,8 @@ export const MAP_PRESETS = {
         thicknessMax: 11,
         opacity: 0.32,
       },
-      waterDeep: '#061a24',
-      waterShallow: '#296b6b',
+      waterDeep: '#0b3442',
+      waterShallow: '#347c78',
     },
     config: {
       kind: 'highlands',

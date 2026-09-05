@@ -21,4 +21,13 @@ describe('ground macro tint', () => {
     expect(desert).not.toEqual(temperate);
     expect(snow).not.toEqual(temperate);
   });
+
+  it('warms inland Highlands ground and darkens the damp shoreline', () => {
+    const inland = macroTintFactors('temperate', 0.55, 0.5, 0);
+    const shore = macroTintFactors('temperate', 0.55, 0.5, 1);
+    expect(inland[0]).toBeGreaterThan(inland[2]);
+    expect(shore[0]).toBeLessThan(inland[0]);
+    expect(shore[1]).toBeLessThan(inland[1]);
+    expect(shore[2]).toBeLessThan(inland[2]);
+  });
 });
