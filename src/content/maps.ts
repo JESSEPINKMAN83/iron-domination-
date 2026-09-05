@@ -120,8 +120,8 @@ export const MAP_PRESETS = {
         thicknessMax: 11,
         opacity: 0.32,
       },
-      waterDeep: '#061a24',
-      waterShallow: '#296b6b',
+      waterDeep: '#0b3442',
+      waterShallow: '#347c78',
     },
     config: {
       kind: 'highlands',
