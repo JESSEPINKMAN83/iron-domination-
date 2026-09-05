@@ -40,6 +40,7 @@ export type NetCommand =
       waypoints: Array<{ x: number; z: number }>;
       endAction: 'hold' | 'attack-move' | 'attack';
       endTargetId?: number;
+      sprint?: boolean;
     }
   | { type: 'harvest'; ids: number[]; x: number; z: number }
   | { type: 'return-harvesters'; ids: number[]; x: number; z: number }
@@ -478,6 +479,7 @@ export class LockstepRuntime {
           ownedEntities(this.options.sim, command.ids, team),
           command.waypoints,
           endAction,
+          command.sprint,
         );
       }
     } else if (command.type === 'attack') {

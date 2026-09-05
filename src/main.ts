@@ -3414,6 +3414,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           endAction: payload.endAction.kind,
           plannerDurationMs: payload.plannerDurationMs,
           subsetOfSelection: units.length < payload.selectionCount,
+          highSpeed: payload.highSpeed,
         };
         const issued = lockstep
           ? lockstep.issue({
@@ -3422,8 +3423,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
               waypoints: payload.waypoints,
               endAction: payload.endAction.kind,
               endTargetId: payload.endAction.kind === 'attack' ? payload.endAction.targetId : undefined,
+              sprint: payload.highSpeed,
             })
-          : issueTacticOrder(sim, units, payload.waypoints, payload.endAction);
+          : issueTacticOrder(sim, units, payload.waypoints, payload.endAction, payload.highSpeed);
         if (!issued) {
           audio.playUi('error');
           return;

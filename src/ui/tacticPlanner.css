@@ -203,6 +203,43 @@
   accent-color: #d2b15f;
 }
 
+.iron-tactic__speed-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid #4b5552;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #202927, #111716);
+  color: #eef3e9;
+  cursor: pointer;
+}
+
+.iron-tactic__speed-option input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #d2b15f;
+}
+
+.iron-tactic__speed-option span {
+  display: grid;
+  gap: 2px;
+}
+
+.iron-tactic__speed-option strong {
+  color: #f0d56a;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.iron-tactic__speed-option small {
+  color: #9da9a4;
+  font-size: 10px;
+}
+
 .iron-tactic__end-actions,
 .iron-tactic__path-actions,
 .iron-tactic__footer {

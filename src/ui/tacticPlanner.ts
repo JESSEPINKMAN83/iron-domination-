@@ -24,11 +24,13 @@ export type TacticExecutePayload = {
   endAction: TacticEndAction;
   selectionCount: number;
   plannerDurationMs: number;
+  highSpeed: boolean;
 };
 
 type EndMode = 'hold' | 'attack-move' | 'attack';
 
 const ENEMY_PICK_RADIUS = 28;
+const HIGH_SPEED_STORAGE_KEY = 'iron-dominion.tactic-high-speed.v1';
 
 export class TacticPlanner {
   private overlay?: HTMLDivElement;
@@ -46,6 +48,7 @@ export class TacticPlanner {
   private waypoints: Array<{ x: number; z: number }> = [];
   private endMode: EndMode = 'hold';
   private attackTargetId?: number;
+  private highSpeed = false;
   private onKeyDown?: (event: KeyboardEvent) => void;
   private lastDynamicRefreshAt = 0;
 
@@ -74,6 +77,7 @@ export class TacticPlanner {
     this.waypoints = [];
     this.endMode = 'hold';
     this.attackTargetId = undefined;
+    this.highSpeed = loadHighSpeedPreference();
     this.openedAt = performance.now();
     this.lastDynamicRefreshAt = 0;
     this.callbacks.onOpen?.();
@@ -126,6 +130,10 @@ export class TacticPlanner {
           <aside class="iron-tactic__side">
             <div class="iron-tactic__section-title">Units in plan</div>
             <div class="iron-tactic__units" data-tactic-units></div>
+            <label class="iron-tactic__speed-option">
+              <input type="checkbox" data-tactic-high-speed ${this.highSpeed ? 'checked' : ''}>
+              <span><strong>High speed</strong><small>Use rapid transit for the entire path</small></span>
+            </label>
             <div class="iron-tactic__section-title">End action</div>
             <div class="iron-tactic__end-actions" role="group" aria-label="End action">
               <button type="button" data-end="hold" class="is-active">Hold</button>
@@ -168,6 +176,12 @@ export class TacticPlanner {
       this.syncChrome();
     });
     this.executeBtn.addEventListener('click', () => this.execute());
+    const highSpeedInput = overlay.querySelector<HTMLInputElement>('[data-tactic-high-speed]')!;
+    highSpeedInput.addEventListener('change', () => {
+      this.highSpeed = highSpeedInput.checked;
+      saveHighSpeedPreference(this.highSpeed);
+      this.syncChrome();
+    });
 
     for (const button of Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-end]'))) {
       button.addEventListener('click', () => {
@@ -262,6 +276,7 @@ export class TacticPlanner {
       endAction,
       selectionCount: this.candidates.length,
       plannerDurationMs: Math.round(performance.now() - this.openedAt),
+      highSpeed: this.highSpeed,
     };
     this.close({ silent: true });
     this.callbacks.onExecute(payload);
@@ -350,6 +365,7 @@ export class TacticPlanner {
       const parts = [
         `${this.waypoints.length}/${MAX_TACTIC_WAYPOINTS} path points`,
         `${this.selectedIds.size} units`,
+        this.highSpeed ? 'high speed' : 'normal speed',
       ];
       if (this.endMode === 'attack') {
         parts.push(this.attackTargetId !== undefined ? `target #${this.attackTargetId}` : 'click an enemy on the map');
@@ -475,6 +491,22 @@ export class TacticPlanner {
   private isEntityVisible(entity: Entity): boolean {
     return entity.team?.id === this.localTeam ||
       (this.map.isVisible?.(entity.transform.x, entity.transform.z) ?? true);
+  }
+}
+
+function loadHighSpeedPreference(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(HIGH_SPEED_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function saveHighSpeedPreference(enabled: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(HIGH_SPEED_STORAGE_KEY, enabled ? '1' : '0');
+  } catch {
+    // Storage can be unavailable in private or restricted browser contexts.
   }
 }
 

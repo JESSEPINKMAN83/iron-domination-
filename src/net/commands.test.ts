@@ -112,6 +112,7 @@ describe('multiplayer lockstep commands', () => {
           { x: 90, z: 42 },
         ],
         endAction: 'hold',
+        sprint: true,
       }),
     ).toBe(true);
 
@@ -122,6 +123,8 @@ describe('multiplayer lockstep commands', () => {
 
     expect(guestTank.mover?.target).toEqual({ x: 70, z: 42 });
     expect(guestTank.mover?.tactic?.remaining).toEqual([{ x: 90, z: 42 }]);
+    expect(guestTank.mover?.sprint).toBe(true);
+    expect(guestTank.mover?.tactic?.sprint).toBe(true);
     expect(hostTank.mover?.tactic).toBeUndefined();
   });
 

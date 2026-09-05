@@ -99,4 +99,21 @@ describe('tactic orders', () => {
     issueMoveOrder(sim, [tank], 10, 10, false);
     expect(tank.mover?.tactic).toBeUndefined();
   });
+
+  it('keeps high speed enabled across every tactic waypoint', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, 0, 0, 'Scout', 1);
+
+    expect(issueTacticOrder(sim, [tank], [{ x: 20, z: 0 }, { x: 40, z: 0 }], { kind: 'hold' }, true)).toBe(true);
+    expect(tank.mover?.sprint).toBe(true);
+    expect(tank.mover?.tactic?.sprint).toBe(true);
+
+    for (let i = 0; i < 900 && (tank.mover?.tactic?.remaining.length ?? 0) > 0; i++) {
+      stepSim(sim, hf, 1 / 30);
+    }
+
+    expect(tank.mover?.sprint).toBe(true);
+    expect(tank.mover?.tactic?.sprint).toBe(true);
+  });
 });
