@@ -104,7 +104,7 @@ export function controlGuideSections(mobile: boolean): GuideSection[] {
         { control: 'Cmd + right click', action: 'Order selected armed units to fire at that exact point.' },
         { control: 'A + right click', action: 'Attack-move; X immediately stops selected units.' },
         { control: 'Hold right + drag', action: 'Set facing and shape a column, wedge, or wide battle line with drag length.' },
-        { control: 'Ctrl/Cmd + 0–9', action: 'Save a control group; press its number to select it again.' },
+        { control: 'Ctrl/Cmd + 0–9', action: 'Save a control group; press its number to select it, or double-tap to center the camera.' },
       ],
     },
     {

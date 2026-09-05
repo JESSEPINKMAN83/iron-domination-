@@ -36,6 +36,7 @@ import {
   worldToRadarPoint,
 } from './radarTransform';
 import { unitDisplayName } from './unitDisplayName';
+import { economyAttention, ProductionIdleTracker } from './economyAttention';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
 import { colorCss, FACTION, factionId } from '../render/palette';
 
@@ -109,6 +110,8 @@ export class Sidebar {
   private lastBodyTick = -1;
   private lastRadarTick = -3;
   private lastLiveTick = -2;
+  private lastProductionAttentionTick = -30;
+  private readonly productionIdle = new ProductionIdleTracker();
   private fogImage?: ImageData;
   private lastSelectedBuildingId?: number;
   private radarFocus?: { x: number; z: number; ttl: number; kind: 'focus' | 'move' | 'attack-ground' };
@@ -326,6 +329,14 @@ export class Sidebar {
     if (this.sim.tick - this.lastLiveTick >= 2) {
       this.lastLiveTick = this.sim.tick;
       this.updateLivePanel();
+    }
+    if (this.sim.tick - this.lastProductionAttentionTick >= 30) {
+      this.lastProductionAttentionTick = this.sim.tick;
+      const producers = buildings(this.sim, this.economy.team)
+        .filter((entity) => entity.producer && entity.building?.complete && !entity.destroyed)
+        .map((entity) => ({ id: entity.id, label: entity.building!.label, busy: queueDepth(entity) > 0 }));
+      const idle = this.productionIdle.update(producers);
+      if (idle.length > 0 && !this.notice) this.flash(`${idle.length === 1 ? idle[0].toUpperCase() : `${idle.length} PRODUCERS`} IDLE`, 90);
     }
     // keeps the counters correct even without the per-frame driver below
     this.animateResources(0.05);
@@ -1012,6 +1023,18 @@ export class Sidebar {
     detail.style.cssText = 'grid-column:1/-1;font-size:10px;color:#aebbc4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
     detail.textContent = `refineries ${refineries} · collectors ${harvesters.length} · cargo ${Math.round(cargo)}/${capacity} · ore ${Math.round(remainingOre)}`;
     el.append(title, value, detail);
+    const attention = document.createElement('button');
+    attention.dataset.economyAttention = 'true';
+    attention.style.cssText = 'grid-column:1/-1;border:1px solid #b39444;background:#292417;color:#f0d56a;padding:6px;font:10px ui-monospace,monospace;cursor:pointer;';
+    const warning = economyAttention(harvesters, this.sim.resourceNodes);
+    attention.textContent = warning.text;
+    attention.hidden = !warning.target;
+    attention.onclick = () => {
+      const current = Array.from(this.sim.world.entities).filter((entity) => entity.team?.id === this.economy.team && entity.harvester && !entity.destroyed);
+      const target = economyAttention(current, this.sim.resourceNodes).target;
+      if (target) this.actions.focusMap(target.x, target.z);
+    };
+    el.appendChild(attention);
     return el;
   }
 
@@ -1124,6 +1147,12 @@ export class Sidebar {
             : `${active} COLLECTING · ${returning} RETURNING`;
     status.textContent = label;
     detail.textContent = `refineries ${refineries} · collectors ${harvesters.length} · cargo ${Math.round(cargo)}/${capacity} · ore ${Math.round(remainingOre)}`;
+    const attention = this.body.querySelector<HTMLButtonElement>('[data-economy-attention]');
+    if (attention) {
+      const warning = economyAttention(harvesters, this.sim.resourceNodes);
+      attention.textContent = warning.text;
+      attention.hidden = !warning.target;
+    }
   }
 
   private updateLiveProductionRows(): void {

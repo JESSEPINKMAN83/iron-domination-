@@ -3096,7 +3096,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           const kind = economy.selectedStructure;
           const placement = updatePlacement(sim, hf, kind, x, z, economy.team, economy);
           economy.placement = placement;
-          if (!placement.valid) return;
+          if (!placement.valid) {
+            controller.showFeedback(placement.reason || 'Cannot build here');
+            audio.playUi('error');
+            return;
+          }
           audio.playConstruction(x, z, kind === 'wall' ? 'wall' : 'structure');
           lockstep.issue({ type: 'place-structure', kind, x, z });
           return;
@@ -3110,6 +3114,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         } else {
           audio.playUi('error');
           economy.placement = placement;
+          controller.showFeedback(placement.reason || 'Structure is not ready to place');
         }
       },
       cancel: () => {
@@ -3130,11 +3135,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     {
       showOrder: (x, z, kind) => {
         orderMarkers.push(x, z, kind);
+        controller.confirmOrder(kind);
         audio.playUi(kind === 'attack' ? 'build' : 'order');
         if (kind === 'attack' || kind === 'attack-move') unitVoices.acknowledge(selectedEntities(sim, localTeam), 'attack');
         else if (kind === 'move' || kind === 'fast-move') unitVoices.acknowledge(selectedEntities(sim, localTeam), 'move');
       },
       selectionChanged: (entities) => unitVoices.acknowledge(entities, 'selected'),
+      focusGroup: (x, z) => rig.jumpTo(x, z),
       showFacingOrder: (x, z, yaw, kind, length, count, baseSpacing) => orderMarkers.pushFacing(x, z, yaw, kind, length, count, baseSpacing),
       showFacingPreview: (fromX, fromZ, toX, toZ, kind, count, baseSpacing) =>
         orderMarkers.showFacingPreview(fromX, fromZ, toX, toZ, kind, count, baseSpacing),
