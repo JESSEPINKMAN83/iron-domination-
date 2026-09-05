@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Iron Dominion · Sound library</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #080b0d; color: #ecf1ed; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    body {
+      padding: clamp(16px, 4vw, 56px);
+      background:
+        radial-gradient(circle at 78% 8%, rgba(161, 58, 34, 0.2), transparent 28%),
+        linear-gradient(145deg, #101719, #080a0b 65%);
+    }
+    main {
+      width: min(1280px, 100%);
+      margin: 0 auto;
+      padding: clamp(18px, 3vw, 36px);
+      border: 1px solid #52605c;
+      border-radius: 4px;
+      background: rgba(14, 20, 20, 0.96);
+      box-shadow: 0 28px 90px rgba(0, 0, 0, 0.46), inset 0 0 0 4px rgba(7, 10, 10, 0.72);
+    }
+    .eyebrow { margin-bottom: 9px; color: #df654b; font-size: 11px; font-weight: 800; letter-spacing: 0.16em; }
+    h1 { margin: 0; font: 800 clamp(25px, 4vw, 44px)/1.05 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; letter-spacing: 0.035em; text-transform: uppercase; }
+    header p { max-width: 780px; margin: 12px 0 0; color: #9fa9a5; font-size: 13px; line-height: 1.55; }
+    code { color: #d7e4dc; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 22px 0 8px; }
+    input[type="search"] {
+      flex: 1 1 280px; min-width: 200px; height: 38px; padding: 0 12px;
+      border: 1px solid #60706b; border-radius: 4px; background: #12191a; color: #f2f5f1;
+      font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    button {
+      height: 38px; padding: 0 14px; border: 1px solid #60706b; border-radius: 4px;
+      color: #f2f5f1; background: #1a2424; font: 800 11px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+    }
+    button:hover, button:focus-visible { border-color: #df654b; color: #fff; }
+    button.is-playing { background: #3a211c; border-color: #df654b; }
+    .status { margin: 0 0 22px; color: #8d9994; font-size: 12px; }
+    .group { margin: 0 0 28px; padding-top: 18px; border-top: 1px solid #343f3c; }
+    .group h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .group .count { color: #8d9994; font-size: 11px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 12px; }
+    .card {
+      display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start;
+      padding: 12px; border: 1px solid #3d4a46; border-radius: 4px; background: #101617;
+    }
+    .card h3 { margin: 0 0 4px; font-size: 13px; font-weight: 800; }
+    .card p { margin: 0 0 8px; color: #8d9994; font-size: 11px; line-height: 1.4; min-height: 1.4em; }
+    .file { display: block; color: #c9b48a; font-size: 11px; word-break: break-all; cursor: pointer; }
+    .file:hover { color: #f0d9a4; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">Local audio lab · saved files</div>
+      <h1>Sound library</h1>
+      <p>
+        Every recorded file currently in <code>public/assets</code>. Play a clip, then replace the file
+        on disk with the <strong>same filename</strong> and press Play again. The player bypasses cache so the new take is heard immediately.
+        The in-game mixer is still at <code>?sfx-preview=all</code>.
+      </p>
+    </header>
+    <div class="toolbar">
+      <input id="filter" type="search" placeholder="Filter by name, file, or folder" />
+      <button id="stop" type="button">Stop all</button>
+    </div>
+    <p class="status" id="status"></p>
+    <div id="groups"></div>
+  </main>
+  <script>
+    const SOUNDS = [{"file":"enemy-first-contact-war-drums.mp3","path":"/assets/audio/enemy-first-contact-war-drums.mp3","disk":"public/assets/audio/enemy-first-contact-war-drums.mp3","group":"Briefings","label":"Enemy-contact drums","role":"Currently unused in the mix","loop":false},{"file":"enemy-first-contact.mp3","path":"/assets/audio/enemy-first-contact.mp3","disk":"public/assets/audio/enemy-first-contact.mp3","group":"Briefings","label":"Enemy first contact","role":"Currently unused in the mix","loop":false},{"file":"intro-briefing.mp3","path":"/assets/audio/intro-briefing.mp3","disk":"public/assets/audio/intro-briefing.mp3","group":"Briefings","label":"Intro briefing","role":"Currently unused in the mix","loop":false},{"file":"enemy-contact.mp3","path":"/assets/comms/enemy-contact.mp3","disk":"public/assets/comms/enemy-contact.mp3","group":"Mission comms","label":"Enemy contact","role":"Comms sting","loop":false},{"file":"mission-online.mp3","path":"/assets/comms/mission-online.mp3","disk":"public/assets/comms/mission-online.mp3","group":"Mission comms","label":"Mission online","role":"Comms sting","loop":false},{"file":"home-theme.mp3","path":"/assets/landing/home-theme.mp3","disk":"public/assets/landing/home-theme.mp3","group":"Landing / music","label":"Home theme","role":"Landing music, currently disabled in-game","loop":false},{"file":"aircraft-autocannon-01.wav","path":"/assets/sfx/aircraft-autocannon-01.wav","disk":"public/assets/sfx/aircraft-autocannon-01.wav","group":"Weapons","label":"Autocannon burst 1","role":"Aircraft / vehicle / CIWS","loop":false},{"file":"aircraft-autocannon-02.wav","path":"/assets/sfx/aircraft-autocannon-02.wav","disk":"public/assets/sfx/aircraft-autocannon-02.wav","group":"Weapons","label":"Autocannon burst 2","role":"Aircraft / vehicle / CIWS","loop":false},{"file":"aircraft-autocannon-03.wav","path":"/assets/sfx/aircraft-autocannon-03.wav","disk":"public/assets/sfx/aircraft-autocannon-03.wav","group":"Weapons","label":"Autocannon burst 3","role":"Aircraft / vehicle / CIWS","loop":false},{"file":"aircraft-autocannon-04.wav","path":"/assets/sfx/aircraft-autocannon-04.wav","disk":"public/assets/sfx/aircraft-autocannon-04.wav","group":"Weapons","label":"Autocannon burst 4","role":"Aircraft / vehicle / CIWS","loop":false},{"file":"aircraft-engine-candidate-01.wav","path":"/assets/sfx/aircraft-engine-candidate-01.wav","disk":"public/assets/sfx/aircraft-engine-candidate-01.wav","group":"Engines","label":"Wasp engine","role":"Light interceptor hover and flight","loop":false},{"file":"aircraft-engine-candidate-02.wav","path":"/assets/sfx/aircraft-engine-candidate-02.wav","disk":"public/assets/sfx/aircraft-engine-candidate-02.wav","group":"Engines","label":"Vulture engine","role":"Armored attack-gunship hover and flight engine","loop":false},{"file":"building-collapse-candidate-01.wav","path":"/assets/sfx/building-collapse-candidate-01.wav","disk":"public/assets/sfx/building-collapse-candidate-01.wav","group":"Impacts and destruction","label":"Fortified collapse","role":"Candidate 1 · towers, batteries, and defensive structures","loop":false},{"file":"building-collapse-candidate-02.wav","path":"/assets/sfx/building-collapse-candidate-02.wav","disk":"public/assets/sfx/building-collapse-candidate-02.wav","group":"Impacts and destruction","label":"Light building collapse","role":"Candidate 2 · power plants, barracks, walls, and small structures","loop":false},{"file":"building-collapse-candidate-03.wav","path":"/assets/sfx/building-collapse-candidate-03.wav","disk":"public/assets/sfx/building-collapse-candidate-03.wav","group":"Impacts and destruction","label":"Industrial collapse","role":"Candidate 3 · factories, refineries, and helipads","loop":false},{"file":"building-collapse-candidate-04.wav","path":"/assets/sfx/building-collapse-candidate-04.wav","disk":"public/assets/sfx/building-collapse-candidate-04.wav","group":"Impacts and destruction","label":"Strategic collapse","role":"Candidate 4 · command, intelligence, and missile-silo structures","loop":false},{"file":"heavy-gunship-engine-loop-01.wav","path":"/assets/sfx/heavy-gunship-engine-loop-01.wav","disk":"public/assets/sfx/heavy-gunship-engine-loop-01.wav","group":"Engines","label":"Hammerhead engine 1","role":"Heavy gunship loop","loop":true},{"file":"heavy-gunship-engine-loop-02.wav","path":"/assets/sfx/heavy-gunship-engine-loop-02.wav","disk":"public/assets/sfx/heavy-gunship-engine-loop-02.wav","group":"Engines","label":"Hammerhead engine 2","role":"Heavy gunship loop","loop":true},{"file":"heavy-gunship-engine-loop-03.wav","path":"/assets/sfx/heavy-gunship-engine-loop-03.wav","disk":"public/assets/sfx/heavy-gunship-engine-loop-03.wav","group":"Engines","label":"Hammerhead engine 3","role":"Heavy gunship loop","loop":true},{"file":"heavy-gunship-engine-loop-04.wav","path":"/assets/sfx/heavy-gunship-engine-loop-04.wav","disk":"public/assets/sfx/heavy-gunship-engine-loop-04.wav","group":"Engines","label":"Hammerhead engine 4","role":"Heavy gunship loop","loop":true},{"file":"heavy-impact-candidate-01.wav","path":"/assets/sfx/heavy-impact-candidate-01.wav","disk":"public/assets/sfx/heavy-impact-candidate-01.wav","group":"Impacts and destruction","label":"Artillery impact","role":"Candidate 1 · Mauler artillery and siege-missile impact","loop":false},{"file":"heavy-impact-candidate-02.wav","path":"/assets/sfx/heavy-impact-candidate-02.wav","disk":"public/assets/sfx/heavy-impact-candidate-02.wav","group":"Impacts and destruction","label":"Heavy bomb impact","role":"Candidate 2 · aircraft and tank bomb impact","loop":false},{"file":"impact-building-01.wav","path":"/assets/sfx/impact-building-01.wav","disk":"public/assets/sfx/impact-building-01.wav","group":"Impacts and destruction","label":"Light structure","role":"Impact on a small building","loop":false},{"file":"impact-building-02.wav","path":"/assets/sfx/impact-building-02.wav","disk":"public/assets/sfx/impact-building-02.wav","group":"Impacts and destruction","label":"Industrial structure","role":"Impact on a factory or refinery","loop":false},{"file":"impact-building-03.wav","path":"/assets/sfx/impact-building-03.wav","disk":"public/assets/sfx/impact-building-03.wav","group":"Impacts and destruction","label":"Defensive structure","role":"Impact on a fortified tower","loop":false},{"file":"impact-building-04.wav","path":"/assets/sfx/impact-building-04.wav","disk":"public/assets/sfx/impact-building-04.wav","group":"Impacts and destruction","label":"Strategic structure","role":"Impact on a command-scale building","loop":false},{"file":"medium-explosion-01.wav","path":"/assets/sfx/medium-explosion-01.wav","disk":"public/assets/sfx/medium-explosion-01.wav","group":"Impacts and destruction","label":"Tank shell","role":"Armored shell detonation","loop":false},{"file":"medium-explosion-02.wav","path":"/assets/sfx/medium-explosion-02.wav","disk":"public/assets/sfx/medium-explosion-02.wav","group":"Impacts and destruction","label":"Artillery","role":"Siege projectile detonation","loop":false},{"file":"medium-explosion-03.wav","path":"/assets/sfx/medium-explosion-03.wav","disk":"public/assets/sfx/medium-explosion-03.wav","group":"Impacts and destruction","label":"Bomb","role":"Aircraft bomb detonation","loop":false},{"file":"medium-explosion-04.wav","path":"/assets/sfx/medium-explosion-04.wav","disk":"public/assets/sfx/medium-explosion-04.wav","group":"Impacts and destruction","label":"Vehicle destruction","role":"Tank or aircraft destroyed","loop":false},{"file":"missile-launch-heavy-01.wav","path":"/assets/sfx/missile-launch-heavy-01.wav","disk":"public/assets/sfx/missile-launch-heavy-01.wav","group":"Weapons","label":"Heavy aircraft missile","role":"Hammerhead and heavy aircraft launchers","loop":false},{"file":"missile-launch-heavy-02.wav","path":"/assets/sfx/missile-launch-heavy-02.wav","disk":"public/assets/sfx/missile-launch-heavy-02.wav","group":"Weapons","label":"Heavy vehicle missile","role":"Mauler and other heavy vehicle launchers","loop":false},{"file":"missile-launch-heavy-03.wav","path":"/assets/sfx/missile-launch-heavy-03.wav","disk":"public/assets/sfx/missile-launch-heavy-03.wav","group":"Weapons","label":"Heavy emplacement missile","role":"Fortified tower and fixed heavy launchers","loop":false},{"file":"missile-launch-heavy-04.wav","path":"/assets/sfx/missile-launch-heavy-04.wav","disk":"public/assets/sfx/missile-launch-heavy-04.wav","group":"Weapons","label":"Advanced heavy missile","role":"Annihilator and saturation-class launchers","loop":false},{"file":"missile-launch-medium-01.wav","path":"/assets/sfx/missile-launch-medium-01.wav","disk":"public/assets/sfx/missile-launch-medium-01.wav","group":"Weapons","label":"Medium aircraft missile","role":"Vulture rocket-pod launch","loop":false},{"file":"missile-launch-medium-02.wav","path":"/assets/sfx/missile-launch-medium-02.wav","disk":"public/assets/sfx/missile-launch-medium-02.wav","group":"Weapons","label":"Medium vehicle missile","role":"M-17 guided missile launch","loop":false},{"file":"rocket-launcher-fire-01.wav","path":"/assets/sfx/rocket-launcher-fire-01.wav","disk":"public/assets/sfx/rocket-launcher-fire-01.wav","group":"Weapons","label":"Infantry launcher","role":"Shoulder-fired rocket","loop":false},{"file":"rocket-launcher-fire-02.wav","path":"/assets/sfx/rocket-launcher-fire-02.wav","disk":"public/assets/sfx/rocket-launcher-fire-02.wav","group":"Weapons","label":"Armored launcher","role":"Vehicle-mounted missile","loop":false},{"file":"rocket-launcher-fire-03.wav","path":"/assets/sfx/rocket-launcher-fire-03.wav","disk":"public/assets/sfx/rocket-launcher-fire-03.wav","group":"Weapons","label":"Aircraft launcher","role":"Air-launched missile","loop":false},{"file":"rocket-launcher-fire-04.wav","path":"/assets/sfx/rocket-launcher-fire-04.wav","disk":"public/assets/sfx/rocket-launcher-fire-04.wav","group":"Weapons","label":"Defense launcher","role":"Tower-launched interceptor","loop":false},{"file":"shell-flyby-01.wav","path":"/assets/sfx/shell-flyby-01.wav","disk":"public/assets/sfx/shell-flyby-01.wav","group":"Weapons","label":"Standard shell A","role":"Light projectile flyby","loop":false},{"file":"shell-flyby-02.wav","path":"/assets/sfx/shell-flyby-02.wav","disk":"public/assets/sfx/shell-flyby-02.wav","group":"Weapons","label":"Standard shell B","role":"Alternate light projectile flyby","loop":false},{"file":"shell-flyby-03.wav","path":"/assets/sfx/shell-flyby-03.wav","disk":"public/assets/sfx/shell-flyby-03.wav","group":"Weapons","label":"Heavy shell A","role":"Heavy projectile flyby","loop":false},{"file":"shell-flyby-04.wav","path":"/assets/sfx/shell-flyby-04.wav","disk":"public/assets/sfx/shell-flyby-04.wav","group":"Weapons","label":"Heavy shell B","role":"Alternate heavy projectile flyby","loop":false},{"file":"small-explosion-01.wav","path":"/assets/sfx/small-explosion-01.wav","disk":"public/assets/sfx/small-explosion-01.wav","group":"Impacts and destruction","label":"Grenade","role":"Compact battlefield detonation","loop":false},{"file":"small-explosion-02.wav","path":"/assets/sfx/small-explosion-02.wav","disk":"public/assets/sfx/small-explosion-02.wav","group":"Impacts and destruction","label":"Light rocket","role":"Light rocket detonation","loop":false},{"file":"small-explosion-03.wav","path":"/assets/sfx/small-explosion-03.wav","disk":"public/assets/sfx/small-explosion-03.wav","group":"Impacts and destruction","label":"Missile","role":"Standard missile detonation","loop":false},{"file":"small-explosion-04.wav","path":"/assets/sfx/small-explosion-04.wav","disk":"public/assets/sfx/small-explosion-04.wav","group":"Impacts and destruction","label":"Unit destruction","role":"Small vehicle or aircraft destroyed","loop":false},{"file":"strategic-missile-flight-loop.wav","path":"/assets/sfx/strategic-missile-flight-loop.wav","disk":"public/assets/sfx/strategic-missile-flight-loop.wav","group":"Strategic missile","label":"Flight motor","role":"Motor attached to the moving missile","loop":true},{"file":"strategic-missile-flyby-01.wav","path":"/assets/sfx/strategic-missile-flyby-01.wav","disk":"public/assets/sfx/strategic-missile-flyby-01.wav","group":"Strategic missile","label":"Close flyby","role":"One proximity pass per missile","loop":false},{"file":"strategic-missile-impact-01.wav","path":"/assets/sfx/strategic-missile-impact-01.wav","disk":"public/assets/sfx/strategic-missile-impact-01.wav","group":"Strategic missile","label":"Ground impact","role":"Successful strategic detonation","loop":false},{"file":"strategic-missile-intercepted-01.wav","path":"/assets/sfx/strategic-missile-intercepted-01.wav","disk":"public/assets/sfx/strategic-missile-intercepted-01.wav","group":"Strategic missile","label":"Mid-air interception","role":"Missile destroyed by air defense","loop":false},{"file":"strategic-missile-launch-01.wav","path":"/assets/sfx/strategic-missile-launch-01.wav","disk":"public/assets/sfx/strategic-missile-launch-01.wav","group":"Strategic missile","label":"Missile launch","role":"Silo ignition and liftoff","loop":false},{"file":"tank-engine-tracks-loop-01.wav","path":"/assets/sfx/tank-engine-tracks-loop-01.wav","disk":"public/assets/sfx/tank-engine-tracks-loop-01.wav","group":"Engines","label":"Tank movement 1","role":"M-17 / Mauler engine and tracks","loop":true},{"file":"tank-engine-tracks-loop-02.wav","path":"/assets/sfx/tank-engine-tracks-loop-02.wav","disk":"public/assets/sfx/tank-engine-tracks-loop-02.wav","group":"Engines","label":"Tank movement 2","role":"M-17 / Mauler engine and tracks","loop":true},{"file":"tank-engine-tracks-loop-03.wav","path":"/assets/sfx/tank-engine-tracks-loop-03.wav","disk":"public/assets/sfx/tank-engine-tracks-loop-03.wav","group":"Engines","label":"Tank movement 3","role":"M-17 / Mauler engine and tracks","loop":true},{"file":"tank-engine-tracks-loop-04.wav","path":"/assets/sfx/tank-engine-tracks-loop-04.wav","disk":"public/assets/sfx/tank-engine-tracks-loop-04.wav","group":"Engines","label":"Tank movement 4","role":"M-17 / Mauler engine and tracks","loop":true},{"file":"ui-button-click-01.wav","path":"/assets/sfx/ui-button-click-01.wav","disk":"public/assets/sfx/ui-button-click-01.wav","group":"Interface","label":"Button click","role":"Any enabled game button is pressed","loop":false},{"file":"ui-button-click-active-02.wav","path":"/assets/sfx/ui-button-click-active-02.wav","disk":"public/assets/sfx/ui-button-click-active-02.wav","group":"Interface","label":"Active interface click","role":"All enabled buttons across the game interface","loop":false},{"file":"ui-button-click-active.wav","path":"/assets/sfx/ui-button-click-active.wav","disk":"public/assets/sfx/ui-button-click-active.wav","group":"Interface","label":"Previous interface click","role":"Inactive previous global click","loop":false},{"file":"ui-button-hover-01.wav","path":"/assets/sfx/ui-button-hover-01.wav","disk":"public/assets/sfx/ui-button-hover-01.wav","group":"Interface","label":"Button hover","role":"Pointer enters any enabled game button","loop":false},{"file":"ui-button-hover-active-02.wav","path":"/assets/sfx/ui-button-hover-active-02.wav","disk":"public/assets/sfx/ui-button-hover-active-02.wav","group":"Interface","label":"Active interface hover","role":"All enabled buttons across the game interface","loop":false},{"file":"ui-button-hover-active.wav","path":"/assets/sfx/ui-button-hover-active.wav","disk":"public/assets/sfx/ui-button-hover-active.wav","group":"Interface","label":"Previous interface hover","role":"Inactive previous global hover","loop":false},{"file":"ui-game-click-01.wav","path":"/assets/sfx/ui-game-click-01.wav","disk":"public/assets/sfx/ui-game-click-01.wav","group":"Interface","label":"Earlier click A","role":"Inactive earlier in-game click candidate 1","loop":false},{"file":"ui-game-click-02.wav","path":"/assets/sfx/ui-game-click-02.wav","disk":"public/assets/sfx/ui-game-click-02.wav","group":"Interface","label":"Game command click B","role":"Ordinary in-game command button click candidate 2","loop":false},{"file":"ui-game-hover-01.wav","path":"/assets/sfx/ui-game-hover-01.wav","disk":"public/assets/sfx/ui-game-hover-01.wav","group":"Interface","label":"Rejected hover A","role":"Inactive candidate retained for possible upgrade feedback","loop":false},{"file":"ui-game-hover-02.wav","path":"/assets/sfx/ui-game-hover-02.wav","disk":"public/assets/sfx/ui-game-hover-02.wav","group":"Interface","label":"Rejected hover B","role":"Inactive candidate retained for possible upgrade feedback","loop":false},{"file":"ui-game-hover-03.wav","path":"/assets/sfx/ui-game-hover-03.wav","disk":"public/assets/sfx/ui-game-hover-03.wav","group":"Interface","label":"Earlier hover C","role":"Inactive earlier in-game hover candidate 3","loop":false},{"file":"ui-menu-hover-01.wav","path":"/assets/sfx/ui-menu-hover-01.wav","disk":"public/assets/sfx/ui-menu-hover-01.wav","group":"Interface","label":"Earlier hover A","role":"Inactive earlier menu-hover candidate 1","loop":false},{"file":"ui-menu-hover-02.wav","path":"/assets/sfx/ui-menu-hover-02.wav","disk":"public/assets/sfx/ui-menu-hover-02.wav","group":"Interface","label":"Earlier hover B","role":"Inactive earlier menu-hover candidate 2","loop":false},{"file":"ui-menu-hover-03.wav","path":"/assets/sfx/ui-menu-hover-03.wav","disk":"public/assets/sfx/ui-menu-hover-03.wav","group":"Interface","label":"Earlier hover C","role":"Inactive earlier menu-hover candidate 3","loop":false},{"file":"ui-upgrade.wav","path":"/assets/sfx/ui-upgrade.wav","disk":"public/assets/sfx/ui-upgrade.wav","group":"Interface","label":"Upgrade confirmed","role":"Building or weapon upgrade feedback","loop":false},{"file":"vehicle-destruction-candidate-01.wav","path":"/assets/sfx/vehicle-destruction-candidate-01.wav","disk":"public/assets/sfx/vehicle-destruction-candidate-01.wav","group":"Impacts and destruction","label":"Ore collector destroyed","role":"Candidate 1 · industrial armored vehicle","loop":false},{"file":"vehicle-destruction-candidate-02.wav","path":"/assets/sfx/vehicle-destruction-candidate-02.wav","disk":"public/assets/sfx/vehicle-destruction-candidate-02.wav","group":"Impacts and destruction","label":"Mauler destroyed","role":"Candidate 2 · heavy siege armor","loop":false},{"file":"vehicle-destruction-candidate-03.wav","path":"/assets/sfx/vehicle-destruction-candidate-03.wav","disk":"public/assets/sfx/vehicle-destruction-candidate-03.wav","group":"Impacts and destruction","label":"M-17 destroyed","role":"Candidate 3 · main battle tank","loop":false},{"file":"vehicle-destruction-candidate-04.wav","path":"/assets/sfx/vehicle-destruction-candidate-04.wav","disk":"public/assets/sfx/vehicle-destruction-candidate-04.wav","group":"Impacts and destruction","label":"Jackal destroyed","role":"Candidate 4 · light scout armor","loop":false},{"file":"vehicle-engine-candidate-01.wav","path":"/assets/sfx/vehicle-engine-candidate-01.wav","disk":"public/assets/sfx/vehicle-engine-candidate-01.wav","group":"Engines","label":"M-17 base engine","role":"Idle-to-driving layer","loop":false},{"file":"vehicle-engine-candidate-02.wav","path":"/assets/sfx/vehicle-engine-candidate-02.wav","disk":"public/assets/sfx/vehicle-engine-candidate-02.wav","group":"Engines","label":"Mauler base engine","role":"Idle-to-driving engine layer for the heavy siege tank","loop":false},{"file":"vehicle-engine-candidate-03.wav","path":"/assets/sfx/vehicle-engine-candidate-03.wav","disk":"public/assets/sfx/vehicle-engine-candidate-03.wav","group":"Engines","label":"Jackal base engine","role":"Idle-to-driving engine layer for the fast scout vehicle","loop":false},{"file":"vehicle-engine-candidate-04.wav","path":"/assets/sfx/vehicle-engine-candidate-04.wav","disk":"public/assets/sfx/vehicle-engine-candidate-04.wav","group":"Engines","label":"Vehicle Shift boost","role":"Extra engine-strain layer crossfaded in only during player boost","loop":false},{"file":"aircraft-attack.mp3","path":"/assets/voices/aircraft/aircraft-attack.mp3","disk":"public/assets/voices/aircraft/aircraft-attack.mp3","group":"Unit voices · aircraft","label":"Aircraft attack","role":"Acknowledgement","loop":false},{"file":"aircraft-move.mp3","path":"/assets/voices/aircraft/aircraft-move.mp3","disk":"public/assets/voices/aircraft/aircraft-move.mp3","group":"Unit voices · aircraft","label":"Aircraft move","role":"Acknowledgement","loop":false},{"file":"aircraft-selected.mp3","path":"/assets/voices/aircraft/aircraft-selected.mp3","disk":"public/assets/voices/aircraft/aircraft-selected.mp3","group":"Unit voices · aircraft","label":"Aircraft selected","role":"Acknowledgement","loop":false},{"file":"aircraft-tactic.mp3","path":"/assets/voices/aircraft/aircraft-tactic.mp3","disk":"public/assets/voices/aircraft/aircraft-tactic.mp3","group":"Unit voices · aircraft","label":"Aircraft tactic","role":"Acknowledgement","loop":false},{"file":"infantry-attack.mp3","path":"/assets/voices/infantry/infantry-attack.mp3","disk":"public/assets/voices/infantry/infantry-attack.mp3","group":"Unit voices · infantry","label":"Infantry attack","role":"Acknowledgement","loop":false},{"file":"infantry-move.mp3","path":"/assets/voices/infantry/infantry-move.mp3","disk":"public/assets/voices/infantry/infantry-move.mp3","group":"Unit voices · infantry","label":"Infantry move","role":"Acknowledgement","loop":false},{"file":"infantry-selected.mp3","path":"/assets/voices/infantry/infantry-selected.mp3","disk":"public/assets/voices/infantry/infantry-selected.mp3","group":"Unit voices · infantry","label":"Infantry selected","role":"Acknowledgement","loop":false},{"file":"infantry-tactic.mp3","path":"/assets/voices/infantry/infantry-tactic.mp3","disk":"public/assets/voices/infantry/infantry-tactic.mp3","group":"Unit voices · infantry","label":"Infantry tactic","role":"Acknowledgement","loop":false},{"file":"vehicle-attack.mp3","path":"/assets/voices/vehicle/vehicle-attack.mp3","disk":"public/assets/voices/vehicle/vehicle-attack.mp3","group":"Unit voices · vehicle","label":"Vehicle attack","role":"Acknowledgement","loop":false},{"file":"vehicle-move.mp3","path":"/assets/voices/vehicle/vehicle-move.mp3","disk":"public/assets/voices/vehicle/vehicle-move.mp3","group":"Unit voices · vehicle","label":"Vehicle move","role":"Acknowledgement","loop":false},{"file":"vehicle-selected.mp3","path":"/assets/voices/vehicle/vehicle-selected.mp3","disk":"public/assets/voices/vehicle/vehicle-selected.mp3","group":"Unit voices · vehicle","label":"Vehicle selected","role":"Acknowledgement","loop":false},{"file":"vehicle-tactic.mp3","path":"/assets/voices/vehicle/vehicle-tactic.mp3","disk":"public/assets/voices/vehicle/vehicle-tactic.mp3","group":"Unit voices · vehicle","label":"Vehicle tactic","role":"Acknowledgement","loop":false}];
+    const groupsEl = document.getElementById('groups');
+    const filterEl = document.getElementById('filter');
+    const statusEl = document.getElementById('status');
+    const players = new Map();
+    let current = null;
+
+    function stopAll() {
+      for (const audio of players.values()) {
+        audio.pause();
+        audio.currentTime = 0;
+      }
+      current = null;
+      for (const button of document.querySelectorAll('[data-play]')) {
+        button.classList.remove('is-playing');
+        button.textContent = 'Play';
+      }
+    }
+
+    function play(sound, button) {
+      const already = current === sound.path && !players.get(sound.path)?.paused;
+      stopAll();
+      if (already) return;
+      const audio = new Audio(sound.path + '?t=' + Date.now());
+      audio.loop = sound.loop;
+      players.set(sound.path, audio);
+      current = sound.path;
+      button.classList.add('is-playing');
+      button.textContent = sound.loop ? 'Stop' : 'Playing';
+      audio.addEventListener('ended', () => {
+        if (current === sound.path) {
+          button.classList.remove('is-playing');
+          button.textContent = 'Play';
+          current = null;
+        }
+      });
+      audio.play().catch((error) => {
+        button.classList.remove('is-playing');
+        button.textContent = 'Play';
+        statusEl.textContent = 'Could not play ' + sound.file + ' — ' + error.message;
+      });
+    }
+
+    function copyPath(disk) {
+      navigator.clipboard?.writeText(disk);
+      statusEl.textContent = 'Copied path: ' + disk;
+    }
+
+    function render(query) {
+      const q = query.trim().toLowerCase();
+      const visible = SOUNDS.filter((sound) => {
+        if (!q) return true;
+        return [sound.label, sound.file, sound.role, sound.group, sound.disk].join(' ').toLowerCase().includes(q);
+      });
+      const groups = new Map();
+      for (const sound of visible) {
+        if (!groups.has(sound.group)) groups.set(sound.group, []);
+        groups.get(sound.group).push(sound);
+      }
+      groupsEl.replaceChildren();
+      for (const [title, items] of groups) {
+        const section = document.createElement('section');
+        section.className = 'group';
+        section.innerHTML = '<h2>' + title + '</h2><div class="count">' + items.length + ' files</div><div class="grid"></div>';
+        const grid = section.querySelector('.grid');
+        for (const sound of items) {
+          const card = document.createElement('article');
+          card.className = 'card';
+          card.innerHTML =
+            '<div>' +
+              '<h3>' + sound.label + '</h3>' +
+              '<p>' + (sound.role || (sound.loop ? 'Loop' : 'One-shot')) + '</p>' +
+              '<span class="file" title="Copy disk path">' + sound.disk + '</span>' +
+            '</div>' +
+            '<button type="button" data-play>Play</button>';
+          card.querySelector('.file').addEventListener('click', () => copyPath(sound.disk));
+          card.querySelector('[data-play]').addEventListener('click', (event) => play(sound, event.currentTarget));
+          grid.appendChild(card);
+        }
+        groupsEl.appendChild(section);
+      }
+      statusEl.textContent = visible.length + ' of ' + SOUNDS.length + ' saved sounds';
+    }
+
+    document.getElementById('stop').addEventListener('click', stopAll);
+    filterEl.addEventListener('input', () => render(filterEl.value));
+    render('');
+  </script>
+</body>
+</html>
