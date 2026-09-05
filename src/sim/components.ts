@@ -50,6 +50,8 @@ export type TacticEndAction =
 export interface TacticPlan {
   remaining: Array<{ x: number; z: number }>;
   endAction: TacticEndAction;
+  /** Keep rapid transit enabled for every leg of this tactic. */
+  sprint?: boolean;
 }
 
 export interface Mover {

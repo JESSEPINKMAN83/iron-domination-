@@ -12,6 +12,7 @@ export function cloneTacticPlan(plan: TacticPlan): TacticPlan {
   return {
     remaining: plan.remaining.map((point) => ({ x: point.x, z: point.z })),
     endAction: cloneTacticEndAction(plan.endAction),
+    sprint: plan.sprint,
   };
 }
 
@@ -54,6 +55,7 @@ export function issueTacticOrder(
   entities: Entity[],
   waypoints: Array<{ x: number; z: number }>,
   endAction: TacticEndAction,
+  sprint = false,
 ): boolean {
   if (!validateTacticWaypoints(waypoints) || !validateTacticEndAction(endAction)) return false;
   const movers = tacticEligibleEntities(entities);
@@ -70,9 +72,10 @@ export function issueTacticOrder(
   const planSeed: TacticPlan = {
     remaining,
     endAction: cloneTacticEndAction(endAction),
+    sprint: sprint || undefined,
   };
 
-  if (!issueMoveOrder(sim, movers, first.x, first.z, false)) return false;
+  if (!issueMoveOrder(sim, movers, first.x, first.z, false, undefined, undefined, sprint)) return false;
 
   let assigned = 0;
   for (const entity of movers) {
@@ -94,7 +97,7 @@ export function advanceTacticAfterArrival(sim: GameSim, entity: Entity): void {
   const plan = mover.tactic;
   if (plan.remaining.length > 0) {
     const next = plan.remaining.shift()!;
-    issueMoveOrder(sim, [entity], next.x, next.z, false);
+    issueMoveOrder(sim, [entity], next.x, next.z, false, undefined, undefined, !!plan.sprint);
     if (entity.mover) entity.mover.tactic = plan;
     return;
   }
