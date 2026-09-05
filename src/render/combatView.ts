@@ -34,7 +34,7 @@ interface Burst {
   group: Group;
   ttl: number;
   total: number;
-  kind: 'small' | 'bomb';
+  kind: 'small' | 'bomb' | 'ripple';
   materials: MeshBasicMaterial[];
   baseScale: number;
 }
@@ -259,7 +259,8 @@ export class CombatView {
       }
       const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : event.kind === 'microLaser' ? 2.75 : 2.2;
       const fromY = event.fromY ?? sampleHeight(this.hf, event.fromX, event.fromZ) + muzzleHeight;
-      const toY = event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.4;
+      const waterHit = isWaterSurfaceHit(this.hf, event.toX, event.toZ, event.toY);
+      const toY = event.toY ?? (waterHit ? this.hf.waterLevel + 0.08 : sampleHeight(this.hf, event.toX, event.toZ) + 1.4);
       if (event.kind === 'aircraft-crash-smoke') {
         this.spawnAircraftCrashSmoke(event, toY);
         continue;
@@ -274,10 +275,13 @@ export class CombatView {
       }
       if (isProjectileImpact(event.kind)) {
         this.removeImpactedHomingProjectile(event);
-        if (shouldPaintGroundScorch(this.hf, event)) this.spawnGroundScorch(event);
+        if (waterHit) this.spawnWaterRipple(event.toX, event.toZ, waterRippleScale(event.kind, event.weaponKind));
+        else if (shouldPaintGroundScorch(this.hf, event)) this.spawnGroundScorch(event);
         const impactY = event.targetType === 'aircraft'
           ? toY
-          : sampleHeight(this.hf, event.toX, event.toZ) + 0.4;
+          : waterHit
+            ? this.hf.waterLevel + 0.08
+            : sampleHeight(this.hf, event.toX, event.toZ) + 0.4;
         if (event.weaponKind === 'strategicMissile') {
           this.spawnStrategicBlast(event, impactY);
         } else if (isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
@@ -288,14 +292,14 @@ export class CombatView {
             event.killed,
             impactBlastScale(event.kind, event.weaponKind) * (event.impactScale ?? 1),
           );
-        } else {
+        } else if (!waterHit) {
           this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, (event.impactScale ?? 1) * smallImpactScale(event.weaponKind ?? event.kind));
         }
         if (event.damage > 0 || event.killed) {
           this.spawnHitIndicator(event);
-          this.spawnHitFragments(event, toY);
+          if (!waterHit) this.spawnHitFragments(event, toY);
         }
-        this.spawnImpactAftermathSmoke(event, impactY);
+        if (!waterHit) this.spawnImpactAftermathSmoke(event, impactY);
         continue;
       }
 
@@ -331,13 +335,14 @@ export class CombatView {
       }
       this.trimTracers();
 
-      this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, (event.impactScale ?? 1) * smallImpactScale(event.weaponKind ?? event.kind));
-      if (event.killed && event.targetType === 'tank') {
+      if (waterHit) this.spawnWaterRipple(event.toX, event.toZ, waterRippleScale(event.kind, event.weaponKind));
+      else this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, (event.impactScale ?? 1) * smallImpactScale(event.weaponKind ?? event.kind));
+      if (!waterHit && event.killed && event.targetType === 'tank') {
         this.spawnImpactAftermathSmoke(event, sampleHeight(this.hf, event.toX, event.toZ) + 0.55);
       }
       if (event.kind !== 'microLaser' && (event.damage > 0 || event.killed)) {
         this.spawnHitIndicator(event);
-        this.spawnHitFragments(event, toY);
+        if (!waterHit) this.spawnHitFragments(event, toY);
       }
     }
   }
@@ -372,16 +377,17 @@ export class CombatView {
           else if (material.userData.role === 'debris') material.opacity = life * 0.42;
           else material.opacity = life * 0.54;
         }
+      } else if (burst.kind === 'ripple') {
+        burst.group.scale.setScalar(burst.baseScale * (0.55 + age * 2.6));
+        for (const material of burst.materials) {
+          material.opacity = life * (material.userData.baseOpacity ?? 0.48);
+        }
       } else {
         burst.group.scale.multiplyScalar(1 + dt * 2.2);
         for (const material of burst.materials) material.opacity = life * 0.72;
       }
       if (burst.ttl <= 0) {
-        this.group.remove(burst.group);
-        burst.group.traverse((object) => {
-          if (object instanceof Mesh) object.geometry.dispose();
-        });
-        for (const material of burst.materials) material.dispose();
+        this.disposeBurst(burst);
         this.bursts.splice(i, 1);
       }
     }
@@ -1235,6 +1241,37 @@ export class CombatView {
     return group;
   }
 
+  private spawnWaterRipple(x: number, z: number, scale = 1): void {
+    const foam = new MeshBasicMaterial({
+      color: 0xe7f4f1,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    foam.userData.baseOpacity = 0.5;
+    const glaze = new MeshBasicMaterial({
+      color: 0x9ecfc8,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    glaze.userData.baseOpacity = 0.28;
+    const inner = new Mesh(sharedWaterRippleGeometry(), glaze);
+    const outer = new Mesh(sharedWaterRippleGeometry(), foam);
+    inner.rotation.x = outer.rotation.x = -Math.PI / 2;
+    outer.scale.setScalar(1.55);
+    const group = new Group();
+    group.add(inner, outer);
+    group.position.set(x, this.hf.waterLevel + 0.07, z);
+    group.scale.setScalar(scale);
+    group.renderOrder = 28;
+    this.bursts.push({ group, ttl: 0.45, total: 0.45, kind: 'ripple', materials: [foam, glaze], baseScale: scale });
+    this.group.add(group);
+    this.trimBursts();
+  }
+
   private spawnSmallImpact(x: number, y: number, z: number, killed: boolean, impactScale = 1): void {
     const material = new MeshBasicMaterial({ color: 0xffb449, transparent: true, opacity: 0.72, depthWrite: false });
     const mesh = new Mesh(new SphereGeometry((killed ? 2.6 : 1.3) * impactScale, 10, 6), material);
@@ -1250,40 +1287,46 @@ export class CombatView {
 
   private spawnBombBlast(x: number, y: number, z: number, killed: boolean, baseScale = 1): void {
     const group = new Group();
+    const overWater = isWaterSurfaceHit(this.hf, x, z);
     const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xffc66b : 0xff9738, transparent: true, opacity: 0.54, depthWrite: false });
-    const smokeMaterial = new MeshBasicMaterial({ color: 0x292520, transparent: true, opacity: 0.01, depthWrite: false });
-    const shockMaterial = new MeshBasicMaterial({ color: 0xffb861, transparent: true, opacity: 0.2, depthWrite: false, side: 2 });
-    const scorchMaterial = new MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.14, depthWrite: false, side: 2 });
-    const debrisMaterial = new MeshBasicMaterial({ color: 0x15120f, transparent: true, opacity: 0.42 });
-    smokeMaterial.userData.role = 'smoke';
-    shockMaterial.userData.role = 'shock';
-    scorchMaterial.userData.role = 'scorch';
-    debrisMaterial.userData.role = 'debris';
+    const shockMaterial = new MeshBasicMaterial({ color: overWater ? 0xd5ebe8 : 0xffb861, transparent: true, opacity: 0.2, depthWrite: false, side: 2 });
     fireMaterial.userData.role = 'fire';
+    shockMaterial.userData.role = 'shock';
     const fireball = new Mesh(new SphereGeometry(killed ? 3.9 : 3.0, 14, 9), fireMaterial);
-    const smoke = new Mesh(new SphereGeometry(killed ? 4.6 : 3.7, 10, 7), smokeMaterial);
     const shock = new Mesh(new RingGeometry(1.8, killed ? 6.1 : 4.9, 32), shockMaterial);
-    const scorch = new Mesh(new CircleGeometry(killed ? 5.0 : 4.0, 32), scorchMaterial);
-    fireball.position.y = 1.05;
-    smoke.position.y = 2.15;
+    fireball.position.y = overWater ? 0.35 : 1.05;
     shock.rotation.x = -Math.PI / 2;
     shock.position.y = 0.16;
-    scorch.rotation.x = -Math.PI / 2;
-    scorch.position.y = 0.08;
-    group.add(scorch, shock, fireball, smoke);
-    for (let i = 0; i < 5; i++) {
-      const debris = new Mesh(new BoxGeometry(0.36, 0.14, 0.22), debrisMaterial);
-      const angle = (i / 5) * Math.PI * 2 + (i % 2) * 0.18;
-      const radius = 1.5 + (i % 3) * 0.75;
-      debris.position.set(Math.cos(angle) * radius, 0.55 + (i % 3) * 0.28, Math.sin(angle) * radius);
-      debris.rotation.set(0.45 + i * 0.13, angle, 0.25 + i * 0.17);
-      group.add(debris);
+    group.add(shock, fireball);
+    const materials: MeshBasicMaterial[] = [fireMaterial, shockMaterial];
+    if (!overWater) {
+      const smokeMaterial = new MeshBasicMaterial({ color: 0x292520, transparent: true, opacity: 0.01, depthWrite: false });
+      const scorchMaterial = new MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.14, depthWrite: false, side: 2 });
+      const debrisMaterial = new MeshBasicMaterial({ color: 0x15120f, transparent: true, opacity: 0.42 });
+      smokeMaterial.userData.role = 'smoke';
+      scorchMaterial.userData.role = 'scorch';
+      debrisMaterial.userData.role = 'debris';
+      const smoke = new Mesh(new SphereGeometry(killed ? 4.6 : 3.7, 10, 7), smokeMaterial);
+      smoke.position.y = 2.15;
+      const scorch = new Mesh(new CircleGeometry(killed ? 5.0 : 4.0, 32), scorchMaterial);
+      scorch.rotation.x = -Math.PI / 2;
+      scorch.position.y = 0.08;
+      group.add(scorch, smoke);
+      for (let i = 0; i < 5; i++) {
+        const debris = new Mesh(new BoxGeometry(0.36, 0.14, 0.22), debrisMaterial);
+        const angle = (i / 5) * Math.PI * 2 + (i % 2) * 0.18;
+        const radius = 1.5 + (i % 3) * 0.75;
+        debris.position.set(Math.cos(angle) * radius, 0.55 + (i % 3) * 0.28, Math.sin(angle) * radius);
+        debris.rotation.set(0.45 + i * 0.13, angle, 0.25 + i * 0.17);
+        group.add(debris);
+      }
+      materials.push(smokeMaterial, scorchMaterial, debrisMaterial);
     }
-    group.position.set(x, y, z);
+    group.position.set(x, overWater ? this.hf.waterLevel + 0.08 : y, z);
     group.renderOrder = 55;
     const ttl = killed ? 0.82 : 0.68;
     group.scale.setScalar(baseScale);
-    this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials: [fireMaterial, smokeMaterial, shockMaterial, scorchMaterial, debrisMaterial], baseScale });
+    this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials, baseScale });
     this.group.add(group);
     this.trimBursts();
   }
@@ -1406,7 +1449,8 @@ export class CombatView {
     if (!burst) return;
     this.group.remove(burst.group);
     burst.group.traverse((object) => {
-      if (object instanceof Mesh) object.geometry.dispose();
+      if (!(object instanceof Mesh)) return;
+      if (object.geometry !== sharedRippleGeometry) object.geometry.dispose();
     });
     for (const material of burst.materials) material.dispose();
   }
@@ -1804,11 +1848,32 @@ function smallImpactScale(weaponKind: string): number {
   return 1;
 }
 
-function shouldPaintGroundScorch(hf: Heightfield, event: CombatEvent): boolean {
+export function isWaterSurfaceHit(hf: Heightfield, x: number, z: number, impactY?: number): boolean {
+  const groundY = sampleHeight(hf, x, z);
+  if (groundY >= hf.waterLevel - 0.02) return false;
+  if (impactY !== undefined && impactY > hf.waterLevel + 1.6) return false;
+  return true;
+}
+
+export function shouldPaintGroundScorch(hf: Heightfield, event: CombatEvent): boolean {
   if (!isProjectileImpact(event.kind)) return false;
   const groundY = sampleHeight(hf, event.toX, event.toZ);
+  if (groundY < hf.waterLevel - 0.02) return false;
   const impactY = event.toY ?? groundY;
   return impactY <= groundY + 4.5;
+}
+
+function waterRippleScale(kind: string, weaponKind?: string): number {
+  if (weaponKind === 'strategicMissile' || kind === 'tankBomb-impact' || kind === 'bomb-impact') return 2.4;
+  if (kind === 'artilleryShell-impact' || kind === 'siegeMissile-impact' || kind === 'agMissile-impact') return 1.85;
+  if (kind === 'kineticShell-impact' || kind === 'cannon') return 1.35;
+  if (kind === 'rifle' || kind === 'overchargeRifle' || kind === 'microLaser') return 0.82;
+  return 1.15;
+}
+
+let sharedRippleGeometry: RingGeometry | undefined;
+function sharedWaterRippleGeometry(): RingGeometry {
+  return (sharedRippleGeometry ??= new RingGeometry(0.28, 0.72, 24));
 }
 
 function scorchProfile(kind: string, killed: boolean, weaponKind?: string): { size: number; opacity: number; ttl: number } {

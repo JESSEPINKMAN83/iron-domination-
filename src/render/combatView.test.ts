@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { Sprite } from 'three';
+import { CircleGeometry, Mesh, MeshBasicMaterial, PlaneGeometry, RingGeometry, Sprite } from 'three';
 import { MAP01 } from '../content/map01';
-import { generateHeightfield } from '../sim/heightfield';
+import { generateHeightfield, type Heightfield } from '../sim/heightfield';
 import type { CombatEvent } from '../sim/world';
-import { CombatView, selectCombatVisualEvents } from './combatView';
+import { CombatView, isWaterSurfaceHit, selectCombatVisualEvents, shouldPaintGroundScorch } from './combatView';
 
 function event(index: number, sourceTeamId: number, overrides: Partial<CombatEvent> = {}): CombatEvent {
   return {
@@ -141,5 +141,86 @@ describe('combat visual load shedding', () => {
       if (object instanceof Sprite && object.renderOrder === 91) remainingHealthBars.push(object);
     });
     expect(remainingHealthBars).toHaveLength(0);
+  });
+});
+
+function stubHeightfield(groundY: number, waterLevel: number): Heightfield {
+  const cells = 4;
+  const samples = 5;
+  const cellSize = 2;
+  return {
+    kind: 'highlands',
+    cells,
+    cellSize,
+    samples,
+    size: cells * cellSize,
+    waterLevel,
+    maxHeight: Math.max(groundY, waterLevel),
+    heights: new Float32Array(samples * samples).fill(groundY),
+    walkable: new Uint8Array(cells * cells).fill(1),
+    splat: new Uint8Array(samples * samples * 4),
+    oreFields: [],
+  };
+}
+
+function collectMeshes(view: CombatView): Mesh[] {
+  const meshes: Mesh[] = [];
+  view.group.traverse((object) => {
+    if (object instanceof Mesh) meshes.push(object);
+  });
+  return meshes;
+}
+
+describe('water surface hits', () => {
+  it('treats lake cells as water unless the impact is a high airburst', () => {
+    const lake = stubHeightfield(0.4, 2);
+    expect(isWaterSurfaceHit(lake, 0, 0)).toBe(true);
+    expect(isWaterSurfaceHit(lake, 0, 0, 0.4)).toBe(true);
+    expect(isWaterSurfaceHit(lake, 0, 0, 4.2)).toBe(false);
+    expect(isWaterSurfaceHit(stubHeightfield(4.5, 2), 0, 0)).toBe(false);
+  });
+
+  it('never paints ground scorches onto a lake bed', () => {
+    const lake = stubHeightfield(0.4, 2);
+    const land = stubHeightfield(4.5, 2);
+    const shell = event(0, 1, { kind: 'kineticShell-impact', toX: 0, toZ: 0, toY: 0.4 });
+    expect(shouldPaintGroundScorch(lake, shell)).toBe(false);
+    expect(shouldPaintGroundScorch(lake, { ...shell, toY: 3.8 })).toBe(false);
+    expect(shouldPaintGroundScorch(land, { ...shell, toY: 4.5 })).toBe(true);
+    expect(shouldPaintGroundScorch(land, event(0, 1, { kind: 'rifle', toX: 0, toZ: 0 }))).toBe(false);
+  });
+
+  it('spawns a surface ripple instead of a dark crater when shooting water', () => {
+    const lake = stubHeightfield(0.35, 2);
+    const view = new CombatView(lake, () => true, () => undefined, 1);
+    view.push([event(0, 1, { kind: 'rifle', toX: 0, toZ: 0, damage: 0 })]);
+    const meshes = collectMeshes(view);
+    expect(meshes.some((mesh) => mesh.geometry instanceof RingGeometry && mesh.position.y === 0 && mesh.parent?.position.y === lake.waterLevel + 0.07)).toBe(true);
+    expect(meshes.some((mesh) => mesh.geometry instanceof PlaneGeometry)).toBe(false);
+    expect(meshes.some((mesh) => mesh.geometry instanceof CircleGeometry)).toBe(false);
+    expect(meshes.some((mesh) => mesh.geometry.type === 'SphereGeometry')).toBe(false);
+  });
+
+  it('still uses a small impact flash on dry land', () => {
+    const land = stubHeightfield(4.5, 2);
+    const view = new CombatView(land, () => true, () => undefined, 1);
+    view.push([event(0, 1, { kind: 'rifle', toX: 0, toZ: 0, damage: 0 })]);
+    const meshes = collectMeshes(view);
+    expect(meshes.some((mesh) => mesh.geometry.type === 'SphereGeometry')).toBe(true);
+    expect(meshes.some((mesh) => mesh.geometry instanceof RingGeometry && mesh.parent?.position.y === land.waterLevel + 0.07)).toBe(false);
+  });
+
+  it('keeps bomb fire on water but drops the dark ground disc', () => {
+    const lake = stubHeightfield(0.35, 2);
+    const view = new CombatView(lake, () => true, () => undefined, 1);
+    view.push([event(0, 1, { kind: 'bomb-impact', toX: 0, toZ: 0, toY: 0.4, damage: 0 })]);
+    const meshes = collectMeshes(view);
+    expect(meshes.some((mesh) => mesh.geometry instanceof CircleGeometry)).toBe(false);
+    expect(meshes.some((mesh) => mesh.geometry instanceof PlaneGeometry)).toBe(false);
+    expect(meshes.some((mesh) => mesh.geometry instanceof RingGeometry)).toBe(true);
+    expect(meshes.some((mesh) => {
+      const material = mesh.material;
+      return mesh.geometry.type === 'SphereGeometry' && material instanceof MeshBasicMaterial && material.color.getHex() === 0xff9738;
+    })).toBe(true);
   });
 });
