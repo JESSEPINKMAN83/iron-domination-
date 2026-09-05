@@ -26,10 +26,6 @@ import {
   type Camera,
   type Material,
 } from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { createBuildingConcept, REBUILT_BUILDINGS } from './buildingConcepts';
-import { addBuildingArchitecture } from './buildingArchitecture';
-import { createStructureDamage } from '../sim/structureDamage';
 import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity, StructureDamage } from '../sim/components';
 import type { EconomyState } from '../sim/economy';
@@ -39,7 +35,7 @@ import { hash2i } from '../sim/noise';
 import type { GameSim } from '../sim/world';
 import { factionId, FACTION, type FactionId } from './palette';
 import type { RenderContext } from './renderer';
-import { createBuildingSurface } from './buildingSurfaces';
+import { createHullPanelTexture } from './textures';
 
 const DEFAULT_BUILDING_HEIGHT = 5.4;
 const DESTROYED_TOTAL = 20;
@@ -49,7 +45,7 @@ const BUILDING_PICK_PADDING_PX = 14;
 const BUILDING_PICK_MIN_SIZE_PX = 38;
 export const BUILDING_HEALTH_REVEAL_TICKS = 90;
 
-const sharedBlockGeometry = new RoundedBoxGeometry(1, 1, 1, 1, 0.012);
+const sharedBlockGeometry = new BoxGeometry(1, 1, 1);
 const sharedPlaneGeometry = new PlaneGeometry(1, 1);
 const sharedHealthPlane = new PlaneGeometry(1, 1);
 const sharedRubbleGeometries = [
@@ -153,7 +149,90 @@ export class BuildingView {
       side: DoubleSide,
       blending: AdditiveBlending,
     });
-    this.materials = createBuildingMaterials((material) => ctx.setupLitMaterial(material));
+    const hullSteel = createHullPanelTexture('steel');
+    const hullConcrete = createHullPanelTexture('concrete');
+    const hullRust = createHullPanelTexture('rust');
+    const hullDeck = createHullPanelTexture('deck');
+    this.materials = {
+      'command-yard': ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xb8c0c4,
+        map: hullSteel,
+        roughness: 0.74,
+        metalness: 0.18,
+      })),
+      'power-plant': ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0x6a7c8c,
+        map: hullSteel,
+        roughness: 0.42,
+        metalness: 0.38,
+      })),
+      refinery: ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xc4b49a,
+        map: hullRust,
+        roughness: 0.82,
+        metalness: 0.1,
+      })),
+      barracks: ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xb7c0a8,
+        map: hullConcrete,
+        roughness: 0.86,
+        metalness: 0.06,
+      })),
+      factory: ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xb0b8bc,
+        map: hullSteel,
+        roughness: 0.76,
+        metalness: 0.16,
+      })),
+      helipad: ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xa8b6ba,
+        map: hullDeck,
+        roughness: 0.8,
+        metalness: 0.16,
+      })),
+      wall: ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xb0b4aa,
+        map: hullConcrete,
+        roughness: 0.88,
+        metalness: 0.08,
+      })),
+      'guard-tower': ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xb4bcc2,
+        map: hullSteel,
+        roughness: 0.78,
+        metalness: 0.16,
+      })),
+      'aa-tower': ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xa8b8c4,
+        map: hullSteel,
+        roughness: 0.74,
+        metalness: 0.2,
+      })),
+      'intelligence-center': ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0x86949b,
+        map: hullSteel,
+        roughness: 0.62,
+        metalness: 0.28,
+      })),
+      'strategic-silo': ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xa7aaa4,
+        map: hullConcrete,
+        roughness: 0.72,
+        metalness: 0.18,
+      })),
+      'missile-defense': ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0x9babb2,
+        map: hullSteel,
+        roughness: 0.66,
+        metalness: 0.26,
+      })),
+      'skylance-ciws': ctx.setupLitMaterial(new MeshStandardMaterial({
+        color: 0xaab8bc,
+        map: hullSteel,
+        roughness: 0.58,
+        metalness: 0.34,
+      })),
+    };
     this.ensureGhostCount(1);
   }
 
@@ -326,9 +405,96 @@ export class BuildingView {
   }
 
   private createBuildingObject(entity: Entity): BuildingObject {
-    const id = factionId(entity.team?.id);
-    const base = this.materials[entity.building?.kind ?? 'command-yard'] ?? this.materials['command-yard'];
-    return createBuildingObject(entity, this.hf.cellSize, createFactionBuildingMaterial(base, id), this.accentMaterials[id]);
+    const root = new Group();
+    const damage = structureDamageFor(entity);
+    const kind = entity.building?.kind;
+    const sharedBaseMaterial = this.materials[kind ?? 'command-yard'] ?? this.materials['command-yard'];
+    const baseMaterial = createFactionBuildingMaterial(sharedBaseMaterial, factionId(entity.team?.id));
+    const buildingHeight = heightForStructure(kind);
+    const fullW = (entity.building?.footprint.w ?? 4) * this.hf.cellSize * 2;
+    const fullD = (entity.building?.footprint.h ?? 4) * this.hf.cellSize * 2;
+    const profile = normalizeBodyProfile(bodyProfileFor(kind), damage.tiers);
+    const blocks: DamageBlock[] = [];
+    let tierBaseY = 0;
+
+    for (let tier = 0; tier < damage.tiers; tier++) {
+      const tierProfile = profile[tier]!;
+      const tierH = buildingHeight * tierProfile.heightShare;
+      const tierW = fullW * tierProfile.widthScale;
+      const tierD = fullD * tierProfile.depthScale;
+      const blockW = tierW / damage.cols - BLOCK_GAP;
+      const blockD = tierD / damage.rows - BLOCK_GAP;
+      const blockH = Math.max(0.05, tierH - BLOCK_GAP);
+      for (let row = 0; row < damage.rows; row++) {
+        for (let col = 0; col < damage.cols; col++) {
+          const index = tier * damage.cols * damage.rows + row * damage.cols + col;
+          const mesh = new Mesh(sharedBlockGeometry, baseMaterial);
+          const position = new Vector3(
+            -tierW / 2 + (col + 0.5) * (tierW / damage.cols),
+            tierBaseY + tierH * 0.5,
+            -tierD / 2 + (row + 0.5) * (tierD / damage.rows),
+          );
+          const scale = new Vector3(blockW, blockH, blockD);
+          mesh.position.copy(position);
+          mesh.scale.copy(scale);
+          mesh.castShadow = false;
+          mesh.receiveShadow = true;
+          root.add(mesh);
+          blocks.push({ mesh, index, col, row, tier, basePosition: position, baseScale: scale, baseMaterial });
+        }
+      }
+      tierBaseY += tierH;
+    }
+
+    const isTower = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' || kind === 'skylance-ciws';
+    const isPowerPlant = kind === 'power-plant';
+    const accentY = isTower
+      ? buildingHeight * profile[0]!.heightShare + 0.16
+      : buildingHeight + (isPowerPlant ? 0.42 : 0.16);
+    const accentZ = isTower ? fullD * 0.48 : fullD * (isPowerPlant ? 0.36 : 0.4);
+    const accent = new Mesh(
+      new BoxGeometry(fullW * (isTower ? 0.42 : 0.5), 0.22, Math.max(0.5, fullD * 0.12)),
+      this.accentMaterials[factionId(entity.team?.id)],
+    );
+    // Towers keep the identity plate on the plinth front edge; other buildings
+    // keep it on a clear roof edge so roof machinery does not hide it. The
+    // power plant needs extra clearance for its larger roof equipment.
+    accent.position.set(0, accentY, accentZ);
+    accent.castShadow = true;
+    const label = createBuildingLabel(entity.building?.label ?? entity.name ?? 'Building', fullW * (isTower ? 0.42 : 0.5), Math.max(0.5, fullD * 0.12), buildingHeight);
+    label.position.copy(accent.position);
+    // The label plane needs a meaningful gap above the accent box; a 2 cm
+    // separation is below depth-buffer precision at far RTS zoom levels.
+    label.position.y += 0.23;
+    label.position.z += 0.01;
+    root.add(accent, label);
+    const details = createBuildingDetails(entity, fullW, fullD, buildingHeight, this.accentMaterials[factionId(entity.team?.id)]);
+    root.add(details);
+    const turretPivot = details.userData.turretPivot as Group | undefined;
+    const refineryDock = entity.building?.kind === 'refinery' ? createRefineryDock(fullW, fullD, buildingHeight) : undefined;
+    if (refineryDock) root.add(refineryDock.root);
+    root.updateMatrixWorld(true);
+    const bounds = new Box3().setFromObject(root);
+
+    return {
+      root,
+      blocks,
+      accents: [accent, label],
+      details,
+      turretPivot,
+      refineryDock,
+      effects: [],
+      appliedVersion: -1,
+      appliedLevel: -1,
+      leanX: 0,
+      leanZ: 0,
+      collapsed: false,
+      everSeen: false,
+      chromeLift: Math.max(buildingHeight + 1.9, bounds.max.y + 1.7),
+      lastHealth: entity.health?.current ?? 0,
+      lastDamageTick: -9999,
+      impactPunch: 0,
+    };
   }
 
   private applyDamageDressing(entity: Entity, object: BuildingObject): void {
@@ -1124,18 +1290,15 @@ interface BuildingActivityPart {
 }
 
 function createBuildingDetails(entity: Entity, width: number, depth: number, height: number, accentMaterial: Material): Group {
-  if (REBUILT_BUILDINGS.has(entity.building?.kind ?? '')) return createBuildingConcept(entity.building!.kind, width, depth, height, accentMaterial);
   const root = new Group();
   const kind = entity.building?.kind ?? 'command-yard';
-  const concrete = detailMaterial(0xa1aaa9, 0.78, 0.08);
+  const concrete = detailMaterial(0x69706f, 0.84, 0.06);
   const dark = detailMaterial(0x1d2424, 0.78, 0.12);
-  const metal = detailMaterial(0x667783, 0.42, 0.55);
-  const roof = detailMaterial(0x27353d, 0.62, 0.32);
+  const metal = detailMaterial(0x4e5759, 0.66, 0.28);
+  const roof = detailMaterial(0x303839, 0.82, 0.1);
   // Opaque armored glass is more stable than transparent panes layered over
   // the damage-block façade and still reads as glass through color/roughness.
-  const glass = detailMaterial(0x244d65, 0.18, 0.64);
-  glass.emissive.setHex(0x397b9a);
-  glass.emissiveIntensity = 0.18;
+  const glass = detailMaterial(0x9fb8bd, 0.38, 0.08);
   const brass = detailMaterial(0xd1aa55, 0.58, 0.16);
   const warning = detailMaterial(0xe0b95b, 0.64, 0.08);
   const accentHex = accentMaterial instanceof MeshStandardMaterial ? accentMaterial.color.getHex() : 0xe6bd55;
@@ -1172,7 +1335,7 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     return object;
   };
   const box = (name: string, w: number, h: number, d: number, x: number, y: number, z: number, material: Material, fragility = 5): Mesh => {
-    const mesh = new Mesh(new RoundedBoxGeometry(w, h, d, 1, Math.min(0.16, w * 0.07, h * 0.14, d * 0.07)), material);
+    const mesh = new Mesh(new BoxGeometry(w, h, d), material);
     mesh.name = name;
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
@@ -1330,7 +1493,7 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     const orbMat = new MeshStandardMaterial({
       color: 0x00e5ff,
       emissive: 0x00aaff,
-      emissiveIntensity: 1.25,
+      emissiveIntensity: 2.4,
       roughness: 0.2,
       metalness: 0.1,
     });
@@ -1338,7 +1501,7 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     reactorCore.add(orb);
 
     // Vertical Energy Light Pillar
-    const beamMat = transparentBasic(0x00e5ff, 0.12);
+    const beamMat = transparentBasic(0x00e5ff, 0.45);
     const energyBeam = new Mesh(new CylinderGeometry(width * 0.08, width * 0.08, height * 1.8, 16), beamMat);
     energyBeam.position.y = height * 0.6;
     reactorCore.add(energyBeam);
@@ -1595,8 +1758,8 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     padRing.rotation.x = -Math.PI / 2;
     padRing.position.set(0, height + 0.44, 0);
     add(padRing, 3);
-    for (const x of [-width * 0.15, width * 0.15]) box('helipad-h-upright', width * 0.07, 0.08, depth * 0.4, x, height + 0.46, 0, warning, 3);
-    box('helipad-h-cross-b', width * 0.3, 0.08, depth * 0.07, 0, height + 0.46, 0, warning, 3);
+    box('helipad-h-cross-a', width * 0.14, 0.08, depth * 0.5, 0, height + 0.46, 0, warning, 3);
+    box('helipad-h-cross-b', width * 0.42, 0.08, depth * 0.12, 0, height + 0.54, 0, warning, 3);
     box('helipad-control-hut', width * 0.22, height * 0.42, depth * 0.2, -width * 0.36, height + height * 0.24, -depth * 0.3, concrete, 5);
     box('helipad-glass', width * 0.18, height * 0.12, 0.14, -width * 0.36, height + height * 0.46, -depth * 0.4, glass, 3);
     box('helipad-hut-roof', width * 0.24, 0.1, depth * 0.22, -width * 0.36, height + height * 0.5, -depth * 0.3, metal, 4);
@@ -1722,12 +1885,12 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
       launcher.add(tube);
       const cap = new Mesh(new ConeGeometry(width * 0.065, 0.4, 12), warning);
       cap.rotation.x = Math.PI * 0.5;
-      cap.position.set(x, 0, 0.35 + depth * 0.36 + 0.18);
+      cap.position.set(x, 0, depth * 0.72);
       launcher.add(cap);
     }
     defenseDeck.add(launcher);
-    const radar = createDefenseSensor(width * 0.25, metal, dark, signal);
-    radar.position.set(width * 0.28, 1.7, -depth * 0.16);
+    const radar = new Mesh(new RingGeometry(width * 0.16, width * 0.28, 24, 1, 0, Math.PI), signal);
+    radar.position.set(width * 0.32, 1.2, -depth * 0.1);
     radar.rotation.x = -0.72;
     defenseDeck.add(radar);
     add(defenseDeck, 4);
@@ -1742,26 +1905,23 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     const turntable = new Mesh(new CylinderGeometry(width * 0.34, width * 0.4, 0.48, 18), dark);
     turntable.castShadow = true;
     ciws.add(turntable);
-    const cradle = new Mesh(new RoundedBoxGeometry(width * 0.44, 1.25, depth * 0.32, 1, 0.24), metal);
-    cradle.position.y = 0.82;
+    const cradle = new Mesh(new BoxGeometry(width * 0.44, 0.62, depth * 0.32), metal);
+    cradle.position.y = 0.58;
     cradle.castShadow = true;
     ciws.add(cradle);
     for (const x of [-width * 0.11, width * 0.11]) {
-      const barrel = new Mesh(new CylinderGeometry(0.16, 0.22, depth * 0.86, 16), metal);
+      const barrel = new Mesh(new CylinderGeometry(0.09, 0.12, depth * 0.86, 10), concrete);
       barrel.rotation.x = Math.PI * 0.5;
       barrel.position.set(x, 0.72, depth * 0.34);
       barrel.castShadow = true;
       ciws.add(barrel);
-      const jacket = new Mesh(new CylinderGeometry(0.3, 0.34, depth * 0.28, 16), dark);
-      jacket.position.set(x, 0.72, depth * 0.2); jacket.rotation.x = Math.PI / 2;
-      jacket.castShadow = true; ciws.add(jacket);
-      const muzzle = new Mesh(new CylinderGeometry(0.23, 0.23, 0.38, 16), dark);
+      const muzzle = new Mesh(new CylinderGeometry(0.14, 0.14, 0.24, 10), warning);
       muzzle.rotation.x = Math.PI * 0.5;
       muzzle.position.set(x, 0.72, depth * 0.78);
       ciws.add(muzzle);
     }
-    const sensor = createDefenseSensor(width * 0.25, metal, dark, signal);
-    sensor.position.set(0, 2.0, -depth * 0.12);
+    const sensor = new Mesh(new RingGeometry(width * 0.16, width * 0.28, 24, 1, 0, Math.PI), signal);
+    sensor.position.set(0, 1.28, -depth * 0.12);
     sensor.rotation.x = -0.72;
     ciws.add(sensor);
     add(ciws, 4);
@@ -1840,7 +2000,7 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     deck.castShadow = true;
     launcher.add(deck);
     // Armored tube housing ~2.8 × 1.6 × 3.4
-    const housing = new Mesh(new RoundedBoxGeometry(2.8, 1.6, 3.4, 1, 0.2), metal);
+    const housing = new Mesh(new BoxGeometry(2.8, 1.6, 3.4), metal);
     housing.position.set(0, 1.05, 0.15);
     housing.castShadow = true;
     launcher.add(housing);
@@ -1925,7 +2085,7 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     const launcher = new Group();
     launcher.position.set(0, headTop + 0.4, 0);
     launcher.rotation.y = -0.5;
-    const aaHousing = new Mesh(new RoundedBoxGeometry(1.6, 0.85, 1.5, 1, 0.12), metal);
+    const aaHousing = new Mesh(new BoxGeometry(1.6, 0.85, 1.5), metal);
     aaHousing.position.y = 0.55;
     aaHousing.castShadow = true;
     launcher.add(aaHousing);
@@ -1971,7 +2131,6 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     stripe(width * 0.4, depth * 0.08, 0, depth * 0.12, 4);
   }
 
-  addBuildingArchitecture(root, kind, width, depth, height, accentMaterial, (object, fragility) => add(object, fragility));
   syncDetailPartBases(parts);
   root.userData.detailParts = parts;
   root.userData.activityParts = activityParts;
@@ -2226,7 +2385,7 @@ function createFactionBuildingMaterial(base: Material, id: FactionId): Material 
   if (!(base instanceof MeshStandardMaterial)) return base;
   const material = base.clone();
   const palette = FACTION[id];
-  material.color.lerp(new Color(palette.hull), 0.16);
+  material.color.lerp(new Color(palette.hull), 0.34);
   material.emissive.setHex(palette.accentEmissive);
   material.emissiveIntensity = Math.max(material.emissiveIntensity, 0.08);
   return material;
@@ -2317,245 +2476,4 @@ function createBuildingHealthBar(
   fill.renderOrder = 44;
   root.add(fill);
   return { root, fill, fillMaterial, back, frame, track };
-}
-
-function createBuildingMaterials(setup: (material: MeshStandardMaterial) => Material = (material) => material): Record<string, Material> {
-  const hullSteel = createBuildingSurface('steel');
-  const hullConcrete = createBuildingSurface('concrete');
-  const hullRust = createBuildingSurface('rust');
-  const hullDeck = createBuildingSurface('deck');
-  return {
-    'command-yard': setup(new MeshStandardMaterial({
-      color: 0xb8c0c4,
-      map: hullSteel,
-      roughness: 0.74,
-      metalness: 0.18,
-    })),
-    'power-plant': setup(new MeshStandardMaterial({
-      color: 0x6a7c8c,
-      map: hullSteel,
-      roughness: 0.42,
-      metalness: 0.38,
-    })),
-    refinery: setup(new MeshStandardMaterial({
-      color: 0xc4b49a,
-      map: hullRust,
-      roughness: 0.82,
-      metalness: 0.1,
-    })),
-    barracks: setup(new MeshStandardMaterial({
-      color: 0xb7c0a8,
-      map: hullConcrete,
-      roughness: 0.86,
-      metalness: 0.06,
-    })),
-    factory: setup(new MeshStandardMaterial({
-      color: 0xb0b8bc,
-      map: hullSteel,
-      roughness: 0.76,
-      metalness: 0.16,
-    })),
-    helipad: setup(new MeshStandardMaterial({
-      color: 0xa8b6ba,
-      map: hullDeck,
-      roughness: 0.8,
-      metalness: 0.16,
-    })),
-    wall: setup(new MeshStandardMaterial({
-      color: 0xb0b4aa,
-      map: hullConcrete,
-      roughness: 0.88,
-      metalness: 0.08,
-    })),
-    'guard-tower': setup(new MeshStandardMaterial({
-      color: 0xb4bcc2,
-      map: hullSteel,
-      roughness: 0.78,
-      metalness: 0.16,
-    })),
-    'aa-tower': setup(new MeshStandardMaterial({
-      color: 0xa8b8c4,
-      map: hullSteel,
-      roughness: 0.74,
-      metalness: 0.2,
-    })),
-    'intelligence-center': setup(new MeshStandardMaterial({
-      color: 0x86949b,
-      map: hullSteel,
-      roughness: 0.62,
-      metalness: 0.28,
-    })),
-    'strategic-silo': setup(new MeshStandardMaterial({
-      color: 0xa7aaa4,
-      map: hullConcrete,
-      roughness: 0.72,
-      metalness: 0.18,
-    })),
-    'missile-defense': setup(new MeshStandardMaterial({
-      color: 0x9babb2,
-      map: hullSteel,
-      roughness: 0.66,
-      metalness: 0.26,
-    })),
-    'skylance-ciws': setup(new MeshStandardMaterial({
-      color: 0xaab8bc,
-      map: hullSteel,
-      roughness: 0.58,
-      metalness: 0.34,
-    })),
-  };
-}
-
-
-function createBuildingObject(entity: Entity, cellSize: number, baseMaterial: Material, accentMaterial: Material): BuildingObject {
-  const root = new Group();
-  const damage = structureDamageFor(entity);
-  const kind = entity.building?.kind;
-  const buildingHeight = heightForStructure(kind);
-  const fullW = (entity.building?.footprint.w ?? 4) * cellSize * 2;
-  const fullD = (entity.building?.footprint.h ?? 4) * cellSize * 2;
-  const profile = REBUILT_BUILDINGS.has(kind ?? '')
-    ? Array.from({ length: damage.tiers }, () => ({ widthScale: 0.98, depthScale: 0.98, heightShare: 0.09 / damage.tiers }))
-    : normalizeBodyProfile(bodyProfileFor(kind), damage.tiers);
-  const blocks: DamageBlock[] = [];
-  let tierBaseY = 0;
-
-  for (let tier = 0; tier < damage.tiers; tier++) {
-    const tierProfile = profile[tier]!;
-    const tierH = buildingHeight * tierProfile.heightShare;
-    const tierW = fullW * tierProfile.widthScale;
-    const tierD = fullD * tierProfile.depthScale;
-    const blockW = tierW / damage.cols - BLOCK_GAP;
-    const blockD = tierD / damage.rows - BLOCK_GAP;
-    const blockH = Math.max(0.05, tierH - BLOCK_GAP);
-    for (let row = 0; row < damage.rows; row++) {
-      for (let col = 0; col < damage.cols; col++) {
-        const index = tier * damage.cols * damage.rows + row * damage.cols + col;
-        const mesh = new Mesh(sharedBlockGeometry, baseMaterial);
-        const position = new Vector3(
-          -tierW / 2 + (col + 0.5) * (tierW / damage.cols),
-          tierBaseY + tierH * 0.5,
-          -tierD / 2 + (row + 0.5) * (tierD / damage.rows),
-        );
-        const scale = new Vector3(blockW, blockH, blockD);
-        mesh.position.copy(position);
-        mesh.scale.copy(scale);
-        mesh.castShadow = col === 0 || row === 0 || col === damage.cols - 1 || row === damage.rows - 1;
-        mesh.receiveShadow = true;
-        root.add(mesh);
-        blocks.push({ mesh, index, col, row, tier, basePosition: position, baseScale: scale, baseMaterial });
-      }
-    }
-    tierBaseY += tierH;
-  }
-
-  const accents: Mesh[] = [];
-  if (!REBUILT_BUILDINGS.has(kind ?? '')) {
-    const isTower = kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' || kind === 'skylance-ciws';
-    const isPowerPlant = kind === 'power-plant';
-    const accentY = isTower
-      ? buildingHeight * profile[0]!.heightShare + 0.16
-      : buildingHeight + (isPowerPlant ? 0.42 : 0.16);
-    const accentZ = isTower ? fullD * 0.48 : fullD * (isPowerPlant ? 0.36 : 0.4);
-    const accent = new Mesh(
-      new BoxGeometry(fullW * (isTower ? 0.42 : 0.5), 0.22, Math.max(0.5, fullD * 0.12)),
-      accentMaterial,
-    );
-    // Towers keep the identity plate on the plinth front edge; other buildings
-    // keep it on a clear roof edge so roof machinery does not hide it. The
-    // power plant needs extra clearance for its larger roof equipment.
-    accent.position.set(0, accentY, accentZ);
-    accent.castShadow = true;
-    const label = createBuildingLabel(entity.building?.label ?? entity.name ?? 'Building', fullW * (isTower ? 0.42 : 0.5), Math.max(0.5, fullD * 0.12), buildingHeight);
-    label.position.copy(accent.position);
-    // The label plane needs a meaningful gap above the accent box; a 2 cm
-    // separation is below depth-buffer precision at far RTS zoom levels.
-    label.position.y += 0.23;
-    label.position.z += 0.01;
-    root.add(accent, label);
-    accents.push(accent, label);
-  }
-  const details = createBuildingDetails(entity, fullW, fullD, buildingHeight, accentMaterial);
-  root.add(details);
-  const turretPivot = details.userData.turretPivot as Group | undefined;
-  const refineryDock = entity.building?.kind === 'refinery' ? createRefineryDock(fullW, fullD, buildingHeight) : undefined;
-  if (refineryDock) root.add(refineryDock.root);
-  root.updateMatrixWorld(true);
-  const bounds = new Box3().setFromObject(root);
-
-  return {
-    root,
-    blocks,
-    accents,
-    details,
-    turretPivot,
-    refineryDock,
-    effects: [],
-    appliedVersion: -1,
-    appliedLevel: -1,
-    leanX: 0,
-    leanZ: 0,
-    collapsed: false,
-    everSeen: false,
-    chromeLift: Math.max(buildingHeight + 1.9, bounds.max.y + 1.7),
-    lastHealth: entity.health?.current ?? 0,
-    lastDamageTick: -9999,
-    impactPunch: 0,
-  };
-}
-
-
-/** The same undamaged model used on the battlefield, including its actual footprint. */
-export function createBuildingPreview(kind: string, team = 1): Group {
-  const def = STRUCTURES[kind as StructureKind];
-  const entity: Entity = {
-    id: 1, team: { id: team }, transform: { x: 0, z: 0, rot: 0 }, previousTransform: { x: 0, z: 0, rot: 0 },
-    building: { kind, label: def?.label ?? 'Command Yard', footprint: def?.footprint ?? { w: 9, h: 8 },
-      complete: true, buildProgress: 1, powerProduced: 0, powerUsed: 0 },
-  };
-  entity.structureDamage = createStructureDamage(entity);
-  const materials = createBuildingMaterials();
-  const base = createFactionBuildingMaterial(materials[kind] ?? materials['command-yard'], factionId(team));
-  const palette = FACTION[factionId(team)];
-  const accent = new MeshStandardMaterial({ color: palette.accent, emissive: palette.accentEmissive, roughness: 0.7 });
-  const root = createBuildingObject(entity, 2, base, accent).root;
-  // Retain only textures referenced by the returned model.
-  const retained = (base as MeshStandardMaterial).map;
-  for (const material of Object.values(materials)) {
-    const map = (material as MeshStandardMaterial).map;
-    if (map && map !== retained) map.dispose();
-    material.dispose();
-  }
-  return root;
-}
-
-export function disposeBuildingPreview(root: Group): void {
-  const materials = new Set<Material>();
-  root.traverse((child) => {
-    if (!(child instanceof Mesh)) return;
-    if (!sharedGeometries.has(child.geometry)) child.geometry.dispose();
-    for (const material of Array.isArray(child.material) ? child.material : [child.material]) materials.add(material);
-  });
-  for (const material of materials) {
-    (material as MeshStandardMaterial).map?.dispose();
-    material.dispose();
-  }
-}
-
-/** Compact phased-array radar with a physical housing and small status optics. */
-function createDefenseSensor(size: number, metal: Material, dark: Material, signal: Material): Group {
-  const root = new Group(); root.name = 'defense-phased-array';
-  const housing = new Mesh(new RoundedBoxGeometry(size, size * 0.72, 0.38, 1, 0.14), metal);
-  housing.castShadow = true; root.add(housing);
-  const face = new Mesh(new RoundedBoxGeometry(size * 0.86, size * 0.57, 0.08, 1, 0.03), dark);
-  face.position.z = 0.22; root.add(face);
-  for (let i = 0; i < 5; i++) {
-    const row = new Mesh(new BoxGeometry(size * 0.76, 0.035, 0.045), metal);
-    row.position.set(0, (i - 2) * size * 0.095, 0.28); root.add(row);
-  }
-  const optic = new Mesh(new BoxGeometry(size * 0.14, 0.08, 0.06), signal);
-  optic.position.set(size * 0.3, -size * 0.29, 0.24); root.add(optic);
-  const support = new Mesh(new CylinderGeometry(0.12, 0.2, size * 0.6, 12), metal);
-  support.position.y = -size * 0.6; support.castShadow = true; root.add(support);
-  return root;
 }
