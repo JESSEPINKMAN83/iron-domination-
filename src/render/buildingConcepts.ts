@@ -1,12 +1,9 @@
 import {
-  CanvasTexture, ExtrudeGeometry, Group, LatheGeometry, Mesh, MeshStandardMaterial, Shape,
-  SRGBColorSpace, Vector2, Vector3, type Material, type Object3D,
+  BoxGeometry, CanvasTexture, CylinderGeometry, DoubleSide, ExtrudeGeometry, Group, LatheGeometry,
+  Mesh, MeshStandardMaterial, PlaneGeometry, RingGeometry, Shape, SRGBColorSpace, TorusGeometry,
+  Vector2, Vector3, type Material, type Object3D,
 } from 'three';
-import {
-  buildingBoxGeometry, buildingCylinderGeometry, buildingPlaneGeometry, buildingRingGeometry,
-  buildingTorusGeometry, markSharedBuilding, sharedBuildingGeometry, sharedBuildingMaterial,
-  shouldCastBuildingShadow, shouldCastCylindricalShadow,
-} from './buildingGeometry';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createBuildingSurface } from './buildingSurfaces';
 
 export const REBUILT_BUILDINGS = new Set(['strategic-silo', 'missile-defense', 'factory', 'barracks']);
@@ -16,37 +13,34 @@ export const REBUILT_BUILDINGS = new Set(['strategic-silo', 'missile-defense', '
 export function createBuildingConcept(kind: string, width: number, depth: number, height: number, accent: Material): Group {
   const root = new Group(); root.name = `${kind}-redesigned`;
   const X = width / 24, Z = depth / 24, R = Math.min(X, Z);
-  const concrete = sharedBuildingMaterial('concept-concrete', () => new MeshStandardMaterial({ color: 0x8c9189, roughness: 0.91, metalness: 0.03, map: createBuildingSurface('concrete') }));
-  const steel = sharedBuildingMaterial('concept-steel', () => new MeshStandardMaterial({ color: 0x47585e, roughness: 0.54, metalness: 0.55, map: createBuildingSurface('steel') }));
-  const edge = sharedBuildingMaterial('concept-edge', () => new MeshStandardMaterial({ color: 0x99a49f, roughness: 0.43, metalness: 0.65 }));
-  const dark = sharedBuildingMaterial('concept-dark', () => new MeshStandardMaterial({ color: 0x121c20, roughness: 0.75, metalness: 0.25 }));
-  const sand = sharedBuildingMaterial('concept-sand', () => new MeshStandardMaterial({ color: 0xa69d81, roughness: 0.8, metalness: 0.12, map: createBuildingSurface('concrete') }));
-  const ochre = sharedBuildingMaterial('concept-ochre', () => new MeshStandardMaterial({ color: 0xb88a3b, roughness: 0.65, metalness: 0.32 }));
-  const glass = sharedBuildingMaterial('concept-glass', () => new MeshStandardMaterial({ color: 0x183a45, roughness: 0.19, metalness: 0.66, emissive: 0x225166, emissiveIntensity: 0.14 }));
-  const light = sharedBuildingMaterial('concept-light', () => new MeshStandardMaterial({ color: 0xf5deac, emissive: 0xffcf88, emissiveIntensity: 0.65 }));
+  const concrete = new MeshStandardMaterial({ color: 0x8c9189, roughness: 0.91, metalness: 0.03, map: createBuildingSurface('concrete') });
+  const steel = new MeshStandardMaterial({ color: 0x47585e, roughness: 0.54, metalness: 0.55, map: createBuildingSurface('steel') });
+  const edge = new MeshStandardMaterial({ color: 0x99a49f, roughness: 0.43, metalness: 0.65 });
+  const dark = new MeshStandardMaterial({ color: 0x121c20, roughness: 0.75, metalness: 0.25 });
+  const sand = new MeshStandardMaterial({ color: 0xa69d81, roughness: 0.8, metalness: 0.12, map: createBuildingSurface('concrete') });
+  const ochre = new MeshStandardMaterial({ color: 0xb88a3b, roughness: 0.65, metalness: 0.32 });
+  const glass = new MeshStandardMaterial({ color: 0x183a45, roughness: 0.19, metalness: 0.66, emissive: 0x225166, emissiveIntensity: 0.14 });
+  const light = new MeshStandardMaterial({ color: 0xf5deac, emissive: 0xffcf88, emissiveIntensity: 0.65 });
   const parts: { object: Object3D; y: number; sx: number; sy: number; sz: number; rx: number; ry: number; rz: number; fragility: number }[] = [];
   const add = <T extends Object3D>(object: T, fragility = 5): T => {
     root.add(object); parts.push({ object, y: 0, sx: 1, sy: 1, sz: 1, rx: 0, ry: 0, rz: 0, fragility }); return object;
   };
-  const mesh = (name: string, geometry: Mesh['geometry'], mat: Material, x: number, y: number, z: number, parent?: Group, castShadow = false): Mesh => {
+  const mesh = (name: string, geometry: Mesh['geometry'], mat: Material, x: number, y: number, z: number, parent?: Group): Mesh => {
     const item = new Mesh(geometry, mat); item.name = name; item.position.set(x * X, y, z * Z);
-    item.castShadow = castShadow; item.receiveShadow = true;
+    item.castShadow = true; item.receiveShadow = true;
     if (parent) parent.add(item); else add(item);
     return item;
   };
-  const b = (name: string, w: number, h: number, d: number, x: number, y: number, z: number, mat: Material = steel, parent?: Group) => {
-    const sx = w * X, sz = d * Z;
-    return mesh(name, buildingBoxGeometry(sx, h, sz), mat, x, y, z, parent, shouldCastBuildingShadow(sx, h, sz));
-  };
+  const b = (name: string, w: number, h: number, d: number, x: number, y: number, z: number, mat: Material = steel, parent?: Group) =>
+    mesh(name, new RoundedBoxGeometry(w * X, h, d * Z, 1, Math.min(0.18, w * X * 0.1, h * 0.15, d * Z * 0.1)), mat, x, y, z, parent);
   const c = (name: string, rt: number, rb: number, h: number, x: number, y: number, z: number, mat: Material = steel, parent?: Group) =>
-    mesh(name, buildingCylinderGeometry(rt * R, rb * R, h, 10), mat, x, y, z, parent, shouldCastCylindricalShadow(Math.max(rt, rb) * R, h));
+    mesh(name, new CylinderGeometry(rt * R, rb * R, h, 32), mat, x, y, z, parent);
   const ring = (name: string, r: number, tube: number, x: number, y: number, z: number, mat: Material = edge, parent?: Group) => {
-    const item = mesh(name, buildingTorusGeometry(r * R, tube * R, 5, 16), mat, x, y, z, parent, shouldCastCylindricalShadow(r * R, tube * R * 2));
-    item.rotation.x = Math.PI / 2; return item;
+    const item = mesh(name, new TorusGeometry(r * R, tube * R, 6, 48), mat, x, y, z, parent); item.rotation.x = Math.PI / 2; return item;
   };
   const beam = (name: string, from: number[], to: number[], r = 0.08, mat: Material = edge, parent?: Group) => {
     const a = new Vector3(from[0] * X, from[1], from[2] * Z), end = new Vector3(to[0] * X, to[1], to[2] * Z);
-    const item = mesh(name, buildingCylinderGeometry(r, r, a.distanceTo(end)), mat, 0, 0, 0, parent);
+    const item = mesh(name, new CylinderGeometry(r, r, a.distanceTo(end), 8), mat, 0, 0, 0, parent);
     item.position.copy(a).add(end).multiplyScalar(0.5); item.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), end.sub(a).normalize()); return item;
   };
   const rails = (name: string, x1: number, z1: number, x2: number, z2: number, y: number) => {
@@ -61,16 +55,13 @@ export function createBuildingConcept(kind: string, width: number, depth: number
     for(let i=0;i<6;i++) b('vent-louver',w*0.88,0.09,0.22,x,y-0.48+i*0.19,z+0.08,edge,group);
   };
   const sign = (text: string, w: number, x: number, y: number, z: number, roof = false) => {
-    const material = sharedBuildingMaterial(`concept-sign:${text}`, () => {
-      const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
-      const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#243034'; ctx.fillRect(0, 0, 512, 128);
-      ctx.fillStyle = '#ddd7be'; ctx.font = 'bold 64px monospace'; ctx.textAlign = 'center'; ctx.fillText(text, 256, 85);
-      ctx.fillStyle = '#ae8038'; ctx.fillRect(12, 108, 488, 5);
-      const texture = markSharedBuilding(new CanvasTexture(canvas)); texture.colorSpace = SRGBColorSpace;
-      return new MeshStandardMaterial({ map: texture, roughness: 0.8 });
-    });
-    const item = mesh('building-designation', buildingPlaneGeometry(w * X, w * X / 4), material, x, y, z);
-    if (roof) item.rotation.x = -Math.PI / 2;
+    const canvas = document.createElement('canvas'); canvas.width=512;canvas.height=128;
+    const ctx=canvas.getContext('2d')!;ctx.fillStyle='#243034';ctx.fillRect(0,0,512,128);
+    ctx.fillStyle='#ddd7be';ctx.font='bold 64px monospace';ctx.textAlign='center';ctx.fillText(text,256,85);
+    ctx.fillStyle='#ae8038';ctx.fillRect(12,108,488,5);
+    const texture = new CanvasTexture(canvas); texture.colorSpace=SRGBColorSpace;
+    const item = mesh('building-designation',new PlaneGeometry(w*X,w*X/4),new MeshStandardMaterial({map:texture,roughness:0.8}),x,y,z);
+    if(roof) item.rotation.x=-Math.PI/2;
     return item;
   };
   const hazard = (x: number, y: number, z: number, length: number) => {
@@ -87,7 +78,7 @@ export function createBuildingConcept(kind: string, width: number, depth: number
     b('silo-launch-apron',13.5,0.48,21,-4.5,0.99,0,concrete);
     for(const z of [-5.5,5.5]) {
       c('silo-well-shadow',4.35,4.35,0.14,-4.5,1.29,z,dark);
-      const collar = mesh('silo-armored-collar', buildingRingGeometry(3.6 * R, 4.65 * R, 16), steel, -4.5, 1.38, z);
+      const collar = mesh('silo-armored-collar',new RingGeometry(3.6*R,4.65*R,48),steel,-4.5,1.38,z);
       collar.rotation.x=-Math.PI/2;
       ring('silo-well-rim',4.2,0.16,-4.5,1.45,z);
       for(let i=0;i<12;i++){ const a=i*Math.PI/6;c('silo-rim-bolt',0.1,0.1,0.1,-4.5+Math.cos(a)*4.3,1.52,z+Math.sin(a)*4.3,ochre); }
@@ -108,7 +99,7 @@ export function createBuildingConcept(kind: string, width: number, depth: number
     c('missile-airframe',0.8,0.8,5.2,0,2.55,0,sand,missile);
     c('missile-stage-band',0.83,0.83,0.22,0,3.7,0,steel,missile);
     c('missile-identity-band',0.82,0.82,0.4,0,4.5,0,accent,missile);
-    const nose = sharedBuildingGeometry(`silo-ogive:${R}`, () => new LatheGeometry([new Vector2(0.8 * R, 0), new Vector2(0.74 * R, 0.65), new Vector2(0.52 * R, 1.3), new Vector2(0.18 * R, 1.9), new Vector2(0, 2.15)], 12));
+    const nose = new LatheGeometry([new Vector2(0.8*R,0),new Vector2(0.74*R,0.65),new Vector2(0.52*R,1.3),new Vector2(0.18*R,1.9),new Vector2(0,2.15)],32);
     mesh('missile-ogive',nose,dark,0,5.12,0,missile);
     for(const side of [-1,1]) b('missile-guide-rail',0.12,4.4,0.15,side*1.15,2.2,0,edge,missile);
     // Hardened control block and independent exhaust/cooling services.
@@ -185,14 +176,9 @@ export function createBuildingConcept(kind: string, width: number, depth: number
     for(let i=0;i<4;i++)b('factory-raised-shutter',12.8,0.27,0.2,-2.6,6.1+i*0.29,9.22,edge);
     b('factory-bay-light',11,0.14,0.3,-2.6,5.8,8.6,light);
     for(const z of [-7,-1,5]) {
-      const roofGeometry = sharedBuildingGeometry('factory-sawtooth', () => {
-        const roofShape = new Shape();
-        roofShape.moveTo(-3, 0); roofShape.lineTo(3, 0); roofShape.lineTo(3, 0.3); roofShape.lineTo(-3, 2.1); roofShape.closePath();
-        const geometry = new ExtrudeGeometry(roofShape, { depth: 16, bevelEnabled: false });
-        geometry.rotateY(Math.PI / 2);
-        return geometry;
-      });
-      const roof = mesh('factory-sawtooth-roof', roofGeometry, steel, -10.6, 7.4, z); roof.scale.set(X, 1, Z);
+      const roofShape=new Shape();roofShape.moveTo(-3,0);roofShape.lineTo(3,0);roofShape.lineTo(3,0.3);roofShape.lineTo(-3,2.1);roofShape.closePath();
+      const roofGeometry=new ExtrudeGeometry(roofShape,{depth:16,bevelEnabled:false});roofGeometry.rotateY(Math.PI/2);
+      const roof=mesh('factory-sawtooth-roof',roofGeometry,steel,-10.6,7.4,z);roof.scale.set(X,1,Z);
       b('factory-clerestory-glazing',15.4,1.5,0.12,-2.6,8.5,z+3.02,glass);
       b('factory-clerestory-cap',16.3,0.16,0.28,-2.6,9.55,z+3.02,edge);
       for(const x of [-8,-4,0,4]) {
@@ -208,7 +194,7 @@ export function createBuildingConcept(kind: string, width: number, depth: number
     b('gantry-travel-beam',13.3,0.55,0.7,-2.6,8.3,5.2,ochre);
     const hoist=add(new Group(),4);hoist.name='factory-traveling-hoist';hoist.position.set(-2.6*X,7.85,5.2*Z);
     b('hoist-trolley',1.6,0.65,1.2,0,0,0,steel,hoist);beam('hoist-cable',[0,-0.2,0],[0,-2.9,0],0.045,dark,hoist);
-    const hook = mesh('hoist-hook', buildingTorusGeometry(0.34, 0.095, 5, 12, Math.PI * 1.6), ochre, 0, -3, 0, hoist); hook.rotation.z = -Math.PI / 2;
+    const hook=mesh('hoist-hook',new TorusGeometry(0.34,0.095,6,18,Math.PI*1.6),ochre,0,-3,0,hoist);hook.rotation.z=-Math.PI/2;
     root.userData.activityParts=[{object:hoist,kind:'slide-x',speed:0.35,amplitude:2*X,phase:0,baseX:hoist.position.x,baseRy:0,baseRz:0}];
     b('assembly-overhead-lamp',7,0.12,0.3,-2.6,5.2,6.8,light);
     // A half-built chassis visible inside the hall; not a gameplay unit.
@@ -224,24 +210,14 @@ export function createBuildingConcept(kind: string, width: number, depth: number
     // Two separate barrel-roof quarters flank an open muster court.
     b('barracks-muster-court',5.4,0.18,16,0,0.98,2.6,concrete);
     for(const x of [-6.7,6.7]) {
-      const shell = mesh('barracks-vaulted-shell', sharedBuildingGeometry('barracks-vault', () => {
-        const shellShape = new Shape();
-        shellShape.absarc(0, 1.65, 3.65, 0, Math.PI, false);
-        shellShape.lineTo(-3.65, 0); shellShape.lineTo(-3.32, 0); shellShape.lineTo(-3.32, 1.65);
-        shellShape.absarc(0, 1.65, 3.32, Math.PI, 0, true);
-        shellShape.lineTo(3.32, 0); shellShape.lineTo(3.65, 0); shellShape.closePath();
-        return new ExtrudeGeometry(shellShape, { depth: 15.4, bevelEnabled: false, curveSegments: 8 });
-      }), steel, x, 1, -7.2); shell.scale.set(X, 1, Z);
+      const shellShape=new Shape();shellShape.absarc(0,1.65,3.65,0,Math.PI,false);shellShape.lineTo(-3.65,0);shellShape.lineTo(-3.32,0);shellShape.lineTo(-3.32,1.65);shellShape.absarc(0,1.65,3.32,Math.PI,0,true);shellShape.lineTo(3.32,0);shellShape.lineTo(3.65,0);shellShape.closePath();
+      const shell=mesh('barracks-vaulted-shell',new ExtrudeGeometry(shellShape,{depth:15.4,bevelEnabled:false,curveSegments:32}),steel,x,1,-7.2);shell.scale.set(X,1,Z);
       // Ribbed vaults follow the architecture rather than a flat gabled cap.
-      for (const z of [-6, -3, 0, 3, 6]) {
-        const rib = mesh('barracks-vault-rib', buildingTorusGeometry(3.69, 0.075, 5, 12, Math.PI), edge, x, 2.65, z); rib.scale.x = X;
+      for(const z of [-6,-3,0,3,6]) {
+        const rib=mesh('barracks-vault-rib',new TorusGeometry(3.69,0.075,6,24,Math.PI),edge,x,2.65,z);rib.scale.x=X;
       }
-      const face = mesh('barracks-arched-end-wall', sharedBuildingGeometry('barracks-arch-end', () => {
-        const endShape = new Shape();
-        endShape.moveTo(-3.3, 0); endShape.lineTo(3.3, 0); endShape.lineTo(3.3, 1.65);
-        endShape.absarc(0, 1.65, 3.3, 0, Math.PI, false); endShape.closePath();
-        return new ExtrudeGeometry(endShape, { depth: 0.18, bevelEnabled: false, curveSegments: 8 });
-      }), sand, x, 1, 8.2); face.scale.x = X;
+      const endShape=new Shape();endShape.moveTo(-3.3,0);endShape.lineTo(3.3,0);endShape.lineTo(3.3,1.65);endShape.absarc(0,1.65,3.3,0,Math.PI,false);endShape.closePath();
+      const face=mesh('barracks-arched-end-wall',new ExtrudeGeometry(endShape,{depth:0.18,bevelEnabled:false,curveSegments:32}),sand,x,1,8.2);face.scale.x=X;
       b('barracks-entry',1.6,2.4,0.22,x,2.25,8.45,dark);
       b('barracks-entry-canopy',2.4,0.16,1.4,x,3.65,8.7,steel);
       b('barracks-door-light',1.1,0.08,0.12,x,3.41,8.61,light);
