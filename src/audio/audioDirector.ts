@@ -123,7 +123,7 @@ const MEDIUM_MISSILE_LAUNCH_SAMPLES = [
   '/assets/sfx/missile-launch-medium-01.wav',
   '/assets/sfx/missile-launch-medium-02.wav',
 ] as const;
-const MEDIUM_MISSILE_LAUNCH_GAINS = [0.13, 0.125] as const;
+const MEDIUM_MISSILE_LAUNCH_GAINS = [0.10, 0.125] as const;
 const SHELL_FLYBY_SAMPLES = [
   '/assets/sfx/shell-flyby-01.wav',
   '/assets/sfx/shell-flyby-02.wav',
@@ -1025,7 +1025,7 @@ export class AudioDirector {
       STRATEGIC_MISSILE_LAUNCH_SAMPLE,
       event.fromX,
       event.fromZ,
-      combatProfile({ gain: 0.42, near: 30, far: 420 }),
+      combatProfile({ gain: 0.26, near: 30, far: 420 }),
       'strategic-missile-launch',
       0.25,
       'sample',

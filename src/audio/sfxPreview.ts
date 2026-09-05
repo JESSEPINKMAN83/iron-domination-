@@ -50,7 +50,7 @@ const SOUND_GROUPS: PreviewGroup[] = [
     description: 'The complete launch, flight, flyby, impact, and interception sequence.',
     sounds: [
       sound('missile-launch', 'Missile launch', 'Silo ignition and liftoff', 'strategic-missile-launch-01.wav', {
-        gain: 0.42,
+        gain: 0.26,
         near: 30,
         far: 420,
       }),
@@ -276,7 +276,7 @@ const SOUND_GROUPS: PreviewGroup[] = [
     description: 'The earlier compact launch pair now serves medium aircraft and vehicles, below the heavier one-second launch family.',
     sounds: [
       sound('medium-missile-aircraft', 'Medium aircraft missile', 'Vulture rocket-pod launch', 'missile-launch-medium-01.wav', {
-        gain: 0.13,
+        gain: 0.10,
         near: 22,
         far: 360,
       }),
