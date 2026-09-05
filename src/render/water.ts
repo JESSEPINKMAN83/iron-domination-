@@ -10,7 +10,6 @@ import {
   PlaneGeometry,
   RedFormat,
   ShaderMaterial,
-  UnsignedShortType,
   Vector3,
 } from 'three';
 import type { Heightfield } from '../sim/heightfield';
@@ -153,17 +152,14 @@ export class WaterView {
 
   constructor(hf: Heightfield, sunDirection: Vector3, fog: Fog, style: WaterStyle = {}) {
     const reservoirProfile = style.profile === 'highlands-reservoir';
-    const heightData = reservoirProfile
-      ? new Uint16Array(hf.samples * hf.samples)
-      : new Uint8Array(hf.samples * hf.samples);
-    const heightMax = reservoirProfile ? 65_535 : 255;
+    // Keep this as an R8 texture. Three maps RedFormat + UnsignedShortType to
+    // an unsized RED internal format, which is invalid with WebGL2 texStorage2D.
+    const heightData = new Uint8Array(hf.samples * hf.samples);
     for (let i = 0; i < hf.heights.length; i++) {
       const h01 = (hf.heights[i] - HEIGHT_OFFSET) / HEIGHT_SCALE;
-      heightData[i] = Math.max(0, Math.min(heightMax, Math.round(h01 * heightMax)));
+      heightData[i] = Math.max(0, Math.min(255, Math.round(h01 * 255)));
     }
-    const heightTex = reservoirProfile
-      ? new DataTexture(heightData, hf.samples, hf.samples, RedFormat, UnsignedShortType)
-      : new DataTexture(heightData, hf.samples, hf.samples, RedFormat);
+    const heightTex = new DataTexture(heightData, hf.samples, hf.samples, RedFormat);
     heightTex.minFilter = LinearFilter;
     heightTex.magFilter = LinearFilter;
     heightTex.unpackAlignment = 1; // 513-wide single-channel rows are not 4-byte aligned
