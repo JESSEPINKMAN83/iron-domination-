@@ -1,3 +1,4 @@
+import { setCommandPortrait } from '../render/buildingPortraits';
 import { Vector3, type Camera } from 'three';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import type { Entity } from '../sim/components';
@@ -498,7 +499,7 @@ export class SelectionBar {
       'position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#252b2d,#0d1112);color:#d2b15f;font-size:15px;z-index:1;';
     fallback.textContent = initials(group.label);
     const img = document.createElement('img');
-    img.src = commandIconPath(group.kind);
+    setCommandPortrait(img, group.kind, group.entities[0]?.team?.id);
     img.alt = '';
     img.style.cssText = 'position:relative;z-index:2;width:100%;height:100%;object-fit:cover;display:block;';
     img.onerror = () => img.remove();
@@ -800,10 +801,6 @@ function initials(label: string): string {
     .join('')
     .slice(0, 3)
     .toUpperCase();
-}
-
-function commandIconPath(kind: string): string {
-  return `/assets/ui/command-icons/${kind}.png`;
 }
 
 function factionAccent(team: number): string {

@@ -1,3 +1,4 @@
+import { setCommandPortrait } from '../render/buildingPortraits';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { isFortressTower } from '../content/fortress';
@@ -818,7 +819,7 @@ export class Sidebar {
       `color:${state.enabled || state.ready ? '#d2b15f' : '#6f7772'};font-size:18px;z-index:1;`;
     fallback.textContent = initials(label);
     const img = document.createElement('img');
-    img.src = commandIconPath(kind);
+    setCommandPortrait(img, kind, this.economy.team);
     img.alt = '';
     img.style.cssText = 'position:relative;z-index:2;width:100%;height:100%;object-fit:cover;display:block;';
     img.onerror = () => img.remove();
@@ -903,7 +904,7 @@ export class Sidebar {
     const icon = document.createElement('div');
     icon.style.cssText = commandIconCss(true) + 'min-height:42px;';
     const img = document.createElement('img');
-    img.src = commandIconPath(entity.building?.kind ?? 'command-yard');
+    setCommandPortrait(img, entity.building?.kind ?? 'command-yard', entity.team?.id);
     img.alt = '';
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
     img.onerror = () => img.remove();
@@ -1804,11 +1805,6 @@ function harvesterStateLabel(entity: Entity): string {
 function healthBucket(entity: Entity): number {
   if (!entity.health || entity.health.max <= 0) return 0;
   return Math.round((Math.max(0, entity.health.current) / entity.health.max) * 20);
-}
-
-function commandIconPath(kind: string): string {
-  if (kind === 'skylance-ciws') return '/assets/ui/command-icons/missile-defense.png';
-  return `/assets/ui/command-icons/${kind}.png`;
 }
 
 function unitCardDetail(kind: string): { role: string; pips: number[] } | undefined {
