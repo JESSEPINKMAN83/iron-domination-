@@ -1,8 +1,14 @@
 import {
-  BoxGeometry, CanvasTexture, CylinderGeometry, Group, Mesh, MeshStandardMaterial,
-  PlaneGeometry, SRGBColorSpace, TorusGeometry, LatheGeometry, Vector2, DoubleSide, type Material, type Object3D,
+  Group, Mesh, MeshStandardMaterial, SRGBColorSpace, CanvasTexture, LatheGeometry, Vector2, DoubleSide,
+  type Material, type Object3D,
 } from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {
+  buildingBoxGeometry, buildingCylinderGeometry, buildingPlaneGeometry, buildingTorusGeometry,
+  isSharedBuildingResource, markSharedBuilding, sharedBuildingGeometry, sharedBuildingMaterial,
+  shouldCastBuildingShadow, shouldCastCylindricalShadow,
+} from './buildingGeometry';
+
+const designationCache = new Map<string, CanvasTexture>();
 
 /** Architectural finish lives in the existing damage tree, so armor and equipment
  * are wounded and collapse with their supporting facade, rather than floating. */
@@ -10,35 +16,37 @@ export function addBuildingArchitecture(
   root: Group, kind: string, w: number, d: number, h: number, accent: Material,
   register: (object: Object3D, fragility: number) => Object3D,
 ): void {
-  const armor = new MeshStandardMaterial({ color: 0x87949a, metalness: 0.45, roughness: 0.46 });
-  const trim = new MeshStandardMaterial({ color: 0xc1c9c7, metalness: 0.58, roughness: 0.35 });
-  const dark = new MeshStandardMaterial({ color: 0x182730, metalness: 0.35, roughness: 0.66 });
-  const warm = new MeshStandardMaterial({ color: 0xc49b55, metalness: 0.5, roughness: 0.46 });
-  const light = new MeshStandardMaterial({ color: 0xc1e8f4, emissive: 0x8cd4ed, emissiveIntensity: 0.8 });
+  const armor = sharedBuildingMaterial('arch-armor', () => new MeshStandardMaterial({ color: 0x87949a, metalness: 0.45, roughness: 0.46 }));
+  const trim = sharedBuildingMaterial('arch-trim', () => new MeshStandardMaterial({ color: 0xc1c9c7, metalness: 0.58, roughness: 0.35 }));
+  const dark = sharedBuildingMaterial('arch-dark', () => new MeshStandardMaterial({ color: 0x182730, metalness: 0.35, roughness: 0.66 }));
+  const warm = sharedBuildingMaterial('arch-warm', () => new MeshStandardMaterial({ color: 0xc49b55, metalness: 0.5, roughness: 0.46 }));
+  const light = sharedBuildingMaterial('arch-light', () => new MeshStandardMaterial({ color: 0xc1e8f4, emissive: 0x8cd4ed, emissiveIntensity: 0.8 }));
   const tower = ['guard-tower', 'aa-tower', 'missile-defense', 'skylance-ciws'].includes(kind);
   const box = (name: string, sx: number, sy: number, sz: number, x: number, y: number, z: number, mat: Material, fragility = 7) => {
-    const mesh = new Mesh(new RoundedBoxGeometry(sx, sy, sz, 1, Math.min(0.22, sx * 0.1, sy * 0.16, sz * 0.1)), mat);
-    mesh.name = name; mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true;
+    const mesh = new Mesh(buildingBoxGeometry(sx, sy, sz), mat);
+    mesh.name = name; mesh.position.set(x, y, z);
+    mesh.castShadow = shouldCastBuildingShadow(sx, sy, sz); mesh.receiveShadow = true;
     register(mesh, fragility); return mesh;
   };
   const tube = (name: string, radius: number, length: number, x: number, y: number, z: number, mat: Material) => {
-    const mesh = new Mesh(new CylinderGeometry(radius, radius, length, 16), mat);
-    mesh.name = name; mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true;
+    const mesh = new Mesh(buildingCylinderGeometry(radius, radius, length), mat);
+    mesh.name = name; mesh.position.set(x, y, z);
+    mesh.castShadow = shouldCastCylindricalShadow(radius, length); mesh.receiveShadow = true;
     register(mesh, 5); return mesh;
   };
   const ring = (name: string, radius: number, thickness: number, x: number, y: number, z: number, mat: Material) => {
-    const mesh = new Mesh(new TorusGeometry(radius, thickness, 6, 32), mat);
+    const mesh = new Mesh(buildingTorusGeometry(radius, thickness), mat);
     mesh.name = name; mesh.position.set(x, y, z); mesh.rotation.x = Math.PI / 2;
-    mesh.castShadow = true; register(mesh, 5); return mesh;
+    mesh.castShadow = shouldCastCylindricalShadow(radius, thickness * 2); register(mesh, 5); return mesh;
   };
   const rail = (name: string, length: number, x: number, y: number, z: number, alongZ = false) => {
     const group = new Group(); group.name = name; group.position.set(x, y, z);
     for (const dy of [0.35, 0.9]) {
-      const beam = new Mesh(new BoxGeometry(alongZ ? 0.075 : length, 0.075, alongZ ? length : 0.075), warm);
+      const beam = new Mesh(buildingBoxGeometry(alongZ ? 0.075 : length, 0.075, alongZ ? length : 0.075), warm);
       beam.position.y = dy; group.add(beam);
     }
     for (let i = 0; i < 5; i++) {
-      const post = new Mesh(new BoxGeometry(0.075, 0.95, 0.075), trim);
+      const post = new Mesh(buildingBoxGeometry(0.075, 0.95, 0.075), trim);
       post.position.set(alongZ ? 0 : (i / 4 - 0.5) * length, 0.46, alongZ ? (i / 4 - 0.5) * length : 0);
       group.add(post);
     }
@@ -72,10 +80,14 @@ export function addBuildingArchitecture(
     // Overhanging CIC crown, wraparound dark glazing and communications radome.
     const dish = root.getObjectByName('command-dish');
     if (dish instanceof Mesh) {
-      dish.geometry.dispose(); dish.geometry = reflectorGeometry(w * 0.085);
-      const reflector = trim.clone(); reflector.side = DoubleSide; dish.material = reflector;
+      if (!isSharedBuildingResource(dish.geometry)) dish.geometry.dispose();
+      dish.geometry = reflectorGeometry(w * 0.085);
+      const reflector = sharedBuildingMaterial('arch-reflector', () => {
+        const material = trim.clone(); material.side = DoubleSide; return markSharedBuilding(material);
+      });
+      dish.material = reflector;
       dish.rotation.set(-0.7, -0.3, 0);
-      const feed = new Mesh(new CylinderGeometry(0.07, 0.07, w * 0.085, 8), warm);
+      const feed = new Mesh(buildingCylinderGeometry(0.07, 0.07, w * 0.085), warm);
       feed.rotation.x = Math.PI / 2; feed.position.z = w * 0.05; dish.add(feed);
     }
     box('cic-floating-crown', w * 0.39, 0.55, d * 0.37, -w * 0.18, h * 1.73, -d * 0.12, trim, 5);
@@ -140,11 +152,13 @@ export function addBuildingArchitecture(
     const radar = root.getObjectByName('intelligence-radar');
     const dish = root.getObjectByName('intelligence-dish');
     if (radar && dish instanceof Mesh) {
-      dish.geometry.dispose();
-      const geometry = reflectorGeometry(w * 0.31);
-      dish.geometry = geometry;
-      const reflector = trim.clone(); reflector.side = DoubleSide; dish.material = reflector;
-      const rim = new Mesh(new TorusGeometry(w * 0.31, 0.12, 6, 40), armor);
+      if (!isSharedBuildingResource(dish.geometry)) dish.geometry.dispose();
+      dish.geometry = reflectorGeometry(w * 0.31);
+      const reflector = sharedBuildingMaterial('arch-reflector', () => {
+        const material = trim.clone(); material.side = DoubleSide; return markSharedBuilding(material);
+      });
+      dish.material = reflector;
+      const rim = new Mesh(buildingTorusGeometry(w * 0.31, 0.12, 5, 16), armor);
       rim.position.z = w * 0.31 * 0.31 / 0.8; dish.add(rim);
     }
     for (const x of [-0.3, 0.3]) box('intel-server-spine', w * 0.12, 0.8, d * 0.62, x * w, h + 0.72, 0, armor, 6);
@@ -177,25 +191,34 @@ export function addBuildingArchitecture(
     factory: 'FAB / 05', helipad: 'AIR / 06', 'intelligence-center': 'INT / 07', 'strategic-silo': 'STR / 08',
     wall: 'BLAST / 09', 'guard-tower': 'FRT / 10', 'aa-tower': 'AA / 11', 'missile-defense': 'SAM / 12', 'skylance-ciws': 'CIWS / 13',
   };
+  const texture = designationTexture(kind, codes[kind] ?? 'BASE');
+  const placard = new Mesh(buildingPlaneGeometry(w * 0.3, w * 0.075), sharedBuildingMaterial(`arch-sign-${kind}`, () => new MeshStandardMaterial({ map: texture, roughness: 0.65 })));
+  placard.name = 'building-designation'; placard.position.set(0, tower ? h * 0.12 : h * 0.2, d * 0.542 + 0.18);
+  register(placard, 5);
+}
+
+function designationTexture(kind: string, code: string): CanvasTexture {
+  const cached = designationCache.get(kind);
+  if (cached) return cached;
   const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = '#15252e'; ctx.fillRect(0, 0, 512, 128);
-  ctx.fillStyle = '#d6dfdb'; ctx.font = 'bold 54px monospace'; ctx.fillText(codes[kind] ?? 'BASE', 20, 72);
+  ctx.fillStyle = '#d6dfdb'; ctx.font = 'bold 54px monospace'; ctx.fillText(code, 20, 72);
   ctx.fillStyle = '#c8a052';
   for (let x = 0; x < 512; x += 34) { ctx.beginPath(); ctx.moveTo(x, 102); ctx.lineTo(x + 18, 102); ctx.lineTo(x + 6, 126); ctx.lineTo(x - 12, 126); ctx.fill(); }
-  const texture = new CanvasTexture(canvas); texture.colorSpace = SRGBColorSpace;
-  const placard = new Mesh(new PlaneGeometry(w * 0.3, w * 0.075), new MeshStandardMaterial({ map: texture, roughness: 0.65 }));
-  placard.name = 'building-designation'; placard.position.set(0, tower ? h * 0.12 : h * 0.2, d * 0.542 + 0.18);
-  register(placard, 5);
-  // Materials unused by this particular structure are never uploaded to the GPU.
+  const texture = markSharedBuilding(new CanvasTexture(canvas)); texture.colorSpace = SRGBColorSpace;
+  designationCache.set(kind, texture);
+  return texture;
 }
 
 function reflectorGeometry(radius: number): LatheGeometry {
-  const points = Array.from({ length: 17 }, (_, i) => {
-    const r = radius * i / 16;
-    return new Vector2(r, r * r / (radius * 2.58));
-  });
-  const geometry = new LatheGeometry(points, 40);
-  geometry.rotateX(Math.PI / 2);
-  return geometry;
+  return sharedBuildingGeometry(`reflector:${radius}`, () => {
+    const points = Array.from({ length: 9 }, (_, i) => {
+      const r = radius * i / 8;
+      return new Vector2(r, r * r / (radius * 2.58));
+    });
+    const geometry = new LatheGeometry(points, 16);
+    geometry.rotateX(Math.PI / 2);
+    return geometry;
+  }) as LatheGeometry;
 }

@@ -1,7 +1,12 @@
 import { CanvasTexture, SRGBColorSpace } from 'three';
+import { markSharedBuilding } from './buildingGeometry';
+
+const surfaceCache = new Map<string, CanvasTexture>();
 
 /** Fine architectural panelwork. Deliberately separate from vehicle hull textures. */
 export function createBuildingSurface(style: 'steel' | 'concrete' | 'rust' | 'deck'): CanvasTexture {
+  const cached = surfaceCache.get(style);
+  if (cached) return cached;
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
   const palettes = { steel: ['#b9c1c2', '#8c979c'], concrete: ['#b2b6ac', '#949c96'], rust: ['#b5ada0', '#918b7b'], deck: ['#8f9d9f', '#758286'] };
@@ -32,6 +37,8 @@ export function createBuildingSurface(style: 'steel' | 'concrete' | 'rust' | 'de
     ctx.strokeStyle = 'rgba(34,49,57,.16)'; ctx.lineWidth = 1;
     for (let y = 28; y < 500; y += 12) { ctx.beginPath(); ctx.moveTo(15, y); ctx.lineTo(497, y); ctx.stroke(); }
   }
-  const texture = new CanvasTexture(canvas); texture.colorSpace = SRGBColorSpace; texture.anisotropy = 4;
+  const texture = markSharedBuilding(new CanvasTexture(canvas));
+  texture.colorSpace = SRGBColorSpace; texture.anisotropy = 4;
+  surfaceCache.set(style, texture);
   return texture;
 }

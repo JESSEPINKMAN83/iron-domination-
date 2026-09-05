@@ -95,6 +95,7 @@ import { MultiplayerClient, normalizeRoomCode, normalizedBaseUrl, shouldLaunchLo
 import { AssetPipeline } from './render/assets';
 import { BattlefieldAtmosphere } from './render/atmosphere';
 import { BuildingView } from './render/buildingView';
+import { prewarmCommandPortraits } from './render/buildingPortraits';
 import { CombatView } from './render/combatView';
 import { EconomyFxView } from './render/economyFxView';
 import { FogView } from './render/fogView';
@@ -3962,6 +3963,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     },
   }, lockstep ? new NetworkTickDriver(() => !uiPaused && !networkPaused && lockstep.canAdvance()) : undefined);
 
+  prewarmCommandPortraits(localTeam);
   overlay.remove();
   loop.start();
   if (smokePreviewStage) {
