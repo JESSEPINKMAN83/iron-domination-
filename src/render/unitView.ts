@@ -4,6 +4,7 @@ import {
   BoxGeometry,
   CanvasTexture,
   CircleGeometry,
+  Color,
   CylinderGeometry,
   DoubleSide,
   DynamicDrawUsage,
@@ -25,6 +26,7 @@ import {
   type Scene,
   type Vector3,
 } from 'three';
+import { armoredUnitHull, roundedUnitBox, unitEllipsoid, unitFuselage } from './unitGeometry';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Entity } from '../sim/components';
 import { escortDroneLocalPosition } from '../sim/combat';
@@ -56,6 +58,7 @@ interface AnimState {
 }
 
 interface TeamMaterials {
+  glass: Material;
   hull: Material;
   dark: Material;
   canvas: Material;
@@ -87,7 +90,7 @@ interface UnitRefs {
 }
 
 interface BuiltUnit {
-  root: Object3D;
+  root: Group;
   refs: UnitRefs;
 }
 
@@ -519,7 +522,7 @@ const MAX_LOW_DETAIL_UNITS = 1024;
 const FORTRESS_OPTICS_DETAIL_RANGE_SQ = 500 * 500;
 const PERFORMANCE_DETAIL_RANGE_SQ = 520 * 520;
 const ORE_CHUNK_GEOM = markShared(new SphereGeometry(1, 6, 4));
-const boxGeometryCache = new Map<string, BoxGeometry>();
+const boxGeometryCache = new Map<string, BufferGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
 const ringGeometryCache = new Map<number, RingGeometry>();
 const mergedUnitGeometryCache = new Map<string, BufferGeometry>();
@@ -533,11 +536,11 @@ function isSharedUnitGeometry(geom: BufferGeometry): boolean {
   return geom.userData[sharedGeometryTag] === true;
 }
 
-function sharedBoxGeometry(x: number, y: number, z: number): BoxGeometry {
+function sharedBoxGeometry(x: number, y: number, z: number): BufferGeometry {
   const key = `${x}:${y}:${z}`;
   let geom = boxGeometryCache.get(key);
   if (!geom) {
-    geom = markShared(new BoxGeometry(x, y, z));
+    geom = roundedUnitBox(x, y, z);
     boxGeometryCache.set(key, geom);
   }
   return geom;
@@ -2080,16 +2083,17 @@ function createUnitDamageOverlay(
   return { root, patches, effects };
 }
 
-function createTeamMaterials(ctx: RenderContext, id: FactionId, own: boolean): TeamMaterials {
+function createTeamMaterials(ctx: Pick<RenderContext, 'setupLitMaterial'>, id: FactionId, own: boolean): TeamMaterials {
   const f = FACTION[id];
   return {
-    hull: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.hull, emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.14 : 0, roughness: 0.78, metalness: 0.08 })),
-    dark: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.hullDark, emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.08 : 0, roughness: 0.82, metalness: 0.12 })),
-    canvas: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.canvas, emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.1 : 0, roughness: 0.9, metalness: 0.02 })),
-    uniform: ctx.setupLitMaterial(new MeshStandardMaterial({ map: createCamoTexture(id), emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.12 : 0, roughness: 0.92, metalness: 0.01 })),
-    accent: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.accent, emissive: own ? f.accent : f.accentEmissive, emissiveIntensity: own ? 1.35 : 1, roughness: 0.7, metalness: 0.1 })),
+    glass: ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x153441, roughness: 0.16, metalness: 0.62 })),
+    hull: ctx.setupLitMaterial(new MeshStandardMaterial({ color: new Color(f.hull).lerp(new Color(0x6a756c), 0.48), emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.045 : 0, roughness: 0.55, metalness: 0.32 })),
+    dark: ctx.setupLitMaterial(new MeshStandardMaterial({ color: new Color(f.hullDark).lerp(new Color(0x27342f), 0.48), emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.025 : 0, roughness: 0.82, metalness: 0.12 })),
+    canvas: ctx.setupLitMaterial(new MeshStandardMaterial({ color: new Color(f.canvas).lerp(new Color(0x73775c), 0.5), emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.035 : 0, roughness: 0.9, metalness: 0.02 })),
+    uniform: ctx.setupLitMaterial(new MeshStandardMaterial({ map: createCamoTexture(id), emissive: own ? f.accent : 0x000000, emissiveIntensity: own ? 0.025 : 0, roughness: 0.92, metalness: 0.01 })),
+    accent: ctx.setupLitMaterial(new MeshStandardMaterial({ color: f.accent, emissive: own ? f.accent : f.accentEmissive, emissiveIntensity: own ? 0.38 : 0.2, roughness: 0.7, metalness: 0.1 })),
     lightBar: ctx.setupLitMaterial(
-      new MeshStandardMaterial({ color: f.lightBar, emissive: f.lightBar, emissiveIntensity: own ? 2.2 : 0.55, roughness: 0.55, metalness: 0.05 }),
+      new MeshStandardMaterial({ color: f.lightBar, emissive: f.lightBar, emissiveIntensity: own ? 0.9 : 0.55, roughness: 0.55, metalness: 0.05 }),
     ),
   };
 }
@@ -2232,7 +2236,7 @@ function createCamoTexture(id: FactionId): CanvasTexture {
   canvas.width = canvas.height = 128;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('camo canvas unavailable');
-  const colors = factionCamoColors(id);
+  const colors = factionCamoColors(id).map(color => `#${new Color(color).lerp(new Color(0x777961), 0.65).getHexString()}`);
   ctx.fillStyle = colors[0];
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   let seed = 101 + id * 97;
@@ -2477,7 +2481,7 @@ function mergeDirectMeshesByMaterial(
   if (!merged) {
     const pieces = children.map((child) => {
       child.updateMatrix();
-      const geometry = child.geometry.clone();
+      const geometry = child.geometry.index ? child.geometry.toNonIndexed() : child.geometry.clone();
       geometry.applyMatrix4(child.matrix);
       return geometry;
     });
@@ -2506,6 +2510,7 @@ function compactVehicleMeshes(
     ['canvas', materials.canvas],
     ['light', materials.lightBar],
     ['metal', gunmetal],
+    ['glass', materials.glass],
   ];
   for (const [key, material] of materialGroups) {
     mergeDirectMeshesByMaterial(group, material, `${kind}-chassis-${key}`);
@@ -2529,6 +2534,7 @@ function compactHarvesterMeshes(
     ['canvas', materials.canvas],
     ['light', materials.lightBar],
     ['metal', gunmetal],
+    ['glass', materials.glass],
   ];
   const excluded = new Set<Object3D>([cargoLoad, ...movingParts]);
   for (const [key, material] of materialGroups) {
@@ -2551,7 +2557,7 @@ function createVehicleObject(
   let muzzleFlash: Mesh | undefined;
   let barrelHomeZ: number | undefined;
   if (kind === 'jackal') {
-    group.add(box(2.72, 0.68, 4.45, materials.hull, 0, 0.58, 0.05));
+    group.add(armorBox(2.72, 0.82, 4.45, materials.hull, 0, 0.58, 0.05));
     group.add(angledBox(2.5, 0.34, 1.5, materials.hull, 0, 0.88, 1.7, -0.2));
     group.add(box(1.72, 0.44, 1.45, materials.dark, 0, 1.02, -1.28));
     group.add(box(1.55, 0.08, 0.18, materials.accent, 0, 1.19, 1.66));
@@ -2574,15 +2580,15 @@ function createVehicleObject(
     const turretRing = new Mesh(sharedCylinderGeometry(0.66, 0.76, 0.18, 10), gunmetal);
     turretRing.position.y = -0.08;
     turretPivot.add(turretRing);
-    turretPivot.add(angledBox(1.42, 0.36, 1.48, materials.dark, 0, 0.12, -0.18, -0.04));
+    turretPivot.add(armorBox(1.55, 0.56, 1.65, materials.hull, 0, 0.22, -0.18));
     turretPivot.add(box(1.28, 0.08, 0.25, materials.accent, 0, 0.32, 0.5));
     const optic = new Mesh(sharedCylinderGeometry(0.2, 0.24, 0.24, 10), materials.lightBar);
     optic.position.set(0.42, 0.46, -0.22);
     turretPivot.add(optic);
     barrelPivot.position.set(0, 0.16, 0.18);
     barrelHomeZ = barrelPivot.position.z;
-    barrelPivot.add(box(0.12, 0.12, 2.55, gunmetal, -0.18, 0, 1.36));
-    barrelPivot.add(box(0.12, 0.12, 2.55, gunmetal, 0.18, 0, 1.36));
+    barrelPivot.add(gunTube(0.055, 2.55, gunmetal, -0.18, 0, 1.36));
+    barrelPivot.add(gunTube(0.055, 2.55, gunmetal, 0.18, 0, 1.36));
     barrelPivot.add(box(0.48, 0.24, 0.32, gunmetal, 0, 0, 0.22));
     muzzleFlash = new Mesh(sharedCylinderGeometry(0, 0.34, 0.86, 8), muzzleMaterial);
     muzzleFlash.rotation.x = Math.PI / 2;
@@ -2592,7 +2598,7 @@ function createVehicleObject(
     turretPivot.add(barrelPivot);
     antenna.position.set(1.05, 1.08, -1.75);
   } else if (kind === 'mauler') {
-    group.add(box(3.82, 0.72, 7.12, materials.hull, 0, 0.55, -0.28));
+    group.add(armorBox(3.82, 0.9, 7.12, materials.hull, 0, 0.55, -0.28));
     group.add(angledBox(3.62, 0.38, 1.72, materials.hull, 0, 0.9, 2.54, -0.17));
     group.add(angledBox(3.42, 0.28, 1.35, materials.dark, 0, 0.96, -2.82, 0.1));
     for (const side of [-1, 1]) {
@@ -2618,12 +2624,13 @@ function createVehicleObject(
     const turretRing = new Mesh(sharedCylinderGeometry(1.22, 1.38, 0.25, 12), gunmetal);
     turretRing.position.y = -0.16;
     turretPivot.add(turretRing);
-    turretPivot.add(angledBox(2.65, 0.68, 2.55, materials.dark, 0, 0.14, -0.04, -0.035));
+    turretPivot.add(armorBox(2.8, 0.8, 3.15, materials.hull, 0, 0.18, -0.22));
     turretPivot.add(angledBox(2.15, 0.34, 1.5, materials.hull, 0, 0.58, -0.22, 0.05));
     turretPivot.add(box(2.2, 0.09, 0.28, materials.accent, 0, 0.62, 0.82));
     barrelPivot.position.set(0, 0.08, 0.8);
     barrelHomeZ = barrelPivot.position.z;
-    barrelPivot.add(box(0.24, 0.24, 5.9, gunmetal, 0, 0, 2.9));
+    barrelPivot.add(gunTube(0.14, 5.9, gunmetal, 0, 0, 2.9));
+    barrelPivot.add(gunTube(0.24, 1.6, gunmetal, 0, 0, 0.95));
     barrelPivot.add(box(0.54, 0.42, 0.48, gunmetal, 0, 0, 0.28));
     barrelPivot.add(box(0.72, 0.26, 0.34, gunmetal, 0, 0, 5.82));
     barrelPivot.add(box(0.84, 0.2, 0.16, gunmetal, 0, 0, 6.02));
@@ -2650,7 +2657,7 @@ function createVehicleObject(
   } else {
     // M-17 vertical slice: layered armour, readable running gear and a much
     // stronger turret silhouette while keeping every shape cheap and shared.
-    group.add(box(3.5, 0.68, 4.75, materials.hull, 0, 0.62, -0.08));
+    group.add(armorBox(3.5, 0.9, 4.75, materials.hull, 0, 0.62, -0.08));
     group.add(angledBox(3.34, 0.32, 1.65, materials.hull, 0, 0.88, 1.88, -0.18));
     group.add(angledBox(3.18, 0.24, 1.32, materials.dark, 0, 0.98, -1.88, 0.12));
     group.add(box(2.72, 0.18, 1.42, materials.dark, 0, 1.06, -1.12));
@@ -2698,7 +2705,7 @@ function createVehicleObject(
     const turretRing = new Mesh(sharedCylinderGeometry(1.12, 1.28, 0.22, 12), gunmetal);
     turretRing.position.y = -0.12;
     turretPivot.add(turretRing);
-    turretPivot.add(angledBox(2.32, 0.72, 2.36, materials.dark, 0, 0.18, -0.08, -0.04));
+    turretPivot.add(armorBox(2.7, 0.94, 2.65, materials.hull, 0, 0.22, -0.12));
     turretPivot.add(angledBox(1.92, 0.36, 1.4, materials.hull, 0, 0.58, -0.18, 0.05));
     turretPivot.add(box(2.0, 0.08, 0.18, materials.accent, 0, 0.62, 0.72));
     turretPivot.add(box(0.72, 0.14, 0.22, materials.lightBar, 0, 0.58, -1.22));
@@ -2709,7 +2716,8 @@ function createVehicleObject(
     turretPivot.add(mantlet);
     barrelPivot.position.set(0, 0.22, 1.08);
     barrelHomeZ = barrelPivot.position.z;
-    barrelPivot.add(box(0.3, 0.3, 3.15, gunmetal, 0, 0, 1.58));
+    barrelPivot.add(gunTube(0.12, 3.15, gunmetal, 0, 0, 1.58));
+    barrelPivot.add(gunTube(0.19, 0.85, materials.hull, 0, 0, 1.02));
     barrelPivot.add(box(0.42, 0.42, 0.36, gunmetal, 0, 0, 3.16));
     barrelPivot.add(box(0.52, 0.3, 0.16, gunmetal, 0, 0, 3.34));
     muzzleFlash = new Mesh(sharedCylinderGeometry(0, 0.44, 1.05, 8), muzzleMaterial);
@@ -2745,6 +2753,7 @@ function createVehicleObject(
   whip.position.y = 0.58;
   antenna.add(whip);
   group.add(antenna);
+  addVehicleFinish(kind, group, turretPivot, materials, gunmetal);
   compactVehicleMeshes(kind, group, turretPivot, barrelPivot, materials, gunmetal);
   return {
     root: group,
@@ -2765,7 +2774,7 @@ function createHarvesterObject(materials: TeamMaterials, gunmetal: Material): Bu
   // The Oris is a self-contained strip miner: low tracked propulsion, an
   // offset armored cab, exposed intake/conveyor machinery, and a deep rear
   // hopper. Its job is readable from the silhouette before any UI appears.
-  group.add(box(4.65, 0.7, 6.65, materials.hull, 0, 0.62, -0.05));
+  group.add(armorBox(4.65, 0.85, 6.65, materials.hull, 0, 0.62, -0.05));
   group.add(angledBox(4.25, 0.34, 1.4, materials.hull, 0, 0.92, 2.55, -0.15));
   group.add(angledBox(4.1, 0.28, 1.2, materials.dark, 0, 0.96, -2.78, 0.12));
   group.add(box(3.1, 0.12, 0.28, materials.accent, 0, 1.0, 3.16));
@@ -2794,8 +2803,8 @@ function createHarvesterObject(materials: TeamMaterials, gunmetal: Material): Bu
   // Asymmetric cab and engine module make it feel engineered rather than
   // assembled from centered boxes.
   group.add(angledBox(2.2, 1.42, 1.88, materials.hull, -0.92, 1.52, 1.68, -0.08, 0.03));
-  group.add(angledBox(1.72, 0.55, 0.13, materials.lightBar, -0.92, 1.84, 2.65, -0.08, 0.03));
-  group.add(box(0.13, 0.56, 1.15, materials.lightBar, -2.04, 1.72, 1.7));
+  group.add(angledBox(1.72, 0.55, 0.13, materials.glass, -0.92, 1.84, 2.65, -0.08, 0.03));
+  group.add(box(0.13, 0.56, 1.15, materials.glass, -2.04, 1.72, 1.7));
   group.add(box(1.28, 0.13, 1.7, materials.dark, -0.92, 2.27, 1.64));
   group.add(box(1.05, 0.11, 0.18, materials.accent, -0.92, 2.37, 1.78));
 
@@ -2917,55 +2926,77 @@ function createHarvesterObject(materials: TeamMaterials, gunmetal: Material): Bu
 
 function createAircraftObject(kind: UnitVisualKind, materials: TeamMaterials, rotorMaterial: Material): BuiltUnit {
   const group = new Group();
-  const mainRotors: Object3D[] = [];
-  const tailRotors: Object3D[] = [];
-  const missileRack: Object3D[] = [];
-
+  const mainRotors: Object3D[] = [], tailRotors: Object3D[] = [], missileRack: Object3D[] = [];
+  const body = (name: string, sections: readonly (readonly [number, number, number, number])[], material: Material) => {
+    const mesh = new Mesh(unitFuselage(`${kind}-${name}`,sections),material); mesh.name=name; group.add(mesh); return mesh;
+  };
+  const ellipsoid = (name: string,w:number,h:number,d:number,x:number,y:number,z:number,material:Material) => {
+    const mesh=new Mesh(unitEllipsoid(w,h,d),material);mesh.name=name;mesh.position.set(x,y,z);group.add(mesh);return mesh;
+  };
   if (kind === 'wasp') {
-    group.add(box(1.35, 0.78, 3.35, materials.hull, 0, 0.18, 0.45));
-    group.add(box(1.1, 0.5, 0.78, materials.accent, 0, 0.26, 1.95));
-    group.add(box(0.38, 0.32, 3.35, materials.hull, 0, 0.28, -2.45));
-    group.add(box(0.2, 1.05, 0.7, materials.accent, 0, 0.75, -4.1));
-    group.add(box(0.28, 0.22, 1.4, rotorMaterial, 0, -0.18, 1.55));
-    addSkids(group, rotorMaterial, 1.0, 3.2);
-    mainRotors.push(addRotor(group, rotorMaterial, 5.6, 0, 0.95, 0));
-    tailRotors.push(addTailRotor(group, rotorMaterial, 0, 0.55, -4.45));
+    body('wasp-scout-fuselage',[[-1.7,0.08,0.12,0.2],[-1.1,0.53,0.43,0.12],[0.1,0.72,0.54,0.12],[1.2,0.6,0.46,0.14],[2.15,0.36,0.28,0.06],[2.5,0.04,0.08,0]],materials.hull);
+    ellipsoid('wasp-bubble-canopy',0.59,0.47,0.93,0,0.47,1.12,materials.glass);
+    group.add(box(0.06,0.055,1.72,rotorMaterial,0,0.84,1.08));
+    body('wasp-tail-boom',[[-4.45,0.055,0.08,0.58],[-3.7,0.13,0.13,0.45],[-1.25,0.24,0.2,0.2]],materials.hull);
+    group.add(armorBox(0.14,1.3,0.95,materials.accent,0,1.06,-4.1));
+    group.add(armorBox(1.5,0.09,0.45,materials.hull,0,1.52,-4.04));
+    ellipsoid('wasp-chin-turret',0.23,0.2,0.3,0,-0.32,1.75,rotorMaterial);
+    group.add(gunTube(0.045,1.15,rotorMaterial,0,-0.31,2.35));
+    group.add(armorBox(0.9,0.27,1.1,materials.dark,0,0.7,-0.6));
+    for(const side of [-1,1]) {group.add(gunTube(0.15,0.5,rotorMaterial,side*0.39,0.64,-1.1));group.add(box(0.06,0.12,0.72,materials.accent,side*0.68,0.1,-0.25));}
+    addSkids(group,rotorMaterial,1,3.2);
+    mainRotors.push(addRotor(group,rotorMaterial,5.6,0,1.14,-0.18));
+    tailRotors.push(addTailRotor(group,rotorMaterial,0,0.7,-4.42));
   } else if (kind === 'hammerhead') {
-    group.add(box(3.5, 0.92, 4.7, materials.hull, 0, 0.22, 0.15));
-    group.add(box(3.8, 0.62, 1.25, materials.accent, 0, 0.26, 2.3));
-    group.add(box(6.3, 0.28, 1.2, materials.dark, 0, 0.28, -0.3));
-    group.add(box(0.42, 0.9, 0.82, materials.accent, -1.35, 0.58, -2.55));
-    group.add(box(0.42, 0.9, 0.82, materials.accent, 1.35, 0.58, -2.55));
-    addSkids(group, rotorMaterial, 1.75, 4.1);
-    mainRotors.push(addRotor(group, rotorMaterial, 5.8, -2.7, 1.02, -0.22));
-    mainRotors.push(addRotor(group, rotorMaterial, 5.8, 2.7, 1.02, -0.22));
-    for (const side of [-1, 1]) {
-      for (let i = 0; i < 4; i++) {
-        const missile = new Mesh(sharedCylinderGeometry(0.07, 0.07, 0.86, 8), materials.lightBar);
-        missile.rotation.x = Math.PI / 2;
-        missile.position.set(side * 2.15, -0.08, -0.95 + i * 0.5);
-        group.add(missile);
-        missileRack.push(missile);
+    body('hammerhead-heavy-airframe',[[-2.8,0.65,0.3,0.2],[-1.9,1.42,0.57,0.15],[0.2,1.62,0.62,0.2],[1.9,1.35,0.54,0.2],[2.8,0.84,0.37,0.05],[3.05,0.15,0.12,0]],materials.hull);
+    body('hammerhead-flight-deck',[[0.8,0.7,0.05,0.71],[1.15,1.1,0.28,0.72],[2.35,0.7,0.28,0.47],[2.7,0.12,0.05,0.27]],materials.glass);
+    group.add(box(0.08,0.09,1.5,materials.hull,0,0.96,1.55));
+    group.add(armorBox(6.1,0.25,1.8,materials.hull,0,0.25,-0.45));
+    for(const side of [-1,1]) {
+      ellipsoid('hammerhead-engine-nacelle',0.48,0.4,1.28,side*2.7,0.6,-0.42,materials.dark);
+      group.add(gunTube(0.24,0.6,rotorMaterial,side*2.7,0.65,-1.65));
+      group.add(armorBox(0.18,1.0,1.25,materials.accent,side*1.1,0.8,-2.5));
+      group.add(armorBox(1.1,0.14,2.6,materials.dark,side*1.9,-0.35,0.2));
+      mainRotors.push(addRotor(group,rotorMaterial,5.8,side*2.7,1.48,-0.42));
+      // Individual rails retain the ammo visibility contract used by live combat.
+      for(let i=0;i<4;i++) {
+        const missile=new Group();missile.name='hammerhead-guided-missile';missile.position.set(side*(1.45+i*0.28),-0.52,0.65);
+        missile.add(gunTube(0.085,1.7,materials.canvas,0,0,0));
+        const nose=new Mesh(sharedCylinderGeometry(0,0.085,0.3,12),rotorMaterial);nose.rotation.x=Math.PI/2;nose.position.z=1;missile.add(nose);
+        missile.add(box(0.31,0.04,0.32,materials.dark,0,0,-0.55));
+        missile.add(box(0.04,0.31,0.32,materials.dark,0,0,-0.55));
+        group.add(missile);missileRack.push(missile);
       }
     }
+    group.add(armorBox(2.6,0.1,0.7,materials.hull,0,0.6,-2.44));
+    addSkids(group,rotorMaterial,1.75,4.1);
   } else {
-    group.add(box(2.2, 1.0, 5.2, materials.hull, 0, 0.25, 0));
-    group.add(box(1.35, 0.72, 1.45, materials.accent, 0, 0.28, 2.55));
-    group.add(box(0.55, 0.45, 4.2, materials.hull, 0, 0.32, -4.2));
-    group.add(box(3.8, 0.18, 1.1, materials.dark, 0, 0.05, 0.95));
-    addSkids(group, rotorMaterial, 1.35, 4.2);
-    mainRotors.push(addRotor(group, rotorMaterial, 8.0, 0, 1.48, 0));
-    tailRotors.push(addTailRotor(group, rotorMaterial, 0, 0.5, -6.35));
-    for (const side of [-1, 1]) {
-      const pod = new Mesh(sharedCylinderGeometry(0.18, 0.18, 1.6, 10), rotorMaterial);
-      pod.rotation.x = Math.PI / 2;
-      pod.position.set(side * 1.42, 0.05, 1.25);
-      group.add(pod);
+    body('vulture-attack-fuselage',[[-2.4,0.12,0.15,0.15],[-1.6,0.84,0.53,0.16],[-0.3,1.0,0.7,0.15],[1.4,0.7,0.53,0.12],[2.6,0.42,0.31,0],[3.1,0.06,0.12,-0.04]],materials.hull);
+    body('vulture-tandem-canopy',[[0.05,0.28,0.05,0.69],[0.4,0.61,0.4,0.72],[1.25,0.58,0.4,0.53],[2.45,0.25,0.23,0.29],[2.72,0.02,0.04,0.16]],materials.glass);
+    group.add(angledBox(1.06,0.055,0.08,materials.hull,0,0.97,1.25,-0.15));
+    group.add(box(0.06,0.06,1.85,materials.hull,0,1.02,1.12));
+    body('vulture-tail-boom',[[-6.2,0.07,0.13,0.7],[-5.2,0.18,0.18,0.5],[-2,0.34,0.31,0.22]],materials.hull);
+    group.add(armorBox(0.18,1.45,1.15,materials.accent,0,1.05,-5.85));
+    group.add(armorBox(2,0.12,0.7,materials.hull,0,0.63,-4.9));
+    group.add(armorBox(4.25,0.16,1.45,materials.hull,0,0.02,0.5));
+    for(const side of [-1,1]) {
+      ellipsoid('vulture-turbine',0.32,0.29,0.86,side*0.61,0.73,-0.6,materials.dark);
+      group.add(gunTube(0.2,0.55,rotorMaterial,side*0.61,0.77,-1.42));
+      group.add(box(0.18,0.32,0.5,materials.dark,side*1.75,-0.16,0.65));
+      group.add(gunTube(0.28,1.6,rotorMaterial,side*1.75,-0.43,0.75));
+      for(let i=0;i<7;i++){const a=i*Math.PI*2/7;group.add(gunTube(0.052,0.08,materials.canvas,side*1.75+Math.cos(a)*0.17,-0.43+Math.sin(a)*0.17,1.58));}
+      group.add(box(0.14,0.07,0.55,materials.accent,side*2.08,0.13,0.52));
     }
-    group.add(box(0.24, 0.82, 0.72, materials.accent, 0, 0.82, -5.25));
-    group.add(box(0.42, 0.38, 0.42, materials.lightBar, 0, 0.65, -6.05));
+    ellipsoid('vulture-nose-sensor',0.23,0.22,0.24,0,-0.2,2.56,rotorMaterial);
+    group.add(gunTube(0.055,0.9,rotorMaterial,0,-0.4,2.6));
+    addSkids(group,rotorMaterial,1.35,4.2);
+    mainRotors.push(addRotor(group,rotorMaterial,8,0,1.53,-0.4));
+    tailRotors.push(addTailRotor(group,rotorMaterial,0,0.82,-6.22));
   }
-  return { root: group, refs: { mainRotors, tailRotors, missileRack } };
+  const exclusions=new Set<Object3D>(missileRack);
+  for(const [key,material] of Object.entries(materials)) mergeDirectMeshesByMaterial(group,material,`${kind}-airframe-${key}`,exclusions);
+  mergeDirectMeshesByMaterial(group,rotorMaterial,`${kind}-airframe-metal`,exclusions);
+  return {root:group,refs:{mainRotors,tailRotors,missileRack}};
 }
 
 function addRotor(group: Group, material: Material, span: number, x: number, y: number, z: number): Group {
@@ -3053,4 +3084,80 @@ function deterministicUnit(id: number, seed: number): number {
 
 function deterministicUnitSigned(id: number, seed: number): number {
   return deterministicUnit(id, seed) * 2 - 1;
+}
+
+function armorBox(w: number, h: number, d: number, material: Material, x: number, y: number, z: number): Mesh {
+  const mesh = new Mesh(armoredUnitHull(w,h,d),material);mesh.position.set(x,y,z);return mesh;
+}
+function gunTube(radius: number, length: number, material: Material, x: number, y: number, z: number): Mesh {
+  const mesh=new Mesh(sharedCylinderGeometry(radius,radius,length,16),material);mesh.rotation.x=Math.PI/2;mesh.position.set(x,y,z);return mesh;
+}
+function addVehicleFinish(kind: UnitVisualKind, root: Group, turret: Group, m: TeamMaterials, metal: Material): void {
+  const siege=kind==='mauler';
+  if(kind==='jackal') {
+    root.add(armorBox(2.15,0.68,1.65,m.hull,0,1.08,0.95));
+    root.add(angledBox(1.62,0.3,0.08,metal,0,1.35,1.64,-0.3));
+    for(const side of [-1,1]) {
+      root.add(box(0.12,0.18,0.7,metal,side*1.13,1.13,1.55));
+      for(const z of [-1.55,0,1.55]) {
+        for(let i=0;i<12;i++){const a=i*Math.PI/6;const tread=box(0.34,0.08,0.13,metal,side*1.55,0.36+Math.cos(a)*0.43,z+Math.sin(a)*0.43);tread.rotation.x=a;root.add(tread);}
+      }
+      turret.add(armorBox(0.4,0.45,0.9,m.dark,side*0.87,0.25,-0.25));
+    }
+  } else {
+    const x=siege?2.32:2.02,length=siege?6.8:5.15;
+    for(const side of [-1,1]) {
+      for(let i=0;i<16;i++) {
+        const z=-length/2+i*length/15;
+        root.add(box(0.86,0.1,0.18,metal,side*x,0.99,z));
+        root.add(box(0.86,0.09,0.18,metal,side*x,0.03,z));
+      }
+      for(let i=0;i<5;i++) root.add(armorBox(0.2,0.6,length/5-0.06,m.hull,side*(x+0.34),0.91,-length*0.4+i*length/5));
+      turret.add(armorBox(0.48,0.55,1.5,m.hull,side*(siege?1.34:1.2),0.23,0.28));
+      turret.add(box(0.12,0.1,1.2,m.accent,side*(siege?1.52:1.38),0.49,0.22));
+      // Rear turret bustle is visibly separate from the fighting compartment.
+      turret.add(box(0.1,0.48,1.1,metal,side*0.92,0.28,-1.65));
+    }
+    turret.add(box(2.1,0.13,0.16,metal,0,0.49,-2.14));
+    turret.add(armorBox(0.4,0.32,0.46,m.dark,-0.55,0.91,0.1));
+    turret.add(box(0.26,0.12,0.08,m.lightBar,-0.55,0.93,0.36));
+  }
+}
+
+export const UNIT_PORTRAIT_MODELS: Record<string,{ visual:UnitVisualKind;label:string }> = {
+  infantry:{visual:'rifle',label:'Rifle Team'},sniper:{visual:'sniper',label:'Sniper'},grenadier:{visual:'grenadier',label:'Grenadier'},
+  'rocket-infantry':{visual:'rocket',label:'Rocket Team'},'scout-tank':{visual:'jackal',label:'Jackal Scout'},
+  tank:{visual:'m17',label:'M-17 Tank'},'siege-tank':{visual:'mauler',label:'Mauler Siege'},
+  wasp:{visual:'wasp',label:'Wasp Scout'},vulture:{visual:'vulture',label:'Vulture'},hammerhead:{visual:'hammerhead',label:'Hammerhead'},
+  harvester:{visual:'harvester',label:'Oris Harvester'},
+};
+
+/** Uses the same builders and dimensions as the game, without simulation state. */
+export function createUnitPreview(key: string,team=1): Group {
+  const def=UNIT_PORTRAIT_MODELS[key];if(!def)throw new Error(`Unknown unit portrait: ${key}`);
+  const materials=createTeamMaterials({setupLitMaterial:(material)=>material},factionId(team),false);
+  const metal=new MeshStandardMaterial({color:0x23262a,roughness:0.55,metalness:0.45});
+  const muzzle=new MeshBasicMaterial({color:0xffd084});
+  let built:BuiltUnit;
+  if(['rifle','grenadier','rocket','sniper'].includes(def.visual)){
+    const rig=buildSoldier({uniform:materials.uniform,gear:materials.dark,skin:new MeshStandardMaterial({color:0xb98a63,roughness:0.85}),gunmetal:metal,accent:materials.accent,canvas:materials.canvas,lightBar:materials.lightBar,visor:new MeshStandardMaterial({color:0x101818,roughness:0.24,metalness:0.05}),muzzle},def.visual as 'rifle'|'grenadier'|'rocket'|'sniper');
+    built={root:rig.root,refs:{turretPivot:rig.torso}};
+  }else if(['wasp','vulture','hammerhead'].includes(def.visual))built=createAircraftObject(def.visual,materials,metal);
+  else if(def.visual==='harvester')built=createHarvesterObject(materials,metal);
+  else built=createVehicleObject(def.visual,materials,metal,muzzle);
+  const entity={name:def.label,selectable:{type:key==='harvester'?'harvester':'tank'},weapon:{kind:key==='sniper'?'sniperRifle':'rifle'}} as Entity;
+  const scale=visualScaleForEntity(entity);built.root.scale.set(scale.x,scale.y,scale.z);
+  built.root.name=key;built.root.userData.unitRefs=built.refs;
+  built.root.traverse(child=>{child.castShadow=true;child.receiveShadow=true;});
+  // Hidden bike upgrades and muzzle FX must not shrink the framed portrait.
+  const hidden:Object3D[]=[];built.root.traverse(child=>{if(!child.visible)hidden.push(child);});
+  const detachedMaterials=new Set<Material>();
+  for(const child of hidden){child.traverse(part=>{if(part instanceof Mesh){if(!isSharedUnitGeometry(part.geometry))part.geometry.dispose();for(const material of Array.isArray(part.material)?part.material:[part.material])detachedMaterials.add(material);}});child.removeFromParent();}
+  const used=new Set<Material>();built.root.traverse(child=>{if(child instanceof Mesh)for(const m of Array.isArray(child.material)?child.material:[child.material])used.add(m);});
+  for(const m of new Set([...Object.values(materials),metal,muzzle,...detachedMaterials]))if(!used.has(m)){(m as MeshStandardMaterial).map?.dispose();m.dispose();}
+  return built.root;
+}
+export function disposeUnitPreview(root: Group): void {
+  const materials=new Set<Material>();root.traverse(child=>{if(child instanceof Mesh){if(!isSharedUnitGeometry(child.geometry))child.geometry.dispose();for(const material of Array.isArray(child.material)?child.material:[child.material])materials.add(material);}});
+  for(const material of materials){(material as MeshStandardMaterial).map?.dispose();material.dispose();}
 }

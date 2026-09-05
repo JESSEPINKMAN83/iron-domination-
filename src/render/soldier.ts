@@ -3,6 +3,8 @@
 // helmet/goggles, camo uniform, kit silhouettes, held weapons, and cached refs
 // for aim/recoil/death animation.
 import { BoxGeometry, CylinderGeometry, Group, Mesh, type BufferGeometry, type Material } from 'three';
+import { roundedUnitBox, unitEllipsoid, armoredUnitHull, sharedUnitGeometry } from './unitGeometry';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { UnitVisualKind } from './unitKinds';
 
 export interface SoldierMaterials {
@@ -43,7 +45,7 @@ export interface SoldierRig {
 type SoldierKit = Extract<UnitVisualKind, 'rifle' | 'grenadier' | 'rocket' | 'sniper'>;
 
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
-const boxGeometryCache = new Map<string, BoxGeometry>();
+const boxGeometryCache = new Map<string, BufferGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
 
 function markShared<T extends BufferGeometry>(geom: T): T {
@@ -51,11 +53,11 @@ function markShared<T extends BufferGeometry>(geom: T): T {
   return geom;
 }
 
-function sharedBoxGeometry(x: number, y: number, z: number): BoxGeometry {
+function sharedBoxGeometry(x: number, y: number, z: number): BufferGeometry {
   const key = `${x}:${y}:${z}`;
   let geom = boxGeometryCache.get(key);
   if (!geom) {
-    geom = markShared(new BoxGeometry(x, y, z));
+    geom = roundedUnitBox(x,y,z,Math.min(x,y,z)*0.22);
     boxGeometryCache.set(key, geom);
   }
   return geom;
@@ -86,13 +88,13 @@ function cyl(radiusTop: number, radiusBottom: number, height: number, segments: 
 function buildLeg(m: SoldierMaterials, side: 1 | -1): { hip: Group; knee: Group } {
   const hip = new Group();
   hip.position.set(side * 0.12, 0.98, 0);
-  hip.add(box(0.125, 0.54, 0.14, m.uniform, 0, -0.27, 0));
+  hip.add(anatomy(0.092,0.29,0.1,m.uniform,0,-0.27,0));
 
   const knee = new Group();
   knee.position.set(0, -0.52, 0);
-  knee.add(box(0.115, 0.48, 0.13, m.uniform, 0, -0.22, 0));
-  knee.add(box(0.145, 0.11, 0.26, m.gear, 0, -0.18, 0.055)); // kneepad
-  knee.add(box(0.18, 0.1, 0.32, m.gear, 0, -0.48, 0.08)); // boot
+  knee.add(anatomy(0.079,0.26,0.085,m.uniform,0,-0.22,0));
+  knee.add(box(0.145, 0.14, 0.12, m.gear, 0, -0.02, 0.09)); // kneepad
+  knee.add(box(0.17, 0.13, 0.26, m.gear, 0, -0.48, 0.08)); // boot
   hip.add(knee);
   return { hip, knee };
 }
@@ -101,14 +103,14 @@ function buildArm(m: SoldierMaterials, side: 1 | -1, rotationZ: number): { shoul
   const shoulder = new Group();
   shoulder.position.set(side * 0.3, 0.47, 0.02);
   shoulder.rotation.set(-0.78, 0, rotationZ);
-  shoulder.add(box(0.12, 0.34, 0.12, m.uniform, 0, -0.16, 0));
+  shoulder.add(anatomy(0.083,0.19,0.082,m.uniform,0,-0.16,0));
 
   const elbow = new Group();
   elbow.position.set(0, -0.32, 0);
   elbow.rotation.x = -0.62;
-  elbow.add(box(0.105, 0.29, 0.1, m.uniform, 0, -0.13, 0));
-  elbow.add(box(0.105, 0.075, 0.1, m.skin, 0, -0.29, 0.02)); // palm
-  elbow.add(box(0.045, 0.05, 0.055, m.skin, side * -0.045, -0.28, 0.07)); // thumb
+  elbow.add(anatomy(0.069,0.16,0.065,m.uniform,0,-0.13,0));
+  elbow.add(box(0.105, 0.075, 0.1, m.gear, 0, -0.29, 0.02)); // palm
+  elbow.add(box(0.045, 0.05, 0.055, m.gear, side * -0.045, -0.28, 0.07)); // thumb
   shoulder.add(elbow);
   return { shoulder, elbow };
 }
@@ -135,7 +137,8 @@ function addSoldierBody(torso: Group, m: SoldierMaterials): { chest: Mesh; abdom
   const chest = box(0.44, 0.42, 0.25, m.uniform, 0, 0.52, 0.005);
   chest.rotation.x = -0.05;
   torso.add(abdomen, chest);
-  torso.add(box(0.48, 0.3, 0.28, m.gear, 0, 0.42, 0.02)); // plate carrier
+  const plate=new Mesh(armoredUnitHull(0.46,0.38,0.3,0.12),m.gear);plate.position.set(0,0.45,0.02);torso.add(plate); // plate carrier
+  for(const x of [-0.13,0,0.13]) torso.add(box(0.1,0.16,0.065,m.canvas,x,0.37,0.2));
   torso.add(box(0.42, 0.055, 0.08, m.accent, 0, 0.62, 0.17)); // chest team strip
   torso.add(box(0.42, 0.055, 0.06, m.gear, 0, 0.12, 0.13)); // belt
   for (const x of [-0.14, 0, 0.14]) torso.add(box(0.075, 0.105, 0.055, m.gear, x, 0.02, 0.16));
@@ -145,12 +148,10 @@ function addSoldierBody(torso: Group, m: SoldierMaterials): { chest: Mesh; abdom
 }
 
 function addHead(torso: Group, m: SoldierMaterials): void {
-  torso.add(box(0.17, 0.21, 0.16, m.skin, 0, 0.91, 0.015)); // smaller head
-  torso.add(box(0.185, 0.055, 0.17, m.visor, 0, 0.955, 0.095)); // goggles
-  torso.add(box(0.16, 0.035, 0.155, m.gear, 0, 0.895, 0.102)); // face shadow
-  const helmet = cyl(0.135, 0.155, 0.125, 8, m.uniform, 0, 1.07, 0);
-  helmet.scale.y = 0.72;
-  torso.add(helmet);
+  torso.add(anatomy(0.092,0.12,0.086,m.skin,0,0.92,0.015)); // smaller head
+  torso.add(box(0.185, 0.045, 0.025, m.visor, 0, 0.955, 0.095)); // goggles
+  torso.add(box(0.16, 0.025, 0.025, m.gear, 0, 0.895, 0.102)); // face shadow
+  torso.add(anatomy(0.157,0.12,0.175,m.uniform,0,1.06,0));
   torso.add(box(0.25, 0.035, 0.09, m.uniform, 0, 1.03, 0.105)); // brim
   torso.add(box(0.055, 0.1, 0.09, m.uniform, -0.13, 1.0, 0.005));
   torso.add(box(0.055, 0.1, 0.09, m.uniform, 0.13, 1.0, 0.005));
@@ -160,8 +161,8 @@ function addHead(torso: Group, m: SoldierMaterials): void {
 }
 
 function addShoulders(torso: Group, m: SoldierMaterials): void {
-  torso.add(box(0.18, 0.09, 0.18, m.uniform, -0.31, 0.63, 0));
-  torso.add(box(0.18, 0.09, 0.18, m.uniform, 0.31, 0.63, 0));
+  torso.add(anatomy(0.11,0.075,0.11,m.uniform,-0.31,0.63,0));
+  torso.add(anatomy(0.11,0.075,0.11,m.uniform,0.31,0.63,0));
   torso.add(box(0.14, 0.035, 0.19, m.accent, -0.31, 0.685, 0));
 }
 
@@ -238,8 +239,7 @@ function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, 
     torso.add(pack);
     torso.add(box(0.3, 0.055, 0.21, m.accent, 0, 0.69, -0.35));
     for (const x of [-0.11, 0.11]) {
-      const spare = cyl(0.024, 0.024, 0.56, 8, m.gunmetal, x, 0.46, -0.48);
-      spare.rotation.x = Math.PI / 2;
+      const spare = cyl(0.048, 0.048, 0.7, 12, m.canvas, x, 0.47, -0.39);
       torso.add(spare);
     }
     const tube = cyl(0.068, 0.082, 1.24, 12, m.gunmetal, -0.02, 0.08, 0.46);
@@ -269,7 +269,8 @@ function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, 
     const suppressor = cyl(0.026, 0.026, 0.2, 8, m.gunmetal, 0, 0.016, 1.34);
     suppressor.rotation.x = Math.PI / 2;
     rifle.add(longBarrel, suppressor, box(0.075, 0.06, 0.34, m.gunmetal, 0, 0.095, 0.2), box(0.08, 0.064, 0.018, m.accent, 0, 0.095, 0.39));
-    torso.add(box(0.5, 0.045, 0.065, m.canvas, 0, 0.66, -0.15));
+    torso.add(anatomy(0.29,0.18,0.22,m.canvas,0,0.68,-0.09));
+    for(const x of [-0.2,-0.1,0,0.1,0.2]) torso.add(box(0.07,0.38,0.045,m.canvas,x,0.37,-0.22));
     root.scale.set(0.96, 1.07, 0.96);
   }
   return {};
@@ -299,6 +300,7 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): So
   const kitRefs = applyKit(root, torso, weapon.rifle, m, kit);
   torso.add(weapon.rifle);
   root.add(torso);
+  compactSoldier(root,kit,m,new Set([body.chest,body.abdomen,weapon.muzzleFlash,...(kitRefs.backBlast?[kitRefs.backBlast]:[])]));
 
   return {
     root,
@@ -322,4 +324,25 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): So
     bikeWheels: combatBike.wheels,
     kit,
   };
+}
+
+function anatomy(w: number,h: number,d: number,material: Material,x: number,y: number,z: number): Mesh {
+  const mesh=new Mesh(unitEllipsoid(w,h,d),material);mesh.position.set(x,y,z);return mesh;
+}
+
+/** Merge only static parts within each animated joint; keep all rig handles intact. */
+function compactSoldier(root: Group,kit: string,materials: SoldierMaterials,excluded: Set<Mesh>): void {
+  const visit=(parent: Group,path: string)=>{
+    parent.children.forEach((child,index)=>{if(child instanceof Group)visit(child,`${path}/${index}`);});
+    for(const [key,material] of Object.entries(materials)) {
+      const meshes=parent.children.filter((child):child is Mesh=>child instanceof Mesh&&child.material===material&&!excluded.has(child)&&child.visible);
+      if(meshes.length<2)continue;
+      const geometry=sharedUnitGeometry(`soldier:${kit}:${path}:${key}`,()=>{
+        const pieces=meshes.map(mesh=>{mesh.updateMatrix();const part=mesh.geometry.index?mesh.geometry.toNonIndexed():mesh.geometry.clone();part.applyMatrix4(mesh.matrix);return part;});
+        const merged=mergeGeometries(pieces,false);for(const part of pieces)part.dispose();if(!merged)throw new Error('Cannot merge soldier geometry');return merged;
+      });
+      parent.remove(...meshes);parent.add(new Mesh(geometry,material));
+    }
+  };
+  visit(root,'root');
 }
