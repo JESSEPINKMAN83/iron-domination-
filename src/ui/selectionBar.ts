@@ -94,6 +94,13 @@ export class SelectionBar {
     this.worldOverlay.style.cssText = 'position:fixed;inset:0;z-index:14;pointer-events:none;overflow:hidden;';
     document.body.appendChild(this.root);
     document.body.appendChild(this.worldOverlay);
+    document.addEventListener('pointerdown', (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const openPopovers = document.querySelectorAll<HTMLElement>('[data-upgrade-popover]');
+      if (Array.from(openPopovers).some((popover) => popover.contains(target))) return;
+      this.closeAllUpgradePopovers();
+    }, { capture: true });
   }
 
   setVisible(visible: boolean): void {
@@ -118,9 +125,7 @@ export class SelectionBar {
     this.syncWorldUpgradeButtons(selected);
     const groups = selectionGroups(selected);
     const siloSelected = selected.length === 1 && selected[0].building?.kind === 'strategic-silo' && this.actions.strategic;
-    const key = groups
-      .map((group) => `${group.key}:${group.entities.map((entity) => `${entity.id}.${entity.unitUpgrades?.ids.join('+') ?? ''}`).join(',')}:${group.healthPct ?? ''}`)
-      .join('|') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
+    const key = selectionGroupsKey(groups) + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
     if (key === this.lastKey) return;
     this.lastKey = key;
     if (siloSelected) this.renderStrategicSilo(groups[0], selected[0]);
@@ -537,6 +542,10 @@ export class SelectionBar {
       event.stopPropagation();
       this.openUpgradePopover(group, button);
     };
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
     button.onkeydown = (event) => event.stopPropagation();
     return button;
   }
@@ -588,9 +597,10 @@ export class SelectionBar {
         if (result.ok) {
           popover.replaceChildren();
           this.populateUpgradePopover(popover, group, closePopover);
+          const selected = selectedEntities(this.sim, this.localTeam).filter((entity) => !entity.destroyed);
+          this.lastKey = selectionGroupsKey(selectionGroups(selected));
         }
         this.showPurchaseResult(popover, result);
-        this.lastKey = '';
       };
       popover.appendChild(row);
     }
@@ -721,6 +731,12 @@ export class SelectionBar {
     this.worldPopover = undefined;
     this.worldPopoverEntityId = undefined;
   }
+}
+
+function selectionGroupsKey(groups: SelectionGroup[]): string {
+  return groups
+    .map((group) => `${group.key}:${group.entities.map((entity) => `${entity.id}.${entity.unitUpgrades?.ids.join('+') ?? ''}`).join(',')}:${group.healthPct ?? ''}`)
+    .join('|');
 }
 
 function selectionGroups(entities: Entity[]): SelectionGroup[] {
