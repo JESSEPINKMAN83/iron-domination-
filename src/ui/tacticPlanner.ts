@@ -1,3 +1,4 @@
+import type { TerrainLayout } from '../sim/heightfield';
 import './tacticPlanner.css';
 import type { MapId, MapSize } from '../content/maps';
 import type { Entity, TacticEndAction } from '../sim/components';
@@ -12,6 +13,7 @@ export type TacticPlannerMapContext = {
   seed: number;
   oreAmount?: number;
   terrainRelief?: number;
+  terrainLayout?: TerrainLayout;
   /** World-space anchor for the local army (HQ / spawn). Used to orient the map. */
   localAnchor: { x: number; z: number };
   /** Fog-of-war visibility. Hidden armies must never be revealed by the planner. */
@@ -89,6 +91,7 @@ export class TacticPlanner {
       384,
       this.map.oreAmount,
       this.map.terrainRelief,
+      this.map.terrainLayout,
     );
     this.worldSize = raster.worldSize;
     const orientation = mapOrientationForPlayer(this.worldSize, this.map.localAnchor, this.enemyAnchor());

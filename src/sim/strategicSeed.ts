@@ -1,3 +1,4 @@
+import type { TerrainLayout } from './heightfield';
 import { mapConfig, type MapId, type MapSize } from '../content/maps';
 import { generateHeightfield } from './heightfield';
 
@@ -6,6 +7,7 @@ export interface StrategicSeedOptions {
   mapSize: MapSize;
   oreAmount: number;
   terrainRelief: number;
+  terrainLayout?: TerrainLayout;
 }
 
 const SCOUTING_CELLS = 128;
@@ -31,7 +33,7 @@ export function chooseStrategicSeed(options: StrategicSeedOptions, candidates: r
 }
 
 export function strategicSeedScore(options: StrategicSeedOptions, seed: number): number {
-  const full = mapConfig(options.mapId, options.mapSize, options.oreAmount, options.terrainRelief);
+  const full = mapConfig(options.mapId, options.mapSize, options.oreAmount, options.terrainRelief, options.terrainLayout);
   const worldSize = full.cells * full.cellSize;
   const hf = generateHeightfield({
     ...full,

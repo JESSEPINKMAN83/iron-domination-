@@ -154,6 +154,7 @@ export class SelectionBar {
   }
 
   private render(groups: SelectionGroup[], selectedCount: number): void {
+    this.root.classList.remove('is-strategic');
     this.root.replaceChildren();
     this.root.style.left = '50%';
     this.root.style.transform = 'translateX(-50%)';
@@ -162,9 +163,10 @@ export class SelectionBar {
     this.root.style.gap = '8px';
 
     const header = document.createElement('div');
+    header.className = 'game-selection-header';
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;';
     const title = document.createElement('div');
-    title.textContent = 'SELECTED FORCE';
+    title.textContent = 'Selected force';
     title.style.cssText = 'font-size:12px;color:#d2b15f;letter-spacing:.08em;';
     const count = document.createElement('div');
     count.textContent = `${selectedCount} ${selectedCount === 1 ? 'ITEM' : 'ITEMS'}`;
@@ -172,6 +174,7 @@ export class SelectionBar {
     header.append(title, count);
 
     const grid = document.createElement('div');
+    grid.className = 'game-selection-grid';
     grid.style.cssText = 'display:flex;gap:8px;overflow-x:auto;padding-bottom:1px;';
     for (const group of groups) grid.appendChild(this.groupButton(group, selectedCount));
 
@@ -185,6 +188,7 @@ export class SelectionBar {
       const tacticBtn = document.createElement('button');
       tacticBtn.type = 'button';
       tacticBtn.textContent = 'Define Tactic';
+      tacticBtn.className = 'game-primary-action';
       tacticBtn.title = 'Plan a multi-point path for the selected units';
       tacticBtn.style.cssText =
         'padding:7px 12px;border:1px solid #d2b15f;border-radius:2px;cursor:pointer;' +
@@ -205,6 +209,7 @@ export class SelectionBar {
   }
 
   private renderStrategicSilo(group: SelectionGroup, silo: Entity): void {
+    this.root.classList.add('is-strategic');
     const controls = this.actions.strategic!;
     const economy = controls.economy;
     const enemyTeams = Array.from(new Set(
@@ -222,6 +227,7 @@ export class SelectionBar {
     this.root.style.width = 'min(1380px,calc(100vw - 220px))';
 
     const header = document.createElement('div');
+    header.className = 'game-selection-header';
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;';
     header.innerHTML = '<span style="font-size:12px;color:#d2b15f;letter-spacing:.08em">SELECTED FORCE</span><span style="font-size:10px;color:#93a29c;letter-spacing:.06em">MISSILE SILO CONTROL</span>';
 
@@ -468,6 +474,8 @@ export class SelectionBar {
   private groupButton(group: SelectionGroup, selectedCount: number): HTMLDivElement {
     const active = group.entities.length === selectedCount;
     const button = document.createElement('div');
+    button.className = 'game-unit-card';
+    button.setAttribute('aria-pressed', String(active));
     button.tabIndex = 0;
     button.setAttribute('role', 'button');
     button.title = `Select ${group.entities.length} ${group.label}`;
@@ -495,6 +503,7 @@ export class SelectionBar {
     button.oncontextmenu = (event) => event.preventDefault();
 
     const icon = document.createElement('div');
+    icon.className = 'game-thumbnail';
     icon.style.cssText =
       'position:relative;min-height:48px;border:1px solid #111;background:#111615;overflow:hidden;' +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),inset 0 -18px 18px rgba(0,0,0,.35);';
@@ -513,6 +522,7 @@ export class SelectionBar {
     if (group.unitKind) icon.appendChild(this.upgradeButton(group));
 
     const copy = document.createElement('div');
+    copy.className = 'game-unit-card__copy';
     copy.style.cssText = 'display:grid;gap:2px;min-width:0;';
     const name = document.createElement('div');
     name.style.cssText = 'font-size:11px;color:#f0f3e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;';
@@ -531,6 +541,7 @@ export class SelectionBar {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = '↑';
+    button.className = 'game-upgrade-trigger';
     button.title = `Upgrade ${group.label}`;
     button.setAttribute('aria-label', `Upgrade ${group.label}`);
     button.style.cssText =
@@ -581,6 +592,8 @@ export class SelectionBar {
       const affordable = this.actions.credits() >= totalCost;
       const row = document.createElement('button');
       row.type = 'button';
+      row.className = 'game-upgrade-option';
+      row.dataset.installed = String(missing === 0);
       row.disabled = missing === 0 || !affordable;
       row.style.cssText =
         'width:100%;display:grid;grid-template-columns:1fr auto;gap:7px 12px;text-align:left;padding:9px;border:1px solid #46514e;' +

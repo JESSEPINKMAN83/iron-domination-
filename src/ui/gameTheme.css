@@ -1,0 +1,227 @@
+/* In-match visual layer. Inline styles retain visibility, placement and live
+   state; only presentation is overridden here. No blur or animated filters. */
+:root {
+  --game-surface: #131a21;
+  --game-raised: #1c252f;
+  --game-deep: #0c1219;
+  --game-line: #2d3945;
+  --game-text: #edf2f7;
+  --game-muted: #9caeba;
+  --game-accent: #9de5c4;
+  --game-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.game-sidebar, .game-selection-bar, .game-menu-panel, [data-upgrade-popover],
+.game-mode-banner {
+  font-family: var(--game-font) !important;
+  color: var(--game-text) !important;
+  background: var(--game-surface) !important;
+  border: 1px solid var(--game-line) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 24px #0004 !important;
+  text-shadow: none !important;
+  letter-spacing: 0 !important;
+}
+.game-sidebar { padding: 10px !important; gap: 10px !important; }
+.game-sidebar button, .game-selection-bar button, .game-menu-panel button,
+[data-upgrade-popover] button, .game-chrome-controls button {
+  font-family: var(--game-font) !important;
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+}
+.game-sidebar button:focus-visible, .game-selection-bar [role='button']:focus-visible,
+.game-selection-bar button:focus-visible, [data-upgrade-popover] button:focus-visible,
+.game-menu-panel button:focus-visible, .game-chrome-controls button:focus-visible {
+  outline: 2px solid var(--game-accent) !important;
+  outline-offset: 3px;
+}
+.game-sidebar__radar-wrap {
+  padding: 0 !important;
+  background: var(--game-deep) !important;
+  border-width: 0 !important;
+  border-radius: 10px;
+  /* Keep the live under-attack border/shadow visible. */
+}
+.game-sidebar__radar-wrap { box-shadow: none; }
+.game-sidebar__radar { border-radius: 8px; }
+.game-sidebar__status {
+  min-height: 52px !important;
+  padding: 6px 12px !important;
+  background: var(--game-raised) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 9px;
+}
+.game-sidebar__credits { gap: 5px !important; }
+.game-sidebar__credits > span:first-child { color: var(--game-muted) !important; font: 500 14px var(--game-font) !important; }
+.game-sidebar__credits > span:last-child { font-family: var(--game-font) !important; font-weight: 650 !important; letter-spacing: -.6px !important; text-shadow: none !important; }
+.game-sidebar__power { border-left-color: var(--game-line) !important; }
+.game-sidebar__power > span { font-family: var(--game-font) !important; }
+.game-sidebar__power > span:last-child { font-size: 16px !important; }
+.game-sidebar__status-note { font: 500 10px var(--game-font) !important; color: var(--game-muted) !important; }
+.game-sidebar__tabs { gap: 2px !important; padding: 3px; border-radius: 9px; background: var(--game-deep); }
+.game-sidebar__tabs button {
+  height: 36px !important;
+  padding: 0 2px;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--game-muted) !important;
+  font-size: 8px !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+.game-sidebar__tabs button:hover { color: var(--game-text) !important; background: #222e38 !important; }
+.game-sidebar__tabs button[aria-pressed='true'] { background: #2a403c !important; color: #b6f2d6 !important; }
+.game-sidebar__tabs button[data-activity='true']::after { content: ''; display: inline-block; width: 4px; height: 4px; margin-left: 2px; border-radius: 50%; background: var(--game-accent); }
+.game-sidebar__body { gap: 8px !important; scrollbar-width: thin; scrollbar-color: #41515f transparent; }
+.game-economy-summary {
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--game-line) !important;
+  padding: 1px 2px 10px !important;
+  box-shadow: none !important;
+}
+.game-economy-summary > div:first-child { font-weight: 650; color: var(--game-muted) !important; font-size: 9px !important; letter-spacing: 1px; }
+.game-economy-summary [data-economy-status] { font-size: 9px !important; }
+.game-economy-summary [data-economy-detail] { font-size: 10px !important; color: #8e9eac !important; }
+.game-command-card {
+  min-width: 0;
+  height: 126px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  grid-template-rows: 66px minmax(0,1fr) !important;
+  border: 1px solid var(--game-line) !important;
+  border-radius: 10px !important;
+  background: var(--game-raised) !important;
+  color: var(--game-text) !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+.game-command-card:hover { border-color: #627886 !important; background: #25323c !important; }
+.game-command-card[aria-disabled='true'] { color: #9aa8b4 !important; background: #18212a !important; }
+.game-command-card[aria-disabled='true'] .game-thumbnail img { opacity: .48; }
+.game-command-card[data-ready='true'] { border-color: var(--game-accent) !important; }
+.game-command-card__copy { grid-template-columns: minmax(0,1fr) !important; gap: 2px !important; align-content: start; padding: 6px 7px 5px; }
+.game-command-card__copy > div:first-child { font-size: 11px !important; font-weight: 600; line-height: 1.2 !important; }
+.game-command-card__copy [data-meta-kind] { text-align: left !important; max-width: none !important; font-size: 10px !important; white-space: nowrap; }
+.game-command-card__copy > div:nth-child(3) { font-size: 8px !important; color: var(--game-muted) !important; }
+.game-command-card__copy > div:nth-child(4) { height: 5px !important; gap: 3px !important; }
+/* Reframe the existing model portraits: crop their baked borders/health bars.
+   A static luminosity blend gives all thumbnails one restrained studio palette. */
+.game-thumbnail {
+  min-height: 0 !important;
+  background: #33424d !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  isolation: isolate;
+  filter: none !important;
+}
+.game-thumbnail > img {
+  position: absolute !important;
+  left: -5% !important;
+  top: -14% !important;
+  width: 110% !important;
+  height: 126% !important;
+  object-fit: cover !important;
+  object-position: center 58%;
+  mix-blend-mode: luminosity;
+}
+.game-thumbnail > div:first-child:not([data-progress-kind]) { background: #33424d !important; }
+.game-thumbnail [data-progress-kind] { top: auto !important; bottom: 0; height: 3px !important; box-shadow: none !important; background: linear-gradient(90deg,var(--game-accent) 0 var(--progress),#0b141a var(--progress) 100%) !important; }
+.game-thumbnail [data-badge-kind] { border: 0 !important; border-radius: 4px; padding: 3px 5px !important; font-family: var(--game-font) !important; }
+.game-selection-bar { padding: 12px !important; box-sizing: border-box; }
+.game-selection-header > :first-child { font-family: var(--game-font) !important; color: var(--game-text) !important; font-size: 12px !important; font-weight: 650; letter-spacing: 0 !important; }
+.game-selection-header > :last-child { color: var(--game-muted) !important; font-size: 10px !important; }
+.game-selection-grid { scrollbar-width: thin; scrollbar-color: #41515f transparent; }
+.game-unit-card {
+  border: 1px solid var(--game-line) !important;
+  border-radius: 9px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  grid-template-rows: 62px auto !important;
+  min-height: 104px !important;
+  background: var(--game-raised) !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+.game-unit-card[aria-pressed='true'] { border-color: #76bfab !important; background: #22352f !important; }
+.game-unit-card:hover { border-color: #8aa6b5 !important; }
+.game-unit-card__copy { padding: 7px 8px; gap: 4px !important; }
+.game-unit-card__copy > div:first-child { font-weight: 600; }
+.game-unit-card__copy > div:last-child { font-size: 9px !important; color: var(--game-muted) !important; }
+.game-upgrade-trigger {
+  border: 1px solid #5a7c73 !important;
+  background: #132821 !important;
+  color: #c2f4df !important;
+  border-radius: 6px;
+  box-shadow: none !important;
+}
+.game-primary-action { border: 1px solid #a5e7cd !important; border-radius: 7px !important; background: var(--game-accent) !important; color: #12251e !important; font: 650 12px var(--game-font) !important; text-transform: none !important; box-shadow: none !important; }
+.game-primary-action:hover { background: #b9f4d9 !important; }
+[data-upgrade-popover] { padding: 14px !important; box-sizing: border-box; }
+[data-upgrade-popover] > div:first-child { color: var(--game-text) !important; flex-wrap: wrap; font-weight: 600; }
+[data-upgrade-popover] > div:first-child > span:last-child { font-size: 10px; font-weight: 400; }
+.game-upgrade-option { background: var(--game-raised) !important; border: 1px solid var(--game-line) !important; border-radius: 8px; padding: 12px !important; }
+.game-upgrade-option:not(:disabled):hover { border-color: #87bcaa !important; }
+.game-upgrade-option[data-installed='true'] { background: #19352c !important; }
+[data-upgrade-popover] > button:last-child { border: 0 !important; background: #25323c !important; border-radius: 6px; padding: 6px 12px !important; }
+.game-chrome-controls button { height: 36px !important; border: 1px solid var(--game-line) !important; border-radius: 9px !important; background: var(--game-surface) !important; color: var(--game-text) !important; font-weight: 600 !important; box-shadow: 0 3px 12px #0002; }
+.game-chrome-controls__menu::before { content: ''; display: inline-block; width: 11px; height: 8px; margin-right: 8px; border-block: 1px solid var(--game-accent); background: linear-gradient(var(--game-accent),var(--game-accent)) center / 100% 1px no-repeat; }
+.game-menu-overlay { background: #060a10b3 !important; }
+.game-menu-panel { width: min(420px,calc(100vw - 32px)) !important; padding: 24px !important; box-sizing: border-box; max-height: calc(100dvh - 30px); overflow: auto; gap: 8px !important; }
+.game-menu-title { font-size: 24px !important; font-weight: 650; color: var(--game-text) !important; letter-spacing: -.5px; margin-bottom: 4px !important; }
+.game-menu-panel button { border: 1px solid var(--game-line) !important; border-radius: 7px !important; background: var(--game-raised); background-image: none !important; color: var(--game-text); min-height: 34px; font-size: 11px !important; box-shadow: none !important; }
+.game-menu-panel button:hover { border-color: #769385 !important; }
+.game-menu-panel > button { background: var(--game-raised); }
+.game-menu-panel > button.game-primary-action { min-height: 40px; }
+.game-menu-details { border: 0 !important; border-radius: 9px; padding: 12px !important; background: var(--game-deep) !important; gap: 10px !important; line-height: 1.5 !important; }
+.game-menu-details span { color: var(--game-muted) !important; font-size: 9px; }
+.game-tactical-callout, .game-network-status { border-radius: 9px !important; background: var(--game-surface) !important; font-family: var(--game-font) !important; box-shadow: 0 5px 18px #0003 !important; }
+/* Tactical planning is the same map and controls in the new visual language. */
+.iron-tactic__overlay { font-family: var(--game-font) !important; backdrop-filter: none !important; background: #060a10b3 !important; }
+.iron-tactic__dialog { background: var(--game-surface) !important; border: 1px solid var(--game-line) !important; border-radius: 16px !important; box-shadow: 0 16px 50px #0005 !important; padding: 22px !important; }
+.iron-tactic__header h2 { font-size: 24px !important; letter-spacing: -.5px !important; text-transform: none !important; }
+.iron-tactic__header p, .iron-tactic__section-title { color: var(--game-accent) !important; letter-spacing: 1px !important; }
+.iron-tactic__map-wrap { border-color: var(--game-line) !important; border-radius: 10px; }
+.iron-tactic__unit, .iron-tactic__speed-option { background: var(--game-raised) !important; border-color: var(--game-line) !important; border-radius: 8px !important; }
+.iron-tactic__dialog input { accent-color: var(--game-accent) !important; }
+.iron-tactic__dialog button { font-family: var(--game-font) !important; border-radius: 7px !important; letter-spacing: 0 !important; box-shadow: none !important; }
+.iron-tactic__end-actions button, .iron-tactic__path-actions button, .iron-tactic__cancel { background: var(--game-raised) !important; border-color: var(--game-line) !important; }
+.iron-tactic__end-actions button.is-active { background: #264339 !important; border-color: #82c7ae !important; color: #bff4df !important; }
+.iron-tactic__execute { background: var(--game-accent) !important; color: #14271f !important; border: 0 !important; }
+@media (min-width: 900px) {
+  html:not(.mobile-touch-device) .game-sidebar { max-height: calc(100dvh - 24px) !important; }
+  html:not(.mobile-touch-device) .game-selection-bar:not(.is-strategic) { left: calc((100% - 342px) / 2) !important; width: min(720px,calc(100vw - 382px)) !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-mode-banner, .game-tactical-callout, .game-thumbnail [data-progress-kind] { transition: none !important; }
+}
+
+.game-selection-header > :last-child { padding: 3px 7px; border-radius: 5px; background: var(--game-raised); }
+.game-sidebar__body { min-height: 0; }
+.game-sidebar__body > div:not(.game-economy-summary) { border-radius: 8px; box-shadow: none !important; }
+.game-sidebar__body > div:not(.game-economy-summary) button { border-radius: 6px !important; background-image: none !important; box-shadow: none !important; }
+.game-promotion-toast { background: var(--game-surface) !important; border: 1px solid #456958 !important; color: var(--game-accent) !important; border-radius: 9px; font: 600 12px var(--game-font) !important; box-shadow: 0 4px 14px #0003 !important; letter-spacing: .02em !important; }
+.game-world-upgrades [data-world-upgrade-id] { background: #152721 !important; box-shadow: 0 2px 5px #0003 !important; }
+.iron-tactic__units { background: var(--game-deep) !important; border-color: var(--game-line) !important; border-radius: 9px; }
+.game-menu-panel button[style*="outline"] { outline-color: var(--game-accent) !important; }
+
+@media (min-width: 761px) and (min-height: 600px) {
+  .iron-tactic__dialog { max-height: calc(100dvh - 36px) !important; }
+  .iron-tactic__map-wrap { width: min(100%,calc(100dvh - 260px)); margin-inline: auto; }
+  .iron-tactic__side { max-height: calc(100dvh - 210px); grid-template-rows: auto minmax(70px,1fr) repeat(5,auto); }
+}
+
+.iron-tactic-feedback { background: var(--game-surface) !important; border: 1px solid var(--game-line) !important; border-radius: 12px !important; font-family: var(--game-font) !important; box-shadow: 0 8px 24px #0004 !important; }
+.iron-tactic-feedback__label { color: var(--game-text) !important; letter-spacing: 0 !important; }
+.iron-tactic-feedback__actions button { background: var(--game-raised) !important; border-color: var(--game-line) !important; border-radius: 6px !important; font-family: var(--game-font) !important; }
+.iron-tactic-feedback__actions button[data-answer='yes'] { background: var(--game-accent) !important; color: #12251e !important; }
+.game-mode-banner > div { font-family: var(--game-font); letter-spacing: .02em !important; }
+.game-mode-banner > div:first-child { color: var(--game-accent) !important; }
+/* These widgets also exist on setup; apply their new skin only during a match. */
+.in-match .iron-feedback__trigger { background: var(--game-surface); border-color: var(--game-line); border-radius: 8px; color: var(--game-muted); font-family: var(--game-font); letter-spacing: .02em; box-shadow: none; }
+.in-match .iron-howto__overlay, .in-match .iron-feedback__overlay { backdrop-filter: none; background: #060a10b3; }
+.in-match .iron-howto__dialog, .in-match .iron-feedback__dialog { background: var(--game-surface); color: var(--game-text); border: 1px solid var(--game-line); border-radius: 16px; clip-path: none; box-shadow: 0 12px 36px #0004; }
+.in-match .iron-howto__header h2, .in-match .iron-feedback__header h2 { font-family: var(--game-font); text-transform: none; letter-spacing: -.5px; font-weight: 650; }
+.in-match .iron-howto__header p, .in-match .iron-feedback__header p { color: var(--game-accent); }
+.in-match .iron-feedback__submit { background: var(--game-accent); border-color: var(--game-accent); border-radius: 7px; font-family: var(--game-font); color: #12251e; }

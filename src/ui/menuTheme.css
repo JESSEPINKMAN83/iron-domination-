@@ -1,0 +1,92 @@
+/* Shared visual language for setup and room preparation. Existing
+   responsive grids, interactions, validation and disabled states stay intact. */
+.war-setup, .war-lobby {
+  font-family: var(--game-font) !important;
+  color: var(--game-text);
+  color-scheme: dark;
+}
+.war-setup, .war-lobby {
+  --war-bg: var(--game-deep);
+  --war-panel: var(--game-surface);
+  --war-panel-raised: var(--game-raised);
+  --war-line: var(--game-line);
+  --war-line-strong: #43525f;
+  --war-gold: var(--game-accent);
+  --war-gold-bright: #c2f4dd;
+  --war-text: var(--game-text);
+  --war-muted: var(--game-muted);
+  --war-dim: #8b9ba8;
+}
+.war-setup { background: var(--game-deep) !important; backdrop-filter: none; }
+.war-setup__shell { background: var(--game-surface); border-color: var(--game-line); border-radius: 16px; box-shadow: 0 12px 36px #0003; overflow: hidden; }
+.war-setup__header { padding: 22px 28px 20px; }
+.war-setup__title, .war-section h2, .war-aside h2, .war-operation h2, .war-operation h3, .war-lobby__title { font-family: var(--game-font); font-weight: 650; line-height: 1.15; letter-spacing: -.03em; text-transform: none; }
+.war-setup__title { font-size: clamp(26px,3vw,36px); }
+.war-section h2, .war-operation h2, .war-aside h2 { font-size: 21px !important; }
+.war-setup__eyebrow, .war-aside__kicker, .war-config__mode-note, .war-multiplayer__step { font-family: var(--game-font); letter-spacing: .1em; }
+.war-setup__signal { color: var(--game-accent); }
+.war-setup__signal::before { box-shadow: none; }
+.war-setup__badge { border: 1px solid var(--game-line); background: var(--game-raised); border-radius: 10px; min-width: auto; padding: 10px 14px; }
+.war-setup__badge strong { font-weight: 600; letter-spacing: .04em; }
+.war-tabs { background: var(--game-deep); padding: 6px; gap: 6px; }
+.war-tab { min-height: 54px; padding: 9px 16px; border: 0; border-radius: 9px; }
+.war-tab span { font: 650 13px/1.3 var(--game-font) !important; letter-spacing: 0 !important; }
+.war-tab small { font-family: var(--game-font); color: var(--game-muted); font-size: 10px; letter-spacing: 0; }
+.war-tab::after { content: none; }
+.war-tab.is-active, .war-tab[aria-selected='true'] { background: #243c33; color: #c2f4dd; }
+.war-tab:hover { background: var(--game-raised); }
+.war-config, .war-operation__config { scrollbar-width: thin; scrollbar-color: #43525f transparent; }
+.war-context, .war-aside, .war-operation { background: transparent; }
+.war-section__index { background: var(--game-raised); border-color: var(--game-line); border-radius: 6px; color: var(--game-accent); font-family: var(--game-font); }
+.war-field__label, .war-input, .war-field__info, .war-layout-control, .war-armies__label, .war-armies__table-head, .war-army-row__label { font-family: var(--game-font) !important; }
+.war-choice { height: 34px; border-color: var(--game-line); border-radius: 7px; background: var(--game-raised); color: #b8c6d0; font-family: var(--game-font); font-size: 9px; font-weight: 600; letter-spacing: 0; }
+.war-choice.is-active { color: #c2f4dd; background: #28463b; border-color: #659b83; box-shadow: none; }
+.war-choice:hover:not(:disabled) { background: #273640; border-color: #69877a; transform: none; }
+.war-button { border-radius: 8px; border-color: var(--game-line); background: var(--game-raised); color: var(--game-text); font-family: var(--game-font); font-weight: 600; letter-spacing: .02em; }
+.war-button--primary, .war-button.is-intent-highlight { background: var(--game-accent); border-color: var(--game-accent); color: #12251e; box-shadow: none; animation: none; }
+.war-button--secondary { color: #b6e6d0; border-color: #486a5c; }
+.war-button:hover:not(:disabled) { filter: none; transform: none; border-color: var(--game-accent); }
+.war-button--primary:hover:not(:disabled) { background: #baf5da; }
+.war-button:focus-visible, .war-choice:focus-visible, .war-tab:focus-visible { outline-color: var(--game-accent); }
+.war-input input, .war-input select, .war-layout-control select, .war-army-row__select, .war-lobby input:not([type='range']), .war-lobby select { background: var(--game-deep); color: var(--game-text); border-color: var(--game-line); border-radius: 7px; font-family: var(--game-font); }
+.war-input input:focus, .war-input select:focus { border-color: var(--game-accent); box-shadow: 0 0 0 2px #9de5c41a; }
+.war-ore-control { background: var(--game-raised); border-color: var(--game-line); border-radius: 8px; }
+.war-ore-control input[type='range'], .war-lobby__ore-controls input[type='range'] { accent-color: var(--game-accent); }
+.war-layout-control { padding: 8px 0; color: var(--game-muted); }
+.war-army-row { background: var(--game-raised); border-color: var(--game-line); border-radius: 9px; }
+.war-armies__matchup { background: #1e302b; border: 1px solid #395a4d; border-radius: 8px; color: #b2dcca; font-family: var(--game-font); }
+.war-mode-card { background: var(--game-raised); border-radius: 12px; border-color: var(--game-line); }
+.war-mode-card--primary { background: #1b2c26; border-color: #456454; }
+.war-context .war-action-bar { background: var(--game-surface); border-radius: 0; }
+.war-map-preview, .war-lobby__map { border-color: #40544d; border-radius: 12px; box-shadow: none; }
+.war-setup .tactical-map::before, .war-lobby .tactical-map::before { background: none; box-shadow: none; }
+.war-setup .tactical-map::after, .war-lobby .tactical-map::after { content: none; }
+.tactical-map__heading, .tactical-map__telemetry, .tactical-map__legend { border: 1px solid var(--game-line); border-radius: 7px; background: #121c24eb; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.tactical-map__heading strong, .tactical-map__telemetry b { font-family: var(--game-font); color: var(--game-text); letter-spacing: 0; }
+.tactical-map__heading span, .tactical-map__telemetry small, .tactical-map__legend { font-family: var(--game-font); }
+.tactical-map__deployment { border-radius: 9px; box-shadow: 0 2px 8px #0003; backdrop-filter: none; -webkit-backdrop-filter: none; background: #15212aed; }
+.tactical-map__deployment.is-local { outline-color: var(--game-accent); }
+.tactical-map__deployment strong, .tactical-map__deployment small { font-family: var(--game-font); letter-spacing: 0; }
+.tactical-map__deployment > i { box-shadow: none; font-family: var(--game-font); }
+.war-lobby__panel, .war-lobby__player, .war-lobby__room-setting, .war-lobby__status { border-radius: 9px; box-shadow: none; }
+.war-lobby__army-choice { background: var(--game-raised); border-color: var(--game-line); font-family: var(--game-font); border-radius: 5px; }
+.war-lobby__army-choice.is-active, .war-lobby__cta.is-confirmed { background: #28463b; color: #c2f4dd; border-color: #659b83; }
+@media (max-width: 700px) {
+  .war-setup__shell { border-radius: 0; }
+  .war-setup__header { padding: 14px; }
+  .war-setup__title { font-size: 26px; }
+  .war-section h2 { font-size: 19px !important; }
+  .war-choice { height: 34px; }
+  .war-mobile-step.is-active { color: var(--game-accent); border-color: var(--game-accent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .war-setup * { animation: none !important; transition: none !important; }
+}
+/* The configuration is the first child; it must shrink and scroll so the
+   launch actions remain visible beneath it on short desktop windows. */
+.war-context .war-operation__entry > .war-operation__config { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.war-settings-grid .war-choice { font-size: 8px; padding-inline: 3px; }
+.war-lobby__setting-choices button { border-radius: 5px; background: var(--game-raised); border-color: var(--game-line); font-family: var(--game-font); }
+.war-lobby__setting-choices button.is-active { background: #28463b; color: #c2f4dd; border-color: #659b83; }
+.war-tab.is-active:hover, .war-tab[aria-selected='true']:hover { background: #243c33; color: #c2f4dd; }
+.war-choice.is-active:hover:not(:disabled) { background: #28463b; border-color: #83b89e; color: #c2f4dd; }

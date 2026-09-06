@@ -383,8 +383,8 @@ export class Sidebar {
     const decay = Math.max(0, 1 - Math.max(dt, 0) / PULSE_SECONDS);
     this.creditsPulse = this.creditsPulse <= 0.02 ? 0 : this.creditsPulse * decay;
     this.powerPulse = this.powerPulse <= 0.02 ? 0 : this.powerPulse * decay;
-    applyPulse(this.creditsValue, this.creditsPulse, this.creditsPulseSign, '#f4dc9a', CREDITS_GLOW);
-    applyPulse(this.powerValue, this.powerPulse, this.powerPulseSign, power < 0 ? '#ff7666' : '#d2b15f', 'none');
+    applyPulse(this.creditsValue, this.creditsPulse, this.creditsPulseSign, '#eff5f8', CREDITS_GLOW);
+    applyPulse(this.powerValue, this.powerPulse, this.powerPulseSign, power < 0 ? '#ff7666' : '#8fe1bc', 'none');
   }
 
   setVisible(visible: boolean): void {
@@ -502,6 +502,8 @@ export class Sidebar {
     for (const tab of ['buildings', 'defense', 'infantry', 'vehicles', 'aircraft'] as const) {
       const button = document.createElement('button');
       button.textContent = TAB_LABELS[tab];
+      button.setAttribute('aria-pressed', String(tab === this.activeTab));
+      button.dataset.activity = String(this.tabHasActivity(tab));
       button.style.cssText = buttonCss(tab === this.activeTab, this.tabHasActivity(tab));
       button.onclick = () => {
         this.activeTab = tab;
@@ -792,7 +794,9 @@ export class Sidebar {
     cancel: () => void,
   ): HTMLButtonElement {
     const button = document.createElement('button');
+    button.className = 'game-command-card';
     button.dataset.commandKind = kind;
+    button.dataset.ready = String(!!state.ready);
     button.dataset.commandType = eyebrow;
     button.title = state.enabled ? `${label} $${cost}` : state.reason;
     button.setAttribute('aria-label', state.enabled ? `${label} $${cost}` : `${label} ${state.reason}`);
@@ -818,6 +822,7 @@ export class Sidebar {
     };
 
     const icon = document.createElement('div');
+    icon.className = 'game-thumbnail';
     icon.style.cssText = commandIconCss(state.enabled || !!state.active || !!state.ready);
     const progress = document.createElement('div');
     progress.dataset.progressKind = kind;
@@ -840,6 +845,7 @@ export class Sidebar {
     icon.appendChild(countBadge);
 
     const content = document.createElement('div');
+    content.className = 'game-command-card__copy';
     content.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:3px 4px;align-items:end;min-width:0;';
     const name = document.createElement('div');
     name.style.cssText = 'font-size:10px;color:inherit;white-space:nowrap;line-height:1.1;overflow:hidden;text-overflow:ellipsis;';
@@ -912,6 +918,7 @@ export class Sidebar {
       'grid-column:1/-1;display:grid;grid-template-columns:46px 1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #4b5552;' +
       'background:linear-gradient(180deg,#202929,#111615);box-shadow:inset 0 0 14px rgba(0,0,0,.45);';
     const icon = document.createElement('div');
+    icon.className = 'game-thumbnail';
     icon.style.cssText = commandIconCss(true) + 'min-height:42px;';
     const img = document.createElement('img');
     img.src = commandIconPath(entity.building?.kind ?? 'command-yard');
@@ -1008,6 +1015,7 @@ export class Sidebar {
             : `${active} COLLECTING · ${returning} RETURNING`;
 
     const el = document.createElement('div');
+    el.className = 'game-economy-summary';
     el.style.cssText =
       'grid-column:1/-1;display:grid;grid-template-columns:1fr auto;gap:4px 8px;padding:7px 8px;border:1px solid #2f3735;' +
       'background:#101514;color:#aebbc4;box-shadow:inset 0 0 10px rgba(0,0,0,.35);';
@@ -1181,6 +1189,7 @@ export class Sidebar {
           ? this.unitCardState(kind as UnitKind, selectedProducer)
           : undefined;
       if (!state) continue;
+      button.dataset.ready = String(!!state.ready);
       const progress = button.querySelector<HTMLElement>('[data-progress-kind]');
       if (progress) progress.style.cssText = progressBarCss(state.progress, !!state.active && !state.ready);
       const badgeEl = button.querySelector<HTMLElement>('[data-badge-kind]');
@@ -1440,7 +1449,7 @@ export class Sidebar {
       this.radarCtx.stroke();
     }
     this.drawRadarOrientation();
-    this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
+    this.radarCtx.strokeStyle = 'rgba(154,176,192,.18)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
   }
 
@@ -1700,7 +1709,7 @@ function compactCredits(credits: number): string {
 
 /** Credit swings smaller than this roll silently — only real purchases and deliveries flash. */
 const CREDIT_PULSE_MIN = 8;
-const CREDITS_GLOW = '0 0 10px rgba(210,177,95,.28)';
+const CREDITS_GLOW = 'none';
 const PULSE_SECONDS = 0.42;
 const GAIN_TINT: [number, number, number] = [141, 226, 149];
 const SPEND_TINT: [number, number, number] = [255, 148, 108];

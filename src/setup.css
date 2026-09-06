@@ -536,7 +536,7 @@
   overflow: hidden;
 }
 .war-context .war-operation__entry { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; gap: 8px; }
-.war-context .war-operation__entry > div:first-child,
+.war-context .war-operation__entry > div:first-child:not(.war-operation__config),
 .war-context .war-operation__entry > h2,
 .war-context .war-operation__entry > p { flex: 0 0 auto; }
 .war-context .war-operation__entry > h2 { font-size: 24px; }
@@ -883,3 +883,8 @@
   font: 700 9px/1 ui-monospace, Menlo, monospace;
 }
 .war-lobby__player.is-ai .war-lobby__avatar { opacity: .6; }
+
+.war-layout-control { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:8px 10px; color:#a7b4af; font:700 10px ui-monospace,monospace; }
+.war-layout-control select, .war-lobby__room-setting select[aria-label="Terrain layout"] { padding:8px 12px; border:1px solid #57635e; background:#17201d; color:#f2eee0; font:inherit; }
+.war-layout-control small { color:#9caaa3; font-size:10px; font-weight:400; }
+.tactical-map__legend { flex-wrap:wrap; max-width:calc(100% - 24px); }

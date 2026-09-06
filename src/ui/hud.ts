@@ -133,6 +133,7 @@ export class Hud {
     container.appendChild(this.weaponFrame);
 
     this.multiplayer = document.createElement('div');
+    this.multiplayer.className = 'game-network-status';
     this.multiplayer.style.cssText =
       'position:fixed;left:50%;top:62px;transform:translateX(-50%);z-index:14;display:none;pointer-events:none;' +
       'min-width:300px;max-width:min(520px,calc(100vw - 32px));padding:8px 14px;text-align:center;' +
@@ -144,6 +145,7 @@ export class Hud {
     container.appendChild(this.multiplayer);
 
     this.tacticalCallout = document.createElement('div');
+    this.tacticalCallout.className = 'game-tactical-callout';
     this.tacticalCallout.style.cssText =
       'position:fixed;left:50%;top:76px;transform:translate(-50%,-16px);opacity:0;pointer-events:none;z-index:16;' +
       'min-width:220px;padding:9px 13px;border:1px solid rgba(240,213,106,.72);background:rgba(11,17,17,.9);' +

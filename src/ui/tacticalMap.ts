@@ -1,3 +1,4 @@
+import { oreFieldCapacity, type TerrainLayout } from '../sim/heightfield';
 import {
   DEFAULT_ORE_AMOUNT,
   MAP_PRESETS,
@@ -34,6 +35,7 @@ export type TacticalMapOptions = {
   seed: number;
   oreAmount?: number;
   terrainRelief?: number;
+  terrainLayout?: TerrainLayout;
   deployments?: TacticalMapDeployment[];
   /** Enables dragging deployment markers to reposition starting bases. */
   onDeploymentMove?: (army: number, point: SpawnPoint) => void;
@@ -137,6 +139,7 @@ export function renderTacticalMap(root: HTMLDivElement, options: TacticalMapOpti
     options.seed,
     options.oreAmount ?? DEFAULT_ORE_AMOUNT,
     options.terrainRelief,
+    options.terrainLayout,
   );
 
   root.replaceChildren();
@@ -191,7 +194,10 @@ export function renderTacticalMap(root: HTMLDivElement, options: TacticalMapOpti
 
   const legend = document.createElement('div');
   legend.className = 'tactical-map__legend';
-  legend.innerHTML = '<span><i data-kind="water"></i>WATER</span><span><i data-kind="ridge"></i>RIDGE</span><span><i data-kind="ore"></i>OIL</span>';
+  legend.innerHTML = '<span><i data-kind="water"></i>WATER</span><span><i data-kind="ridge"></i>RIDGE</span><span><i data-kind="ore"></i>DEPOSITS</span>';
+  const resources = document.createElement('span');
+  resources.textContent = `${raster.oreFields.length} fields · ${Math.round(raster.oreFields.reduce((sum, field) => sum + oreFieldCapacity(field), 0)).toLocaleString()} resources`;
+  legend.appendChild(resources);
 
   const deployments = options.deployments ?? [];
   const markers = document.createElement('div');
@@ -353,8 +359,9 @@ export function createTacticalMapRaster(
   resolution = RASTER_SIZE,
   oreAmount = DEFAULT_ORE_AMOUNT,
   terrainRelief?: number,
+  terrainLayout: TerrainLayout = 'classic',
 ): TacticalMapRaster {
-  const config = { ...mapConfig(mapId, mapSize, oreAmount, terrainRelief), seed: Math.max(1, Math.floor(seed) || 1) };
+  const config = { ...mapConfig(mapId, mapSize, oreAmount, terrainRelief, terrainLayout), seed: Math.max(1, Math.floor(seed) || 1) };
   const hf = generateHeightfield(config);
   const width = Math.max(32, Math.floor(resolution));
   const pixels = new Uint8ClampedArray(width * width * 4);
@@ -556,15 +563,16 @@ export function tacticalMapRaster(options: TacticalMapOptions): TacticalMapRaste
     options.seed,
     options.oreAmount ?? DEFAULT_ORE_AMOUNT,
     options.terrainRelief,
+    options.terrainLayout,
   );
 }
 
-function cachedRaster(mapId: MapId, mapSize: MapSize, seed: number, oreAmount: number, terrainRelief?: number): TacticalMapRaster {
+function cachedRaster(mapId: MapId, mapSize: MapSize, seed: number, oreAmount: number, terrainRelief?: number, terrainLayout: TerrainLayout = 'classic'): TacticalMapRaster {
   const safeSeed = Math.max(1, Math.floor(seed) || 1);
-  const key = `${mapId}:${mapSize}:${safeSeed}:${oreAmount}:${terrainRelief ?? 'default'}`;
+  const key = `${mapId}:${mapSize}:${safeSeed}:${oreAmount}:${terrainRelief ?? 'default'}:${terrainLayout}`;
   const cached = rasterCache.get(key);
   if (cached) return cached;
-  const raster = createTacticalMapRaster(mapId, mapSize, safeSeed, RASTER_SIZE, oreAmount, terrainRelief);
+  const raster = createTacticalMapRaster(mapId, mapSize, safeSeed, RASTER_SIZE, oreAmount, terrainRelief, terrainLayout);
   rasterCache.set(key, raster);
   if (rasterCache.size > MAX_CACHE_ENTRIES) {
     const oldest = rasterCache.keys().next().value;
@@ -574,8 +582,7 @@ function cachedRaster(mapId: MapId, mapSize: MapSize, seed: number, oreAmount: n
 }
 
 /**
- * Ore fields read as surveyed deposits: a speckled patch of grains inside a
- * dashed claim ring, rather than a glowing blob.
+ * Ore fields appear as irregular mineral patches with muted stone flecks.
  */
 function drawOreFields(context: CanvasRenderingContext2D, raster: TacticalMapRaster): void {
   const scale = raster.width / raster.worldSize;
@@ -588,38 +595,31 @@ function drawOreFields(context: CanvasRenderingContext2D, raster: TacticalMapRas
     const radius = Math.max(7 * unit, field.radius * scale);
     const random = seededRandom(Math.round(field.x * 73 + field.z * 31 + field.radius * 17));
 
-    // Soft ground stain so the patch separates from the terrain beneath it.
-    const stain = context.createRadialGradient(x, y, radius * 0.15, x, y, radius);
-    stain.addColorStop(0, 'rgba(214,161,44,.42)');
-    stain.addColorStop(0.6, 'rgba(198,146,38,.2)');
-    stain.addColorStop(1, 'rgba(190,140,36,0)');
-    context.fillStyle = stain;
+    // Irregular stone outcrops match the battlefield deposits, without glow rings.
+    const points = Array.from({ length: 10 }, (_, i) => {
+      const angle = i / 10 * Math.PI * 2;
+      const extent = radius * (0.65 + random() * 0.35);
+      return { x: x + Math.cos(angle) * extent, y: y + Math.sin(angle) * extent };
+    });
+    context.fillStyle = 'rgba(101,88,65,.55)';
     context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
+    points.forEach((point, i) => i ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
+    context.closePath();
     context.fill();
-
-    // Ore grains, denser toward the centre of the deposit.
-    const grains = Math.round(clamp(radius * 0.9, 14, 60));
-    for (let index = 0; index < grains; index++) {
+    for (let i = 0; i < 18; i++) {
       const angle = random() * Math.PI * 2;
-      const distance = Math.sqrt(random()) * radius * 0.86;
-      const gx = x + Math.cos(angle) * distance;
-      const gy = y + Math.sin(angle) * distance;
-      const falloff = 1 - distance / (radius * 0.86);
-      context.fillStyle = `rgba(255,214,96,${(0.3 + falloff * 0.55).toFixed(3)})`;
+      const distance = Math.sqrt(random()) * radius * 0.7;
+      const gx = x + Math.cos(angle) * distance, gy = y + Math.sin(angle) * distance;
+      const size = unit * (1 + random() * 1.6);
+      context.fillStyle = i % 4 === 0 ? '#ba9654' : i % 2 === 0 ? '#b0a894' : '#7e8277';
       context.beginPath();
-      context.arc(gx, gy, unit * (0.6 + random() * 0.9), 0, Math.PI * 2);
+      context.moveTo(gx - size, gy);
+      context.lineTo(gx, gy - size * 0.7);
+      context.lineTo(gx + size, gy + size * 0.3);
+      context.lineTo(gx, gy + size * 0.8);
+      context.closePath();
       context.fill();
     }
-
-    // Dashed claim ring marking the surveyed extent.
-    context.strokeStyle = 'rgba(255,216,104,.62)';
-    context.lineWidth = Math.max(1, unit * 0.9);
-    context.setLineDash([unit * 3, unit * 3]);
-    context.beginPath();
-    context.arc(x, y, radius * 0.88, 0, Math.PI * 2);
-    context.stroke();
-    context.setLineDash([]);
   }
   context.restore();
 }
