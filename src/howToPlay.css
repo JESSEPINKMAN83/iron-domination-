@@ -12,10 +12,10 @@
   bottom: 16px;
   min-height: 34px;
   padding: 0 14px;
-  border: 1px solid rgba(225, 189, 97, .62);
+  border: 1px solid rgba(157, 229, 196, .62);
   border-radius: 5px;
   background: rgba(8, 11, 12, .82);
-  color: #f5e5ad;
+  color: #b6efd5;
   cursor: pointer;
   pointer-events: auto;
   font: 700 11px/1 'Arial Narrow', Arial, sans-serif;
@@ -27,7 +27,7 @@
 
 .iron-howto__trigger:hover,
 .iron-howto__trigger:focus-visible {
-  border-color: #f0d56a;
+  border-color: #9de5c4;
   background: rgba(25, 28, 27, .94);
   outline: none;
 }
@@ -53,9 +53,9 @@
   max-height: min(900px, calc(100vh - 44px));
   overflow: auto;
   box-sizing: border-box;
-  border: 1px solid rgba(224, 185, 84, .56);
+  border: 1px solid rgba(157, 229, 196, .56);
   background:
-    linear-gradient(135deg, rgba(240, 213, 106, .045) 0 1px, transparent 1px 18px),
+    linear-gradient(135deg, rgba(157, 229, 196, .045) 0 1px, transparent 1px 18px),
     linear-gradient(180deg, rgba(21, 28, 28, .985), rgba(6, 9, 10, .99));
   background-size: 18px 18px, auto;
   color: #eef0e9;
@@ -74,17 +74,17 @@
   justify-content: space-between;
   gap: 24px;
   padding: 22px 26px 18px;
-  border-bottom: 1px solid rgba(224, 185, 84, .22);
+  border-bottom: 1px solid rgba(157, 229, 196, .22);
   background: linear-gradient(180deg, rgba(19, 25, 25, .99), rgba(13, 18, 18, .97));
 }
 
 .iron-howto__header p,
 .iron-howto__header h2 { margin: 0; }
-.iron-howto__header p { color: #d5ae4f; font-size: 11px; font-weight: 800; letter-spacing: .22em; }
+.iron-howto__header p { color: #9de5c4; font-size: 11px; font-weight: 800; letter-spacing: .22em; }
 .iron-howto__header h2 { margin-top: 4px; font: 500 38px/1 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 .iron-howto__close { border: 0; background: transparent; color: #c8cec9; cursor: pointer; font: 300 34px/1 system-ui, sans-serif; }
-.iron-howto__close:hover { color: #f0d56a; }
-.iron-howto__close:focus-visible { outline: 2px solid #f0d56a; outline-offset: 4px; }
+.iron-howto__close:hover { color: #b6efd5; }
+.iron-howto__close:focus-visible { outline: 2px solid #9de5c4; outline-offset: 4px; }
 
 .iron-howto__intro-grid,
 .iron-howto__section,
@@ -109,11 +109,11 @@
   position: relative;
   padding: 22px 24px 21px 28px;
   overflow: hidden;
-  border: 1px solid rgba(240, 213, 106, .72);
+  border: 1px solid rgba(157, 229, 196, .72);
   background:
-    linear-gradient(90deg, rgba(224, 174, 49, .18), rgba(224, 174, 49, .04) 66%, transparent),
+    linear-gradient(90deg, rgba(93, 176, 142, .18), rgba(93, 176, 142, .04) 66%, transparent),
     rgba(8, 11, 10, .9);
-  box-shadow: inset 4px 0 0 #e3bd58, 0 8px 28px rgba(0, 0, 0, .28);
+  box-shadow: inset 4px 0 0 #78b99e, 0 8px 28px rgba(0, 0, 0, .28);
 }
 
 .iron-howto__objective::after {
@@ -122,22 +122,22 @@
   right: 20px;
   top: 50%;
   translate: 0 -50%;
-  color: rgba(240, 213, 106, .055);
+  color: rgba(157, 229, 196, .055);
   font: 700 64px/1 'Teko', 'Arial Narrow', sans-serif;
   letter-spacing: .08em;
   pointer-events: none;
 }
 
 .iron-howto__intro > span,
-.iron-howto__objective > span { position: relative; z-index: 1; color: #dfbd62; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
+.iron-howto__objective > span { position: relative; z-index: 1; color: #9de5c4; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
 .iron-howto__intro p,
 .iron-howto__objective p { margin: 8px 0 0; color: #c6cfca; font-size: 14px; line-height: 1.65; }
-.iron-howto__objective strong { position: relative; z-index: 1; display: block; margin-top: 7px; color: #ffe078; font: 600 34px/1.06 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .045em; text-transform: uppercase; text-shadow: 0 0 24px rgba(240, 197, 79, .24); }
+.iron-howto__objective strong { position: relative; z-index: 1; display: block; margin-top: 7px; color: #b6efd5; font: 600 34px/1.06 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .045em; text-transform: uppercase; text-shadow: 0 0 24px rgba(157, 229, 196, .24); }
 .iron-howto__objective p { position: relative; z-index: 1; max-width: 690px; color: #e1e5df; font-weight: 500; }
 
 .iron-howto__section { margin-top: 24px; }
 .iron-howto__section-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.iron-howto__section-heading span { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid rgba(224, 185, 84, .42); color: #d2b15f; font: 700 9px ui-monospace, monospace; }
+.iron-howto__section-heading span { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid rgba(157, 229, 196, .42); color: #9de5c4; font: 700 9px ui-monospace, monospace; }
 .iron-howto__section-heading h3 { margin: 0; color: #eef0e9; font: 500 25px/1 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 
 .iron-howto__loop,
@@ -146,13 +146,13 @@
 .iron-howto__loop li,
 .iron-howto__capabilities article { min-height: 92px; padding: 15px 16px; border: 1px solid rgba(255, 255, 255, .09); background: rgba(6, 10, 10, .62); box-sizing: border-box; }
 .iron-howto__loop b,
-.iron-howto__capabilities b { display: block; margin-bottom: 7px; color: #e8c76e; font-size: 12px; letter-spacing: .09em; text-transform: uppercase; }
+.iron-howto__capabilities b { display: block; margin-bottom: 7px; color: #b6efd5; font-size: 12px; letter-spacing: .09em; text-transform: uppercase; }
 .iron-howto__loop span,
 .iron-howto__capabilities span { color: #bdc7c2; font-size: 12px; line-height: 1.6; }
 
 .iron-howto__controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .iron-howto__control-group { padding: 13px 14px; border: 1px solid rgba(255, 255, 255, .075); background: rgba(5, 9, 9, .62); }
-.iron-howto__control-group h3 { margin: 0 0 10px; color: #e1be61; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+.iron-howto__control-group h3 { margin: 0 0 10px; color: #9de5c4; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
 .iron-howto__control-group dl,
 .iron-howto__control-group dd { margin: 0; }
 .iron-howto__control-group dl { display: grid; gap: 8px; }
@@ -168,13 +168,13 @@
   margin-top: 24px;
   margin-bottom: 26px;
   padding-top: 16px;
-  border-top: 1px solid rgba(224, 185, 84, .18);
+  border-top: 1px solid rgba(157, 229, 196, .18);
 }
 .iron-howto__footer p { margin: 0; color: #b9c3be; font-size: 12px; line-height: 1.55; }
-.iron-howto__footer p strong { color: #d8bd70; }
-.iron-howto__footer-close { min-width: 180px; min-height: 42px; border: 1px solid #d4ae50; background: linear-gradient(180deg, #e4c469, #9b7d36); color: #111513; cursor: pointer; font: 600 19px/1 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.iron-howto__footer p strong { color: #b6efd5; }
+.iron-howto__footer-close { min-width: 180px; min-height: 42px; border: 1px solid #9de5c4; background: linear-gradient(180deg, #9de5c4, #477f6b); color: #12251e; cursor: pointer; font: 600 19px/1 'Teko', 'Arial Narrow', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
 .iron-howto__footer-close:hover { filter: brightness(1.08); }
-.iron-howto__footer-close:focus-visible { outline: 2px solid #fff1b2; outline-offset: 3px; }
+.iron-howto__footer-close:focus-visible { outline: 2px solid #c2f4dd; outline-offset: 3px; }
 
 @media (max-width: 720px) {
   .iron-howto__overlay { padding: 10px; }
@@ -202,7 +202,7 @@
   min-height: 32px;
   height: 32px;
   padding: 0 10px;
-  border-color: rgba(240, 213, 106, .38);
+  border-color: rgba(157, 229, 196, .38);
   border-radius: 999px;
   background: rgba(9, 15, 14, .66);
   font: 700 8px/1 Inter, ui-sans-serif, system-ui, sans-serif;

@@ -15,6 +15,10 @@
 }
 
 .iron-landing {
+  --landing-accent: #9de5c4;
+  --landing-accent-bright: #c2f4dd;
+  --landing-accent-deep: #2a403c;
+  --landing-accent-dark: #14251f;
   position: fixed;
   inset: 0;
   z-index: 20;
@@ -68,9 +72,9 @@
   gap: 9px;
   min-height: 34px;
   padding: 7px 12px;
-  border: 1px solid rgba(226, 188, 90, .46);
+  border: 1px solid rgba(157, 229, 196, .46);
   background: rgba(4, 7, 7, .78);
-  color: rgba(245, 232, 197, .82);
+  color: rgba(194, 244, 221, .82);
   cursor: pointer;
   font: 600 11px/1 'Teko', "Arial Narrow", sans-serif;
   letter-spacing: .14em;
@@ -82,9 +86,9 @@
 
 .iron-landing__music-toggle:hover,
 .iron-landing__music-toggle:focus-visible {
-  border-color: rgba(244, 200, 93, .92);
+  border-color: rgba(157, 229, 196, .92);
   background: rgba(8, 12, 11, .94);
-  color: #f4c85d;
+  color: var(--landing-accent-bright);
   outline: none;
 }
 
@@ -133,7 +137,7 @@
 
 .iron-landing__eyebrow {
   margin: 0 0 18px;
-  color: #f4c85d;
+  color: var(--landing-accent);
   font-size: clamp(13px, .96vw, 16px);
   font-weight: 800;
   letter-spacing: .32em;
@@ -245,14 +249,14 @@
 
 .iron-landing__signup-panel {
   padding: 18px 20px 20px;
-  border: 1px solid rgba(221, 179, 76, .42);
+  border: 1px solid rgba(157, 229, 196, .42);
   background: linear-gradient(180deg, rgba(8, 11, 11, .94), rgba(5, 8, 8, .9));
   box-shadow: 0 20px 50px rgba(0, 0, 0, .62);
   backdrop-filter: blur(18px);
 }
 
 .iron-landing__signup-panel[hidden] { display: none; }
-.iron-landing__signup-title { margin: 0 0 14px; color: #e5c168; font: 600 20px/1 'Teko', sans-serif; letter-spacing: .15em; text-transform: uppercase; }
+.iron-landing__signup-title { margin: 0 0 14px; color: var(--landing-accent); font: 600 20px/1 'Teko', sans-serif; letter-spacing: .15em; text-transform: uppercase; }
 
 .iron-landing__fields {
   display: grid;
@@ -277,7 +281,7 @@
   backdrop-filter: blur(12px);
 }
 .iron-landing__fields input::placeholder { color: rgba(245, 241, 230, .42); }
-.iron-landing__fields input:focus { border-color: #e1bd61; box-shadow: 0 0 0 3px rgba(225, 189, 97, .14); }
+.iron-landing__fields input:focus { border-color: var(--landing-accent); box-shadow: 0 0 0 3px rgba(157, 229, 196, .14); }
 
 .iron-landing__consent {
   display: flex;
@@ -290,7 +294,7 @@
   text-align: left;
   cursor: pointer;
 }
-.iron-landing__consent input { width: 15px; height: 15px; margin: 1px 0 0; flex: none; accent-color: #d4ae50; }
+.iron-landing__consent input { width: 15px; height: 15px; margin: 1px 0 0; flex: none; accent-color: var(--landing-accent); }
 .iron-landing__consent-note {
   margin: 13px 0 0;
   color: rgba(245, 241, 230, .82);
@@ -311,16 +315,16 @@
   border: 0;
   border-radius: 0;
   clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
-  background: #8c681e;
-  color: #19160d;
+  background: #365d50;
+  color: #0d1b16;
   cursor: pointer;
   font: 600 38px/1 'Teko', "Arial Narrow", Impact, sans-serif;
   letter-spacing: .14em;
   text-transform: uppercase;
-  text-shadow: 0 1px 0 rgba(255, 239, 176, .32);
+  text-shadow: 0 1px 0 rgba(222, 255, 240, .28);
   filter:
     drop-shadow(0 14px 20px rgba(0, 0, 0, .54))
-    drop-shadow(0 0 10px rgba(237, 188, 65, .18));
+    drop-shadow(0 0 10px rgba(157, 229, 196, .18));
   transition: filter 140ms ease, transform 140ms ease;
 }
 
@@ -331,22 +335,22 @@
   inset: 2px;
   clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
   background:
-    radial-gradient(ellipse at 50% 105%, rgba(255, 239, 156, .62), transparent 36%),
-    radial-gradient(circle at 7px 8px, rgba(91, 59, 10, .16) 0 1px, transparent 1.7px),
-    radial-gradient(ellipse at 17px 13px, rgba(255, 232, 153, .13) 0 1.2px, transparent 2px),
-    radial-gradient(ellipse 1% 7% at 18% 42%, rgba(84, 55, 12, .18) 0 70%, transparent 76%),
-    radial-gradient(ellipse 2% 3% at 66% 28%, rgba(84, 55, 12, .12) 0 70%, transparent 76%),
-    repeating-linear-gradient(108deg, transparent 0 25px, rgba(98, 66, 14, .06) 26px, transparent 27px 48px),
-    /* Molten gold: a wide band of yellows that drifts across the face. */
-    linear-gradient(112deg, #c8952f 0%, #e8bc57 18%, #fbe89d 32%, #f0cc69 44%, #d9a941 60%, #f7dd8d 76%, #dcae48 90%, #c08c2b 100%);
+    radial-gradient(ellipse at 50% 105%, rgba(210, 255, 234, .48), transparent 36%),
+    radial-gradient(circle at 7px 8px, rgba(5, 35, 25, .18) 0 1px, transparent 1.7px),
+    radial-gradient(ellipse at 17px 13px, rgba(216, 255, 237, .12) 0 1.2px, transparent 2px),
+    radial-gradient(ellipse 1% 7% at 18% 42%, rgba(8, 48, 34, .18) 0 70%, transparent 76%),
+    radial-gradient(ellipse 2% 3% at 66% 28%, rgba(8, 48, 34, .12) 0 70%, transparent 76%),
+    repeating-linear-gradient(108deg, transparent 0 25px, rgba(7, 45, 32, .07) 26px, transparent 27px 48px),
+    /* Brushed green alloy: a restrained highlight that drifts across the face. */
+    linear-gradient(112deg, #4f8c76 0%, #72b99d 18%, #c2f4dd 32%, #9de5c4 44%, #69b092 60%, #b6efd5 76%, #78c2a3 90%, #477f6b 100%);
   background-size: 100% 100%, 31px 29px, 47px 41px, 100% 100%, 100% 100%, auto, 260% 100%;
   animation: iron-cta-molten 9s ease-in-out infinite alternate;
   box-shadow:
-    inset 0 2px 0 rgba(255, 246, 193, .72),
-    inset 0 -2px 0 rgba(92, 59, 11, .6),
-    inset 0 0 0 2px rgba(100, 69, 17, .18),
-    inset 7px 0 16px rgba(255, 220, 112, .18),
-    inset -7px 0 16px rgba(89, 56, 8, .16);
+    inset 0 2px 0 rgba(222, 255, 240, .62),
+    inset 0 -2px 0 rgba(9, 49, 35, .62),
+    inset 0 0 0 2px rgba(13, 65, 46, .2),
+    inset 7px 0 16px rgba(194, 244, 221, .16),
+    inset -7px 0 16px rgba(5, 38, 27, .18);
 }
 
 /* The drift only moves the molten layer; the rivets and scratches sit still. */
@@ -375,8 +379,8 @@
 }
 
 .iron-landing__cta {
-  --cta-glow-soft: rgba(237, 188, 65, .26);
-  --cta-glow-strong: rgba(245, 205, 96, .5);
+  --cta-glow-soft: rgba(157, 229, 196, .25);
+  --cta-glow-strong: rgba(157, 229, 196, .48);
 }
 
 .iron-landing__cta:hover {
@@ -386,7 +390,7 @@
 .iron-landing__cta:hover::before { animation-duration: 3.4s; }
 
 .iron-landing__cta:active { transform: translateY(0); animation: none; }
-.iron-landing__cta:focus-visible { outline: 2px solid #fff1b2; outline-offset: 4px; }
+.iron-landing__cta:focus-visible { outline: 2px solid var(--landing-accent-bright); outline-offset: 4px; }
 .iron-landing__cta:disabled { opacity: .68; cursor: wait; transform: none; animation: none; }
 .iron-landing__cta--submit { min-height: 64px; margin-top: 16px; font-size: 29px; }
 
@@ -398,30 +402,30 @@
   justify-content: center;
 }
 .iron-landing__actions .iron-landing__cta { min-width: min(300px, 100%); }
-/* Multiplayer reads as cold steel beside the gold single-player plate, so the
-   two doors are told apart by material rather than by one looking disabled. */
+/* Multiplayer uses the same green family at a darker value so both paths feel
+   related without making either one look disabled. */
 .iron-landing__cta--ghost {
-  --cta-glow-soft: rgba(88, 172, 236, .24);
-  --cta-glow-strong: rgba(120, 195, 250, .44);
-  background: #0d1d2b;
-  color: #d3e9fb;
-  text-shadow: 0 1px 0 rgba(4, 15, 24, .8), 0 0 18px rgba(96, 178, 240, .38);
+  --cta-glow-soft: rgba(111, 191, 158, .2);
+  --cta-glow-strong: rgba(157, 229, 196, .4);
+  background: #172b25;
+  color: #c2f4dd;
+  text-shadow: 0 1px 0 rgba(3, 20, 14, .8), 0 0 18px rgba(157, 229, 196, .25);
   filter:
     drop-shadow(0 14px 20px rgba(0, 0, 0, .54))
-    drop-shadow(0 0 10px rgba(88, 172, 236, .26));
+    drop-shadow(0 0 10px rgba(111, 191, 158, .22));
 }
 .iron-landing__cta--ghost::before {
   background:
-    radial-gradient(ellipse at 50% 105%, rgba(96, 178, 240, .3), transparent 36%),
+    radial-gradient(ellipse at 50% 105%, rgba(157, 229, 196, .25), transparent 36%),
     radial-gradient(circle at 7px 8px, rgba(0, 0, 0, .16) 0 1px, transparent 1.7px),
     repeating-linear-gradient(108deg, transparent 0 25px, rgba(0, 0, 0, .06) 26px, transparent 27px 48px),
-    linear-gradient(180deg, #2c4f6b 0%, #1d3a53 48%, #12283b 100%);
+    linear-gradient(180deg, #365d50 0%, #29483e 48%, #1a332b 100%);
   background-size: 100% 100%, 31px 29px, auto, 100% 100%;
   /* Cold steel does not run molten. */
   animation: none;
   box-shadow:
-    inset 0 2px 0 rgba(138, 205, 255, .68),
-    inset 0 -2px 0 rgba(5, 16, 25, .74),
+    inset 0 2px 0 rgba(194, 244, 221, .55),
+    inset 0 -2px 0 rgba(5, 31, 22, .76),
     inset 0 0 0 2px rgba(0, 0, 0, .12);
 }
 .iron-landing__paths-note {
@@ -439,8 +443,8 @@
 }
 .iron-landing.is-setup-open { pointer-events: none; }
 
-/* The four pillars are cut from the same material as the signup panel and the
-   CTAs: smoked glass over the battlefield, a gold hairline, chamfered corners. */
+/* The four pillars are cut from the same green alloy and smoked glass as the
+   CTAs, with a restrained accent hairline around their chamfered corners. */
 .iron-landing__doctrine {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -451,7 +455,7 @@
   list-style: none;
 }
 
-/* The gold edge is the plate's own background showing through a 1px gap around
+/* The green edge is the plate's own background showing through a 1px gap around
    the inner face, so it follows the chamfer instead of being cut by it. */
 .iron-landing__doctrine li {
   position: relative;
@@ -463,7 +467,7 @@
   gap: 5px;
   padding: 22px 10px 19px;
   clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
-  background: rgba(221, 179, 76, .3);
+  background: rgba(157, 229, 196, .3);
   backdrop-filter: blur(14px);
   filter: drop-shadow(0 16px 30px rgba(0, 0, 0, .5));
   transition: transform 160ms ease, background-color 160ms ease;
@@ -483,7 +487,7 @@
 
 .iron-landing__doctrine li:hover {
   transform: translateY(-3px);
-  background-color: rgba(233, 197, 103, .62);
+  background-color: rgba(157, 229, 196, .58);
 }
 
 .iron-landing__doctrine-icon {
@@ -502,17 +506,17 @@
 }
 
 .iron-landing__doctrine-brackets {
-  color: rgba(226, 195, 101, .46);
+  color: rgba(157, 229, 196, .46);
   stroke-width: 1.5;
 }
 
 .iron-landing__doctrine-accent {
-  fill: rgba(226, 179, 70, .78);
-  stroke: #f1cc69;
+  fill: rgba(111, 191, 158, .78);
+  stroke: var(--landing-accent);
 }
 
-.iron-landing__doctrine li:hover .iron-landing__doctrine-brackets { color: #f1cc69; }
-.iron-landing__doctrine li:hover .iron-landing__doctrine-accent { fill: rgba(241, 204, 105, .94); }
+.iron-landing__doctrine li:hover .iron-landing__doctrine-brackets { color: var(--landing-accent); }
+.iron-landing__doctrine li:hover .iron-landing__doctrine-accent { fill: rgba(157, 229, 196, .94); }
 
 .iron-landing__doctrine strong,
 .iron-landing__doctrine span {
@@ -585,7 +589,7 @@
   align-items: center;
   gap: 10px;
   padding: 7px 14px 7px 8px;
-  border: 1px solid rgba(223, 189, 100, .34);
+  border: 1px solid rgba(157, 229, 196, .34);
   border-radius: 999px;
   background: rgba(10, 14, 13, .72);
   -webkit-backdrop-filter: blur(8px);
@@ -602,7 +606,7 @@
 .commander-chip__text strong {
   overflow: hidden;
   max-width: 190px;
-  color: #f3dc9d;
+  color: var(--landing-accent-bright);
   font: 600 22px/1 'Teko', "Arial Narrow", Impact, sans-serif;
   letter-spacing: .05em;
   text-overflow: ellipsis;

@@ -21,6 +21,7 @@ import './durabilityPreview.css';
 import './smokePreview.css';
 import './outcomeScreen.css';
 import './ui/menuTheme.css';
+import './ui/roomLobby.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
 import { showSfxPreview } from './audio/sfxPreview';
@@ -382,7 +383,7 @@ function createMatchHistoryPanel(): HTMLDivElement {
   root.style.cssText = 'display:grid;gap:7px;padding:11px;border:1px solid #303936;background:rgba(9,13,13,.7);';
   const title = document.createElement('div');
   title.textContent = 'RECENT MATCHES';
-  title.style.cssText = 'color:#d2b15f;font-size:10px;letter-spacing:.12em;';
+  title.style.cssText = 'color:#9de5c4;font-size:10px;letter-spacing:.12em;';
   const history = readMatchHistory();
   if (history.length === 0) {
     const empty = document.createElement('div');
@@ -1489,6 +1490,7 @@ function createMultiplayerSetupPanel(
   const status = document.createElement('div');
   status.className = 'war-multiplayer__status';
   status.setAttribute('aria-live', 'polite');
+  status.setAttribute('role', 'status');
   status.textContent = 'Local skirmish ready · no multiplayer connection is active.';
 
   const setStatus = (message: string, bad = false): void => {
@@ -1502,6 +1504,24 @@ function createMultiplayerSetupPanel(
   let openingHostRoom = false;
   let settingsSyncTimer: number | undefined;
   let lobbyView: ReturnType<typeof createRoomLobbyView> | undefined;
+  const loading = document.createElement('div');
+  loading.className = 'war-room-loading';
+  loading.hidden = true;
+  loading.setAttribute('role', 'status');
+  loading.setAttribute('aria-live', 'polite');
+  loading.innerHTML = '<div class="war-room-loading__card"><span class="war-room-loading__spinner" aria-hidden="true"></span><h2>Opening your room</h2><p></p><small>The first connection can take up to a minute. Please keep this window open.</small></div>';
+  const showLoading = (message: string, joining = false): void => {
+    loading.querySelector('h2')!.textContent = joining ? 'Joining your room' : 'Opening your room';
+    loading.querySelector('p')!.textContent = message;
+    loading.hidden = false;
+    host.setAttribute('aria-busy', 'true');
+    join.setAttribute('aria-busy', 'true');
+  };
+  const hideLoading = (): void => {
+    loading.hidden = true;
+    host.removeAttribute('aria-busy');
+    join.removeAttribute('aria-busy');
+  };
 
   const render = (): void => {
     const connected = Boolean(activeSession);
@@ -1519,6 +1539,9 @@ function createMultiplayerSetupPanel(
     client?.disconnect();
     lobbyView?.root.remove();
     lobbyView = undefined;
+    skirmish.disabled = false;
+    host.disabled = false;
+    host.textContent = 'OPEN ONLINE ROOM';
     if (wasHost) codeLabel.input.value = '';
     rememberSession(undefined, undefined);
     releaseRoomSettings();
@@ -1576,6 +1599,7 @@ function createMultiplayerSetupPanel(
     skirmish.disabled = true;
     host.disabled = true;
     host.textContent = 'OPENING ROOM...';
+    showLoading('Connecting to the battle server…');
     setStatus('Waking the battle server · first connection can take up to a minute...', false);
     let client: MultiplayerClient | undefined;
     try {
@@ -1584,6 +1608,8 @@ function createMultiplayerSetupPanel(
       await waitForMultiplayerServer(server);
       if (activeMode !== 'host' || activeSession) return;
       setStatus('Battle server online · opening your room...', false);
+      showLoading('Server connected. Preparing your battlefield…');
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       client = new MultiplayerClient(server);
       const session = await client.host({ ...settings(), name: betaPlayerName() ?? 'Host', playerId: rememberedPlayerId(server, 'HOST') });
       if (activeMode !== 'host' || activeSession) {
@@ -1594,6 +1620,7 @@ function createMultiplayerSetupPanel(
     } catch (err) {
       if (activeMode === 'host') setStatus(`Could not open room: ${friendlyMultiplayerError(err)}`, true);
     } finally {
+      hideLoading();
       openingHostRoom = false;
       if (!activeSession && activeMode === 'host') {
         skirmish.disabled = false;
@@ -1610,16 +1637,19 @@ function createMultiplayerSetupPanel(
   };
 
   const joinRoom = async (): Promise<void> => {
+    if (join.disabled || activeSession) return;
     try {
       join.disabled = true;
       const code = normalizeRoomCode(codeLabel.input.value);
       if (!code) throw new Error('enter-room-code');
+      showLoading('Connecting to the battle server…', true);
       const server = normalizedBaseUrl(serverLabel.input.value);
       window.localStorage.setItem(MULTIPLAYER_SERVER_STORAGE_KEY, server);
       setStatus('Waking the battle server · first connection can take up to a minute...', false);
       await waitForMultiplayerServer(server);
       if (activeMode !== 'join' || activeSession) return;
       setStatus('Battle server online · joining room...', false);
+      showLoading('Server connected. Loading the room…', true);
       const existing = currentSession();
       const client = new MultiplayerClient(server);
       const session = await client.join(code, betaPlayerName() ?? 'Guest', existing?.player.id ?? rememberedPlayerId(server, code));
@@ -1627,6 +1657,7 @@ function createMultiplayerSetupPanel(
     } catch (err) {
       setStatus(`Could not join room: ${friendlyMultiplayerError(err)}`, true);
     } finally {
+      hideLoading();
       join.disabled = false;
       join.blur();
     }
@@ -1640,10 +1671,8 @@ function createMultiplayerSetupPanel(
   advanced.className = 'war-multiplayer__advanced';
   const advancedSummary = document.createElement('summary');
   advancedSummary.textContent = 'ADVANCED CONNECTION';
-  // Status line lives inside the advanced connection panel to keep the action
-  // bar compact.
-  advanced.append(advancedSummary, status, serverLabel.root);
-  root.append(hostEntry, joinEntry, advanced);
+  advanced.append(advancedSummary, serverLabel.root);
+  root.append(hostEntry, joinEntry, status, advanced, loading);
   if (normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? '') && !currentSession()) {
     setStatus('Joining invitation...');
     void joinRoom();
@@ -2304,7 +2333,7 @@ function createRoomLobbyView(
       view.connection.textContent = player?.connected
         ? `${player.role === 'field-officer' ? 'FIELD OFFICER' : 'COMMANDER'} · ${player.ready ? 'READY' : `${player.pingMs ?? '...'}ms · NOT READY`}`
         : player ? 'DISCONNECTED · RECONNECT RESERVED' : `${room.ai.toUpperCase()} AI · READY`;
-      view.connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : isAi ? '#9aa6a1' : '#6f7b78';
+      view.connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#9de5c4' : isAi ? '#9aa6a1' : '#6f7b78';
       view.assignment.value = String(lobbyTeam);
       view.assignment.disabled = !isHost || room.status !== 'waiting';
       view.assignment.title = `Assign ${player?.name ?? `Computer ${index}`} to Team ${lobbyTeam}`;
@@ -4309,7 +4338,7 @@ function showMatchMenu(
   const title = document.createElement('div');
   title.textContent = 'Match menu';
   title.className = 'game-menu-title';
-  title.style.cssText = 'color:#d2b15f;font-size:13px;margin-bottom:2px;';
+  title.style.cssText = 'color:#9de5c4;font-size:13px;margin-bottom:2px;';
   const status = document.createElement('div');
   status.textContent = `${MAP_PRESETS[settings.mapId].shortLabel} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · ${terrainLayoutLabel(settings.terrainLayout)} · seed ${settings.seed} · ${settings.ai}/${settings.aiStyle}`;
   status.style.cssText = 'color:#8d9a96;font-size:10px;line-height:1.4;margin-bottom:4px;';
@@ -4329,7 +4358,7 @@ function showMatchMenu(
       ['AI pressure', DIFFICULTY_DESCRIPTIONS[settings.ai].split('.')[0]],
     ]) {
       const cell = document.createElement('div');
-      cell.innerHTML = `<span style="color:#d2b15f">${item[0].toUpperCase()}</span><br>${item[1]}`;
+      cell.innerHTML = `<span style="color:#9de5c4">${item[0].toUpperCase()}</span><br>${item[1]}`;
       details.appendChild(cell);
     }
   }
@@ -4337,7 +4366,7 @@ function showMatchMenu(
   atmosphereBlock.style.cssText = 'display:grid;gap:6px;margin:4px 0 8px;';
   const todLabel = document.createElement('div');
   todLabel.textContent = 'TIME OF DAY';
-  todLabel.style.cssText = 'color:#d2b15f;font-size:10px;';
+  todLabel.style.cssText = 'color:#9de5c4;font-size:10px;';
   const todRow = document.createElement('div');
   todRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
   for (const id of TIME_OF_DAY_IDS) {
@@ -4346,12 +4375,12 @@ function showMatchMenu(
       options.onAtmosphereChange?.(settings.timeOfDay, settings.weather);
       status.textContent = `${TIME_OF_DAY_LABELS[settings.timeOfDay]} · ${WEATHER_LABELS[settings.weather]} (local view)`;
     });
-    if (settings.timeOfDay === id) button.style.outline = '1px solid #d2b15f';
+    if (settings.timeOfDay === id) button.style.outline = '1px solid #9de5c4';
     todRow.appendChild(button);
   }
   const weatherLabel = document.createElement('div');
   weatherLabel.textContent = 'WEATHER';
-  weatherLabel.style.cssText = 'color:#d2b15f;font-size:10px;margin-top:4px;';
+  weatherLabel.style.cssText = 'color:#9de5c4;font-size:10px;margin-top:4px;';
   const weatherRow = document.createElement('div');
   weatherRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
   for (const id of WEATHER_IDS) {
@@ -4360,7 +4389,7 @@ function showMatchMenu(
       options.onAtmosphereChange?.(settings.timeOfDay, settings.weather);
       status.textContent = `${TIME_OF_DAY_LABELS[settings.timeOfDay]} · ${WEATHER_LABELS[settings.weather]} (local view)`;
     });
-    if (settings.weather === id) button.style.outline = '1px solid #d2b15f';
+    if (settings.weather === id) button.style.outline = '1px solid #9de5c4';
     weatherRow.appendChild(button);
   }
   atmosphereBlock.append(todLabel, todRow, weatherLabel, weatherRow);
@@ -4490,8 +4519,8 @@ function showRankUpToast(rankLabel: string): void {
   toast.textContent = `UNIT PROMOTED — ${rankLabel.toUpperCase()}`;
   toast.style.cssText =
     'position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:70;pointer-events:none;' +
-    'padding:10px 16px;border:2px solid #f0d56a;border-radius:3px;background:rgba(12,16,14,.92);' +
-    'color:#f0d56a;font:700 13px ui-monospace,Menlo,monospace;letter-spacing:.08em;' +
+    'padding:10px 16px;border:2px solid #9de5c4;border-radius:3px;background:rgba(12,16,14,.92);' +
+    'color:#9de5c4;font:700 13px ui-monospace,Menlo,monospace;letter-spacing:.08em;' +
     'box-shadow:0 12px 28px rgba(0,0,0,.45)';
   document.body.appendChild(toast);
   window.setTimeout(() => toast.remove(), 2200);
@@ -4784,13 +4813,13 @@ function createWeaponsLabPanel(
     padding: '12px',
     color: '#e9e7dc',
     background: 'linear-gradient(145deg, rgba(6, 12, 12, .96), rgba(14, 24, 22, .92))',
-    border: '1px solid rgba(235, 198, 88, .72)',
+    border: '1px solid rgba(157, 229, 196, .72)',
     boxShadow: '0 12px 36px rgba(0, 0, 0, .48)',
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     pointerEvents: 'auto',
   });
   panel.innerHTML = `
-    <div style="color:#f0cb58;font-size:10px;letter-spacing:.18em">COMBAT DEVELOPMENT RANGE</div>
+    <div style="color:#9de5c4;font-size:10px;letter-spacing:.18em">COMBAT DEVELOPMENT RANGE</div>
     <div style="font-size:20px;font-weight:900;letter-spacing:.08em;margin:3px 0 5px">WEAPONS LAB</div>
     <div data-lab-status style="font-size:10px;line-height:1.45;color:#b9c2bd;margin-bottom:9px">
       Select a platform, then press <b style="color:#fff">V</b>. LMB fires primary; RMB fires secondary.
@@ -4828,13 +4857,13 @@ function createWeaponsLabPanel(
         38,
         -3,
       );
-      status.innerHTML = `<b style="color:#f0cb58">${arsenal.designation}</b><br>${WEAPONS[arsenal.primary].label}${arsenal.secondary ? ` / ${WEAPONS[arsenal.secondary].label}` : ''} · press <b style="color:#fff">V</b>`;
+      status.innerHTML = `<b style="color:#9de5c4">${arsenal.designation}</b><br>${WEAPONS[arsenal.primary].label}${arsenal.secondary ? ` / ${WEAPONS[arsenal.secondary].label}` : ''} · press <b style="color:#fff">V</b>`;
       for (const other of Array.from(buttonGrid.querySelectorAll<HTMLButtonElement>('button'))) {
         other.style.borderColor = 'rgba(156, 177, 166, .34)';
         other.style.background = 'rgba(25, 37, 34, .92)';
       }
-      button.style.borderColor = '#f0cb58';
-      button.style.background = 'rgba(78, 66, 25, .92)';
+      button.style.borderColor = '#9de5c4';
+      button.style.background = 'rgba(38, 78, 61, .92)';
     });
     buttonGrid.append(button);
   }
@@ -5495,19 +5524,19 @@ function createImpactMovementDemoPanel(): {
   const panel = document.createElement('aside');
   panel.style.cssText =
     'position:fixed;left:22px;top:22px;z-index:18;width:min(330px,calc(100vw - 44px));pointer-events:none;' +
-    'border:1px solid rgba(210,177,95,.7);border-left:4px solid #e2bd59;background:rgba(8,13,13,.88);' +
+    'border:1px solid rgba(157,229,196,.7);border-left:4px solid #78b99e;background:rgba(8,13,13,.88);' +
     'box-shadow:0 14px 38px rgba(0,0,0,.42);padding:13px 15px;color:#e5ece8;font-family:ui-monospace,Menlo,monospace;';
   const eyebrow = document.createElement('div');
   eyebrow.textContent = 'FIELD TEST · TANK MISSILE HITS';
-  eyebrow.style.cssText = 'font-size:9px;letter-spacing:.18em;color:#d2b15f;margin-bottom:6px;';
+  eyebrow.style.cssText = 'font-size:9px;letter-spacing:.18em;color:#9de5c4;margin-bottom:6px;';
   const title = document.createElement('div');
   title.textContent = 'THROW · FLIP · NO SPIN';
   title.style.cssText = 'font-size:17px;font-weight:900;letter-spacing:.08em;color:#fff;margin-bottom:9px;';
   const status = document.createElement('div');
   status.textContent = 'HOLDING · SIDE MISSILE INBOUND';
   status.style.cssText =
-    'border-top:1px solid rgba(210,177,95,.28);border-bottom:1px solid rgba(210,177,95,.28);' +
-    'padding:8px 0;color:#ffcf62;font-size:12px;font-weight:800;letter-spacing:.09em;';
+    'border-top:1px solid rgba(157,229,196,.28);border-bottom:1px solid rgba(157,229,196,.28);' +
+    'padding:8px 0;color:#9de5c4;font-size:12px;font-weight:800;letter-spacing:.09em;';
   const note = document.createElement('div');
   note.textContent = 'Missiles alternate left and right. The hull throws away from that flank. Select a tank to drive it yourself.';
   note.style.cssText = 'font-size:9px;line-height:1.5;color:#aebbb5;margin-top:8px;';
@@ -5522,7 +5551,7 @@ function createImpactMovementDemoPanel(): {
             : scenario === 'near' ? 'NEAR MISS'
               : `MISSILE SALVO${shot && total ? ` ${shot}/${total}` : ''}`;
       status.textContent = `${scenarioLabel} · ${unitDisplayName(target).toUpperCase()}`;
-      status.style.color = scenario === 'near' ? '#9fd8ff' : scenario === 'top' ? '#ff9c6a' : '#ffcf62';
+      status.style.color = scenario === 'near' ? '#9fd8ff' : scenario === 'top' ? '#ff9c6a' : '#9de5c4';
     },
     announceInbound: (target, flank) => {
       status.textContent = `INBOUND · ${flank > 0 ? 'RIGHT' : 'LEFT'} FLANK MISSILE · ${unitDisplayName(target).toUpperCase()}`;
