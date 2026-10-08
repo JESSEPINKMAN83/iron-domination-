@@ -136,86 +136,55 @@
 }
 
 .iron-landing__eyebrow {
-  margin: 0 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 0 0 22px;
   color: var(--landing-accent);
-  font-size: clamp(13px, .96vw, 16px);
-  font-weight: 800;
-  letter-spacing: .32em;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: clamp(10px, .85vw, 12px);
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: .18em;
   text-transform: uppercase;
-  text-shadow: 0 2px 16px rgba(0, 0, 0, .8);
+  text-shadow: none;
+}
+
+.iron-landing__eyebrow::before,
+.iron-landing__eyebrow::after {
+  content: '';
+  width: clamp(20px, 3vw, 42px);
+  height: 1px;
+  background: rgba(157, 229, 196, .55);
 }
 
 .iron-landing__hero h1 {
   margin: 0;
   font-family: 'Anton SC', Impact, Haettenschweiler, sans-serif;
-  font-size: clamp(86px, 9.1vw, 152px);
+  font-size: clamp(86px, 10.6vw, 164px);
   font-weight: 400;
-  line-height: .8;
-  letter-spacing: -.018em;
+  line-height: .94;
+  letter-spacing: .015em;
   text-transform: uppercase;
-  text-shadow: none;
-  filter:
-    drop-shadow(0 2px 0 rgba(8, 8, 7, .96))
-    drop-shadow(0 8px 22px rgba(0, 0, 0, .78));
+  text-shadow: 0 2px 0 rgba(0, 0, 0, .7);
+  filter: none;
 }
 
 .iron-landing__hero h1 span {
-  position: relative;
   display: block;
   width: max-content;
   max-width: 100%;
   margin-inline: auto;
-  color: #e1dbce;
-  background:
-    radial-gradient(ellipse .8% 3.1% at 6% 14%, rgba(35, 34, 30, .72) 0 72%, transparent 78%),
-    radial-gradient(ellipse .55% 2.4% at 14% 72%, rgba(56, 53, 46, .68) 0 70%, transparent 78%),
-    radial-gradient(ellipse 1.1% 1.5% at 22% 38%, rgba(69, 65, 57, .58) 0 68%, transparent 76%),
-    radial-gradient(ellipse .45% 3.5% at 31% 86%, rgba(42, 40, 35, .72) 0 69%, transparent 77%),
-    radial-gradient(ellipse .8% 2.1% at 39% 18%, rgba(75, 71, 63, .58) 0 69%, transparent 77%),
-    radial-gradient(ellipse .4% 2.8% at 49% 59%, rgba(42, 40, 35, .76) 0 70%, transparent 78%),
-    radial-gradient(ellipse 1% 1.5% at 58% 84%, rgba(69, 65, 57, .64) 0 68%, transparent 77%),
-    radial-gradient(ellipse .5% 3.2% at 67% 29%, rgba(44, 42, 36, .74) 0 70%, transparent 78%),
-    radial-gradient(ellipse .85% 1.9% at 75% 67%, rgba(69, 65, 57, .62) 0 68%, transparent 77%),
-    radial-gradient(ellipse .52% 2.4% at 84% 13%, rgba(46, 43, 38, .72) 0 70%, transparent 78%),
-    radial-gradient(ellipse .9% 1.7% at 93% 77%, rgba(65, 61, 54, .62) 0 68%, transparent 77%),
-    linear-gradient(103deg, transparent 0 18%, rgba(52, 49, 43, .24) 18.2% 18.5%, transparent 18.8% 56%, rgba(58, 54, 47, .2) 56.15% 56.45%, transparent 56.8%),
-    linear-gradient(180deg, #f1eee6 0%, #d9d3c8 48%, #bbb4a7 100%);
-  background-blend-mode: multiply;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  -webkit-text-stroke: 1px rgba(15, 15, 13, .42);
-  transform: scaleY(1.08);
-}
-
-.iron-landing__hero h1 span::after {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  color: transparent;
-  /* Rivets punched through the plate, plus the scratches and brushing. The
-     layer is clipped to the glyphs, so rivets only land on the letterforms. */
-  background:
-    radial-gradient(circle at 50% 50%, rgba(28, 27, 23, .62) 0 1.3px, transparent 2.1px),
-    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, .5) 0 .9px, transparent 1.6px),
-    radial-gradient(ellipse at 13px 23px, rgba(36, 34, 30, .42) 0 1px, transparent 2.5px),
-    repeating-linear-gradient(112deg, transparent 0 19px, rgba(25, 24, 21, .14) 20px, transparent 21px 43px),
-    repeating-linear-gradient(6deg, transparent 0 31px, rgba(255, 255, 255, .12) 32px, transparent 33px 59px);
-  background-position: 8px 7px, 6.7px 5.5px, 0 0, 0 0, 0 0;
-  background-size: 34px 37px, 34px 37px, 53px 47px, auto, auto;
-  -webkit-background-clip: text;
-  background-clip: text;
+  color: #eef2e9;
+  -webkit-text-fill-color: currentColor;
   -webkit-text-stroke: 0;
-  opacity: .78;
-  pointer-events: none;
+  transform: none;
 }
 
 .iron-landing__hero h1 span + span {
-  margin-top: .19em;
+  margin-top: .02em;
 }
-
-.iron-landing__hero h1 span:first-child { transform: scaleX(1.38) scaleY(1.08); }
-.iron-landing__hero h1 span + span { transform: scaleX(1.28) scaleY(1.08); }
 
 .iron-landing__copy {
   margin: 27px auto 0;
