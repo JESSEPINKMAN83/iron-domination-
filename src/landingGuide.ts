@@ -72,6 +72,24 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
   root.append(dialog);
   let chapter = initial;
   let closing = false;
+  let opening = false;
+  const openingAnimations: Animation[] = [];
+  const shell = dialog.querySelector<HTMLElement>('.landing-guide__shell')!;
+  const frame = document.createElement('div');
+  frame.className = 'landing-guide__frame';
+  frame.setAttribute('aria-hidden', 'true');
+  const emblem = document.createElement('div');
+  emblem.className = 'landing-guide__emblem';
+  emblem.setAttribute('aria-hidden', 'true');
+  emblem.innerHTML = source.innerHTML;
+  dialog.prepend(frame, emblem);
+  const fullFrame = (): Keyframe => ({ left: '0px', top: '0px', width: `${innerWidth}px`, height: `${innerHeight}px` });
+  const cardFrame = (): Keyframe => {
+    const rect = source.getBoundingClientRect();
+    return { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` };
+  };
+  const emblemStart: Keyframe = { left: `${bounds.left}px`, top: `${bounds.top}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, opacity: 1, transform: 'scale(1)' };
+  const emblemEnd = (): Keyframe => ({ left: `${(innerWidth - bounds.width) / 2}px`, top: `${(innerHeight - bounds.height) / 2}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, opacity: 0, transform: 'scale(1.35)' });
   const article = dialog.querySelector<HTMLElement>('article')!;
   const next = dialog.querySelector<HTMLButtonElement>('.landing-guide__next')!;
   const render = (index: number): void => {
@@ -84,16 +102,17 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
     });
     next.textContent = index === LESSONS.length - 1 ? 'Back to headquarters ↗' : `Next: ${LESSONS[index + 1].name} →`;
     article.scrollTop = 0;
-    if (!reducedMotion) article.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 260, easing: 'ease-out' });
+    if (!reducedMotion && !opening) article.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 260, easing: 'ease-out' });
   };
-  const origin = (): Keyframe => ({
-    clipPath: `inset(${bounds.top}px ${Math.max(0, innerWidth - bounds.right)}px ${Math.max(0, innerHeight - bounds.bottom)}px ${bounds.left}px round 10px)`,
-  });
   const close = async (): Promise<void> => {
     if (closing) return;
     closing = true;
+    for (const animation of openingAnimations) animation.finish();
     if (!reducedMotion) {
-      await dialog.animate([{ clipPath: 'inset(0px 0px 0px 0px round 0px)' }, origin()], { duration: 300, easing: 'cubic-bezier(.4,0,.8,.2)', fill: 'forwards' }).finished;
+      // Clear the lesson first, then fold the same surface back into its card.
+      await shell.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' }).finished;
+      emblem.animate([emblemEnd(), { ...cardFrame(), opacity: 1, transform: 'scale(1)' }], { duration: 540, easing: 'cubic-bezier(.65,0,.25,1)', fill: 'forwards' });
+      await frame.animate([fullFrame(), cardFrame()], { duration: 540, easing: 'cubic-bezier(.65,0,.25,1)', fill: 'forwards' }).finished;
     }
     dialog.close();
     dialog.remove();
@@ -103,8 +122,39 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
   dialog.addEventListener('cancel', (event) => { event.preventDefault(); void close(); });
   dialog.querySelectorAll<HTMLButtonElement>('[data-chapter]').forEach((button, i) => { button.onclick = () => render(i); });
   next.onclick = () => { if (chapter === LESSONS.length - 1) void close(); else render(chapter + 1); };
+  opening = true;
   render(initial);
   dialog.showModal();
   dialog.querySelector<HTMLButtonElement>('.landing-guide__close')!.focus();
-  if (!reducedMotion) dialog.animate([origin(), { clipPath: 'inset(0px 0px 0px 0px round 0px)' }], { duration: 560, easing: 'cubic-bezier(.16,1,.3,1)' });
+  if (!reducedMotion) {
+    const animate = (target: HTMLElement, frames: Keyframe[], options: KeyframeAnimationOptions): Animation => {
+      const animation = target.animate(frames, { fill: 'both', ...options });
+      openingAnimations.push(animation);
+      return animation;
+    };
+    animate(frame, [cardFrame(), fullFrame()], { duration: 760, easing: 'cubic-bezier(.76,0,.18,1)' });
+    animate(emblem, [emblemStart, { ...emblemEnd(), opacity: 1, offset: .6 }, emblemEnd()], { duration: 720, easing: 'cubic-bezier(.65,0,.2,1)' });
+    animate(shell, [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 520 });
+    const portrait = dialog.querySelector<HTMLElement>('.landing-guide__portrait')!;
+    animate(portrait, [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)' }], { duration: 480, delay: 580, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    const divider = document.createElement('div');
+    divider.className = 'landing-guide__divider';
+    divider.setAttribute('aria-hidden', 'true');
+    dialog.querySelector('.landing-guide__layout')!.append(divider);
+    animate(divider, [{ transform: 'scaleY(0)', opacity: 0 }, { transform: 'scaleY(1)', opacity: 1 }], { duration: 480, delay: 580, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    const content = [
+      article.querySelector<HTMLElement>('.landing-guide__eyebrow')!,
+      article.querySelector<HTMLElement>('h2')!,
+      article.querySelector<HTMLElement>('.landing-guide__subtitle')!,
+      article.querySelector<HTMLElement>('.landing-guide__intro')!,
+      ...Array.from(article.querySelectorAll<HTMLElement>('.landing-guide__steps li')),
+      article.querySelector<HTMLElement>('.landing-guide__advice')!,
+    ];
+    content.forEach((element, i) => animate(element, [{ opacity: 0, transform: 'translateY(22px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 400, delay: 660 + i * 45, easing: 'cubic-bezier(.2,.8,.2,1)' }));
+    void Promise.all(openingAnimations.map((animation) => animation.finished)).then(() => { opening = false; });
+  } else {
+    frame.remove();
+    emblem.remove();
+    opening = false;
+  }
 }

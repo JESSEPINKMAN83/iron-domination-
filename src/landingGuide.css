@@ -1,10 +1,10 @@
-.iron-landing__doctrine li { padding: 0; }
-.iron-landing__doctrine button { width: 100%; height: 100%; border: 0; background: none; color: inherit; cursor: pointer; display: grid; grid-template-rows: 58px auto auto; gap: 5px; justify-items: center; align-content: center; padding: 22px 10px 19px; }
-.iron-landing__doctrine button:focus-visible { outline: 2px solid #b6efd5; outline-offset: -5px; }
-.landing-guide { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; color: #e8efe9; background: #0b1412; overflow: hidden; font-family: 'Avenir Next', Inter, system-ui, sans-serif; }
-.landing-guide::backdrop { background: #050a08; }
+.iron-landing .iron-landing__doctrine li { display: block; padding: 0; }
+.iron-landing .iron-landing__doctrine button { width: 100%; height: 100%; border: 0; background: none; color: inherit; cursor: pointer; display: grid; grid-template-rows: 58px auto auto; gap: 5px; justify-items: center; align-content: center; padding: 22px 10px 19px; }
+.iron-landing .iron-landing__doctrine button:focus-visible { outline: 2px solid #b6efd5; outline-offset: -5px; }
+.landing-guide { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; color: #e8efe9; background: transparent; overflow: hidden; font-family: 'Avenir Next', Inter, system-ui, sans-serif; }
+.landing-guide::backdrop { background: transparent; }
 .landing-guide *, .landing-guide *::before { box-sizing: border-box; }
-.landing-guide__shell { height: 100%; display: flex; flex-direction: column; }
+.landing-guide__shell { position: relative; z-index: 1; background: #0b1412; height: 100%; display: flex; flex-direction: column; }
 .landing-guide__header { flex-shrink: 0; min-height: 78px; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #2b4037; font: 600 10px/1.5 ui-monospace, monospace; letter-spacing: .16em; color: #a1b4a8; }
 .landing-guide__header i { color: #7ccba7; padding: 0 16px; font-style: normal; }
 .landing-guide button { cursor: pointer; font: inherit; }
@@ -12,7 +12,7 @@
 .landing-guide__close { border: 1px solid #3c594b; background: transparent; color: #d7e9de; padding: 11px 16px; letter-spacing: .12em; }
 .landing-guide__close span { margin-left: 20px; font-size: 19px; }
 .landing-guide__close:hover { background: #213c30; }
-.landing-guide__layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.landing-guide__layout { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
 .landing-guide__portrait { border-right: 1px solid #3a5849; background: radial-gradient(ellipse at 50% 55%, #18372a 0%, #101e18 45%, #0a120f 85%); }
 .landing-guide__reading { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(135deg, #14221c, #0b1412 75%); }
 .landing-guide__nav { flex-shrink: 0; display: grid; grid-template-columns: repeat(4,1fr); padding: 0 32px; border-bottom: 1px solid #2b4037; }
@@ -53,9 +53,36 @@
   .landing-guide__advice { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
-  .iron-landing__doctrine li { padding: 0; }
-  .iron-landing__doctrine button { grid-template-rows: 42px auto auto; padding: 13px 4px 11px; }
+  .iron-landing .iron-landing__doctrine li { display: block; padding: 0; }
+  .iron-landing .iron-landing__doctrine button { grid-template-rows: 42px auto auto; padding: 13px 4px 11px; }
   .landing-guide__layout { grid-template-columns: 1fr; }
   .landing-guide__portrait { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .iron-landing__doctrine li { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .iron-landing .iron-landing__doctrine li { transition: none; } }
+
+/* Match the feature card before expanding its physical surface. */
+.landing-guide__frame { position: absolute; inset: 0; z-index: 0; background: #719c86; clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px); }
+.landing-guide__frame::before { content: ''; position: absolute; inset: 1px; background: radial-gradient(ellipse at 50% 40%, #20392c, #0b1412 80%); clip-path: inherit; }
+.landing-guide__emblem { position: absolute; z-index: 2; display: grid; justify-items: center; align-content: center; gap: 9px; pointer-events: none; }
+.landing-guide__emblem .iron-landing__doctrine-icon { width: 46px; height: 46px; }
+.landing-guide__emblem strong { font: 600 22px/1 'Teko', 'Arial Narrow', sans-serif; text-transform: uppercase; letter-spacing: .1em; }
+.landing-guide__emblem > span { font: 500 12px/1.3 'Teko', 'Arial Narrow', sans-serif; color: #93a79b; letter-spacing: .08em; text-transform: uppercase; }
+.landing-guide__divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: linear-gradient(transparent, #9de5c4 35%, #9de5c4 65%, transparent); transform-origin: center; pointer-events: none; }
+/* A wider surface and smaller contents restore space around each feature. */
+.iron-landing .iron-landing__doctrine { width: min(920px, 100%); gap: clamp(12px, 2.4vw, 32px); }
+.iron-landing .iron-landing__doctrine button { min-height: 168px; grid-template-rows: 46px auto auto; gap: 9px; padding: 26px 18px; }
+.iron-landing .iron-landing__doctrine-icon { width: 46px; height: 46px; }
+.iron-landing .iron-landing__doctrine strong { font-size: 22px; letter-spacing: .1em; }
+.iron-landing .iron-landing__doctrine span { font-size: 12px; line-height: 1.3; }
+@media (max-width: 800px) { .landing-guide__divider { left: calc(100% * .32 / 1.32); } }
+@media (max-width: 560px) {
+  .iron-landing .iron-landing__doctrine { gap: 8px; }
+  .iron-landing .iron-landing__doctrine button { min-height: 122px; grid-template-rows: 32px auto auto; padding: 18px 4px; gap: 7px; }
+  .iron-landing .iron-landing__doctrine-icon { width: 32px; height: 32px; }
+  .iron-landing .iron-landing__doctrine strong { font-size: 15px; letter-spacing: .04em; }
+  .iron-landing .iron-landing__doctrine span { font-size: 10px; letter-spacing: .02em; }
+  .landing-guide__emblem .iron-landing__doctrine-icon { width: 32px; height: 32px; }
+  .landing-guide__emblem strong { font-size: 15px; }
+  .landing-guide__emblem > span { font-size: 10px; }
+  .landing-guide__divider { display: none; }
+}
