@@ -91,10 +91,23 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
   const emblemStart: Keyframe = { left: `${bounds.left}px`, top: `${bounds.top}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, opacity: 1, transform: 'scale(1)' };
   const emblemEnd = (): Keyframe => ({ left: `${(innerWidth - bounds.width) / 2}px`, top: `${(innerHeight - bounds.height) / 2}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, opacity: 0, transform: 'scale(1.35)' });
   const article = dialog.querySelector<HTMLElement>('article')!;
+  const portrait = dialog.querySelector<HTMLElement>('.landing-guide__portrait')!;
   const next = dialog.querySelector<HTMLButtonElement>('.landing-guide__next')!;
   const render = (index: number): void => {
     chapter = index;
     const lesson = LESSONS[index];
+    const illustration = document.createElement('img');
+    illustration.className = 'landing-guide__commander';
+    illustration.alt = '';
+    illustration.decoding = 'async';
+    illustration.src = `${import.meta.env.BASE_URL}assets/landing/commander/${lesson.name.toLowerCase()}.png`;
+    illustration.onload = () => {
+      if (!reducedMotion && !opening && illustration.isConnected) illustration.animate(
+        [{ opacity: 0, transform: 'translateX(-12px)' }, { opacity: 1, transform: 'translateX(0)' }],
+        { duration: 320, easing: 'ease-out' },
+      );
+    };
+    portrait.replaceChildren(illustration);
     article.innerHTML = `<p class="landing-guide__eyebrow">0${index + 1} / THE ART OF ${lesson.name.toUpperCase()}</p><h2 id="landing-guide-title">${lesson.name}</h2><p class="landing-guide__subtitle">${lesson.subtitle}</p><p class="landing-guide__intro">${lesson.intro}</p><ol class="landing-guide__steps">${lesson.steps.map(([title, copy], i) => `<li><span class="landing-guide__number">0${i + 1}</span><div><h3>${title}</h3><p>${copy}</p></div></li>`).join('')}</ol><div class="landing-guide__advice"><section><h3>MAKE IT A HABIT</h3><p>${lesson.do}</p></section><section><h3>AVOID THIS</h3><p>${lesson.avoid}</p></section></div>`;
     dialog.querySelectorAll<HTMLButtonElement>('[data-chapter]').forEach((button, i) => {
       if (i === index) button.setAttribute('aria-current', 'page');
@@ -135,7 +148,6 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
     animate(frame, [cardFrame(), fullFrame()], { duration: 760, easing: 'cubic-bezier(.76,0,.18,1)' });
     animate(emblem, [emblemStart, { ...emblemEnd(), opacity: 1, offset: .6 }, emblemEnd()], { duration: 720, easing: 'cubic-bezier(.65,0,.2,1)' });
     animate(shell, [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 520 });
-    const portrait = dialog.querySelector<HTMLElement>('.landing-guide__portrait')!;
     animate(portrait, [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)' }], { duration: 480, delay: 580, easing: 'cubic-bezier(.2,.8,.2,1)' });
     const divider = document.createElement('div');
     divider.className = 'landing-guide__divider';
