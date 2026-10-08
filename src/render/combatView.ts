@@ -1561,12 +1561,12 @@ function makeHitTexture(event: CombatEvent): CanvasTexture {
   ctx.fillStyle = 'rgba(5, 8, 7, 0.78)';
   roundRect(ctx, 8, 8, 240, 80, 8);
   ctx.fill();
-  ctx.strokeStyle = event.killed ? 'rgba(255, 94, 67, 0.95)' : 'rgba(240, 213, 106, 0.92)';
+  ctx.strokeStyle = event.killed ? 'rgba(255, 94, 67, 0.95)' : 'rgba(157, 229, 196, 0.92)';
   ctx.lineWidth = 3;
   roundRect(ctx, 8, 8, 240, 80, 8);
   ctx.stroke();
   ctx.font = '700 22px ui-monospace, Menlo, monospace';
-  ctx.fillStyle = event.killed ? '#ff6a54' : '#f0d56a';
+  ctx.fillStyle = event.killed ? '#ff6a54' : '#9de5c4';
   ctx.fillText(title, 22, 34);
   ctx.font = '12px ui-monospace, Menlo, monospace';
   ctx.fillStyle = '#dce8df';
@@ -1574,7 +1574,7 @@ function makeHitTexture(event: CombatEvent): CanvasTexture {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
   roundRect(ctx, 22, 64, 212, 10, 4);
   ctx.fill();
-  ctx.fillStyle = healthPct < 0.3 ? '#ff5142' : healthPct < 0.62 ? '#ffc04a' : '#79f06f';
+  ctx.fillStyle = healthPct < 0.3 ? '#ff5142' : healthPct < 0.62 ? '#9de5c4' : '#79f06f';
   roundRect(ctx, 22, 64, Math.max(4, 212 * healthPct), 10, 4);
   ctx.fill();
   const texture = new CanvasTexture(canvas);

@@ -248,14 +248,14 @@ export class FirstPersonController {
     this.abilityStatus.className = 'game-first-person-ability-status';
     this.abilityStatus.style.cssText =
       'position:fixed;left:50%;bottom:11%;transform:translateX(-50%);display:none;pointer-events:none;z-index:14;' +
-      'padding:7px 11px;border:1px solid rgba(210,177,95,.72);background:rgba(8,12,12,.86);color:#f0d56a;' +
+      'padding:7px 11px;border:1px solid rgba(157,229,196,.72);background:rgba(8,12,12,.86);color:#9de5c4;' +
       'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-shadow:0 1px 2px #000;';
     document.body.appendChild(this.abilityStatus);
     this.abilityHud = document.createElement('div');
     this.abilityHud.className = 'game-first-person-ability-hud';
     this.abilityHud.style.cssText =
       'position:fixed;right:20px;bottom:58px;display:none;pointer-events:none;z-index:13;padding:7px 10px;' +
-      'border-left:3px solid #d2b15f;background:rgba(8,12,12,.76);color:#dbe5df;font:700 10px ui-monospace,Menlo,monospace;letter-spacing:.08em;';
+      'border-left:3px solid #78b99e;background:rgba(8,12,12,.76);color:#dbe5df;font:700 10px ui-monospace,Menlo,monospace;letter-spacing:.08em;';
     document.body.appendChild(this.abilityHud);
     this.impactOverlay = document.createElement('div');
     this.impactOverlay.style.cssText =
@@ -272,28 +272,28 @@ export class FirstPersonController {
     this.lockHud = document.createElement('div');
     this.lockHud.style.cssText =
       'position:fixed;left:50%;top:50%;width:76px;height:76px;transform:translate(-50%,-50%);display:none;pointer-events:none;z-index:16;' +
-      'border:2px dashed rgba(240,213,106,.88);box-shadow:0 0 16px rgba(240,213,106,.34),inset 0 0 12px rgba(240,213,106,.1);' +
+      'border:2px dashed rgba(157,229,196,.88);box-shadow:0 0 16px rgba(157,229,196,.34),inset 0 0 12px rgba(157,229,196,.1);' +
       'transition:border-color .12s,box-shadow .12s,transform .12s;';
     this.lockStatus = document.createElement('div');
     this.lockStatus.style.cssText =
       'position:absolute;left:50%;top:calc(100% + 8px);transform:translateX(-50%);white-space:nowrap;' +
-      'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#f0d56a;text-shadow:0 1px 3px #000;';
+      'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#9de5c4;text-shadow:0 1px 3px #000;';
     this.lockHud.appendChild(this.lockStatus);
     document.body.appendChild(this.lockHud);
     this.targetScanHud = document.createElement('div');
     this.targetScanHud.className = 'game-fortress-target-scan';
     this.targetScanHud.style.cssText =
       'position:fixed;left:50%;top:50%;width:96px;height:96px;transform:translate(-50%,-50%);display:none;pointer-events:none;z-index:15;' +
-      'border:1px solid rgba(240,213,106,.7);border-radius:50%;box-sizing:border-box;' +
-      'box-shadow:0 0 22px rgba(240,213,106,.22),inset 0 0 26px rgba(240,213,106,.08);';
+      'border:1px solid rgba(157,229,196,.7);border-radius:50%;box-sizing:border-box;' +
+      'box-shadow:0 0 22px rgba(157,229,196,.22),inset 0 0 26px rgba(157,229,196,.08);';
     this.targetScanHud.innerHTML =
-      '<div style="position:absolute;left:50%;top:-8px;bottom:-8px;width:1px;background:linear-gradient(transparent,rgba(240,213,106,.72),transparent)"></div>' +
-      '<div style="position:absolute;top:50%;left:-8px;right:-8px;height:1px;background:linear-gradient(90deg,transparent,rgba(240,213,106,.72),transparent)"></div>' +
-      '<div style="position:absolute;inset:12%;border:1px dashed rgba(240,213,106,.34);border-radius:50%"></div>';
+      '<div style="position:absolute;left:50%;top:-8px;bottom:-8px;width:1px;background:linear-gradient(transparent,rgba(157,229,196,.72),transparent)"></div>' +
+      '<div style="position:absolute;top:50%;left:-8px;right:-8px;height:1px;background:linear-gradient(90deg,transparent,rgba(157,229,196,.72),transparent)"></div>' +
+      '<div style="position:absolute;inset:12%;border:1px dashed rgba(157,229,196,.34);border-radius:50%"></div>';
     this.targetScanStatus = document.createElement('div');
     this.targetScanStatus.style.cssText =
       'position:absolute;left:50%;top:calc(100% + 12px);transform:translateX(-50%);white-space:nowrap;' +
-      'padding:5px 8px;background:rgba(7,12,12,.78);border-left:2px solid #f0d56a;color:#f0d56a;' +
+      'padding:5px 8px;background:rgba(7,12,12,.78);border-left:2px solid #9de5c4;color:#9de5c4;' +
       'font:700 10px ui-monospace,Menlo,monospace;letter-spacing:.13em;text-shadow:0 1px 3px #000;';
     this.targetScanHud.appendChild(this.targetScanStatus);
     document.body.appendChild(this.targetScanHud);
@@ -894,9 +894,9 @@ export class FirstPersonController {
     this.targetScanHud.style.width = `${size}px`;
     this.targetScanHud.style.height = `${size}px`;
     this.targetScanHud.style.background =
-      `radial-gradient(circle,transparent 0 58%,rgba(240,213,106,.07) 59%,transparent 62%),` +
-      `conic-gradient(from ${Math.round(progress * 1080)}deg,transparent 0 73%,rgba(240,213,106,.32) 88%,rgba(255,226,126,.72) 97%,transparent 100%)`;
-    this.targetScanHud.style.borderColor = candidate ? 'rgba(255,190,72,.95)' : 'rgba(240,213,106,.62)';
+      `radial-gradient(circle,transparent 0 58%,rgba(157,229,196,.07) 59%,transparent 62%),` +
+      `conic-gradient(from ${Math.round(progress * 1080)}deg,transparent 0 73%,rgba(157,229,196,.32) 88%,rgba(194,244,221,.72) 97%,transparent 100%)`;
+    this.targetScanHud.style.borderColor = candidate ? 'rgba(194,244,221,.95)' : 'rgba(157,229,196,.62)';
     this.targetScanStatus.textContent = candidate
       ? `CONTACT · ${this.lockTargetLabel(candidate).toUpperCase()} · RELEASE T TO LOCK`
       : `SCANNING ${Math.round(progress * 100)}% · HOLD T`;
@@ -912,12 +912,12 @@ export class FirstPersonController {
     this.lockHud.style.top = `${screen.y}px`;
     this.lockHud.style.width = `${size}px`;
     this.lockHud.style.height = `${size}px`;
-    this.lockHud.style.borderColor = locked ? 'rgba(255,82,62,.98)' : 'rgba(240,213,106,.9)';
+    this.lockHud.style.borderColor = locked ? 'rgba(255,82,62,.98)' : 'rgba(157,229,196,.9)';
     this.lockHud.style.boxShadow = locked
       ? '0 0 24px rgba(255,70,48,.62),inset 0 0 16px rgba(255,70,48,.16)'
-      : '0 0 16px rgba(240,213,106,.34),inset 0 0 12px rgba(240,213,106,.1)';
+      : '0 0 16px rgba(157,229,196,.34),inset 0 0 12px rgba(157,229,196,.1)';
     this.lockHud.style.transform = `translate(-50%,-50%) scale(${locked ? 0.9 : scanProgress === undefined ? 1.04 - this.lockProgress * 0.04 : 1})`;
-    this.lockStatus.style.color = locked ? '#ff6b57' : '#f0d56a';
+    this.lockStatus.style.color = locked ? '#ff6b57' : '#9de5c4';
     this.lockStatus.textContent = locked
       ? `LOCKED  ${this.lockTargetLabel(candidate).toUpperCase()}`
       : scanProgress === undefined
@@ -1092,7 +1092,7 @@ export class FirstPersonController {
         ? 'Tactical Warhead'
         : specialUpgradeForEntity(this.possessed)?.label ?? 'Special Weapon';
       this.abilityHud.textContent = `F  ${label.toUpperCase()}  ${weapon.cooldown > 0 ? `${weapon.cooldown.toFixed(1)}S` : 'READY'}`;
-      this.abilityHud.style.color = weapon.cooldown > 0 ? '#d2b15f' : '#78df8b';
+      this.abilityHud.style.color = weapon.cooldown > 0 ? '#78b99e' : '#78df8b';
     }
     this.abilityHud.style.display = 'block';
   }
@@ -1306,7 +1306,7 @@ export class FirstPersonController {
     const cooldown = weapon?.kind === 'sniperRifle' ? weapon.cooldown : 0;
     if (cooldown > 0) {
       this.scopeStatus.textContent = this.sniperReloadFlash > 0 ? 'RELOADING' : `${cooldown.toFixed(1)}s`;
-      this.scopeStatus.style.color = this.sniperReloadFlash > 0 ? 'rgba(255,198,106,.95)' : 'rgba(216,255,208,.72)';
+      this.scopeStatus.style.color = this.sniperReloadFlash > 0 ? 'rgba(157,229,196,.95)' : 'rgba(216,255,208,.72)';
     } else {
       this.scopeStatus.textContent = 'READY';
       this.scopeStatus.style.color = 'rgba(216,255,208,.9)';

@@ -1934,10 +1934,10 @@ function rankChevronTexture(rank: number): CanvasTexture {
   ctx.fillStyle = 'rgba(8, 12, 10, 0.92)';
   ctx.fill();
   ctx.lineWidth = 5;
-  ctx.strokeStyle = clamped >= 3 ? '#f4d56a' : '#d2b15f';
+  ctx.strokeStyle = clamped >= 3 ? '#b6efd5' : '#78b99e';
   ctx.stroke();
 
-  const color = clamped >= 3 ? '#f7e08a' : '#e8c85a';
+  const color = clamped >= 3 ? '#c2f4dd' : '#78b99e';
   ctx.strokeStyle = color;
   ctx.lineWidth = 7;
   ctx.lineJoin = 'round';

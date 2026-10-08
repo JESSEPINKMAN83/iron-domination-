@@ -1,0 +1,92 @@
+/* Room preparation shares the command UI palette and readable controls. */
+.war-room-loading[hidden] { display: none; }
+.war-room-loading { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 24px; background: #081016e8; color: var(--game-text); font-family: var(--game-font); }
+.war-room-loading__card { width: min(440px, 100%); padding: 32px; border: 1px solid #40574d; border-radius: 18px; background: var(--game-surface); text-align: center; box-shadow: 0 24px 80px #0005; }
+.war-room-loading h2 { margin: 20px 0 10px; font-size: 24px; letter-spacing: -.03em; }
+.war-room-loading p { color: var(--game-accent); font-size: 14px; line-height: 1.5; }
+.war-room-loading small { display: block; color: var(--game-muted); font-size: 12px; line-height: 1.6; }
+.war-room-loading__spinner { display: inline-block; width: 36px; height: 36px; border: 3px solid #385147; border-top-color: var(--game-accent); border-radius: 50%; animation: room-spin 1s linear infinite; }
+@keyframes room-spin { to { transform: rotate(360deg); } }
+.war-multiplayer__status { font: 12px/1.5 var(--game-font); padding: 10px 12px; }
+.war-multiplayer__status.is-error { color: #ffb3a0; background: #36201e; border-radius: 8px; }
+.war-lobby { width: 100%; height: 100dvh; padding: 24px; align-items: flex-start; background: var(--game-deep); backdrop-filter: none; overflow: auto; }
+.war-lobby__panel { width: min(1440px, 100%); flex: 0 1 1440px; min-width: 0; max-height: none; padding: 24px; gap: 20px; overflow: visible; background: var(--game-surface); border: 1px solid var(--game-line); border-radius: 16px; }
+.war-lobby__header { gap: 16px; padding-bottom: 18px; }
+.war-lobby__title { margin: 0; color: var(--game-text); font: 650 clamp(22px, 2.4vw, 32px)/1.2 var(--game-font); letter-spacing: -.035em; }
+.war-lobby__back { min-height: 38px; font-size: 11px; }
+.war-lobby__room-code { padding: 8px 14px; border-color: #476858; border-radius: 8px; background: #1c3028; }
+.war-lobby__room-code span { font: 600 9px/1.4 var(--game-font); }
+.war-lobby__room-code strong { color: var(--game-accent); font: 700 20px/1.2 var(--game-font); letter-spacing: .12em; }
+.war-lobby__briefing { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 20px; padding: 16px; border-left-color: var(--game-accent); border-radius: 8px; background: #1c2d27; }
+.war-lobby__briefing strong { font: 600 17px/1.4 var(--game-font); letter-spacing: 0; }
+.war-lobby__briefing span { font: 600 10px/1.5 var(--game-font); color: var(--game-muted); }
+.war-lobby__briefing p { font-size: 12px; }
+.war-lobby__briefing b { color: var(--game-accent); }
+.war-lobby__grid { grid-template-columns: minmax(0, 1.35fr) minmax(380px, 1fr); gap: 22px; align-items: start; }
+.war-lobby__battlefield { grid-template-rows: auto auto auto; gap: 12px; }
+.war-lobby__battlefield-header { align-items: start; flex-direction: column; gap: 6px; }
+.war-lobby__battlefield-header span, .war-lobby__section-title { color: var(--game-accent); font: 650 11px/1.4 var(--game-font); letter-spacing: .06em; }
+.war-lobby__battlefield-header strong { font: 600 14px/1.5 var(--game-font); }
+.war-lobby__battlefield-header p { max-width: none; text-align: left; font: 12px/1.5 var(--game-font); color: var(--game-muted); }
+.war-lobby__battlefield-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.war-lobby__room-setting:nth-child(n) { grid-column: auto; padding: 10px; gap: 8px; background: var(--game-deep); border-color: var(--game-line); }
+.war-lobby__room-setting--combat { grid-column: auto; }
+.war-lobby__room-setting > span { color: var(--game-muted); font: 600 10px/1.4 var(--game-font); }
+.war-lobby__setting-choices { gap: 4px; }
+.war-lobby__setting-choices button { min-height: 34px; font-size: 10px; }
+.war-lobby__setting-choices button + button { margin-left: 0; }
+.war-lobby__seed-input { height: 34px; font-size: 12px; }
+.war-lobby__seed-controls button { padding-inline: 7px; }
+.war-lobby__ore-controls { grid-template-columns: minmax(0, 1fr); }
+.war-lobby__ore-controls output { color: var(--game-accent); font: 600 10px/1.4 var(--game-font); text-align: left; }
+.war-lobby__ore-controls input[type='range'] { accent-color: var(--game-accent); }
+.war-lobby__map { width: 100%; height: clamp(330px, 45vw, 530px); min-height: 0; aspect-ratio: auto; border-color: #40544d; }
+.war-lobby__command { gap: 14px; }
+.war-lobby__invite { padding: 16px; gap: 12px; border: 1px solid #405d50; background: #1b2d26; border-radius: 12px; }
+.war-lobby__invite-heading { gap: 6px; }
+.war-lobby__invite-heading strong, .war-lobby__army-label strong { color: var(--game-accent); font: 650 12px/1.4 var(--game-font); letter-spacing: .02em; }
+.war-lobby__invite-heading span, .war-lobby__army-label span { font: 12px/1.5 var(--game-font); color: var(--game-muted); white-space: normal; }
+.war-lobby__invite-link { height: 38px; font-size: 11px; }
+.war-lobby__copy { min-height: 38px; font-size: 11px; }
+.war-lobby__army-bar { padding: 12px; border-color: var(--game-line); border-radius: 10px; background: var(--game-deep); }
+.war-lobby__army-choice { min-height: 36px; font-size: 12px; }
+.war-lobby__army-choice:hover:not(:disabled) { color: var(--game-accent); border-color: var(--game-accent); }
+.war-lobby__roster, .war-lobby__players { gap: 10px; }
+.war-lobby__table-head { display: none; }
+.war-lobby__player { grid-template-columns: 28px 36px minmax(0, 1fr); grid-template-areas: 'slot avatar identity' '. team team' '. colors colors'; gap: 10px; padding: 14px; border-radius: 10px; background: var(--game-deep); }
+.war-lobby__slot { grid-area: slot; font-size: 12px; }
+.war-lobby__avatar { grid-area: avatar; }
+.war-lobby__identity { grid-area: identity; gap: 6px; }
+.war-lobby__assignment-cell { grid-area: team; }
+.war-lobby__color-picker, .war-lobby__color-display { grid-area: colors; justify-self: start; margin: 0; }
+.war-lobby__color-picker { grid-template-columns: repeat(4, 24px); gap: 10px; }
+.war-lobby__color { width: 24px; height: 24px; border-radius: 5px; }
+.war-lobby__color.is-active { outline-color: var(--game-accent); }
+.war-lobby__player.is-local { background: #1c2b25; }
+.war-lobby__player.is-selected { border-color: #608d76; border-left-color: var(--army-color); outline: none; }
+.war-lobby__name-input { height: 36px; font-size: 13px; }
+.war-lobby__player-name { font: 600 13px/1.4 var(--game-font); }
+.war-lobby__connection { white-space: normal; font: 11px/1.5 var(--game-font); }
+.war-lobby__team-select { min-height: 36px; font: 600 12px/1.4 var(--game-font); letter-spacing: 0; }
+.war-lobby__team-select:hover:not(:disabled), .war-lobby__team-select:focus-visible, .war-lobby__seed-input:focus, .war-lobby__invite-link:focus { border-color: var(--game-accent); outline: 2px solid #9de5c440; box-shadow: none; }
+.war-lobby__actions { position: static; grid-template-columns: 1fr 1fr; padding: 0; background: none; }
+.war-lobby__cta { min-height: 46px; font-size: 11px; letter-spacing: .02em; }
+.war-lobby__status { padding: 12px; font: 12px/1.5 var(--game-font); background: var(--game-deep); }
+@media (max-width: 1050px) {
+  .war-lobby { padding: 16px; }
+  .war-lobby__panel { padding: 18px; }
+  .war-lobby__grid { grid-template-columns: minmax(0, 1fr); }
+  .war-lobby__command { grid-row: 1; }
+  .war-lobby__players { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .war-lobby { padding: 0; }
+  .war-lobby__panel { padding: 16px; border: 0; border-radius: 0; }
+  .war-lobby__header { flex-direction: column; align-items: stretch; }
+  .war-lobby__header-tools { justify-content: space-between; }
+  .war-lobby__back { order: 0; width: auto; }
+  .war-lobby__briefing { grid-template-columns: 1fr; gap: 8px; }
+  .war-lobby__players, .war-lobby__battlefield-settings { grid-template-columns: 1fr; }
+  .war-lobby__invite-controls { grid-template-columns: minmax(0, 1fr) auto; }
+}
+@media (prefers-reduced-motion: reduce) { .war-room-loading__spinner { animation: none; border-style: dotted; } }

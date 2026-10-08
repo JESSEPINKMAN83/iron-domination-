@@ -86,7 +86,7 @@ export class SelectionBar {
       'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:13;display:none;' +
       'width:min(720px,calc(100vw - 36px));pointer-events:auto;color:#e0e7dd;font:12px/1.35 ui-monospace,Menlo,monospace;' +
       'background:linear-gradient(180deg,rgba(24,31,31,.94),rgba(8,12,12,.9));border:2px solid #1b1f20;border-top-color:#596260;border-left-color:#596260;' +
-      'border-radius:3px;padding:9px 10px;box-shadow:inset 0 0 0 1px rgba(210,177,95,.25),0 12px 30px rgba(0,0,0,.38);';
+      'border-radius:3px;padding:9px 10px;box-shadow:inset 0 0 0 1px rgba(157,229,196,.25),0 12px 30px rgba(0,0,0,.38);';
     this.root.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
     this.worldOverlay = document.createElement('div');
@@ -94,6 +94,13 @@ export class SelectionBar {
     this.worldOverlay.style.cssText = 'position:fixed;inset:0;z-index:14;pointer-events:none;overflow:hidden;';
     document.body.appendChild(this.root);
     document.body.appendChild(this.worldOverlay);
+    document.addEventListener('pointerdown', (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const openPopovers = document.querySelectorAll<HTMLElement>('[data-upgrade-popover]');
+      if (Array.from(openPopovers).some((popover) => popover.contains(target))) return;
+      this.closeAllUpgradePopovers();
+    }, { capture: true });
   }
 
   setVisible(visible: boolean): void {
@@ -118,9 +125,7 @@ export class SelectionBar {
     this.syncWorldUpgradeButtons(selected);
     const groups = selectionGroups(selected);
     const siloSelected = selected.length === 1 && selected[0].building?.kind === 'strategic-silo' && this.actions.strategic;
-    const key = groups
-      .map((group) => `${group.key}:${group.entities.map((entity) => `${entity.id}.${entity.unitUpgrades?.ids.join('+') ?? ''}`).join(',')}:${group.healthPct ?? ''}`)
-      .join('|') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
+    const key = selectionGroupsKey(groups) + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
     if (key === this.lastKey) return;
     this.lastKey = key;
     if (siloSelected) this.renderStrategicSilo(groups[0], selected[0]);
@@ -149,6 +154,7 @@ export class SelectionBar {
   }
 
   private render(groups: SelectionGroup[], selectedCount: number): void {
+    this.root.classList.remove('is-strategic');
     this.root.replaceChildren();
     this.root.style.left = '50%';
     this.root.style.transform = 'translateX(-50%)';
@@ -157,16 +163,18 @@ export class SelectionBar {
     this.root.style.gap = '8px';
 
     const header = document.createElement('div');
+    header.className = 'game-selection-header';
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;';
     const title = document.createElement('div');
-    title.textContent = 'SELECTED FORCE';
-    title.style.cssText = 'font-size:12px;color:#d2b15f;letter-spacing:.08em;';
+    title.textContent = 'Selected force';
+    title.style.cssText = 'font-size:12px;color:#9de5c4;letter-spacing:.08em;';
     const count = document.createElement('div');
     count.textContent = `${selectedCount} ${selectedCount === 1 ? 'ITEM' : 'ITEMS'}`;
     count.style.cssText = 'font-size:12px;color:#f0f3e8;text-align:right;';
     header.append(title, count);
 
     const grid = document.createElement('div');
+    grid.className = 'game-selection-grid';
     grid.style.cssText = 'display:flex;gap:8px;overflow-x:auto;padding-bottom:1px;';
     for (const group of groups) grid.appendChild(this.groupButton(group, selectedCount));
 
@@ -180,10 +188,11 @@ export class SelectionBar {
       const tacticBtn = document.createElement('button');
       tacticBtn.type = 'button';
       tacticBtn.textContent = 'Define Tactic';
+      tacticBtn.className = 'game-primary-action';
       tacticBtn.title = 'Plan a multi-point path for the selected units';
       tacticBtn.style.cssText =
-        'padding:7px 12px;border:1px solid #d2b15f;border-radius:2px;cursor:pointer;' +
-        'background:linear-gradient(180deg,#4f4728,#1d2018);color:#f0d56a;font:700 11px ui-monospace,Menlo,monospace;' +
+        'padding:7px 12px;border:1px solid #78b99e;border-radius:2px;cursor:pointer;' +
+        'background:linear-gradient(180deg,#29483e,#172720);color:#b6efd5;font:700 11px ui-monospace,Menlo,monospace;' +
         'letter-spacing:.08em;text-transform:uppercase;';
       tacticBtn.onpointerdown = (event) => {
         event.preventDefault();
@@ -200,6 +209,7 @@ export class SelectionBar {
   }
 
   private renderStrategicSilo(group: SelectionGroup, silo: Entity): void {
+    this.root.classList.add('is-strategic');
     const controls = this.actions.strategic!;
     const economy = controls.economy;
     const enemyTeams = Array.from(new Set(
@@ -217,8 +227,9 @@ export class SelectionBar {
     this.root.style.width = 'min(1380px,calc(100vw - 220px))';
 
     const header = document.createElement('div');
+    header.className = 'game-selection-header';
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;';
-    header.innerHTML = '<span style="font-size:12px;color:#d2b15f;letter-spacing:.08em">SELECTED FORCE</span><span style="font-size:10px;color:#93a29c;letter-spacing:.06em">MISSILE SILO CONTROL</span>';
+    header.innerHTML = '<span style="font-size:12px;color:#9de5c4;letter-spacing:.08em">SELECTED FORCE</span><span style="font-size:10px;color:#93a29c;letter-spacing:.06em">MISSILE SILO CONTROL</span>';
 
     const layout = document.createElement('div');
     layout.style.cssText = 'display:grid;grid-template-columns:minmax(150px,190px) minmax(0,1fr);gap:16px;align-items:stretch;';
@@ -269,7 +280,7 @@ export class SelectionBar {
     const weaponGrid = document.createElement('div');
     weaponGrid.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;';
     const enemyTeam = this.strategicEnemyTeam;
-    const accent = enemyTeam ? factionAccent(enemyTeam) : '#d2b15f';
+    const accent = enemyTeam ? factionAccent(enemyTeam) : '#9de5c4';
     weaponGrid.append(
       this.strategicWeaponColumn('missile', enemyTeam, accent, silo),
       this.strategicWeaponColumn('ember', enemyTeam, '#ef995d', silo),
@@ -307,7 +318,7 @@ export class SelectionBar {
           ? 'Choose an impact point on the battlefield'
           : readiness.reason;
     launch.style.cssText =
-      `position:relative;isolation:isolate;min-height:58px;padding:0;overflow:hidden;border:2px solid ${targeting ? '#f5e078' : `${accent}c8`};border-radius:4px;` +
+      `position:relative;isolation:isolate;min-height:58px;padding:0;overflow:hidden;border:2px solid ${targeting ? '#c2f4dd' : `${accent}c8`};border-radius:4px;` +
       `background:#242827;color:#fff;cursor:${canLaunch ? 'pointer' : 'default'};opacity:${enemyTeam === undefined ? '.62' : '1'};text-align:left;` +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 5px 12px rgba(0,0,0,.22);';
     const fill = document.createElement('span');
@@ -324,7 +335,7 @@ export class SelectionBar {
     const launchCost = missile ? strategicMissileLaunchCost(economy) : emberDroneLaunchCost(economy);
     const launchPrice = missile ? `$${launchCost}` : `${salvoSize}× · $${launchCost}`;
     state.textContent = targeting ? 'MARKING' : readiness.cooldown > 0 ? `${launchPrice} · ${Math.ceil(readiness.cooldown)}S` : launchPrice;
-    state.style.cssText = `font:800 13px/1 ui-monospace,Menlo,monospace;color:${readiness.ready || targeting ? '#fff3b0' : '#c7d0cc'};white-space:nowrap;`;
+    state.style.cssText = `font:800 13px/1 ui-monospace,Menlo,monospace;color:${readiness.ready || targeting ? '#c2f4dd' : '#c7d0cc'};white-space:nowrap;`;
     copy.append(name, state);
     launch.append(fill, copy);
     launch.onclick = () => {
@@ -361,8 +372,8 @@ export class SelectionBar {
       buy.textContent = upgrade.cost > 0 ? `↑ $${upgrade.cost}` : 'MAX';
       buy.title = upgrade.ok ? title : upgrade.reason;
       buy.style.cssText =
-        `min-width:68px;min-height:32px;padding:5px 8px;border:1px solid ${upgrade.ok ? '#e3c663' : '#4d5552'};border-radius:4px;` +
-        `background:${upgrade.ok ? 'linear-gradient(180deg,#d9bd59,#9a7930)' : '#242a28'};color:${upgrade.ok ? '#111513' : '#818b87'};` +
+        `min-width:68px;min-height:32px;padding:5px 8px;border:1px solid ${upgrade.ok ? '#78b99e' : '#4d5552'};border-radius:4px;` +
+        `background:${upgrade.ok ? 'linear-gradient(180deg,#9de5c4,#4f8c76)' : '#242a28'};color:${upgrade.ok ? '#111513' : '#818b87'};` +
         `font:900 9px ui-monospace,Menlo,monospace;cursor:${upgrade.ok ? 'pointer' : 'default'};white-space:nowrap;`;
       const activateUpgrade = (): void => {
         if (buy.disabled) return;
@@ -463,6 +474,8 @@ export class SelectionBar {
   private groupButton(group: SelectionGroup, selectedCount: number): HTMLDivElement {
     const active = group.entities.length === selectedCount;
     const button = document.createElement('div');
+    button.className = 'game-unit-card';
+    button.setAttribute('aria-pressed', String(active));
     button.tabIndex = 0;
     button.setAttribute('role', 'button');
     button.title = `Select ${group.entities.length} ${group.label}`;
@@ -470,7 +483,7 @@ export class SelectionBar {
     button.style.cssText =
       'flex:0 0 136px;min-height:92px;text-align:left;padding:5px;display:grid;grid-template-rows:48px auto;gap:4px;align-items:stretch;' +
       'border-radius:2px;border:1px solid #4b5552;border-top-color:#757f7a;border-left-color:#757f7a;' +
-      `background:${active ? 'linear-gradient(180deg,#4f4728,#1d2018)' : 'linear-gradient(180deg,#26302f,#121817)'};` +
+      `background:${active ? 'linear-gradient(180deg,#29483e,#172720)' : 'linear-gradient(180deg,#26302f,#121817)'};` +
       'color:#eef3e9;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.48);';
     button.onpointerdown = (event) => {
       if (event.button !== 0) return;
@@ -490,12 +503,13 @@ export class SelectionBar {
     button.oncontextmenu = (event) => event.preventDefault();
 
     const icon = document.createElement('div');
+    icon.className = 'game-thumbnail';
     icon.style.cssText =
       'position:relative;min-height:48px;border:1px solid #111;background:#111615;overflow:hidden;' +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),inset 0 -18px 18px rgba(0,0,0,.35);';
     const fallback = document.createElement('div');
     fallback.style.cssText =
-      'position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#252b2d,#0d1112);color:#d2b15f;font-size:15px;z-index:1;';
+      'position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#252b2d,#0d1112);color:#9de5c4;font-size:15px;z-index:1;';
     fallback.textContent = initials(group.label);
     const img = document.createElement('img');
     img.src = commandIconPath(group.kind);
@@ -508,6 +522,7 @@ export class SelectionBar {
     if (group.unitKind) icon.appendChild(this.upgradeButton(group));
 
     const copy = document.createElement('div');
+    copy.className = 'game-unit-card__copy';
     copy.style.cssText = 'display:grid;gap:2px;min-width:0;';
     const name = document.createElement('div');
     name.style.cssText = 'font-size:11px;color:#f0f3e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;';
@@ -526,16 +541,21 @@ export class SelectionBar {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = '↑';
+    button.className = 'game-upgrade-trigger';
     button.title = `Upgrade ${group.label}`;
     button.setAttribute('aria-label', `Upgrade ${group.label}`);
     button.style.cssText =
       'position:absolute;left:3px;top:3px;z-index:6;width:24px;height:24px;padding:0;display:grid;place-items:center;' +
-      'border:1px solid #d2b15f;background:#101716;color:#f0d56a;font:bold 18px/1 ui-monospace,Menlo,monospace;cursor:pointer;' +
+      'border:1px solid #78b99e;background:#101716;color:#9de5c4;font:bold 18px/1 ui-monospace,Menlo,monospace;cursor:pointer;' +
       'box-shadow:0 2px 6px rgba(0,0,0,.55);';
     button.onpointerdown = (event) => {
       event.preventDefault();
       event.stopPropagation();
       this.openUpgradePopover(group, button);
+    };
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
     };
     button.onkeydown = (event) => event.stopPropagation();
     return button;
@@ -549,7 +569,7 @@ export class SelectionBar {
     popover.style.cssText =
       'position:absolute;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%);width:min(440px,calc(100vw - 40px));' +
       'display:grid;gap:8px;padding:10px;background:linear-gradient(180deg,#1d2625,#0b1110);border:1px solid #717b74;' +
-      'box-shadow:0 16px 36px rgba(0,0,0,.55),inset 0 0 0 1px rgba(210,177,95,.18);z-index:20;';
+      'box-shadow:0 16px 36px rgba(0,0,0,.55),inset 0 0 0 1px rgba(157,229,196,.18);z-index:20;';
     popover.onpointerdown = (event) => event.stopPropagation();
     this.populateUpgradePopover(popover, group, () => popover.remove());
     this.root.appendChild(popover);
@@ -560,7 +580,7 @@ export class SelectionBar {
     if (!group.unitKind) return;
 
     const heading = document.createElement('div');
-    heading.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;color:#f0d56a;font-size:12px;';
+    heading.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;color:#9de5c4;font-size:12px;';
     const ownedSummary = group.entities.reduce((sum, entity) => sum + (entity.unitUpgrades?.ids.length ?? 0), 0);
     heading.innerHTML = `<span>UPGRADE ${escapeHtml(group.label.toUpperCase())}</span><span style="color:#b8c3bf">$${Math.floor(this.actions.credits())} · ${ownedSummary} INSTALLED</span>`;
     popover.appendChild(heading);
@@ -572,12 +592,14 @@ export class SelectionBar {
       const affordable = this.actions.credits() >= totalCost;
       const row = document.createElement('button');
       row.type = 'button';
+      row.className = 'game-upgrade-option';
+      row.dataset.installed = String(missing === 0);
       row.disabled = missing === 0 || !affordable;
       row.style.cssText =
         'width:100%;display:grid;grid-template-columns:1fr auto;gap:7px 12px;text-align:left;padding:9px;border:1px solid #46514e;' +
         `background:${missing === 0 ? '#18211b' : affordable ? '#202a28' : '#241b19'};color:#eef3e9;cursor:${row.disabled ? 'default' : 'pointer'};opacity:${missing === 0 ? '.72' : '1'};`;
       const state = missing === 0 ? 'INSTALLED' : `$${totalCost}`;
-      const stateColor = missing === 0 ? '#78df8b' : affordable ? '#f0d56a' : '#ff7d67';
+      const stateColor = missing === 0 ? '#78df8b' : affordable ? '#9de5c4' : '#ff7d67';
       row.innerHTML =
         `<strong style="font-size:12px">${escapeHtml(def.label)}${def.hotkey ? ` <span style="color:#72e6d0">[${def.hotkey}]</span>` : ''}</strong>` +
         `<strong style="font-size:12px;color:${stateColor}">${state}</strong>` +
@@ -588,9 +610,10 @@ export class SelectionBar {
         if (result.ok) {
           popover.replaceChildren();
           this.populateUpgradePopover(popover, group, closePopover);
+          const selected = selectedEntities(this.sim, this.localTeam).filter((entity) => !entity.destroyed);
+          this.lastKey = selectionGroupsKey(selectionGroups(selected));
         }
         this.showPurchaseResult(popover, result);
-        this.lastKey = '';
       };
       popover.appendChild(row);
     }
@@ -634,8 +657,8 @@ export class SelectionBar {
         button.dataset.worldUpgradeId = String(entity.id);
         button.style.cssText =
           'position:fixed;display:grid;place-items:center;width:25px;height:25px;padding:0;transform:translate(-50%,-100%);' +
-          'pointer-events:auto;border:1px solid #f0d56a;border-radius:50%;background:rgba(8,14,13,.94);color:#f6dc72;' +
-          'font:900 17px/1 ui-monospace,Menlo,monospace;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.62),0 0 0 2px rgba(8,14,13,.55),0 0 12px rgba(240,213,106,.24);';
+          'pointer-events:auto;border:1px solid #9de5c4;border-radius:50%;background:rgba(8,14,13,.94);color:#b6efd5;' +
+          'font:900 17px/1 ui-monospace,Menlo,monospace;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.62),0 0 0 2px rgba(8,14,13,.55),0 0 12px rgba(157,229,196,.24);';
         button.onpointerdown = (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -651,8 +674,8 @@ export class SelectionBar {
         this.worldOverlay.appendChild(button);
       }
       button.textContent = missing > 0 ? '↑' : '✓';
-      button.style.borderColor = missing > 0 ? '#f0d56a' : '#70db87';
-      button.style.color = missing > 0 ? '#f6dc72' : '#70db87';
+      button.style.borderColor = missing > 0 ? '#9de5c4' : '#70db87';
+      button.style.color = missing > 0 ? '#b6efd5' : '#70db87';
       button.title = missing > 0 ? `${missing} upgrades available for ${unitDisplayName(entity)}` : `${unitDisplayName(entity)} fully upgraded`;
       button.setAttribute('aria-label', button.title);
     }
@@ -671,7 +694,7 @@ export class SelectionBar {
     popover.style.cssText =
       'position:fixed;width:min(330px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow-y:auto;display:grid;gap:7px;padding:9px;pointer-events:auto;' +
       'background:linear-gradient(180deg,rgba(29,38,37,.98),rgba(8,14,13,.98));border:1px solid #7a826f;' +
-      'box-shadow:0 14px 34px rgba(0,0,0,.62),inset 0 0 0 1px rgba(210,177,95,.2);z-index:30;';
+      'box-shadow:0 14px 34px rgba(0,0,0,.62),inset 0 0 0 1px rgba(157,229,196,.2);z-index:30;';
     popover.onpointerdown = (event) => event.stopPropagation();
     popover.oncontextmenu = (event) => event.preventDefault();
     this.worldPopover = popover;
@@ -723,6 +746,12 @@ export class SelectionBar {
   }
 }
 
+function selectionGroupsKey(groups: SelectionGroup[]): string {
+  return groups
+    .map((group) => `${group.key}:${group.entities.map((entity) => `${entity.id}.${entity.unitUpgrades?.ids.join('+') ?? ''}`).join(',')}:${group.healthPct ?? ''}`)
+    .join('|');
+}
+
 function selectionGroups(entities: Entity[]): SelectionGroup[] {
   const map = new Map<string, SelectionGroup>();
   for (const entity of entities) {
@@ -771,23 +800,23 @@ function badge(text: string, active: boolean): HTMLDivElement {
   el.textContent = text;
   el.style.cssText =
     'position:absolute;right:3px;top:3px;z-index:4;padding:1px 4px;border:1px solid rgba(0,0,0,.55);font-size:10px;line-height:14px;' +
-    `background:${active ? '#d2b15f' : '#111615'};color:${active ? '#151715' : '#f0d56a'};box-shadow:0 1px 4px rgba(0,0,0,.45);`;
+    `background:${active ? '#9de5c4' : '#111615'};color:${active ? '#12251e' : '#9de5c4'};box-shadow:0 1px 4px rgba(0,0,0,.45);`;
   return el;
 }
 
-/** Gold chevron stack for Veteran / Elite / Ace on selection cards. */
+/** Green chevron stack for Veteran / Elite / Ace on selection cards. */
 function rankChevronBadge(rank: number): HTMLDivElement {
   const el = document.createElement('div');
   el.title = rank === 1 ? 'Veteran' : rank === 2 ? 'Elite' : 'Ace';
   el.setAttribute('aria-label', el.title);
   el.style.cssText =
     'position:absolute;left:3px;bottom:3px;z-index:5;display:grid;gap:1px;padding:2px 3px;' +
-    'border:1px solid rgba(210,177,95,.55);background:rgba(8,12,10,.82);box-shadow:0 1px 4px rgba(0,0,0,.45);';
+    'border:1px solid rgba(157,229,196,.55);background:rgba(8,12,10,.82);box-shadow:0 1px 4px rgba(0,0,0,.45);';
   for (let i = 0; i < Math.min(3, rank); i++) {
     const chevron = document.createElement('div');
     chevron.style.cssText =
       'width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;' +
-      `border-bottom:6px solid ${rank >= 3 ? '#f4d56a' : '#e0c45a'};margin:0 auto;`;
+      `border-bottom:6px solid ${rank >= 3 ? '#b6efd5' : '#78b99e'};margin:0 auto;`;
     el.appendChild(chevron);
   }
   return el;

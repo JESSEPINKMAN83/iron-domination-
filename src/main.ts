@@ -1,3 +1,4 @@
+import { sanitizeTerrainLayout, type TerrainLayout } from './sim/heightfield';
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic, type LandingIntent } from './landing';
 import { createCommanderChip, currentCommander, renderLobbyAvatar } from './identity/commander';
@@ -14,10 +15,13 @@ import { showMissionBriefing } from './missionBriefing';
 import { markOpeningBriefingSeen, shouldShowOpeningBriefing } from './openingBriefing';
 import { NARRATIVE_CHARACTERS_ENABLED } from './experienceFlags';
 import './setup.css';
+import './ui/gameTheme.css';
 import './mobile.css';
 import './durabilityPreview.css';
 import './smokePreview.css';
 import './outcomeScreen.css';
+import './ui/menuTheme.css';
+import './ui/roomLobby.css';
 import { EnemyCommander } from './ai/commander';
 import { AudioDirector } from './audio/audioDirector';
 import { showSfxPreview } from './audio/sfxPreview';
@@ -203,6 +207,7 @@ interface SkirmishSettings {
   seed: number;
   oreAmount: number;
   terrainRelief: number;
+  terrainLayout?: TerrainLayout;
   timeOfDay: TimeOfDay;
   weather: Weather;
   ai: Difficulty;
@@ -333,8 +338,9 @@ function renderLobbyMapPreview(
   terrainRelief: number,
   deployments: TacticalMapDeployment[] = [],
   onDeploymentMove?: (army: number, point: SpawnPoint) => void,
+  terrainLayout: TerrainLayout = 'classic',
 ): void {
-  renderTacticalMap(root, { mapId: map.id, mapSize, seed, oreAmount, terrainRelief, deployments, onDeploymentMove });
+  renderTacticalMap(root, { mapId: map.id, mapSize, seed, oreAmount, terrainRelief, terrainLayout, deployments, onDeploymentMove });
 }
 
 function oreAmountLabel(value: unknown): string {
@@ -377,7 +383,7 @@ function createMatchHistoryPanel(): HTMLDivElement {
   root.style.cssText = 'display:grid;gap:7px;padding:11px;border:1px solid #303936;background:rgba(9,13,13,.7);';
   const title = document.createElement('div');
   title.textContent = 'RECENT MATCHES';
-  title.style.cssText = 'color:#d2b15f;font-size:10px;letter-spacing:.12em;';
+  title.style.cssText = 'color:#9de5c4;font-size:10px;letter-spacing:.12em;';
   const history = readMatchHistory();
   if (history.length === 0) {
     const empty = document.createElement('div');
@@ -433,9 +439,9 @@ function randomSeed(): number {
   return Math.floor(100000 + Math.random() * 900000000);
 }
 
-function strategicRandomSeed(mapId: MapId, mapSize: MapSize, oreAmount: number, terrainRelief: number): number {
+function strategicRandomSeed(mapId: MapId, mapSize: MapSize, oreAmount: number, terrainRelief: number, terrainLayout: TerrainLayout = 'classic'): number {
   return chooseStrategicSeed(
-    { mapId, mapSize, oreAmount, terrainRelief },
+    { mapId, mapSize, oreAmount, terrainRelief, terrainLayout },
     Array.from({ length: 7 }, () => randomSeed()),
   );
 }
@@ -489,6 +495,7 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
       seed: Number.isFinite(parsed.seed) ? Math.floor(Number(parsed.seed)) : undefined,
       oreAmount: sanitizeOreAmount(parsed.oreAmount),
       terrainRelief: sanitizeTerrainRelief(parsed.terrainRelief),
+      terrainLayout: sanitizeTerrainLayout(parsed.terrainLayout),
       timeOfDay: sanitizeTimeOfDay(parsed.timeOfDay),
       weather: sanitizeWeather(parsed.weather),
       ai: DIFFICULTIES.includes(parsed.ai as Difficulty) ? parsed.ai : undefined,
@@ -518,6 +525,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
   const mapSize = sanitizeMapSize(params.get('size'));
   const oreAmount = sanitizeOreAmount(params.get('ore'));
   const terrainRelief = sanitizeTerrainRelief(params.get('relief'));
+  const terrainLayout = params.has('layout') ? sanitizeTerrainLayout(params.get('layout')) : undefined;
   const timeOfDay = sanitizeTimeOfDay(params.get('tod'));
   const weather = sanitizeWeather(params.get('weather'));
   const ai = params.get('ai');
@@ -534,6 +542,7 @@ function settingsFromUrl(params: URLSearchParams): Partial<SkirmishSettings> {
     seed: Number.isFinite(seed) && seed > 0 ? Math.floor(seed) : undefined,
     oreAmount,
     terrainRelief,
+    terrainLayout,
     timeOfDay,
     weather,
     ai: DIFFICULTIES.includes(ai as Difficulty) ? (ai as Difficulty) : undefined,
@@ -578,6 +587,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     mapSize: fromUrl.mapSize ?? stored.mapSize ?? DEFAULT_MAP_SIZE,
     seed: fromUrl.seed ?? stored.seed ?? randomSeed(),
     oreAmount: fromUrl.oreAmount ?? stored.oreAmount ?? DEFAULT_ORE_AMOUNT,
+    terrainLayout: fromUrl.terrainLayout ?? stored.terrainLayout ?? 'classic',
     terrainRelief: fromUrl.terrainRelief ?? stored.terrainRelief ?? defaultTerrainRelief(mapId),
     timeOfDay: fromUrl.timeOfDay ?? stored.timeOfDay ?? 'day',
     weather: fromUrl.weather ?? stored.weather ?? 'clear',
@@ -801,6 +811,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
         mapSizeChoice.value(),
         sanitizeOreAmount(oreAmountInput.value) ?? DEFAULT_ORE_AMOUNT,
         sanitizeTerrainRelief(terrainReliefInput.value) ?? defaultTerrainRelief(mapId),
+        sanitizeTerrainLayout(layoutInput.value),
       );
       seedInput.value = String(seed);
       refresh();
@@ -850,7 +861,16 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     const terrainRow = document.createElement('div');
     terrainRow.className = 'war-terrain-row';
     terrainRow.append(seedRow, oreControl, reliefControl);
-    battlefieldControls.append(mapSettings, terrainRow);
+    const layoutControl = document.createElement('label');
+    layoutControl.className = 'war-layout-control';
+    layoutControl.textContent = 'TERRAIN LAYOUT';
+    const layoutInput = createTerrainLayoutSelect();
+    layoutInput.value = defaults.terrainLayout ?? 'classic';
+    layoutInput.onchange = () => refresh();
+    const oreHint = document.createElement('small');
+    oreHint.textContent = 'Above 200%, deposits contain more resources.';
+    layoutControl.append(layoutInput, oreHint);
+    battlefieldControls.append(mapSettings, terrainRow, layoutControl);
     const battlefield = document.createElement('div');
     battlefield.className = 'war-battlefield';
     battlefield.append(battlefieldControls, mapPreview);
@@ -880,6 +900,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       mapSize: mapSizeChoice.value(),
       seed: Math.max(1, Math.floor(Number(seedInput.value) || randomSeed())),
       oreAmount: sanitizeOreAmount(oreAmountInput.value) ?? DEFAULT_ORE_AMOUNT,
+      terrainLayout: sanitizeTerrainLayout(layoutInput.value),
       terrainRelief: sanitizeTerrainRelief(terrainReliefInput.value) ?? defaultTerrainRelief(mapChoice.value()),
       timeOfDay: timeOfDayChoice.value(),
       weather: weatherChoice.value(),
@@ -902,6 +923,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       mapSizeChoice.setValue(sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE);
       seedInput.value = String(room.seed);
       oreAmountInput.value = String(sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT);
+      layoutInput.value = sanitizeTerrainLayout(room.terrainLayout);
       terrainReliefInput.value = String(sanitizeTerrainRelief(room.terrainRelief) ?? defaultTerrainRelief(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID));
       timeOfDayChoice.setValue(sanitizeTimeOfDay(room.timeOfDay) ?? 'day');
       weatherChoice.setValue(sanitizeWeather(room.weather) ?? 'clear');
@@ -927,6 +949,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       randomize.disabled = guestLocked;
       oreAmountInput.disabled = guestLocked;
       terrainReliefInput.disabled = guestLocked;
+      layoutInput.disabled = guestLocked;
       config.classList.toggle('is-locked', guestLocked);
       spawnDragLocked = guestLocked;
       refresh();
@@ -1033,6 +1056,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
         randomize.disabled = false;
         oreAmountInput.disabled = false;
         terrainReliefInput.disabled = false;
+        layoutInput.disabled = false;
         config.classList.remove('is-locked');
       },
     );
@@ -1068,8 +1092,9 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
               currentSpawnPoints = next;
               refresh();
             },
+        sanitizeTerrainLayout(layoutInput.value),
       );
-      summaryValues.get('BATTLEFIELD')!.textContent = `${map.shortLabel} · ${MAP_SIZE_PRESETS[mapSizeChoice.value()].label} · ${terrainReliefLabel(terrainRelief)} RELIEF`;
+      summaryValues.get('BATTLEFIELD')!.textContent = `${map.shortLabel} · ${MAP_SIZE_PRESETS[mapSizeChoice.value()].label} · ${terrainLayoutLabel(layoutInput.value)} · ${terrainReliefLabel(terrainRelief)} RELIEF`;
       summaryValues.get('ENEMY')!.textContent = `${difficulty.value().toUpperCase()} · ${commander.value().toUpperCase()}`;
       summaryValues.get('FORCES')!.textContent = `${armies.armyCount()} ARMIES`;
       summaryValues.get('COMBAT')!.textContent = combatMode.value().toUpperCase();
@@ -1465,6 +1490,7 @@ function createMultiplayerSetupPanel(
   const status = document.createElement('div');
   status.className = 'war-multiplayer__status';
   status.setAttribute('aria-live', 'polite');
+  status.setAttribute('role', 'status');
   status.textContent = 'Local skirmish ready · no multiplayer connection is active.';
 
   const setStatus = (message: string, bad = false): void => {
@@ -1478,6 +1504,24 @@ function createMultiplayerSetupPanel(
   let openingHostRoom = false;
   let settingsSyncTimer: number | undefined;
   let lobbyView: ReturnType<typeof createRoomLobbyView> | undefined;
+  const loading = document.createElement('div');
+  loading.className = 'war-room-loading';
+  loading.hidden = true;
+  loading.setAttribute('role', 'status');
+  loading.setAttribute('aria-live', 'polite');
+  loading.innerHTML = '<div class="war-room-loading__card"><span class="war-room-loading__spinner" aria-hidden="true"></span><h2>Opening your room</h2><p></p><small>The first connection can take up to a minute. Please keep this window open.</small></div>';
+  const showLoading = (message: string, joining = false): void => {
+    loading.querySelector('h2')!.textContent = joining ? 'Joining your room' : 'Opening your room';
+    loading.querySelector('p')!.textContent = message;
+    loading.hidden = false;
+    host.setAttribute('aria-busy', 'true');
+    join.setAttribute('aria-busy', 'true');
+  };
+  const hideLoading = (): void => {
+    loading.hidden = true;
+    host.removeAttribute('aria-busy');
+    join.removeAttribute('aria-busy');
+  };
 
   const render = (): void => {
     const connected = Boolean(activeSession);
@@ -1495,6 +1539,9 @@ function createMultiplayerSetupPanel(
     client?.disconnect();
     lobbyView?.root.remove();
     lobbyView = undefined;
+    skirmish.disabled = false;
+    host.disabled = false;
+    host.textContent = 'OPEN ONLINE ROOM';
     if (wasHost) codeLabel.input.value = '';
     rememberSession(undefined, undefined);
     releaseRoomSettings();
@@ -1552,6 +1599,7 @@ function createMultiplayerSetupPanel(
     skirmish.disabled = true;
     host.disabled = true;
     host.textContent = 'OPENING ROOM...';
+    showLoading('Connecting to the battle server…');
     setStatus('Waking the battle server · first connection can take up to a minute...', false);
     let client: MultiplayerClient | undefined;
     try {
@@ -1560,6 +1608,8 @@ function createMultiplayerSetupPanel(
       await waitForMultiplayerServer(server);
       if (activeMode !== 'host' || activeSession) return;
       setStatus('Battle server online · opening your room...', false);
+      showLoading('Server connected. Preparing your battlefield…');
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       client = new MultiplayerClient(server);
       const session = await client.host({ ...settings(), name: betaPlayerName() ?? 'Host', playerId: rememberedPlayerId(server, 'HOST') });
       if (activeMode !== 'host' || activeSession) {
@@ -1570,6 +1620,7 @@ function createMultiplayerSetupPanel(
     } catch (err) {
       if (activeMode === 'host') setStatus(`Could not open room: ${friendlyMultiplayerError(err)}`, true);
     } finally {
+      hideLoading();
       openingHostRoom = false;
       if (!activeSession && activeMode === 'host') {
         skirmish.disabled = false;
@@ -1586,16 +1637,19 @@ function createMultiplayerSetupPanel(
   };
 
   const joinRoom = async (): Promise<void> => {
+    if (join.disabled || activeSession) return;
     try {
       join.disabled = true;
       const code = normalizeRoomCode(codeLabel.input.value);
       if (!code) throw new Error('enter-room-code');
+      showLoading('Connecting to the battle server…', true);
       const server = normalizedBaseUrl(serverLabel.input.value);
       window.localStorage.setItem(MULTIPLAYER_SERVER_STORAGE_KEY, server);
       setStatus('Waking the battle server · first connection can take up to a minute...', false);
       await waitForMultiplayerServer(server);
       if (activeMode !== 'join' || activeSession) return;
       setStatus('Battle server online · joining room...', false);
+      showLoading('Server connected. Loading the room…', true);
       const existing = currentSession();
       const client = new MultiplayerClient(server);
       const session = await client.join(code, betaPlayerName() ?? 'Guest', existing?.player.id ?? rememberedPlayerId(server, code));
@@ -1603,6 +1657,7 @@ function createMultiplayerSetupPanel(
     } catch (err) {
       setStatus(`Could not join room: ${friendlyMultiplayerError(err)}`, true);
     } finally {
+      hideLoading();
       join.disabled = false;
       join.blur();
     }
@@ -1616,10 +1671,8 @@ function createMultiplayerSetupPanel(
   advanced.className = 'war-multiplayer__advanced';
   const advancedSummary = document.createElement('summary');
   advancedSummary.textContent = 'ADVANCED CONNECTION';
-  // Status line lives inside the advanced connection panel to keep the action
-  // bar compact.
-  advanced.append(advancedSummary, status, serverLabel.root);
-  root.append(hostEntry, joinEntry, advanced);
+  advanced.append(advancedSummary, serverLabel.root);
+  root.append(hostEntry, joinEntry, status, advanced, loading);
   if (normalizeRoomCode(new URLSearchParams(location.search).get('room') ?? '') && !currentSession()) {
     setStatus('Joining invitation...');
     void joinRoom();
@@ -1821,6 +1874,7 @@ function createRoomLobbyView(
       mapSize,
       sanitizeOreAmount(latestRoom.oreAmount) ?? DEFAULT_ORE_AMOUNT,
       sanitizeTerrainRelief(latestRoom.terrainRelief) ?? defaultTerrainRelief(mapId),
+      sanitizeTerrainLayout(latestRoom.terrainLayout),
     );
     seedInput.value = String(seed);
     client.updateSettings(latestRoom.code, session.player.id, { ...settings(), seed });
@@ -1872,6 +1926,13 @@ function createRoomLobbyView(
     client.updateSettings(latestRoom.code, session.player.id, { ...settings(), terrainRelief });
   };
   reliefSetting.choices.append(roomReliefInput, roomReliefOutput);
+  const roomLayoutInput = createTerrainLayoutSelect();
+  roomLayoutInput.onchange = () => {
+    if (session.player.index !== 1 || latestRoom.status !== 'waiting') return;
+    client.updateSettings(latestRoom.code, session.player.id, { ...settings(), terrainLayout: sanitizeTerrainLayout(roomLayoutInput.value) });
+  };
+  const layoutSetting = createRoomSetting('TERRAIN LAYOUT');
+  layoutSetting.choices.appendChild(roomLayoutInput);
   for (const combatMode of COMBAT_MODES) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1881,7 +1942,7 @@ function createRoomLobbyView(
     combatButtons.set(combatMode, button);
     combatSetting.choices.appendChild(button);
   }
-  battlefieldSettings.append(mapSetting.root, sizeSetting.root, aiSetting.root, seedSetting.root, oreSetting.root, reliefSetting.root, combatSetting.root);
+  battlefieldSettings.append(mapSetting.root, sizeSetting.root, aiSetting.root, seedSetting.root, oreSetting.root, reliefSetting.root, layoutSetting.root, combatSetting.root);
   const map = document.createElement('div');
   map.className = 'war-lobby__map';
   battlefield.append(battlefieldHeader, battlefieldSettings, map);
@@ -2114,6 +2175,7 @@ function createRoomLobbyView(
       seed: room.seed,
       oreAmount: room.oreAmount,
       terrainRelief: room.terrainRelief,
+      terrainLayout: sanitizeTerrainLayout(room.terrainLayout),
       armyCount: room.armyCount,
       controllerCount: room.controllerCount,
       controllerTeams: room.controllerTeams,
@@ -2174,6 +2236,7 @@ function createRoomLobbyView(
             client.updateSettings(room.code, session.player.id, { ...settings(), spawnPoints: next });
           }
         : undefined,
+      sanitizeTerrainLayout(room.terrainLayout),
     );
     const mapTitle = battlefieldHeader.querySelector('strong');
     const mapHelp = battlefieldHeader.querySelector('p');
@@ -2223,6 +2286,8 @@ function createRoomLobbyView(
       roomReliefInput.value = String(sanitizeTerrainRelief(room.terrainRelief) ?? defaultTerrainRelief(roomMapId));
     }
     roomReliefInput.disabled = !isHost || room.status !== 'waiting';
+    roomLayoutInput.disabled = !isHost || room.status !== 'waiting';
+    roomLayoutInput.value = sanitizeTerrainLayout(room.terrainLayout);
     updateRoomReliefReadout();
     for (const [combatMode, button] of combatButtons) {
       const selected = combatMode === room.combatMode;
@@ -2268,7 +2333,7 @@ function createRoomLobbyView(
       view.connection.textContent = player?.connected
         ? `${player.role === 'field-officer' ? 'FIELD OFFICER' : 'COMMANDER'} · ${player.ready ? 'READY' : `${player.pingMs ?? '...'}ms · NOT READY`}`
         : player ? 'DISCONNECTED · RECONNECT RESERVED' : `${room.ai.toUpperCase()} AI · READY`;
-      view.connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#f0d56a' : isAi ? '#9aa6a1' : '#6f7b78';
+      view.connection.style.color = player?.ready ? '#7df27d' : player?.connected ? '#9de5c4' : isAi ? '#9aa6a1' : '#6f7b78';
       view.assignment.value = String(lobbyTeam);
       view.assignment.disabled = !isHost || room.status !== 'waiting';
       view.assignment.title = `Assign ${player?.name ?? `Computer ${index}`} to Team ${lobbyTeam}`;
@@ -2375,6 +2440,7 @@ function settingsFromRoom(room: MultiplayerRoom): SkirmishSettings {
     mapSize: sanitizeMapSize(room.mapSize) ?? DEFAULT_MAP_SIZE,
     seed: room.seed,
     oreAmount: sanitizeOreAmount(room.oreAmount) ?? DEFAULT_ORE_AMOUNT,
+    terrainLayout: sanitizeTerrainLayout(room.terrainLayout),
     terrainRelief: sanitizeTerrainRelief(room.terrainRelief) ?? defaultTerrainRelief(sanitizeMapId(room.mapId) ?? DEFAULT_MAP_ID),
     timeOfDay: sanitizeTimeOfDay(room.timeOfDay) ?? 'day',
     weather: sanitizeWeather(room.weather) ?? 'clear',
@@ -2501,6 +2567,7 @@ function applyMapAtmosphere(
 }
 
 async function boot(settings: SkirmishSettings): Promise<void> {
+  document.body.classList.add('in-match');
   hideHowToPlayWidget();
   const multiplayer = pendingMultiplayer;
   pendingMultiplayer = undefined;
@@ -2524,7 +2591,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const t0 = performance.now();
   const selectedMap = MAP_PRESETS[settings.mapId] ?? MAP_PRESETS[DEFAULT_MAP_ID];
   const hf = generateHeightfield({
-    ...mapConfig(settings.mapId, settings.mapSize, settings.oreAmount, settings.terrainRelief),
+    ...mapConfig(settings.mapId, settings.mapSize, settings.oreAmount, settings.terrainRelief, settings.terrainLayout),
     seed: settings.seed,
   });
   console.info(`[map] ${selectedMap.label} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${hf.oreFields.length} ore fields · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
@@ -3379,6 +3446,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       seed: settings.seed,
       oreAmount: settings.oreAmount,
       terrainRelief: settings.terrainRelief,
+      terrainLayout: settings.terrainLayout,
       localAnchor: { x: localBase.transform.x, z: localBase.transform.z },
       isVisible: (x, z) => playerVision.isVisibleWorld(x, z),
     },
@@ -4268,13 +4336,15 @@ function showMatchMenu(
     'width:340px;display:grid;gap:8px;padding:14px;background:rgba(8,12,14,.94);border:1px solid #596260;border-radius:3px;' +
     'box-shadow:0 18px 60px rgba(0,0,0,.55);font:11px ui-monospace,Menlo,monospace;color:#d7e0e7;letter-spacing:.08em;';
   const title = document.createElement('div');
-  title.textContent = 'MATCH MENU';
-  title.style.cssText = 'color:#d2b15f;font-size:13px;margin-bottom:2px;';
+  title.textContent = 'Match menu';
+  title.className = 'game-menu-title';
+  title.style.cssText = 'color:#9de5c4;font-size:13px;margin-bottom:2px;';
   const status = document.createElement('div');
-  status.textContent = `${MAP_PRESETS[settings.mapId].shortLabel} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${settings.ai}/${settings.aiStyle}`;
+  status.textContent = `${MAP_PRESETS[settings.mapId].shortLabel} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · ${terrainLayoutLabel(settings.terrainLayout)} · seed ${settings.seed} · ${settings.ai}/${settings.aiStyle}`;
   status.style.cssText = 'color:#8d9a96;font-size:10px;line-height:1.4;margin-bottom:4px;';
   const snapshot = options.snapshot?.();
   const details = document.createElement('div');
+  details.className = 'game-menu-details';
   details.style.cssText =
     'display:grid;grid-template-columns:1fr 1fr;gap:5px 8px;padding:8px;border:1px solid rgba(255,255,255,.1);' +
     'background:rgba(255,255,255,.035);color:#b8c5c1;font-size:10px;line-height:1.35;margin-bottom:4px;';
@@ -4288,7 +4358,7 @@ function showMatchMenu(
       ['AI pressure', DIFFICULTY_DESCRIPTIONS[settings.ai].split('.')[0]],
     ]) {
       const cell = document.createElement('div');
-      cell.innerHTML = `<span style="color:#d2b15f">${item[0].toUpperCase()}</span><br>${item[1]}`;
+      cell.innerHTML = `<span style="color:#9de5c4">${item[0].toUpperCase()}</span><br>${item[1]}`;
       details.appendChild(cell);
     }
   }
@@ -4296,7 +4366,7 @@ function showMatchMenu(
   atmosphereBlock.style.cssText = 'display:grid;gap:6px;margin:4px 0 8px;';
   const todLabel = document.createElement('div');
   todLabel.textContent = 'TIME OF DAY';
-  todLabel.style.cssText = 'color:#d2b15f;font-size:10px;';
+  todLabel.style.cssText = 'color:#9de5c4;font-size:10px;';
   const todRow = document.createElement('div');
   todRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
   for (const id of TIME_OF_DAY_IDS) {
@@ -4305,12 +4375,12 @@ function showMatchMenu(
       options.onAtmosphereChange?.(settings.timeOfDay, settings.weather);
       status.textContent = `${TIME_OF_DAY_LABELS[settings.timeOfDay]} · ${WEATHER_LABELS[settings.weather]} (local view)`;
     });
-    if (settings.timeOfDay === id) button.style.outline = '1px solid #d2b15f';
+    if (settings.timeOfDay === id) button.style.outline = '1px solid #9de5c4';
     todRow.appendChild(button);
   }
   const weatherLabel = document.createElement('div');
   weatherLabel.textContent = 'WEATHER';
-  weatherLabel.style.cssText = 'color:#d2b15f;font-size:10px;margin-top:4px;';
+  weatherLabel.style.cssText = 'color:#9de5c4;font-size:10px;margin-top:4px;';
   const weatherRow = document.createElement('div');
   weatherRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
   for (const id of WEATHER_IDS) {
@@ -4319,12 +4389,13 @@ function showMatchMenu(
       options.onAtmosphereChange?.(settings.timeOfDay, settings.weather);
       status.textContent = `${TIME_OF_DAY_LABELS[settings.timeOfDay]} · ${WEATHER_LABELS[settings.weather]} (local view)`;
     });
-    if (settings.weather === id) button.style.outline = '1px solid #d2b15f';
+    if (settings.weather === id) button.style.outline = '1px solid #9de5c4';
     weatherRow.appendChild(button);
   }
   atmosphereBlock.append(todLabel, todRow, weatherLabel, weatherRow);
 
   const resume = dialogButton('Resume', close);
+  resume.className = 'game-primary-action';
   const help = dialogButton('Help / controls', () => {
     window.removeEventListener('keydown', onKeyDown);
     overlay.remove();
@@ -4378,6 +4449,7 @@ function copyMatchLink(settings: SkirmishSettings, status: HTMLElement): void {
   url.searchParams.set('seed', String(settings.seed));
   url.searchParams.set('ore', String(settings.oreAmount));
   url.searchParams.set('relief', String(settings.terrainRelief));
+  url.searchParams.set('layout', settings.terrainLayout ?? 'classic');
   url.searchParams.set('tod', settings.timeOfDay);
   url.searchParams.set('weather', settings.weather);
   url.searchParams.set('ai', settings.ai);
@@ -4443,11 +4515,12 @@ function showRankUpToast(rankLabel: string): void {
   existing?.remove();
   const toast = document.createElement('div');
   toast.id = 'iron-rank-up-toast';
+  toast.className = 'game-promotion-toast';
   toast.textContent = `UNIT PROMOTED — ${rankLabel.toUpperCase()}`;
   toast.style.cssText =
     'position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:70;pointer-events:none;' +
-    'padding:10px 16px;border:2px solid #f0d56a;border-radius:3px;background:rgba(12,16,14,.92);' +
-    'color:#f0d56a;font:700 13px ui-monospace,Menlo,monospace;letter-spacing:.08em;' +
+    'padding:10px 16px;border:2px solid #9de5c4;border-radius:3px;background:rgba(12,16,14,.92);' +
+    'color:#9de5c4;font:700 13px ui-monospace,Menlo,monospace;letter-spacing:.08em;' +
     'box-shadow:0 12px 28px rgba(0,0,0,.45)';
   document.body.appendChild(toast);
   window.setTimeout(() => toast.remove(), 2200);
@@ -4740,13 +4813,13 @@ function createWeaponsLabPanel(
     padding: '12px',
     color: '#e9e7dc',
     background: 'linear-gradient(145deg, rgba(6, 12, 12, .96), rgba(14, 24, 22, .92))',
-    border: '1px solid rgba(235, 198, 88, .72)',
+    border: '1px solid rgba(157, 229, 196, .72)',
     boxShadow: '0 12px 36px rgba(0, 0, 0, .48)',
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     pointerEvents: 'auto',
   });
   panel.innerHTML = `
-    <div style="color:#f0cb58;font-size:10px;letter-spacing:.18em">COMBAT DEVELOPMENT RANGE</div>
+    <div style="color:#9de5c4;font-size:10px;letter-spacing:.18em">COMBAT DEVELOPMENT RANGE</div>
     <div style="font-size:20px;font-weight:900;letter-spacing:.08em;margin:3px 0 5px">WEAPONS LAB</div>
     <div data-lab-status style="font-size:10px;line-height:1.45;color:#b9c2bd;margin-bottom:9px">
       Select a platform, then press <b style="color:#fff">V</b>. LMB fires primary; RMB fires secondary.
@@ -4784,13 +4857,13 @@ function createWeaponsLabPanel(
         38,
         -3,
       );
-      status.innerHTML = `<b style="color:#f0cb58">${arsenal.designation}</b><br>${WEAPONS[arsenal.primary].label}${arsenal.secondary ? ` / ${WEAPONS[arsenal.secondary].label}` : ''} · press <b style="color:#fff">V</b>`;
+      status.innerHTML = `<b style="color:#9de5c4">${arsenal.designation}</b><br>${WEAPONS[arsenal.primary].label}${arsenal.secondary ? ` / ${WEAPONS[arsenal.secondary].label}` : ''} · press <b style="color:#fff">V</b>`;
       for (const other of Array.from(buttonGrid.querySelectorAll<HTMLButtonElement>('button'))) {
         other.style.borderColor = 'rgba(156, 177, 166, .34)';
         other.style.background = 'rgba(25, 37, 34, .92)';
       }
-      button.style.borderColor = '#f0cb58';
-      button.style.background = 'rgba(78, 66, 25, .92)';
+      button.style.borderColor = '#9de5c4';
+      button.style.background = 'rgba(38, 78, 61, .92)';
     });
     buttonGrid.append(button);
   }
@@ -5451,19 +5524,19 @@ function createImpactMovementDemoPanel(): {
   const panel = document.createElement('aside');
   panel.style.cssText =
     'position:fixed;left:22px;top:22px;z-index:18;width:min(330px,calc(100vw - 44px));pointer-events:none;' +
-    'border:1px solid rgba(210,177,95,.7);border-left:4px solid #e2bd59;background:rgba(8,13,13,.88);' +
+    'border:1px solid rgba(157,229,196,.7);border-left:4px solid #78b99e;background:rgba(8,13,13,.88);' +
     'box-shadow:0 14px 38px rgba(0,0,0,.42);padding:13px 15px;color:#e5ece8;font-family:ui-monospace,Menlo,monospace;';
   const eyebrow = document.createElement('div');
   eyebrow.textContent = 'FIELD TEST · TANK MISSILE HITS';
-  eyebrow.style.cssText = 'font-size:9px;letter-spacing:.18em;color:#d2b15f;margin-bottom:6px;';
+  eyebrow.style.cssText = 'font-size:9px;letter-spacing:.18em;color:#9de5c4;margin-bottom:6px;';
   const title = document.createElement('div');
   title.textContent = 'THROW · FLIP · NO SPIN';
   title.style.cssText = 'font-size:17px;font-weight:900;letter-spacing:.08em;color:#fff;margin-bottom:9px;';
   const status = document.createElement('div');
   status.textContent = 'HOLDING · SIDE MISSILE INBOUND';
   status.style.cssText =
-    'border-top:1px solid rgba(210,177,95,.28);border-bottom:1px solid rgba(210,177,95,.28);' +
-    'padding:8px 0;color:#ffcf62;font-size:12px;font-weight:800;letter-spacing:.09em;';
+    'border-top:1px solid rgba(157,229,196,.28);border-bottom:1px solid rgba(157,229,196,.28);' +
+    'padding:8px 0;color:#9de5c4;font-size:12px;font-weight:800;letter-spacing:.09em;';
   const note = document.createElement('div');
   note.textContent = 'Missiles alternate left and right. The hull throws away from that flank. Select a tank to drive it yourself.';
   note.style.cssText = 'font-size:9px;line-height:1.5;color:#aebbb5;margin-top:8px;';
@@ -5478,7 +5551,7 @@ function createImpactMovementDemoPanel(): {
             : scenario === 'near' ? 'NEAR MISS'
               : `MISSILE SALVO${shot && total ? ` ${shot}/${total}` : ''}`;
       status.textContent = `${scenarioLabel} · ${unitDisplayName(target).toUpperCase()}`;
-      status.style.color = scenario === 'near' ? '#9fd8ff' : scenario === 'top' ? '#ff9c6a' : '#ffcf62';
+      status.style.color = scenario === 'near' ? '#9fd8ff' : scenario === 'top' ? '#ff9c6a' : '#9de5c4';
     },
     announceInbound: (target, flank) => {
       status.textContent = `INBOUND · ${flank > 0 ? 'RIGHT' : 'LEFT'} FLANK MISSILE · ${unitDisplayName(target).toUpperCase()}`;
@@ -6029,3 +6102,19 @@ void start().catch((err) => {
   el.appendChild(pre);
   document.body.appendChild(el);
 });
+
+function createTerrainLayoutSelect(): HTMLSelectElement {
+  const select = document.createElement('select');
+  select.setAttribute('aria-label', 'Terrain layout');
+  for (const [value, label] of [['classic', 'Classic'], ['plains', 'Open plains'], ['hills', 'Broken hills'], ['lakes', 'Lake district']]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  }
+  return select;
+}
+
+function terrainLayoutLabel(value: unknown): string {
+  return { classic: 'Classic', plains: 'Open plains', hills: 'Broken hills', lakes: 'Lake district' }[sanitizeTerrainLayout(value)];
+}

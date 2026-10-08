@@ -1,3 +1,4 @@
+import { oreFieldCapacity } from './heightfield';
 import { World, type Query, type With } from 'miniplex';
 import { normalizeAngle, slewAngle } from './angles';
 import type { Entity } from './components';
@@ -19,7 +20,6 @@ const clamp = (v: number, min: number, max: number): number => Math.max(min, Mat
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const damp = (lambda: number, dt: number): number => 1 - Math.exp(-lambda * dt);
 const ARRIVAL_EPSILON = 0.35;
-const ORE_CAPACITY_PER_RADIUS_SQUARED = 15;
 const POSSESSION_BOOST_MULTIPLIER = 2;
 export const RTS_SPRINT_MULTIPLIER = 1.65;
 const BOOSTED_BUMP_MAX_HEIGHT_RANGE = 7.5;
@@ -199,7 +199,7 @@ export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = 
     if (entity.id !== undefined) byId.delete(entity.id);
   });
   const resourceNodes = hf.oreFields.map((field, index) => {
-    const capacity = Math.round(field.radius * field.radius * ORE_CAPACITY_PER_RADIUS_SQUARED);
+    const capacity = oreFieldCapacity(field);
     return {
       id: index + 1,
       kind: 'oil' as const,

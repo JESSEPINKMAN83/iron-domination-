@@ -14,11 +14,11 @@
   font-family: ui-monospace, Menlo, monospace;
 }
 .mobile-landscape-gate[hidden] { display: none; }
-.mobile-landscape-gate p { margin: 8px 0 0; color: #f0d56a; font: 400 30px/1 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; letter-spacing: .12em; }
+.mobile-landscape-gate p { margin: 8px 0 0; color: #9de5c4; font: 400 30px/1 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; letter-spacing: .12em; }
 .mobile-landscape-gate strong { font-size: 13px; }
 .mobile-landscape-gate small { color: #9eaaa4; font-size: 11px; }
-.mobile-landscape-gate__device { width: 78px; height: 44px; padding: 4px; border: 3px solid #d7bd66; border-radius: 9px; transform: rotate(-90deg); animation: mobile-device-turn 1.8s ease-in-out infinite; }
-.mobile-landscape-gate__device span { display: block; width: 6px; height: 6px; margin: 19px 0 0 64px; border-radius: 50%; background: #d7bd66; }
+.mobile-landscape-gate__device { width: 78px; height: 44px; padding: 4px; border: 3px solid #9de5c4; border-radius: 9px; transform: rotate(-90deg); animation: mobile-device-turn 1.8s ease-in-out infinite; }
+.mobile-landscape-gate__device span { display: block; width: 6px; height: 6px; margin: 19px 0 0 64px; border-radius: 50%; background: #9de5c4; }
 @keyframes mobile-device-turn { 0%,20% { transform:rotate(-90deg) } 65%,100% { transform:rotate(0) } }
 
 @media (orientation: landscape) {
@@ -93,9 +93,9 @@
     white-space: nowrap;
   }
   .war-mobile-steps button.is-active {
-    border-color: rgba(223,189,100,.7);
-    color: #f0d56a;
-    background: rgba(223,189,100,.09);
+    border-color: rgba(157,229,196,.7);
+    color: #9de5c4;
+    background: rgba(157,229,196,.09);
   }
 
   .war-setup__body,
@@ -196,7 +196,7 @@
     grid-template-columns: minmax(0,1.25fr) minmax(0,.75fr);
     gap: 6px;
     padding: 7px 9px max(7px,env(safe-area-inset-bottom));
-    border-top: 1px solid rgba(223,189,100,.48);
+    border-top: 1px solid rgba(157,229,196,.48);
     background: rgba(7,11,11,.96);
     box-shadow: 0 -12px 34px rgba(0,0,0,.56);
     backdrop-filter: blur(13px);
@@ -247,7 +247,7 @@
   .war-tab small { font-size: 6px; }
   .war-mobile-steps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 2px; padding: 4px max(8px,env(safe-area-inset-right)) 4px max(8px,env(safe-area-inset-left)); background: #0a0f10; border-bottom: 1px solid var(--war-line); }
   .war-mobile-steps button { height: 27px; border: 1px solid rgba(151,164,157,.24); border-radius: 3px; color: #8e9a95; background: #111718; font: 700 7px/1 ui-monospace,Menlo,monospace; }
-  .war-mobile-steps button.is-active { border-color: rgba(223,189,100,.7); color: #f0d56a; background: rgba(223,189,100,.09); }
+  .war-mobile-steps button.is-active { border-color: rgba(157,229,196,.7); color: #9de5c4; background: rgba(157,229,196,.09); }
   .war-setup__body, .war-setup__body.is-join-entry {
     display: flex;
     flex-direction: column;
@@ -313,7 +313,7 @@
     gap: 6px;
     align-items: center;
     padding: 6px;
-    border: 1px solid rgba(223,189,100,.38);
+    border: 1px solid rgba(157,229,196,.38);
     border-radius: 5px;
     background: rgba(7,11,11,.95);
     box-shadow: 0 8px 28px rgba(0,0,0,.56);
@@ -357,7 +357,7 @@
     touch-action:none;
   }
   .mobile-game-controls button:disabled { opacity:.38; }
-  .mobile-game-controls button.is-active { border-color:#f0d56a; background:linear-gradient(180deg,#72602b,#28220f); color:#fff4b8; }
+  .mobile-game-controls button.is-active { border-color:#9de5c4; background:linear-gradient(180deg,#365d50,#172720); color:#c2f4dd; }
   .mobile-mode-toggle {
     position:fixed;
     left:max(8px,env(safe-area-inset-left));
@@ -373,10 +373,10 @@
     gap:6px;
     padding:0 9px !important;
     overflow:visible;
-    border:1px solid rgba(240,213,106,.5) !important;
+    border:1px solid rgba(157,229,196,.5) !important;
     border-radius:999px !important;
     background:linear-gradient(135deg,rgba(32,42,40,.8),rgba(8,14,13,.72)) !important;
-    color:#f6dda0 !important;
+    color:#b6efd5 !important;
     box-shadow:0 5px 18px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.1) !important;
     -webkit-backdrop-filter:blur(10px);
     backdrop-filter:blur(10px);
@@ -390,8 +390,8 @@
     right:max(8px,env(safe-area-inset-right));
     bottom:max(58px,calc(env(safe-area-inset-bottom) + 52px));
     min-width:72px !important;
-    border-color:#d2b15f !important;
-    color:#f0d56a !important;
+    border-color:#78b99e !important;
+    color:#9de5c4 !important;
   }
   .mobile-game-controls__fps[hidden], .mobile-game-controls__rts[hidden] { display:none; }
   .mobile-look-pad {
@@ -420,10 +420,10 @@
     position:absolute;
     inset:5px;
     border:1px solid rgba(225,233,222,.42);
-    border-top-color:rgba(255,246,205,.68);
+    border-top-color:rgba(194,244,221,.68);
     border-radius:50%;
     background:
-      radial-gradient(circle at center,rgba(240,213,106,.08) 0 14%,transparent 15%),
+      radial-gradient(circle at center,rgba(157,229,196,.08) 0 14%,transparent 15%),
       radial-gradient(circle at 42% 35%,rgba(124,148,140,.18),rgba(9,15,15,.46) 62%,rgba(4,8,8,.64));
     box-shadow:inset 0 0 0 8px rgba(9,15,15,.12),inset 0 0 28px rgba(0,0,0,.42),0 8px 24px rgba(0,0,0,.22);
     -webkit-backdrop-filter:blur(5px);
@@ -456,9 +456,9 @@
     width:7px;
     height:7px;
     transform:translate(-50%,-50%);
-    border:1px solid rgba(240,213,106,.42);
+    border:1px solid rgba(157,229,196,.42);
     border-radius:50%;
-    background:rgba(240,213,106,.14);
+    background:rgba(157,229,196,.14);
   }
   .mobile-joystick__knob {
     position:absolute;
@@ -467,16 +467,16 @@
     width:52px;
     height:52px;
     transform:translate(-50%,-50%);
-    border:1px solid rgba(255,246,205,.72);
+    border:1px solid rgba(194,244,221,.72);
     border-radius:50%;
-    background:radial-gradient(circle at 38% 32%,rgba(240,226,165,.72),rgba(115,102,55,.78) 38%,rgba(21,28,27,.94) 72%);
-    box-shadow:inset 0 0 0 4px rgba(9,14,14,.35),inset 0 -8px 16px rgba(0,0,0,.3),0 5px 14px rgba(0,0,0,.48),0 0 16px rgba(240,213,106,.1);
+    background:radial-gradient(circle at 38% 32%,rgba(194,244,221,.72),rgba(63,117,91,.78) 38%,rgba(21,28,27,.94) 72%);
+    box-shadow:inset 0 0 0 4px rgba(9,14,14,.35),inset 0 -8px 16px rgba(0,0,0,.3),0 5px 14px rgba(0,0,0,.48),0 0 16px rgba(157,229,196,.1);
     pointer-events:none;
     will-change:transform;
   }
   .mobile-joystick.is-active .mobile-joystick__knob {
-    border-color:#f0d56a;
-    box-shadow:inset 0 0 0 4px rgba(9,14,14,.28),0 5px 16px rgba(0,0,0,.52),0 0 18px rgba(240,213,106,.28);
+    border-color:#9de5c4;
+    box-shadow:inset 0 0 0 4px rgba(9,14,14,.28),0 5px 16px rgba(0,0,0,.52),0 0 18px rgba(157,229,196,.28);
   }
   .mobile-weapon-cluster {
     position:fixed;
@@ -493,10 +493,10 @@
     pointer-events:auto;
   }
   .mobile-weapon-cluster button { min-width:0 !important; min-height:0 !important; padding:4px !important; }
-  .mobile-fire-button { grid-area:fire; border-color:#d2b15f !important; color:#fff0a1 !important; }
+  .mobile-fire-button { grid-area:fire; border-color:#78b99e !important; color:#b6efd5 !important; }
   .mobile-secondary-button { grid-area:secondary; }
   .mobile-special-button { grid-area:special; }
-  .mobile-speed-button { grid-area:speed; border-color:#d2b15f !important; color:#fff0a1 !important; }
+  .mobile-speed-button { grid-area:speed; border-color:#78b99e !important; color:#b6efd5 !important; }
   .mobile-next-unit-button { grid-area:next; font-size:8px !important; }
   .mobile-weapon-cluster:not(.has-next-unit) .mobile-speed-button { grid-column:1 / -1; }
   .mobile-climb-controls {
@@ -514,7 +514,7 @@
     bottom:max(68px,calc(env(safe-area-inset-bottom) + 64px));
     transform:translateX(-50%);
     padding:5px 9px;
-    color:#f0d56a;
+    color:#9de5c4;
     background:rgba(8,12,12,.62);
     pointer-events:none;
   }
@@ -565,7 +565,7 @@
     letter-spacing:.035em;
     white-space:nowrap;
   }
-  .mobile-touch-device .game-sidebar__mobile-status span:last-child { color:#e7cb77; }
+  .mobile-touch-device .game-sidebar__mobile-status span:last-child { color:#9de5c4; }
   .mobile-touch-device .game-sidebar__mobile-status span.is-alert { border-color:rgba(255,112,92,.38); color:#ff8f7d; }
   .mobile-touch-device .game-sidebar__radar {
     width:min(118px,100%) !important;
@@ -663,7 +663,7 @@
     height:32px;
     box-sizing:border-box;
     padding:0 10px;
-    border-color:rgba(240,213,106,.38);
+    border-color:rgba(157,229,196,.38);
     border-radius:999px;
     background:rgba(9,15,14,.66);
     font:700 8px/1 Inter,ui-sans-serif,system-ui,sans-serif;

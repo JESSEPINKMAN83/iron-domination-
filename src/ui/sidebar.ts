@@ -141,7 +141,7 @@ export class Sidebar {
       'position:fixed;top:10px;right:10px;width:322px;max-height:calc(100vh - 78px);display:flex;flex-direction:column;gap:7px;' +
       'font:12px/1.35 ui-monospace,Menlo,monospace;color:#e0e7dd;background:linear-gradient(180deg,rgba(31,35,36,.96),rgba(10,13,14,.93));' +
       'box-sizing:border-box;border:2px solid #1b1f20;border-top-color:#596260;border-left-color:#596260;border-radius:3px;padding:10px;z-index:12;' +
-      'box-shadow:inset 0 0 0 1px rgba(210,177,95,.25),0 12px 30px rgba(0,0,0,.38);';
+      'box-shadow:inset 0 0 0 1px rgba(157,229,196,.25),0 12px 30px rgba(0,0,0,.38);';
     this.root.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
 
@@ -149,7 +149,7 @@ export class Sidebar {
     this.radarWrap.className = 'game-sidebar__radar-wrap';
     this.radarWrap.style.cssText =
       'position:relative;display:grid;grid-template-rows:auto auto;gap:6px;padding:7px;background:#060908;border:2px solid #151817;' +
-      'border-top-color:#66706a;border-left-color:#66706a;box-shadow:inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75);overflow:hidden;';
+      'border-top-color:#66706a;border-left-color:#66706a;box-shadow:inset 0 0 0 1px rgba(157,229,196,.28),inset 0 0 18px rgba(0,0,0,.75);overflow:hidden;';
     this.radar = document.createElement('canvas');
     this.radar.className = 'game-sidebar__radar';
     this.radar.dataset.role = 'radar-map';
@@ -170,13 +170,13 @@ export class Sidebar {
     this.status.className = 'game-sidebar__status';
     this.status.style.cssText =
       'min-height:38px;display:flex;align-items:center;gap:10px;padding:0 9px;background:linear-gradient(180deg,#161d1c,#0c1110);' +
-      'border:1px solid #4a5350;box-sizing:border-box;box-shadow:inset 0 0 14px rgba(0,0,0,.6),inset 0 1px 0 rgba(210,177,95,.1);' +
-      'color:#d2b15f;overflow:hidden;font-variant-numeric:tabular-nums;';
+      'border:1px solid #4a5350;box-sizing:border-box;box-shadow:inset 0 0 14px rgba(0,0,0,.6),inset 0 1px 0 rgba(157,229,196,.1);' +
+      'color:#9de5c4;overflow:hidden;font-variant-numeric:tabular-nums;';
     this.creditsBlock = document.createElement('span');
     this.creditsBlock.className = 'game-sidebar__credits';
-    this.creditsBlock.style.cssText = 'display:flex;align-items:baseline;gap:2px;color:#f4dc9a;';
+    this.creditsBlock.style.cssText = 'display:flex;align-items:baseline;gap:2px;color:#c2f4dd;';
     const creditsSymbol = document.createElement('span');
-    creditsSymbol.style.cssText = 'font:700 13px/1 ui-monospace,Menlo,monospace;color:#b1934f;';
+    creditsSymbol.style.cssText = 'font:700 13px/1 ui-monospace,Menlo,monospace;color:#78a890;';
     creditsSymbol.textContent = '$';
     this.creditsValue = document.createElement('span');
     this.creditsValue.style.cssText =
@@ -185,7 +185,7 @@ export class Sidebar {
     this.powerBlock = document.createElement('span');
     this.powerBlock.className = 'game-sidebar__power';
     this.powerBlock.style.cssText =
-      'display:flex;align-items:baseline;gap:4px;padding-left:10px;border-left:1px solid rgba(210,177,95,.2);color:#d2b15f;';
+      'display:flex;align-items:baseline;gap:4px;padding-left:10px;border-left:1px solid rgba(157,229,196,.2);color:#9de5c4;';
     const powerLabel = document.createElement('span');
     powerLabel.style.cssText = 'font:700 9px/1 ui-monospace,Menlo,monospace;letter-spacing:.14em;color:#8b948e;';
     powerLabel.textContent = 'PWR';
@@ -270,7 +270,7 @@ export class Sidebar {
         this.powerBlock.style.display = 'none';
         this.statusNote.style.cssText =
           'flex:1;min-width:0;text-align:left;font:700 10px/1.4 ui-monospace,Menlo,monospace;white-space:pre;overflow:hidden;';
-        this.statusNote.style.color = healthPct < 0.3 ? '#ff7666' : '#d2b15f';
+        this.statusNote.style.color = healthPct < 0.3 ? '#ff7666' : '#9de5c4';
         this.statusNote.textContent = possessedText;
       } else {
         this.resourceBarHidden = false;
@@ -366,7 +366,7 @@ export class Sidebar {
       }
       this.powerShown = power;
       this.powerValue.textContent = `${power >= 0 ? '+' : ''}${power}`;
-      this.powerBlock.style.color = power < 0 ? '#ff7666' : '#d2b15f';
+      this.powerBlock.style.color = power < 0 ? '#ff7666' : '#9de5c4';
     }
     const settled = this.creditsShown === this.creditsTarget && this.creditsPulse <= 0 && this.powerPulse <= 0;
     if (settled) return;
@@ -383,8 +383,8 @@ export class Sidebar {
     const decay = Math.max(0, 1 - Math.max(dt, 0) / PULSE_SECONDS);
     this.creditsPulse = this.creditsPulse <= 0.02 ? 0 : this.creditsPulse * decay;
     this.powerPulse = this.powerPulse <= 0.02 ? 0 : this.powerPulse * decay;
-    applyPulse(this.creditsValue, this.creditsPulse, this.creditsPulseSign, '#f4dc9a', CREDITS_GLOW);
-    applyPulse(this.powerValue, this.powerPulse, this.powerPulseSign, power < 0 ? '#ff7666' : '#d2b15f', 'none');
+    applyPulse(this.creditsValue, this.creditsPulse, this.creditsPulseSign, '#eff5f8', CREDITS_GLOW);
+    applyPulse(this.powerValue, this.powerPulse, this.powerPulseSign, power < 0 ? '#ff7666' : '#8fe1bc', 'none');
   }
 
   setVisible(visible: boolean): void {
@@ -445,7 +445,7 @@ export class Sidebar {
       this.radarWrap.style.borderLeftColor = '#66706a';
       this.radarWrap.style.borderRightColor = '#151817';
       this.radarWrap.style.borderBottomColor = '#151817';
-      this.radarWrap.style.boxShadow = 'inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75)';
+      this.radarWrap.style.boxShadow = 'inset 0 0 0 1px rgba(157,229,196,.28),inset 0 0 18px rgba(0,0,0,.75)';
     }, 1800);
     this.flash(`UNDER ATTACK · ${label.toUpperCase()}`);
     this.lastRadarTick = -3;
@@ -472,7 +472,7 @@ export class Sidebar {
       this.radarWrap.style.borderLeftColor = '#66706a';
       this.radarWrap.style.borderRightColor = '#151817';
       this.radarWrap.style.borderBottomColor = '#151817';
-      this.radarWrap.style.boxShadow = 'inset 0 0 0 1px rgba(210,177,95,.28),inset 0 0 18px rgba(0,0,0,.75)';
+      this.radarWrap.style.boxShadow = 'inset 0 0 0 1px rgba(157,229,196,.28),inset 0 0 18px rgba(0,0,0,.75)';
     }, 3200);
     this.flash(`⚠ INCOMING ${threat} · ARMY ${attackerTeam}`, 120);
   }
@@ -502,6 +502,8 @@ export class Sidebar {
     for (const tab of ['buildings', 'defense', 'infantry', 'vehicles', 'aircraft'] as const) {
       const button = document.createElement('button');
       button.textContent = TAB_LABELS[tab];
+      button.setAttribute('aria-pressed', String(tab === this.activeTab));
+      button.dataset.activity = String(this.tabHasActivity(tab));
       button.style.cssText = buttonCss(tab === this.activeTab, this.tabHasActivity(tab));
       button.onclick = () => {
         this.activeTab = tab;
@@ -582,10 +584,10 @@ export class Sidebar {
   private strategicOperationsPanel(): HTMLDivElement {
     const panel = document.createElement('div');
     panel.style.cssText =
-      'grid-column:1/-1;display:grid;gap:6px;padding:8px;border:1px solid rgba(240,213,106,.48);' +
-      'background:linear-gradient(145deg,rgba(25,20,13,.96),rgba(8,13,13,.96));box-shadow:inset 0 0 18px rgba(0,0,0,.48);';
+      'grid-column:1/-1;display:grid;gap:6px;padding:8px;border:1px solid rgba(157,229,196,.48);' +
+      'background:linear-gradient(145deg,rgba(18,38,31,.96),rgba(8,13,13,.96));box-shadow:inset 0 0 18px rgba(0,0,0,.48);';
     const title = document.createElement('div');
-    title.style.cssText = 'display:flex;justify-content:space-between;gap:8px;color:#f0d56a;font-weight:900;letter-spacing:.08em;';
+    title.style.cssText = 'display:flex;justify-content:space-between;gap:8px;color:#9de5c4;font-weight:900;letter-spacing:.08em;';
     title.innerHTML = `<span>VESPER STRIKE CONTROL</span><span>WARHEAD ${this.economy.strategicMissileLevel}/3</span>`;
     panel.appendChild(title);
 
@@ -792,7 +794,9 @@ export class Sidebar {
     cancel: () => void,
   ): HTMLButtonElement {
     const button = document.createElement('button');
+    button.className = 'game-command-card';
     button.dataset.commandKind = kind;
+    button.dataset.ready = String(!!state.ready);
     button.dataset.commandType = eyebrow;
     button.title = state.enabled ? `${label} $${cost}` : state.reason;
     button.setAttribute('aria-label', state.enabled ? `${label} $${cost}` : `${label} ${state.reason}`);
@@ -818,6 +822,7 @@ export class Sidebar {
     };
 
     const icon = document.createElement('div');
+    icon.className = 'game-thumbnail';
     icon.style.cssText = commandIconCss(state.enabled || !!state.active || !!state.ready);
     const progress = document.createElement('div');
     progress.dataset.progressKind = kind;
@@ -826,7 +831,7 @@ export class Sidebar {
     const fallback = document.createElement('div');
     fallback.style.cssText =
       'position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#252b2d,#0d1112);' +
-      `color:${state.enabled || state.ready ? '#d2b15f' : '#6f7772'};font-size:18px;z-index:1;`;
+      `color:${state.enabled || state.ready ? '#9de5c4' : '#6f7772'};font-size:18px;z-index:1;`;
     fallback.textContent = initials(label);
     const img = document.createElement('img');
     img.src = commandIconPath(kind);
@@ -840,13 +845,14 @@ export class Sidebar {
     icon.appendChild(countBadge);
 
     const content = document.createElement('div');
+    content.className = 'game-command-card__copy';
     content.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:3px 4px;align-items:end;min-width:0;';
     const name = document.createElement('div');
     name.style.cssText = 'font-size:10px;color:inherit;white-space:nowrap;line-height:1.1;overflow:hidden;text-overflow:ellipsis;';
     name.textContent = label;
     const meta = document.createElement('div');
     meta.dataset.metaKind = kind;
-    meta.style.cssText = `font-size:10px;color:${state.unaffordable ? '#ff7666' : state.enabled || state.ready ? '#d2b15f' : '#d17a65'};text-align:right;max-width:50px;overflow:hidden;text-overflow:ellipsis;`;
+    meta.style.cssText = `font-size:10px;color:${state.unaffordable ? '#ff7666' : state.enabled || state.ready ? '#9de5c4' : '#d17a65'};text-align:right;max-width:50px;overflow:hidden;text-overflow:ellipsis;`;
     meta.textContent = cardMetaText(state, cost);
     content.append(name, meta);
     const unitDetail = unitCardDetail(kind);
@@ -912,6 +918,7 @@ export class Sidebar {
       'grid-column:1/-1;display:grid;grid-template-columns:46px 1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #4b5552;' +
       'background:linear-gradient(180deg,#202929,#111615);box-shadow:inset 0 0 14px rgba(0,0,0,.45);';
     const icon = document.createElement('div');
+    icon.className = 'game-thumbnail';
     icon.style.cssText = commandIconCss(true) + 'min-height:42px;';
     const img = document.createElement('img');
     img.src = commandIconPath(entity.building?.kind ?? 'command-yard');
@@ -923,15 +930,15 @@ export class Sidebar {
     const copy = document.createElement('div');
     const queue = entity.producer ? this.miniQueue(entity) : '<span style="color:#7f8a85">no queue</span>';
     copy.innerHTML =
-      `<div style="font-size:10px;color:#d2b15f">SELECTED</div>` +
+      `<div style="font-size:10px;color:#9de5c4">SELECTED</div>` +
       `<div style="font-size:14px;color:#f0f3e8">${entity.building?.label ?? entity.name ?? 'Building'}</div>` +
       `<div style="font-size:11px;color:#aebbc4">hull ${health} · ${queue}</div>`;
     copy.appendChild(this.capabilityChips(entity));
     if (isFortressTower(entity)) {
       const directControl = document.createElement('div');
       directControl.style.cssText =
-        'margin-top:6px;padding:5px 7px;border-left:3px solid #f0c858;background:rgba(240,200,88,.08);' +
-        'font:700 10px/1.35 ui-monospace,Menlo,monospace;letter-spacing:.08em;color:#f2d675;';
+        'margin-top:6px;padding:5px 7px;border-left:3px solid #78b99e;background:rgba(157,229,196,.08);' +
+        'font:700 10px/1.35 ui-monospace,Menlo,monospace;letter-spacing:.08em;color:#b6efd5;';
       directControl.textContent = 'PRESS V · ENTER FORTRESS FIRE CONTROL';
       copy.appendChild(directControl);
     }
@@ -944,7 +951,7 @@ export class Sidebar {
       primary.style.cssText = smallButtonCss(isPrimary);
       primary.onclick = () => this.actions.setPrimaryProducer(entity);
       const rally = document.createElement('div');
-      rally.style.cssText = 'font-size:10px;color:#d2b15f;text-align:right;';
+      rally.style.cssText = 'font-size:10px;color:#9de5c4;text-align:right;';
       rally.textContent = entity.producer.rally ? 'RALLY SET' : 'RIGHT-CLICK MAP';
       controls.append(primary, rally);
     }
@@ -967,20 +974,20 @@ export class Sidebar {
     const icon = document.createElement('div');
     icon.style.cssText =
       commandIconCss(true) +
-      'min-height:42px;display:grid;place-items:center;color:#151715;background:linear-gradient(180deg,#d2b15f,#7d6531);font-size:17px;';
+      'min-height:42px;display:grid;place-items:center;color:#12251e;background:linear-gradient(180deg,#9de5c4,#477f6b);font-size:17px;';
     icon.textContent = 'ORE';
 
     const copy = document.createElement('div');
     copy.style.cssText = 'display:grid;gap:4px;min-width:0;';
     const title = document.createElement('div');
     title.innerHTML =
-      `<div style="font-size:10px;color:#d2b15f">SELECTED COLLECTOR</div>` +
+      `<div style="font-size:10px;color:#9de5c4">SELECTED COLLECTOR</div>` +
       `<div style="font-size:14px;color:#f0f3e8">${unitDisplayName(entity)}</div>` +
       `<div style="font-size:11px;color:#aebbc4">hull ${health} · ${state} · cargo ${cargo}/${capacity}</div>`;
     const bar = document.createElement('div');
     bar.style.cssText = 'height:8px;border:1px solid #303936;background:#060908;box-shadow:inset 0 0 6px rgba(0,0,0,.7);overflow:hidden;';
     const fill = document.createElement('div');
-    fill.style.cssText = `height:100%;width:${Math.round(cargoPct * 100)}%;background:linear-gradient(90deg,#8b7339,#f0d56a);`;
+    fill.style.cssText = `height:100%;width:${Math.round(cargoPct * 100)}%;background:linear-gradient(90deg,#365d50,#9de5c4);`;
     bar.appendChild(fill);
     copy.append(title, bar);
 
@@ -1008,15 +1015,16 @@ export class Sidebar {
             : `${active} COLLECTING · ${returning} RETURNING`;
 
     const el = document.createElement('div');
+    el.className = 'game-economy-summary';
     el.style.cssText =
       'grid-column:1/-1;display:grid;grid-template-columns:1fr auto;gap:4px 8px;padding:7px 8px;border:1px solid #2f3735;' +
       'background:#101514;color:#aebbc4;box-shadow:inset 0 0 10px rgba(0,0,0,.35);';
     const title = document.createElement('div');
-    title.style.cssText = 'font-size:10px;color:#d2b15f;';
+    title.style.cssText = 'font-size:10px;color:#9de5c4;';
     title.textContent = 'ECONOMY';
     const value = document.createElement('div');
     value.dataset.economyStatus = 'true';
-    value.style.cssText = 'font-size:10px;color:#f0d56a;text-align:right;';
+    value.style.cssText = 'font-size:10px;color:#9de5c4;text-align:right;';
     value.textContent = status;
     const detail = document.createElement('div');
     detail.dataset.economyDetail = 'true';
@@ -1025,7 +1033,7 @@ export class Sidebar {
     el.append(title, value, detail);
     const attention = document.createElement('button');
     attention.dataset.economyAttention = 'true';
-    attention.style.cssText = 'grid-column:1/-1;border:1px solid #b39444;background:#292417;color:#f0d56a;padding:6px;font:10px ui-monospace,monospace;cursor:pointer;';
+    attention.style.cssText = 'grid-column:1/-1;border:1px solid #527866;background:#172720;color:#b6efd5;padding:6px;font:10px ui-monospace,monospace;cursor:pointer;';
     const warning = economyAttention(harvesters, this.sim.resourceNodes);
     attention.textContent = warning.text;
     attention.hidden = !warning.target;
@@ -1066,7 +1074,7 @@ export class Sidebar {
       const chip = document.createElement('span');
       chip.textContent = text;
       chip.style.cssText =
-        'display:inline-block;padding:2px 5px;border:1px solid #3e4744;background:#121817;color:#d2b15f;font-size:9px;line-height:12px;white-space:nowrap;';
+        'display:inline-block;padding:2px 5px;border:1px solid #3e4744;background:#121817;color:#9de5c4;font-size:9px;line-height:12px;white-space:nowrap;';
       el.appendChild(chip);
     }
     return el;
@@ -1104,7 +1112,7 @@ export class Sidebar {
       'grid-column:1/-1;min-height:126px;display:grid;grid-template-rows:auto auto;align-content:center;gap:7px;padding:14px;' +
       'border:1px solid #333b39;background:linear-gradient(180deg,#141a19,#0b0f0f);color:#9ba7a2;text-align:center;box-shadow:inset 0 0 18px rgba(0,0,0,.45);';
     const heading = document.createElement('div');
-    heading.style.cssText = 'font-size:13px;color:#d2b15f;letter-spacing:.08em;';
+    heading.style.cssText = 'font-size:13px;color:#9de5c4;letter-spacing:.08em;';
     heading.textContent = title;
     const copy = document.createElement('div');
     copy.style.cssText = 'font-size:11px;color:#aebbc4;line-height:1.35;';
@@ -1181,20 +1189,21 @@ export class Sidebar {
           ? this.unitCardState(kind as UnitKind, selectedProducer)
           : undefined;
       if (!state) continue;
+      button.dataset.ready = String(!!state.ready);
       const progress = button.querySelector<HTMLElement>('[data-progress-kind]');
       if (progress) progress.style.cssText = progressBarCss(state.progress, !!state.active && !state.ready);
       const badgeEl = button.querySelector<HTMLElement>('[data-badge-kind]');
       if (badgeEl) {
         badgeEl.textContent = state.ready ? 'READY' : state.count > 0 ? `×${state.count}` : '';
         badgeEl.style.display = state.count > 0 || state.ready ? 'block' : 'none';
-        badgeEl.style.background = state.ready ? '#d2b15f' : '#111615';
-        badgeEl.style.color = state.ready ? '#151715' : '#f0d56a';
+        badgeEl.style.background = state.ready ? '#9de5c4' : '#111615';
+        badgeEl.style.color = state.ready ? '#12251e' : '#9de5c4';
       }
       const meta = button.querySelector<HTMLElement>('[data-meta-kind]');
       if (meta) {
         const cost = STRUCTURES[kind as StructureKind]?.cost ?? UNITS[kind as UnitKind]?.cost ?? 0;
         meta.textContent = cardMetaText(state, cost);
-        meta.style.color = state.unaffordable ? '#ff7666' : state.enabled || state.ready ? '#d2b15f' : '#d17a65';
+        meta.style.color = state.unaffordable ? '#ff7666' : state.enabled || state.ready ? '#9de5c4' : '#d17a65';
       }
       const label = STRUCTURES[kind as StructureKind]?.label ?? UNITS[kind as UnitKind]?.label ?? kind;
       const cost = STRUCTURES[kind as StructureKind]?.cost ?? UNITS[kind as UnitKind]?.cost ?? 0;
@@ -1426,7 +1435,7 @@ export class Sidebar {
     this.drawUnderAttackAlert(now);
     if (this.radarFocus) {
       const p = this.worldToRadar(this.radarFocus.x, this.radarFocus.z);
-      this.radarCtx.strokeStyle = this.radarFocus.kind === 'attack-ground' ? '#ff6d5e' : this.radarFocus.kind === 'move' ? '#56d184' : '#f0d56a';
+      this.radarCtx.strokeStyle = this.radarFocus.kind === 'attack-ground' ? '#ff6d5e' : this.radarFocus.kind === 'move' ? '#56d184' : '#9de5c4';
       this.radarCtx.lineWidth = this.radarFocus.kind === 'focus' ? 1 : 2;
       this.radarCtx.beginPath();
       this.radarCtx.moveTo(p.x - 6, p.y);
@@ -1440,7 +1449,7 @@ export class Sidebar {
       this.radarCtx.stroke();
     }
     this.drawRadarOrientation();
-    this.radarCtx.strokeStyle = 'rgba(210,177,95,.65)';
+    this.radarCtx.strokeStyle = 'rgba(154,176,192,.18)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
   }
 
@@ -1471,7 +1480,7 @@ export class Sidebar {
       if (p.x < -12 || p.y < -12 || p.x > this.radar.width + 12 || p.y > this.radar.height + 12) continue;
       const remaining = Math.max(0, Math.min(1, (ping.expiresAt - now) / 9000));
       const pulse = 0.5 + 0.5 * Math.sin(now * 0.012 + ping.playerIndex * 1.7);
-      const color = ping.kind === 'attack' ? '#ff6d5e' : ping.kind === 'defend' ? '#63c6ff' : ping.kind === 'help' ? '#f0d56a' : '#7df27d';
+      const color = ping.kind === 'attack' ? '#ff6d5e' : ping.kind === 'defend' ? '#63c6ff' : ping.kind === 'help' ? '#9de5c4' : '#7df27d';
       this.radarCtx.save();
       this.radarCtx.globalAlpha = Math.min(1, remaining * 1.35);
       this.radarCtx.strokeStyle = color;
@@ -1497,7 +1506,7 @@ export class Sidebar {
       const radius = Math.max(3, (node.radius / this.hf.size) * Math.min(this.radar.width, this.radar.height) * 1.25);
       this.radarCtx.save();
       this.radarCtx.globalAlpha = 0.4 + pct * 0.35;
-      this.radarCtx.fillStyle = '#d2b15f';
+      this.radarCtx.fillStyle = '#7ea991';
       this.radarCtx.strokeStyle = '#151715';
       this.radarCtx.lineWidth = 1;
       this.radarCtx.beginPath();
@@ -1529,7 +1538,7 @@ export class Sidebar {
       this.radarCtx.lineTo(p.x - dx * 5 + sideX * 5, p.y - dy * 5 + sideY * 5);
       this.radarCtx.lineTo(p.x - dx * 5 - sideX * 5, p.y - dy * 5 - sideY * 5);
       this.radarCtx.closePath();
-      this.radarCtx.fillStyle = '#f0d56a';
+      this.radarCtx.fillStyle = '#9de5c4';
       this.radarCtx.strokeStyle = '#111714';
       this.radarCtx.lineWidth = 2;
       this.radarCtx.fill();
@@ -1545,12 +1554,12 @@ export class Sidebar {
     this.radarCtx.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) this.radarCtx.lineTo(points[i].x, points[i].y);
     this.radarCtx.closePath();
-    this.radarCtx.fillStyle = 'rgba(240,213,106,.08)';
+    this.radarCtx.fillStyle = 'rgba(157,229,196,.08)';
     this.radarCtx.fill();
     this.radarCtx.strokeStyle = 'rgba(8,12,10,.85)';
     this.radarCtx.lineWidth = 3;
     this.radarCtx.stroke();
-    this.radarCtx.strokeStyle = 'rgba(240,213,106,.92)';
+    this.radarCtx.strokeStyle = 'rgba(157,229,196,.92)';
     this.radarCtx.lineWidth = 1.4;
     this.radarCtx.stroke();
     this.radarCtx.restore();
@@ -1588,7 +1597,7 @@ export class Sidebar {
       this.radarCtx.lineTo(corners[index].x, corners[index].y);
     }
     this.radarCtx.closePath();
-    this.radarCtx.strokeStyle = 'rgba(210,177,95,.5)';
+    this.radarCtx.strokeStyle = 'rgba(157,229,196,.5)';
     this.radarCtx.lineWidth = 1.2;
     this.radarCtx.stroke();
     this.radarCtx.restore();
@@ -1661,14 +1670,14 @@ export class Sidebar {
     const compassY = 20;
     ctx.save();
     ctx.fillStyle = 'rgba(5,9,8,.78)';
-    ctx.strokeStyle = 'rgba(240,213,106,.72)';
+    ctx.strokeStyle = 'rgba(157,229,196,.72)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(compassX, compassY, 13, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    ctx.strokeStyle = '#f0d56a';
-    ctx.fillStyle = '#f0d56a';
+    ctx.strokeStyle = '#9de5c4';
+    ctx.fillStyle = '#9de5c4';
     ctx.lineWidth = 1.7;
     ctx.beginPath();
     ctx.moveTo(compassX, compassY);
@@ -1681,9 +1690,9 @@ export class Sidebar {
 
     ctx.fillStyle = 'rgba(5,9,8,.76)';
     ctx.fillRect(7, 7, 49, 15);
-    ctx.strokeStyle = 'rgba(240,213,106,.48)';
+    ctx.strokeStyle = 'rgba(157,229,196,.48)';
     ctx.strokeRect(7.5, 7.5, 48, 14);
-    ctx.fillStyle = '#e7d78e';
+    ctx.fillStyle = '#b6efd5';
     ctx.font = '700 7px ui-monospace,Menlo,monospace';
     ctx.textAlign = 'left';
     ctx.fillText('VIEW  ↑', 13, 15);
@@ -1700,7 +1709,7 @@ function compactCredits(credits: number): string {
 
 /** Credit swings smaller than this roll silently — only real purchases and deliveries flash. */
 const CREDIT_PULSE_MIN = 8;
-const CREDITS_GLOW = '0 0 10px rgba(210,177,95,.28)';
+const CREDITS_GLOW = 'none';
 const PULSE_SECONDS = 0.42;
 const GAIN_TINT: [number, number, number] = [141, 226, 149];
 const SPEND_TINT: [number, number, number] = [255, 148, 108];
@@ -1730,7 +1739,7 @@ function cardCss(state: CardState): string {
   return (
     'height:108px;text-align:left;padding:4px;display:grid;grid-template-rows:1fr auto;gap:3px;align-items:stretch;' +
     'border-radius:2px;border:1px solid #58615f;border-top-color:#89908b;border-left-color:#89908b;' +
-    `background:${state.ready ? 'linear-gradient(180deg,#6d5e2d,#2a2416)' : state.enabled ? 'linear-gradient(180deg,#334143,#1b2527)' : 'linear-gradient(180deg,#2c302f,#171a1a)'};` +
+    `background:${state.ready ? 'linear-gradient(180deg,#365d50,#182d26)' : state.enabled ? 'linear-gradient(180deg,#334143,#1b2527)' : 'linear-gradient(180deg,#2c302f,#171a1a)'};` +
     `color:${state.enabled || state.ready ? '#eef3e9' : '#87918a'};cursor:${state.enabled ? 'pointer' : 'default'};box-shadow:inset 0 0 0 1px rgba(0,0,0,.5);`
   );
 }
@@ -1738,16 +1747,16 @@ function cardCss(state: CardState): string {
 function buttonCss(active: boolean, activity: boolean): string {
   return (
     'height:31px;border-radius:2px;border:1px solid #4b5552;font:8px ui-monospace,Menlo,monospace;letter-spacing:0;' +
-    `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : activity ? 'linear-gradient(180deg,#3f3b25,#151816)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
-    `color:${active ? '#141614' : activity ? '#f0d56a' : '#d7e0e7'};cursor:pointer;`
+    `background:${active ? 'linear-gradient(180deg,#9de5c4,#477f6b)' : activity ? 'linear-gradient(180deg,#29443a,#151816)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
+    `color:${active ? '#12251e' : activity ? '#9de5c4' : '#d7e0e7'};cursor:pointer;`
   );
 }
 
 function smallButtonCss(active: boolean): string {
   return (
     'height:23px;border-radius:2px;border:1px solid #4b5552;font:10px ui-monospace,Menlo,monospace;letter-spacing:0;padding:0 6px;' +
-    `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
-    `color:${active ? '#141614' : '#d7e0e7'};cursor:pointer;`
+    `background:${active ? 'linear-gradient(180deg,#9de5c4,#477f6b)' : 'linear-gradient(180deg,#26302f,#111615)'};` +
+    `color:${active ? '#12251e' : '#d7e0e7'};cursor:pointer;`
   );
 }
 
@@ -1775,16 +1784,16 @@ function progressBarCss(progress: number, active: boolean): string {
     'position:absolute;left:0;right:0;top:0;height:5px;z-index:3;pointer-events:none;background:rgba(0,0,0,.55);' +
     `opacity:${active ? '1' : '0'};transition:opacity 120ms ease;` +
     `--progress:${pct}%;` +
-    `box-shadow:${active ? '0 0 8px rgba(240,213,106,.2)' : 'none'};` +
-    `background:linear-gradient(90deg,#f0d56a 0 var(--progress),rgba(0,0,0,.58) var(--progress) 100%);`
+    `box-shadow:${active ? '0 0 8px rgba(157,229,196,.2)' : 'none'};` +
+    `background:linear-gradient(90deg,#9de5c4 0 var(--progress),rgba(0,0,0,.58) var(--progress) 100%);`
   );
 }
 
 function tacticalButtonCss(active: boolean): string {
   return (
     'height:22px;border:1px solid #4b5552;border-radius:1px;font:9px ui-monospace,Menlo,monospace;letter-spacing:0;padding:0 3px;' +
-    `background:${active ? 'linear-gradient(180deg,#d2b15f,#8b7339)' : 'linear-gradient(180deg,#25302e,#111615)'};` +
-    `color:${active ? '#161713' : '#d7e0e7'};cursor:pointer;`
+    `background:${active ? 'linear-gradient(180deg,#9de5c4,#477f6b)' : 'linear-gradient(180deg,#25302e,#111615)'};` +
+    `color:${active ? '#12251e' : '#d7e0e7'};cursor:pointer;`
   );
 }
 
@@ -1798,7 +1807,7 @@ function badge(text: string, ready: boolean): HTMLDivElement {
   el.textContent = text;
   el.style.cssText =
     'position:absolute;right:3px;top:3px;z-index:4;padding:1px 4px;border:1px solid rgba(0,0,0,.55);font-size:10px;line-height:14px;' +
-    `background:${ready ? '#d2b15f' : '#111615'};color:${ready ? '#151715' : '#f0d56a'};box-shadow:0 1px 4px rgba(0,0,0,.45);`;
+    `background:${ready ? '#9de5c4' : '#111615'};color:${ready ? '#12251e' : '#9de5c4'};box-shadow:0 1px 4px rgba(0,0,0,.45);`;
   return el;
 }
 
@@ -1890,7 +1899,7 @@ function statPip(value: number, active: boolean): HTMLDivElement {
   el.style.cssText =
     'position:relative;overflow:hidden;border:1px solid rgba(0,0,0,.55);background:#101514;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);';
   const fill = document.createElement('div');
-  fill.style.cssText = `height:100%;width:${pct}%;background:${active ? '#d2b15f' : '#5f6762'};`;
+  fill.style.cssText = `height:100%;width:${pct}%;background:${active ? '#9de5c4' : '#5f6762'};`;
   el.appendChild(fill);
   return el;
 }

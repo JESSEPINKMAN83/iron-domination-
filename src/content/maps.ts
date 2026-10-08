@@ -1,4 +1,4 @@
-import type { MapConfig } from '../sim/heightfield';
+import type { MapConfig, TerrainLayout } from '../sim/heightfield';
 
 export type MapId = 'highlands' | 'crater-oasis' | 'frostbite-pass';
 
@@ -7,7 +7,7 @@ export type MapBiome = 'temperate' | 'desert' | 'snow';
 export type MapSize = 'small' | 'medium' | 'large';
 
 export const ORE_AMOUNT_MIN = 50;
-export const ORE_AMOUNT_MAX = 200;
+export const ORE_AMOUNT_MAX = 400;
 export const ORE_AMOUNT_STEP = 25;
 export const DEFAULT_ORE_AMOUNT = 100;
 export const TERRAIN_RELIEF_MIN = 50;
@@ -315,7 +315,7 @@ export function defaultTerrainRelief(id: MapId): number {
 export function oreFieldCount(id: MapId, size: MapSize = DEFAULT_MAP_SIZE, oreAmount = DEFAULT_ORE_AMOUNT): number {
   const base = MAP_PRESETS[id]?.config ?? MAP_PRESETS[DEFAULT_MAP_ID].config;
   const selectedSize = MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
-  const amount = sanitizeOreAmount(oreAmount) ?? DEFAULT_ORE_AMOUNT;
+  const amount = Math.min(200, sanitizeOreAmount(oreAmount) ?? DEFAULT_ORE_AMOUNT);
   const linearMultiplier = amount / 100;
   const maximumBoost = amount <= 150 ? 0 : 3 * ((amount - 150) / 50) ** 2;
   const abundanceMultiplier = linearMultiplier + maximumBoost;
@@ -327,12 +327,15 @@ export function mapConfig(
   size: MapSize = DEFAULT_MAP_SIZE,
   oreAmount = DEFAULT_ORE_AMOUNT,
   terrainRelief = defaultTerrainRelief(id),
+  terrainLayout: TerrainLayout = 'classic',
 ): MapConfig {
   const base = MAP_PRESETS[id]?.config ?? MAP_PRESETS[DEFAULT_MAP_ID].config;
   const selectedSize = MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
   return {
     ...base,
     cells: selectedSize.cells,
+    ...(terrainLayout !== 'classic' ? { terrainLayout } : {}),
+    ...((sanitizeOreAmount(oreAmount) ?? 100) > 200 ? { oreRichness: (sanitizeOreAmount(oreAmount) ?? 100) / 200 } : {}),
     oreFieldCount: oreFieldCount(id, size, oreAmount),
     terrainRelief: sanitizeTerrainRelief(terrainRelief) ?? defaultTerrainRelief(id),
   };

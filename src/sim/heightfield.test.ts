@@ -24,7 +24,7 @@ describe('heightfield generation', () => {
     expect(sanitizeOreAmount(null)).toBeUndefined();
     expect(sanitizeOreAmount(37)).toBe(50);
     expect(sanitizeOreAmount(164)).toBe(175);
-    expect(sanitizeOreAmount(999)).toBe(200);
+    expect(sanitizeOreAmount(999)).toBe(400);
   });
 
   it('bounds terrain relief and gives the desert a deep tactical default', () => {

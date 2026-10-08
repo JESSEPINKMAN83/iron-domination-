@@ -2,6 +2,16 @@
 // Fully deterministic from the map seed. No rendering dependencies.
 import { fbm2, mulberry32, smoothstep } from './noise';
 
+export type TerrainLayout = 'classic' | 'plains' | 'hills' | 'lakes';
+
+export function sanitizeTerrainLayout(value: unknown): TerrainLayout {
+  return value === 'plains' || value === 'hills' || value === 'lakes' ? value : 'classic';
+}
+
+export function oreFieldCapacity(field: OreField): number {
+  return Math.round(field.radius * field.radius * 15 * (field.richness ?? 1));
+}
+
 export type MapKind = 'highlands' | 'crater-oasis' | 'frostbite-pass';
 
 export interface MapConfig {
@@ -15,9 +25,12 @@ export interface MapConfig {
   oreFieldCount: number;
   /** Percentage multiplier for broad terrain elevation and canyon depth. */
   terrainRelief?: number;
+  terrainLayout?: TerrainLayout;
+  oreRichness?: number;
 }
 
 export interface OreField {
+  richness?: number;
   x: number;
   z: number;
   radius: number;
@@ -95,13 +108,36 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
   const half = size / 2;
   const reliefScale = Math.max(0.5, Math.min(1.5, (cfg.terrainRelief ?? 100) / 100));
 
+  const layout = sanitizeTerrainLayout(cfg.terrainLayout);
+  const layoutRng = mulberry32(seed ^ 0x7a45);
+  const angle = layout === 'classic' ? 0 : layoutRng() * Math.PI * 2;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const offsetX = layout === 'classic' ? 0 : (layoutRng() - 0.5) * size * 0.32;
+  const offsetZ = layout === 'classic' ? 0 : (layoutRng() - 0.5) * size * 0.32;
+  const frequency = layout === 'hills' ? 1.35 : layout === 'plains' ? 0.8 : 1;
+  // Large seeded landforms sit between the deployment routes. Define them once
+  // during generation; all layouts use the same mesh and rendering budget.
+  const landforms = layout === 'classic' || layout === 'plains' ? [] : Array.from({ length: 4 }, (_, i) => {
+    const bearing = i * Math.PI / 2 + (layoutRng() - 0.5) * 0.5;
+    const distance = size * (0.23 + layoutRng() * 0.07);
+    return {
+      x: Math.cos(bearing) * distance,
+      z: Math.sin(bearing) * distance,
+      radius: size * (0.14 + layoutRng() * 0.04),
+      stretch: 0.8 + layoutRng() * 0.4,
+      rise: (42 + layoutRng() * 30) * reliefScale,
+    };
+  });
+
   // --- heights: rolling continent + broad mountain shelves + detail, basins for lakes ---
   const heights = new Float32Array(samples * samples);
   let maxHeight = 0;
   for (let gy = 0; gy < samples; gy++) {
     for (let gx = 0; gx < samples; gx++) {
-      const wx = gx * cellSize - half;
-      const wz = gy * cellSize - half;
+      const worldX = gx * cellSize - half;
+      const worldZ = gy * cellSize - half;
+      const wx = (worldX * cos - worldZ * sin) * frequency + offsetX;
+      const wz = (worldX * sin + worldZ * cos) * frequency + offsetZ;
       const continent = fbm2(wx * 0.0011 + 3.7, wz * 0.0011 - 8.2, seed, 4);
       const plate = fbm2(wx * 0.0019 + 41.3, wz * 0.0019 + 17.9, seed ^ 0x51bd, 3);
       const mask = smoothstep(0.34, 0.62, continent);
@@ -154,6 +190,26 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
         const frozenBasin = smoothstep(size * 0.19, size * 0.05, Math.hypot(wx, wz - size * 0.04));
         const northShelf = smoothstep(size * 0.46, size * 0.18, Math.abs(wz - size * 0.3));
         h += (ridgeA * 26.0 + ridgeB * 24.0 + northShelf * 6.0 - pass * 16.0 - frozenBasin * 18.0) * reliefScale;
+      }
+      if (layout !== 'classic') {
+        h = waterLevel + 3 + Math.max(0, h - waterLevel) * (layout === 'plains' ? 0.12 : 0.25);
+        for (const feature of landforms) {
+          const dx = (worldX - feature.x) / feature.stretch;
+          const dz = (worldZ - feature.z) * feature.stretch;
+          // Slightly irregular coastlines and slopes using already computed noise.
+          const distance = Math.hypot(dx, dz) / feature.radius + rolling * 0.025;
+          if (layout === 'hills') {
+            h += feature.rise * smoothstep(1, 0.08, distance);
+          } else {
+            // Blend to an absolute submerged floor, so high ground cannot cancel a lake.
+            const basinWeight = smoothstep(1, 0.48, distance);
+            h = h * (1 - basinWeight) + (waterLevel - 7 * reliefScale) * basinWeight;
+          }
+        }
+        // Broad crossing routes connect the four deployment shelves on new layouts.
+        const routeDistance = Math.min(Math.abs(worldX - worldZ), Math.abs(worldX + worldZ)) / Math.SQRT2;
+        const route = 1 - smoothstep(14, 74, routeDistance);
+        h = h * (1 - route) + (waterLevel + 2.5) * route;
       }
       heights[gy * samples + gx] = h;
       if (h > maxHeight) maxHeight = h;
@@ -296,6 +352,7 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
     }
   }
 
+  if ((cfg.oreRichness ?? 1) > 1) for (const field of oreFields) field.richness = cfg.oreRichness;
   return { kind, cells, cellSize, size, samples, waterLevel, maxHeight, heights, walkable, splat, oreFields };
 }
 

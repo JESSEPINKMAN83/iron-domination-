@@ -1,0 +1,95 @@
+.iron-landing .iron-landing__doctrine li { display: block; padding: 0; }
+.iron-landing .iron-landing__doctrine button { width: 100%; height: 100%; border: 0; background: none; color: inherit; cursor: pointer; display: grid; grid-template-rows: 58px auto auto; gap: 5px; justify-items: center; align-content: center; padding: 22px 10px 19px; }
+.iron-landing .iron-landing__doctrine button:focus-visible { outline: 2px solid #b6efd5; outline-offset: -5px; }
+.landing-guide { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; color: #e8efe9; background: transparent; overflow: hidden; font-family: 'Avenir Next', Inter, system-ui, sans-serif; }
+.landing-guide::backdrop { background: transparent; }
+.landing-guide *, .landing-guide *::before { box-sizing: border-box; }
+.landing-guide__shell { position: relative; z-index: 1; background: #0b1412; height: 100%; display: flex; flex-direction: column; }
+.landing-guide__header { flex-shrink: 0; min-height: 78px; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #2b4037; font: 600 10px/1.5 ui-monospace, monospace; letter-spacing: .16em; color: #a1b4a8; }
+.landing-guide__header i { color: #7ccba7; padding: 0 16px; font-style: normal; }
+.landing-guide button { cursor: pointer; font: inherit; }
+.landing-guide button:focus-visible { outline: 2px solid #c3f4dc; outline-offset: 4px; }
+.landing-guide__close { border: 1px solid #3c594b; background: transparent; color: #d7e9de; padding: 11px 16px; letter-spacing: .12em; }
+.landing-guide__close span { margin-left: 20px; font-size: 19px; }
+.landing-guide__close:hover { background: #213c30; }
+.landing-guide__layout { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.landing-guide__portrait { border-right: 1px solid #3a5849; background: radial-gradient(ellipse at 50% 55%, #18372a 0%, #101e18 45%, #0a120f 85%); }
+.landing-guide__reading { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(135deg, #14221c, #0b1412 75%); }
+.landing-guide__nav { flex-shrink: 0; display: grid; grid-template-columns: repeat(4,1fr); padding: 0 32px; border-bottom: 1px solid #2b4037; }
+.landing-guide__nav button { display: flex; gap: 8px; justify-content: center; padding: 22px 4px 19px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #96a89c; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.landing-guide__nav button span { opacity: .45; }
+.landing-guide__nav button[aria-current] { border-color: #9de5c4; color: #b9f0d6; }
+.landing-guide__nav button:hover { color: #fff; }
+.landing-guide__lesson { overflow-y: auto; min-height: 0; flex: 1; padding: clamp(24px, 4vw, 64px); scrollbar-color: #426b55 transparent; }
+.landing-guide__eyebrow { margin: 0 0 14px; color: #91cfad; font: 500 10px/1.5 ui-monospace, monospace; letter-spacing: .2em; }
+.landing-guide h2 { margin: 0; font-family: 'Teko', 'Arial Narrow', sans-serif; font-size: clamp(64px, 6vw, 100px); font-weight: 500; line-height: .9; text-transform: uppercase; letter-spacing: .025em; }
+.landing-guide__subtitle { margin: 14px 0; font-size: clamp(18px,1.6vw,24px); line-height: 1.35; color: #d4e6da; }
+.landing-guide__intro { margin: 0 0 30px; max-width: 58ch; font-size: 14px; line-height: 1.7; color: #98b0a1; }
+.landing-guide__steps { padding: 0; margin: 0; list-style: none; }
+.landing-guide__steps li { display: flex; align-items: flex-start; gap: 20px; padding: 20px 0; border-top: 1px solid #2b4037; }
+.landing-guide__number { flex-shrink: 0; padding-top: 3px; color: #73a58b; font: 12px/1.5 ui-monospace, monospace; }
+.landing-guide h3 { font-size: 15px; font-weight: 600; line-height: 1.4; margin: 0 0 7px; }
+.landing-guide__steps p, .landing-guide__advice p { margin: 0; color: #a6b9ad; font-size: 13px; line-height: 1.7; }
+.landing-guide__advice { margin-top: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.landing-guide__advice section { padding: 18px; border: 1px solid #355642; background: #17291f; }
+.landing-guide__advice section + section { border-color: #564e3b; background: #242219; }
+.landing-guide__advice h3 { color: #a4dfba; font: 600 9px/1.6 ui-monospace, monospace; letter-spacing: .12em; }
+.landing-guide__advice section + section h3 { color: #dcc28c; }
+.landing-guide__footer { flex-shrink: 0; padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #2b4037; }
+.landing-guide__footer > span { max-width: 190px; color: #6f8d7b; font: 9px/1.6 ui-monospace, monospace; letter-spacing: .1em; }
+.landing-guide__next { border: 0; padding: 12px 0; background: none; color: #b6efd5; font-size: 12px !important; }
+@media (max-width: 800px) {
+  .landing-guide__header { min-height: 64px; padding: 12px 20px; }
+  .landing-guide__header > span { font-size: 8px; }
+  .landing-guide__header i { padding: 0 5px; }
+  .landing-guide__layout { grid-template-columns: minmax(0, .32fr) minmax(0, 1fr); }
+  .landing-guide__nav { padding: 0 12px; }
+  .landing-guide__nav button { font-size: 10px; gap: 4px; }
+  .landing-guide__nav button span { display: none; }
+  .landing-guide__lesson { padding: 26px 20px; }
+  .landing-guide__footer { padding: 12px 20px; }
+  .landing-guide__footer > span { display: none; }
+  .landing-guide__next { margin-left: auto; }
+  .landing-guide__advice { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .iron-landing .iron-landing__doctrine li { display: block; padding: 0; }
+  .iron-landing .iron-landing__doctrine button { grid-template-rows: 42px auto auto; padding: 13px 4px 11px; }
+  .landing-guide__layout { grid-template-columns: 1fr; }
+  .landing-guide__portrait { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .iron-landing .iron-landing__doctrine li { transition: none; } }
+
+/* Match the feature card before expanding its physical surface. */
+.landing-guide__frame { position: absolute; inset: 0; z-index: 0; background: #719c86; clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px); }
+.landing-guide__frame::before { content: ''; position: absolute; inset: 1px; background: radial-gradient(ellipse at 50% 40%, #20392c, #0b1412 80%); clip-path: inherit; }
+.landing-guide__emblem { position: absolute; z-index: 2; display: grid; justify-items: center; align-content: center; gap: 9px; pointer-events: none; }
+.landing-guide__emblem .iron-landing__doctrine-icon { width: 40px; height: 40px; }
+.landing-guide__emblem strong { font: 600 20px/1 'Teko', 'Arial Narrow', sans-serif; text-transform: uppercase; letter-spacing: .1em; }
+.landing-guide__emblem > span { font: 500 12px/1.3 'Teko', 'Arial Narrow', sans-serif; color: #93a79b; letter-spacing: .08em; text-transform: uppercase; }
+.landing-guide__divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: linear-gradient(transparent, #9de5c4 35%, #9de5c4 65%, transparent); transform-origin: center; pointer-events: none; }
+/* A wider surface and smaller contents restore space around each feature. */
+.iron-landing .iron-landing__doctrine { width: min(760px, 100%); gap: clamp(12px, 2.4vw, 32px); }
+.iron-landing .iron-landing__doctrine button { min-height: 138px; grid-template-rows: 40px auto auto; gap: 8px; padding: 20px 14px; }
+.iron-landing .iron-landing__doctrine-icon { width: 40px; height: 40px; }
+.iron-landing .iron-landing__doctrine strong { font-size: 20px; letter-spacing: .1em; }
+.iron-landing .iron-landing__doctrine span { font-size: 11px; line-height: 1.3; }
+@media (max-width: 800px) { .landing-guide__divider { left: calc(100% * .32 / 1.32); } }
+@media (max-width: 560px) {
+  .iron-landing .iron-landing__doctrine { gap: 8px; }
+  .iron-landing .iron-landing__doctrine button { min-height: 104px; grid-template-rows: 32px auto auto; padding: 14px 4px; gap: 6px; }
+  .iron-landing .iron-landing__doctrine-icon { width: 32px; height: 32px; }
+  .iron-landing .iron-landing__doctrine strong { font-size: 15px; letter-spacing: .04em; }
+  .iron-landing .iron-landing__doctrine span { font-size: 10px; letter-spacing: .02em; }
+  .landing-guide__emblem .iron-landing__doctrine-icon { width: 32px; height: 32px; }
+  .landing-guide__emblem strong { font-size: 15px; }
+  .landing-guide__emblem > span { font-size: 10px; }
+  .landing-guide__divider { display: none; }
+}
+
+.landing-guide__portrait { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 20px 12px; }
+.landing-guide__commander { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; object-position: center; }
+@media (max-width: 560px) {
+  .landing-guide__layout { grid-template-rows: minmax(130px, 24vh) minmax(0, 1fr); }
+  .landing-guide__portrait { display: flex; padding: 8px; border-right: 0; border-bottom: 1px solid #2b4037; }
+}

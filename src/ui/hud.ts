@@ -101,29 +101,29 @@ export class Hud {
     this.modeBanner.style.cssText =
       'position:fixed;left:50%;top:12px;transform:translate(-50%,-135%);opacity:0;z-index:13;pointer-events:none;' +
       'min-width:260px;padding:10px 18px;text-align:center;font:12px/1.25 ui-monospace,Menlo,monospace;color:#f0f3e8;' +
-      'background:linear-gradient(180deg,rgba(30,40,40,.94),rgba(8,12,13,.88));border:1px solid rgba(240,213,106,.58);border-radius:3px;' +
-      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 10px 28px rgba(0,0,0,.42),0 0 18px rgba(240,213,106,.16);' +
+      'background:linear-gradient(180deg,rgba(30,40,40,.94),rgba(8,12,13,.88));border:1px solid rgba(157,229,196,.58);border-radius:3px;' +
+      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 10px 28px rgba(0,0,0,.42),0 0 18px rgba(157,229,196,.16);' +
       'transition:transform 260ms cubic-bezier(.2,.8,.2,1),opacity 180ms ease;';
     const mobileTouch = typeof document !== 'undefined' && document.documentElement.classList.contains('mobile-touch-device');
     this.modeBanner.innerHTML =
-      '<div style="font-size:13px;color:#f0d56a;letter-spacing:.08em;">FIRST-PERSON VIEW</div>' +
+      '<div style="font-size:13px;color:#9de5c4;letter-spacing:.08em;">FIRST-PERSON VIEW</div>' +
       `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${mobileTouch ? 'Use the left arrows to move and drag the right side to aim' : 'Press V or Escape to return to command view'}</div>`;
     container.appendChild(this.modeBanner);
 
     this.fortressFrame = document.createElement('div');
     this.fortressFrame.style.cssText =
-      'position:fixed;inset:18px;display:none;pointer-events:none;z-index:12;color:#f3ce69;' +
-      'border:1px solid rgba(232,190,72,.28);box-shadow:inset 0 0 60px rgba(210,155,35,.035);' +
+      'position:fixed;inset:18px;display:none;pointer-events:none;z-index:12;color:#b6efd5;' +
+      'border:1px solid rgba(157,229,196,.28);box-shadow:inset 0 0 60px rgba(157,229,196,.035);' +
       'font:700 9px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.12em;text-shadow:0 1px 2px #000;';
     this.fortressFrame.innerHTML =
-      '<div style="position:absolute;left:-1px;top:-1px;width:74px;height:22px;border-left:3px solid #e7bd4d;border-top:3px solid #e7bd4d"></div>' +
-      '<div style="position:absolute;right:-1px;top:-1px;width:74px;height:22px;border-right:3px solid #e7bd4d;border-top:3px solid #e7bd4d"></div>' +
-      '<div style="position:absolute;left:-1px;bottom:-1px;width:74px;height:22px;border-left:3px solid #e7bd4d;border-bottom:3px solid #e7bd4d"></div>' +
-      '<div style="position:absolute;right:-1px;bottom:-1px;width:74px;height:22px;border-right:3px solid #e7bd4d;border-bottom:3px solid #e7bd4d"></div>' +
-      '<div style="position:absolute;left:15px;top:14px"><span style="color:#fff0b0">FORTRESS FIRE CONTROL</span><br><span style="color:#9d8d64">HOLD T // EXPAND SCAN · RELEASE // LOCK TARGET</span></div>' +
-      '<div style="position:absolute;right:15px;top:14px;color:#9d8d64;text-align:right">MOUSE WHEEL // OPTICAL ZOOM</div>' +
-      '<div style="position:absolute;left:15px;bottom:12px;color:#9d8d64">DUAL HEAVY INTERCEPTOR // ONLINE</div>' +
-      '<div style="position:absolute;right:15px;bottom:12px;color:#9d8d64">TACTICAL WARHEAD INTERLOCK // ARMED</div>';
+      '<div style="position:absolute;left:-1px;top:-1px;width:74px;height:22px;border-left:3px solid #78b99e;border-top:3px solid #78b99e"></div>' +
+      '<div style="position:absolute;right:-1px;top:-1px;width:74px;height:22px;border-right:3px solid #78b99e;border-top:3px solid #78b99e"></div>' +
+      '<div style="position:absolute;left:-1px;bottom:-1px;width:74px;height:22px;border-left:3px solid #78b99e;border-bottom:3px solid #78b99e"></div>' +
+      '<div style="position:absolute;right:-1px;bottom:-1px;width:74px;height:22px;border-right:3px solid #78b99e;border-bottom:3px solid #78b99e"></div>' +
+      '<div style="position:absolute;left:15px;top:14px"><span style="color:#c2f4dd">FORTRESS FIRE CONTROL</span><br><span style="color:#78968a">HOLD T // EXPAND SCAN · RELEASE // LOCK TARGET</span></div>' +
+      '<div style="position:absolute;right:15px;top:14px;color:#78968a;text-align:right">MOUSE WHEEL // OPTICAL ZOOM</div>' +
+      '<div style="position:absolute;left:15px;bottom:12px;color:#78968a">DUAL HEAVY INTERCEPTOR // ONLINE</div>' +
+      '<div style="position:absolute;right:15px;bottom:12px;color:#78968a">TACTICAL WARHEAD INTERLOCK // ARMED</div>';
     container.appendChild(this.fortressFrame);
 
     this.weaponFrame = document.createElement('div');
@@ -133,6 +133,7 @@ export class Hud {
     container.appendChild(this.weaponFrame);
 
     this.multiplayer = document.createElement('div');
+    this.multiplayer.className = 'game-network-status';
     this.multiplayer.style.cssText =
       'position:fixed;left:50%;top:62px;transform:translateX(-50%);z-index:14;display:none;pointer-events:none;' +
       'min-width:300px;max-width:min(520px,calc(100vw - 32px));padding:8px 14px;text-align:center;' +
@@ -144,10 +145,11 @@ export class Hud {
     container.appendChild(this.multiplayer);
 
     this.tacticalCallout = document.createElement('div');
+    this.tacticalCallout.className = 'game-tactical-callout';
     this.tacticalCallout.style.cssText =
       'position:fixed;left:50%;top:76px;transform:translate(-50%,-16px);opacity:0;pointer-events:none;z-index:16;' +
-      'min-width:220px;padding:9px 13px;border:1px solid rgba(240,213,106,.72);background:rgba(11,17,17,.9);' +
-      'box-shadow:0 8px 22px rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.06);color:#f0d56a;' +
+      'min-width:220px;padding:9px 13px;border:1px solid rgba(157,229,196,.72);background:rgba(11,17,17,.9);' +
+      'box-shadow:0 8px 22px rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.06);color:#9de5c4;' +
       'font:11px/1.35 ui-monospace,Menlo,monospace;letter-spacing:.05em;text-align:center;transition:opacity 160ms ease,transform 160ms ease;';
     container.appendChild(this.tacticalCallout);
   }
@@ -176,12 +178,12 @@ export class Hud {
     const primary = weaponLabel(entity?.weapons?.primary.kind ?? entity?.weapon?.kind);
     const secondary = weaponLabel(entity?.weapons?.secondary?.kind);
     this.modeBanner.innerHTML = this.fortressMode
-      ? '<div style="font-size:14px;color:#ffd96a;letter-spacing:.14em;">FORTRESS V-MODE</div>' +
-        `<div style="margin-top:4px;font-size:10px;color:#d7c897;letter-spacing:.04em;">${mobileTouch ? 'Drag to aim · Hold SCAN, release to lock · FIRE interceptor · MISSILE barrage' : 'MOUSE AIM · WHEEL OPTICAL ZOOM · HOLD T SCAN · RELEASE TO LOCK · LMB/RMB FIRE · V EXIT'}</div>`
-      : `<div style="font-size:13px;color:#f0d56a;letter-spacing:.1em;">${arsenal?.designation ?? 'DIRECT CONTROL'}</div>` +
+      ? '<div style="font-size:14px;color:#b6efd5;letter-spacing:.14em;">FORTRESS V-MODE</div>' +
+        `<div style="margin-top:4px;font-size:10px;color:#91b7a7;letter-spacing:.04em;">${mobileTouch ? 'Drag to aim · Hold SCAN, release to lock · FIRE interceptor · MISSILE barrage' : 'MOUSE AIM · WHEEL OPTICAL ZOOM · HOLD T SCAN · RELEASE TO LOCK · LMB/RMB FIRE · V EXIT'}</div>`
+      : `<div style="font-size:13px;color:#9de5c4;letter-spacing:.1em;">${arsenal?.designation ?? 'DIRECT CONTROL'}</div>` +
         `<div style="margin-top:3px;font-size:10px;color:#b9c7c0;">${arsenal?.fireControl ?? 'MANUAL FIRE CONTROL'} · ${mobileTouch ? 'DRAG TO AIM' : 'V / ESC EXIT'}</div>`;
     this.modeBanner.style.minWidth = this.fortressMode ? '520px' : '260px';
-    this.modeBanner.style.borderColor = this.fortressMode ? 'rgba(255,199,69,.88)' : 'rgba(240,213,106,.58)';
+    this.modeBanner.style.borderColor = this.fortressMode ? 'rgba(194,244,221,.88)' : 'rgba(157,229,196,.58)';
     this.fortressFrame.style.display = this.fortressMode ? 'block' : 'none';
     this.weaponFrame.style.display = active && !this.fortressMode ? 'block' : 'none';
     this.weaponFrame.innerHTML = active && !this.fortressMode
@@ -226,7 +228,7 @@ export class Hud {
     this.reticle.style.borderStyle = profile.border;
     this.reticle.innerHTML = profile.markup + reticleReloadMarkup();
     this.reticle.style.boxShadow = this.fortressMode
-      ? '0 0 0 1px rgba(0,0,0,.7),0 0 20px rgba(255,183,48,.3),inset 0 0 12px rgba(255,199,62,.1)'
+      ? '0 0 0 1px rgba(0,0,0,.7),0 0 20px rgba(157,229,196,.3),inset 0 0 12px rgba(194,244,221,.1)'
       : `0 0 0 1px rgba(0,0,0,.55),0 0 16px ${profile.glow}`;
     this.updateReticleWeaponReadiness();
   }
@@ -252,8 +254,8 @@ export class Hud {
     const label = kind === 'good-game' ? 'GOOD GAME' : kind.toUpperCase();
     this.tacticalCallout.textContent = `${name.toUpperCase()}: ${label} HERE`;
     this.tacticalCallout.style.opacity = '1';
-    this.tacticalCallout.style.borderColor = 'rgba(240,213,106,.72)';
-    this.tacticalCallout.style.color = '#f0d56a';
+    this.tacticalCallout.style.borderColor = 'rgba(157,229,196,.72)';
+    this.tacticalCallout.style.color = '#9de5c4';
     this.tacticalCallout.style.transform = 'translate(-50%,0)';
     if (this.tacticalTimer !== undefined) window.clearTimeout(this.tacticalTimer);
     this.tacticalTimer = window.setTimeout(() => {
@@ -324,9 +326,9 @@ function weaponFrameMarkup(designation: string, fireControl: string, primary: st
     <div style="position:absolute;right:0;top:0;width:66px;height:18px;border-right:2px solid currentColor;border-top:2px solid currentColor"></div>
     <div style="position:absolute;left:0;bottom:0;width:66px;height:18px;border-left:2px solid currentColor;border-bottom:2px solid currentColor"></div>
     <div style="position:absolute;right:0;bottom:0;width:66px;height:18px;border-right:2px solid currentColor;border-bottom:2px solid currentColor"></div>
-    <div style="position:absolute;left:10px;top:8px"><span style="color:#f4dda0">${designation}</span><br><span style="color:#78968a">${fireControl}</span></div>
+    <div style="position:absolute;left:10px;top:8px"><span style="color:#b6efd5">${designation}</span><br><span style="color:#78968a">${fireControl}</span></div>
     <div style="position:absolute;right:10px;top:8px;text-align:right">
-      <span style="color:#f4dda0">LMB // ${primary}</span> <b data-reload-label="primary" style="color:#8ee6a5">READY</b>
+      <span style="color:#b6efd5">LMB // ${primary}</span> <b data-reload-label="primary" style="color:#8ee6a5">READY</b>
       <span style="display:inline-block;width:74px;height:3px;margin-left:7px;background:rgba(80,105,91,.38);vertical-align:middle"><i data-reload-bar="primary" style="display:block;width:100%;height:100%;background:#8ee6a5"></i></span><br>
       <span style="color:#78968a">RMB // ${secondary}</span> <b data-reload-label="secondary" style="color:#8ee6a5">READY</b>
       <span style="display:inline-block;width:74px;height:3px;margin-left:7px;background:rgba(80,105,91,.38);vertical-align:middle"><i data-reload-bar="secondary" style="display:block;width:100%;height:100%;background:#8ee6a5"></i></span>
@@ -347,9 +349,9 @@ function updateReloadNode(frame: HTMLDivElement, slot: 'primary' | 'secondary', 
   }
   const { progress, ready } = reticleReloadState(kind, cooldown);
   label.textContent = ready ? 'READY' : `RELOAD ${cooldown.toFixed(1)}S`;
-  label.style.color = ready ? '#8ee6a5' : '#f2c15b';
+  label.style.color = ready ? '#8ee6a5' : '#78b99e';
   bar.style.width = `${Math.round(progress * 100)}%`;
-  bar.style.background = ready ? '#8ee6a5' : '#f2c15b';
+  bar.style.background = ready ? '#8ee6a5' : '#78b99e';
   bar.style.boxShadow = ready ? '0 0 7px rgba(105,235,151,.55)' : 'none';
 }
 
@@ -396,15 +398,15 @@ export function reticleReloadState(kind: string | undefined, cooldown: number): 
 
 function reticleVisual(family: WeaponHudFamily | 'fortress'): { size: number; radius: string; color: string; glow: string; border: string; markup: string } {
   const color = family === 'aviation' || family === 'strike' ? 'rgba(110,224,255,.88)'
-    : family === 'artillery' || family === 'ballistic' ? 'rgba(255,205,91,.88)'
-      : family === 'seeker' || family === 'fortress' ? 'rgba(255,218,98,.9)'
+    : family === 'artillery' || family === 'ballistic' ? 'rgba(157,229,196,.88)'
+      : family === 'seeker' || family === 'fortress' ? 'rgba(194,244,221,.9)'
         : 'rgba(190,238,202,.8)';
   const cross = '<i style="position:absolute;left:50%;top:-12px;width:1px;height:9px;background:currentColor"></i><i style="position:absolute;left:50%;bottom:-12px;width:1px;height:9px;background:currentColor"></i><i style="position:absolute;top:50%;left:-12px;width:9px;height:1px;background:currentColor"></i><i style="position:absolute;top:50%;right:-12px;width:9px;height:1px;background:currentColor"></i>';
   if (family === 'aviation') return { size: 42, radius: '50%', color, glow: 'rgba(72,205,255,.25)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:50%;width:72px;height:18px;border:1px solid currentColor;border-top:0;border-radius:0 0 50% 50%;transform:translate(-50%,-22%)"></b>` };
   if (family === 'strike') return { size: 46, radius: '2px', color, glow: 'rgba(72,205,255,.28)', border: 'dashed', markup: `${cross}<b style="position:absolute;inset:9px;border:1px solid currentColor;transform:rotate(45deg)"></b>` };
-  if (family === 'artillery') return { size: 50, radius: '50% 50% 4px 4px', color, glow: 'rgba(255,181,48,.28)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:7px;bottom:7px;border-left:1px dashed currentColor"></b><em style="position:absolute;left:calc(50% + 5px);top:5px;font:7px monospace">8<br>6<br>4<br>2</em>` };
-  if (family === 'ballistic') return { size: 34, radius: '50%', color, glow: 'rgba(255,181,48,.22)', border: 'dashed', markup: `${cross}<b style="position:absolute;left:5px;right:5px;bottom:-18px;height:14px;border:1px solid currentColor;border-top:0;border-radius:0 0 50% 50%"></b>` };
-  if (family === 'seeker' || family === 'fortress') return { size: family === 'fortress' ? 34 : 48, radius: '2px', color, glow: 'rgba(255,183,48,.3)', border: 'dashed', markup: `${cross}<b style="position:absolute;inset:7px;border:1px solid currentColor"></b>` };
+  if (family === 'artillery') return { size: 50, radius: '50% 50% 4px 4px', color, glow: 'rgba(157,229,196,.28)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:7px;bottom:7px;border-left:1px dashed currentColor"></b><em style="position:absolute;left:calc(50% + 5px);top:5px;font:7px monospace">8<br>6<br>4<br>2</em>` };
+  if (family === 'ballistic') return { size: 34, radius: '50%', color, glow: 'rgba(157,229,196,.22)', border: 'dashed', markup: `${cross}<b style="position:absolute;left:5px;right:5px;bottom:-18px;height:14px;border:1px solid currentColor;border-top:0;border-radius:0 0 50% 50%"></b>` };
+  if (family === 'seeker' || family === 'fortress') return { size: family === 'fortress' ? 34 : 48, radius: '2px', color, glow: 'rgba(194,244,221,.3)', border: 'dashed', markup: `${cross}<b style="position:absolute;inset:7px;border:1px solid currentColor"></b>` };
   if (family === 'armor') return { size: 38, radius: '50%', color, glow: 'rgba(125,242,125,.2)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:50%;width:7px;height:7px;border:1px solid currentColor;transform:translate(-50%,-50%) rotate(45deg)"></b>` };
   if (family === 'precision') return { size: 26, radius: '50%', color, glow: 'rgba(125,242,125,.2)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:50%;width:3px;height:3px;background:currentColor;border-radius:50%;transform:translate(-50%,-50%)"></b>` };
   return { size: 24, radius: '50%', color, glow: 'rgba(125,242,125,.16)', border: 'solid', markup: cross };

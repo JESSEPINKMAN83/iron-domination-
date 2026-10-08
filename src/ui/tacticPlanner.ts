@@ -1,3 +1,4 @@
+import type { TerrainLayout } from '../sim/heightfield';
 import './tacticPlanner.css';
 import type { MapId, MapSize } from '../content/maps';
 import type { Entity, TacticEndAction } from '../sim/components';
@@ -12,6 +13,7 @@ export type TacticPlannerMapContext = {
   seed: number;
   oreAmount?: number;
   terrainRelief?: number;
+  terrainLayout?: TerrainLayout;
   /** World-space anchor for the local army (HQ / spawn). Used to orient the map. */
   localAnchor: { x: number; z: number };
   /** Fog-of-war visibility. Hidden armies must never be revealed by the planner. */
@@ -89,6 +91,7 @@ export class TacticPlanner {
       384,
       this.map.oreAmount,
       this.map.terrainRelief,
+      this.map.terrainLayout,
     );
     this.worldSize = raster.worldSize;
     const orientation = mapOrientationForPlayer(this.worldSize, this.map.localAnchor, this.enemyAnchor());
@@ -417,7 +420,7 @@ export class TacticPlanner {
       const isBuilding = !!entity.building;
 
       if (selected) {
-        ctx.strokeStyle = 'rgba(240,213,106,.95)';
+        ctx.strokeStyle = 'rgba(157,229,196,.95)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(point.x, point.y, isBuilding ? 6 : 5, 0, Math.PI * 2);
@@ -425,11 +428,11 @@ export class TacticPlanner {
       }
 
       ctx.fillStyle = isTarget
-        ? '#ffb347'
+        ? '#c2f4dd'
         : hostile
           ? '#df5742'
           : selected
-            ? '#f0d56a'
+            ? '#9de5c4'
             : mine
               ? '#56d184'
               : '#7aa7ff';
@@ -438,7 +441,7 @@ export class TacticPlanner {
     }
 
     if (this.waypoints.length > 0) {
-      ctx.strokeStyle = 'rgba(240,213,106,.9)';
+      ctx.strokeStyle = 'rgba(157,229,196,.9)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       this.waypoints.forEach((waypoint, index) => {
@@ -450,7 +453,7 @@ export class TacticPlanner {
 
       this.waypoints.forEach((waypoint, index) => {
         const point = toView(waypoint.x, waypoint.z);
-        ctx.fillStyle = index === this.waypoints.length - 1 ? '#f0d56a' : '#d2b15f';
+        ctx.fillStyle = index === this.waypoints.length - 1 ? '#b6efd5' : '#78b99e';
         ctx.beginPath();
         ctx.arc(point.x, point.y, index === 0 ? 5 : 4, 0, Math.PI * 2);
         ctx.fill();
@@ -585,11 +588,11 @@ function blitOrientedRaster(
 function drawHqMarker(ctx: CanvasRenderingContext2D, x: number, y: number): void {
   ctx.save();
   ctx.translate(x, y);
-  ctx.fillStyle = 'rgba(240,213,106,.22)';
+  ctx.fillStyle = 'rgba(157,229,196,.22)';
   ctx.beginPath();
   ctx.arc(0, 0, 14, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = '#f0d56a';
+  ctx.strokeStyle = '#9de5c4';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(0, -7);
@@ -598,7 +601,7 @@ function drawHqMarker(ctx: CanvasRenderingContext2D, x: number, y: number): void
   ctx.lineTo(-7, 0);
   ctx.closePath();
   ctx.stroke();
-  ctx.fillStyle = '#f0d56a';
+  ctx.fillStyle = '#9de5c4';
   ctx.font = 'bold 9px ui-monospace, Menlo, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';

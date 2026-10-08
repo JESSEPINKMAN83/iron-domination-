@@ -268,6 +268,7 @@ function handleSettings(socket, body) {
   room.mapSize = normalizeMapSize(next.mapSize ?? room.mapSize);
   room.seed = Math.max(1, Math.floor(Number(next.seed) || room.seed));
   room.oreAmount = normalizeOreAmount(next.oreAmount ?? room.oreAmount);
+  room.terrainLayout = normalizeTerrainLayout(next.terrainLayout ?? room.terrainLayout);
   room.terrainRelief = normalizeTerrainRelief(next.terrainRelief ?? room.terrainRelief, room.mapId);
   room.timeOfDay = normalizeTimeOfDay(next.timeOfDay ?? room.timeOfDay);
   room.weather = normalizeWeather(next.weather ?? room.weather);
@@ -436,6 +437,7 @@ function createRoom(body) {
     mapSize: normalizeMapSize(body?.mapSize),
     seed: Math.max(1, Math.floor(Number(body?.seed) || 1)),
     oreAmount: normalizeOreAmount(body?.oreAmount),
+    terrainLayout: normalizeTerrainLayout(body?.terrainLayout),
     terrainRelief: normalizeTerrainRelief(body?.terrainRelief, normalizeMapId(body?.mapId)),
     timeOfDay: normalizeTimeOfDay(body?.timeOfDay),
     weather: normalizeWeather(body?.weather),
@@ -473,6 +475,7 @@ function restoreRoom(snapshot) {
     mapSize: normalizeMapSize(snapshot?.mapSize),
     seed: Math.max(1, Math.floor(Number(snapshot?.seed) || 1)),
     oreAmount: normalizeOreAmount(snapshot?.oreAmount),
+    terrainLayout: normalizeTerrainLayout(snapshot?.terrainLayout),
     terrainRelief: normalizeTerrainRelief(snapshot?.terrainRelief, normalizeMapId(snapshot?.mapId)),
     timeOfDay: normalizeTimeOfDay(snapshot?.timeOfDay),
     weather: normalizeWeather(snapshot?.weather),
@@ -649,6 +652,7 @@ function publicRoom(room) {
     seed: room.seed,
     oreAmount: room.oreAmount,
     terrainRelief: room.terrainRelief,
+    terrainLayout: room.terrainLayout,
     timeOfDay: room.timeOfDay,
     weather: room.weather,
     ai: room.ai,
@@ -780,7 +784,7 @@ function normalizeWeather(value) {
 function normalizeOreAmount(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return 100;
-  return Math.max(50, Math.min(200, Math.round(amount / 25) * 25));
+  return Math.max(50, Math.min(400, Math.round(amount / 25) * 25));
 }
 
 function normalizeTerrainRelief(value, mapId = 'highlands') {
@@ -1046,4 +1050,8 @@ function normalizeOrigin(value) {
   } catch {
     return origin.replace(/\/+$/, '');
   }
+}
+
+function normalizeTerrainLayout(value) {
+  return ['plains', 'hills', 'lakes'].includes(value) ? value : 'classic';
 }
