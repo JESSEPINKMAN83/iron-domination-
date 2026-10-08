@@ -1,3 +1,4 @@
+import { installLandingGuides } from './landingGuide';
 import './landing.css';
 import { isMobileTouchDevice, isStandaloneMobileExperience } from './mobile/platform';
 import { submitToBackoffice } from './backoffice';
@@ -333,14 +334,15 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
         `}
         ${fullscreenHint}
         <ul class="iron-landing__doctrine" aria-label="Core game features">
-          <li>${DOCTRINE_ICONS.build}<strong>Build</strong><span>Your base</span></li>
-          <li>${DOCTRINE_ICONS.deploy}<strong>Deploy</strong><span>Your army</span></li>
-          <li>${DOCTRINE_ICONS.fight}<strong>Fight</strong><span>On the ground</span></li>
-          <li>${DOCTRINE_ICONS.adapt}<strong>Adapt</strong><span>And conquer</span></li>
+          <li><button type="button" data-guide="build" aria-haspopup="dialog" aria-label="Build: open field guide">${DOCTRINE_ICONS.build}<strong>Build</strong><span>Your base</span></button></li>
+          <li><button type="button" data-guide="deploy" aria-haspopup="dialog" aria-label="Deploy: open field guide">${DOCTRINE_ICONS.deploy}<strong>Deploy</strong><span>Your army</span></button></li>
+          <li><button type="button" data-guide="fight" aria-haspopup="dialog" aria-label="Fight: open field guide">${DOCTRINE_ICONS.fight}<strong>Fight</strong><span>On the ground</span></button></li>
+          <li><button type="button" data-guide="adapt" aria-haspopup="dialog" aria-label="Adapt: open field guide">${DOCTRINE_ICONS.adapt}<strong>Adapt</strong><span>And conquer</span></button></li>
         </ul>
       </section>
     `;
     document.body.appendChild(root);
+    installLandingGuides(root);
     installStandaloneButtonSounds(root);
     startLandingMusic();
     setupLandingMusicControl(root);
