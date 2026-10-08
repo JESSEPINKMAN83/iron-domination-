@@ -140,7 +140,7 @@
   align-items: center;
   justify-content: center;
   gap: 14px;
-  margin: 0 0 22px;
+  margin: 0 0 42px;
   color: var(--landing-accent);
   font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
   font-size: clamp(10px, .85vw, 12px);
@@ -161,11 +161,11 @@
 
 .iron-landing__hero h1 {
   margin: 0;
-  font-family: 'Anton SC', Impact, Haettenschweiler, sans-serif;
-  font-size: clamp(86px, 10.6vw, 164px);
-  font-weight: 400;
-  line-height: .94;
-  letter-spacing: .015em;
+  font-family: 'Teko', 'Arial Narrow', Impact, sans-serif;
+  font-size: clamp(90px, 11.34vw, 171px);
+  font-weight: 700;
+  line-height: .76;
+  letter-spacing: .025em;
   text-transform: uppercase;
   text-shadow: 0 2px 0 rgba(0, 0, 0, .7);
   filter: none;
@@ -509,7 +509,7 @@
 @media (max-width: 560px) {
   .iron-landing__music-toggle { right: 10px; bottom: 10px; min-height: 30px; padding: 6px 9px; font-size: 9px; }
   .iron-landing__hero { padding: clamp(54px, 12vh, 90px) 10px 24px; }
-  .iron-landing__hero h1 { font-size: clamp(54px, 15.5vw, 76px); letter-spacing: -.025em; }
+  .iron-landing__hero h1 { font-size: clamp(48.6px, 13.95vw, 68.4px); letter-spacing: -.025em; }
   .iron-landing__copy { font-size: clamp(18px, 5.5vw, 25px); letter-spacing: .025em; white-space: normal; }
   .iron-landing__fields { grid-template-columns: 1fr; }
   .iron-landing__cta { width: min(100%, 320px); min-width: 0; min-height: 62px; padding: 12px 24px; font-size: 28px; }
