@@ -81,7 +81,7 @@ describe('multiplayer lockstep commands', () => {
     expect(lockstep.canPossess(sharedTank.id)).toBe(false);
   });
 
-  it('applies delayed tactic commands to the issuing player only', () => {
+  it.each(['hold', 'attack-through'] as const)('applies delayed %s tactic commands to the issuing player only', (endAction) => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const economy1 = createEconomy(1);
@@ -111,7 +111,7 @@ describe('multiplayer lockstep commands', () => {
           { x: 70, z: 42 },
           { x: 90, z: 42 },
         ],
-        endAction: 'hold',
+        endAction,
         sprint: true,
       }),
     ).toBe(true);
@@ -125,6 +125,7 @@ describe('multiplayer lockstep commands', () => {
     expect(guestTank.mover?.tactic?.remaining).toEqual([{ x: 90, z: 42 }]);
     expect(guestTank.mover?.sprint).toBe(true);
     expect(guestTank.mover?.tactic?.sprint).toBe(true);
+    expect(guestTank.mover?.attackThrough).toBe(endAction === 'attack-through' ? true : undefined);
     expect(hostTank.mover?.tactic).toBeUndefined();
   });
 

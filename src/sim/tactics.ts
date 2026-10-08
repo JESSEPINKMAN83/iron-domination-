@@ -42,7 +42,7 @@ export function validateTacticWaypoints(
 
 export function validateTacticEndAction(endAction: TacticEndAction): boolean {
   if (!endAction || typeof endAction !== 'object') return false;
-  if (endAction.kind === 'hold' || endAction.kind === 'attack-move') return true;
+  if (endAction.kind === 'hold' || endAction.kind === 'attack-move' || endAction.kind === 'attack-through') return true;
   return endAction.kind === 'attack' && Number.isInteger(endAction.targetId) && endAction.targetId > 0;
 }
 
@@ -83,6 +83,8 @@ export function issueTacticOrder(
     // issueMoveOrder clears tactic; re-attach the shared remaining queue per unit.
     if (entity.mover.target || entity.mover.holdPosition || entity.flight) {
       entity.mover.tactic = cloneTacticPlan(planSeed);
+      entity.mover.attackThrough = endAction.kind === 'attack-through' || undefined;
+      entity.mover.engage = undefined;
       assigned += 1;
     }
   }
@@ -98,7 +100,11 @@ export function advanceTacticAfterArrival(sim: GameSim, entity: Entity): void {
   if (plan.remaining.length > 0) {
     const next = plan.remaining.shift()!;
     issueMoveOrder(sim, [entity], next.x, next.z, false, undefined, undefined, !!plan.sprint);
-    if (entity.mover) entity.mover.tactic = plan;
+    if (entity.mover) {
+      entity.mover.tactic = plan;
+      entity.mover.attackThrough = plan.endAction.kind === 'attack-through' || undefined;
+      entity.mover.engage = undefined;
+    }
     return;
   }
 

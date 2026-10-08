@@ -38,7 +38,7 @@ export type NetCommand =
       type: 'tactic';
       ids: number[];
       waypoints: Array<{ x: number; z: number }>;
-      endAction: 'hold' | 'attack-move' | 'attack';
+      endAction: 'hold' | 'attack-move' | 'attack-through' | 'attack';
       endTargetId?: number;
       sprint?: boolean;
     }
@@ -731,6 +731,7 @@ function tacticEndActionFromCommand(
 ): TacticEndAction | undefined {
   if (command.endAction === 'hold') return { kind: 'hold' };
   if (command.endAction === 'attack-move') return { kind: 'attack-move' };
+  if (command.endAction === 'attack-through') return { kind: 'attack-through' };
   if (command.endAction === 'attack' && Number.isInteger(command.endTargetId) && (command.endTargetId ?? 0) > 0) {
     return { kind: 'attack', targetId: command.endTargetId! };
   }

@@ -44,6 +44,7 @@ export interface Selectable {
 export type TacticEndAction =
   | { kind: 'hold' }
   | { kind: 'attack-move' }
+  | { kind: 'attack-through' }
   | { kind: 'attack'; targetId: number };
 
 /** Multi-waypoint path plan; `remaining` are waypoints after the current `target`. */
@@ -69,6 +70,8 @@ export interface Mover {
   holdPosition?: { x: number; z: number };
   flow?: FlowField;
   attackMove?: boolean;
+  /** Fire in range while following the tactic route; never chase away from its destination. */
+  attackThrough?: boolean;
   /** explicit player-issued target; unlike attack-move this must not be replaced by a nearer foe */
   attackTargetId?: number;
   /** optional final facing for right-drag move orders */

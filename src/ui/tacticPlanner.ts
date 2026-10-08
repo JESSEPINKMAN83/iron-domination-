@@ -29,7 +29,7 @@ export type TacticExecutePayload = {
   highSpeed: boolean;
 };
 
-type EndMode = 'hold' | 'attack-move' | 'attack';
+type EndMode = 'hold' | 'attack-move' | 'attack-through' | 'attack';
 
 const ENEMY_PICK_RADIUS = 28;
 const HIGH_SPEED_STORAGE_KEY = 'iron-dominion.tactic-high-speed.v1';
@@ -113,7 +113,7 @@ export class TacticPlanner {
           </div>
           <button type="button" class="iron-tactic__close" aria-label="Close">×</button>
         </header>
-        <p class="iron-tactic__intro">Select units, click the map to place up to ${MAX_TACTIC_WAYPOINTS} path points, choose what they do at the end, then execute. The match keeps running. Map is oriented with your army at the bottom.</p>
+        <p class="iron-tactic__intro">Select units, click the map to place up to ${MAX_TACTIC_WAYPOINTS} path points, choose their combat and arrival behavior, then execute. The match keeps running. Map is oriented with your army at the bottom.</p>
         <div class="iron-tactic__body">
           <div class="iron-tactic__map-pane">
             <div class="iron-tactic__map-wrap">
@@ -137,12 +137,14 @@ export class TacticPlanner {
               <input type="checkbox" data-tactic-high-speed ${this.highSpeed ? 'checked' : ''}>
               <span><strong>High speed</strong><small>Use rapid transit for the entire path</small></span>
             </label>
-            <div class="iron-tactic__section-title">End action</div>
-            <div class="iron-tactic__end-actions" role="group" aria-label="End action">
+            <div class="iron-tactic__section-title">Combat & arrival</div>
+            <div class="iron-tactic__end-actions" role="group" aria-label="Combat and arrival behavior">
               <button type="button" data-end="hold" class="is-active">Hold</button>
               <button type="button" data-end="attack-move">Attack-move</button>
+              <button type="button" data-end="attack-through">Attack as you move</button>
               <button type="button" data-end="attack">Attack unit</button>
             </div>
+            <p class="iron-tactic__behavior-hint" data-behavior-hint></p>
             <div class="iron-tactic__path-actions">
               <button type="button" data-action="undo">Undo point</button>
               <button type="button" data-action="clear">Clear path</button>
@@ -288,6 +290,7 @@ export class TacticPlanner {
   private resolveEndAction(): TacticEndAction | undefined {
     if (this.endMode === 'hold') return { kind: 'hold' };
     if (this.endMode === 'attack-move') return { kind: 'attack-move' };
+    if (this.endMode === 'attack-through') return { kind: 'attack-through' };
     if (this.endMode === 'attack' && this.attackTargetId !== undefined) {
       return { kind: 'attack', targetId: this.attackTargetId };
     }
@@ -357,7 +360,16 @@ export class TacticPlanner {
     if (!this.overlay) return;
     for (const button of Array.from(this.overlay.querySelectorAll<HTMLButtonElement>('[data-end]'))) {
       button.classList.toggle('is-active', button.dataset.end === this.endMode);
+      button.setAttribute('aria-pressed', String(button.dataset.end === this.endMode));
     }
+    const hint = this.overlay.querySelector('[data-behavior-hint]');
+    if (hint) hint.textContent = this.endMode === 'attack-through'
+      ? 'Follow every waypoint and fire at enemies in range. Hold the destination; do not chase.'
+      : this.endMode === 'attack-move'
+        ? 'Follow the path, then engage enemies near the destination.'
+        : this.endMode === 'attack'
+          ? 'Follow the path, then pursue the selected enemy.'
+          : 'Follow the path, then hold position.';
     const canExecute =
       this.selectedIds.size > 0 &&
       this.waypoints.length > 0 &&
@@ -373,7 +385,7 @@ export class TacticPlanner {
       if (this.endMode === 'attack') {
         parts.push(this.attackTargetId !== undefined ? `target #${this.attackTargetId}` : 'click an enemy on the map');
       } else {
-        parts.push(this.endMode === 'hold' ? 'end: hold' : 'end: attack-move');
+        parts.push(this.endMode === 'hold' ? 'end: hold' : this.endMode === 'attack-through' ? 'fire along route · end: hold' : 'end: attack-move');
       }
       this.statusEl.textContent = parts.join(' · ');
     }

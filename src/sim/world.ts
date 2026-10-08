@@ -571,6 +571,7 @@ export function issueMoveOrder(
     }
     entity.mover.holdPosition = undefined;
     entity.mover.attackMove = attackMove;
+    entity.mover.attackThrough = undefined;
     entity.mover.sprint = sprint && !attackMove ? true : undefined;
     entity.mover.attackTargetId = undefined;
     entity.mover.faceYaw = faceYaw;
@@ -633,6 +634,7 @@ export function stopEntities(entities: Entity[]): void {
     entity.mover.holdPosition = { x: entity.transform.x, z: entity.transform.z };
     entity.mover.flow = undefined;
     entity.mover.attackMove = false;
+    entity.mover.attackThrough = undefined;
     entity.mover.sprint = undefined;
     entity.mover.attackTargetId = undefined;
     entity.mover.turnaround = undefined;
@@ -734,6 +736,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       mover.holdPosition = undefined;
       mover.flow = undefined;
       mover.attackMove = false;
+      mover.attackThrough = undefined;
       mover.sprint = undefined;
       mover.attackTargetId = undefined;
       mover.tactic = undefined;
@@ -1328,6 +1331,7 @@ function possessedFlightCommand(entity: MovingEntity): FlightCommand {
   mover.holdPosition = undefined;
   mover.flow = undefined;
   mover.attackMove = false;
+  mover.attackThrough = undefined;
   mover.sprint = undefined;
   mover.attackTargetId = undefined;
   mover.defenseAlert = undefined;
@@ -1548,6 +1552,7 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.turnaround ? Math.round(entity.mover.turnaround.targetYaw * 10000) : 0);
       mix(entity.mover.turnaround?.direction ?? 0);
       mix(entity.mover.attackMove ? 1 : 0);
+      mix(entity.mover.attackThrough ? 1 : 0);
       mix(entity.mover.faceYaw === undefined ? 0 : Math.round(entity.mover.faceYaw * 10000));
       mix(entity.mover.defenseAlert?.targetId ?? 0);
       mix(entity.mover.defenseAlert ? Math.round(entity.mover.defenseAlert.ttl * 1000) : 0);
@@ -1559,7 +1564,7 @@ export function hashSim(sim: GameSim): number {
           mix(Math.round(point.z * 10));
         }
         const end = entity.mover.tactic.endAction;
-        mix(end.kind === 'hold' ? 1 : end.kind === 'attack-move' ? 2 : 3);
+        mix(end.kind === 'hold' ? 1 : end.kind === 'attack-move' ? 2 : end.kind === 'attack-through' ? 4 : 3);
         if (end.kind === 'attack') mix(end.targetId);
       }
     }
