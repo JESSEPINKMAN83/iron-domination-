@@ -1,4 +1,4 @@
-import { Box3, PerspectiveCamera, Vector3 } from 'three';
+import { Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import type { StructureDamage } from '../sim/components';
 import {
@@ -8,6 +8,7 @@ import {
   buildingSelectionFootprint,
   detailWoundFromGrid,
   projectBuildingHitBounds,
+  pickBuildingGeometry,
 } from './buildingView';
 
 describe('building screen selection bounds', () => {
@@ -120,4 +121,91 @@ describe('building health bar visibility', () => {
     expect(buildingHealthBarVisible({ ...hidden, selected: true, destroyed: true })).toBe(false);
     expect(buildingHealthBarVisible({ ...hidden, ticksSinceDamage: BUILDING_HEALTH_REVEAL_TICKS + 1 })).toBe(false);
   });
+});
+
+
+describe('building geometry selection', () => {
+  const camera = () => {
+    const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+    camera.position.set(0, 0, 20);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    return camera;
+  };
+  const building = (z = 0) => {
+    const root = new Group();
+    root.add(new Mesh(new BoxGeometry(4, 4, 4), new MeshBasicMaterial()));
+    root.position.z = z;
+    root.updateMatrixWorld(true);
+    return root;
+  };
+  it('selects the front surface when buildings overlap', () => {
+    const back = building();
+    const front = building(6);
+    expect(pickBuildingGeometry([back, front], camera(), 300, 300, 600, 600)).toBe(front);
+  });
+  it('does not select empty space between a building and its antenna', () => {
+    const root = building();
+    const mast = new Mesh(new BoxGeometry(0.2, 5, 0.2), new MeshBasicMaterial());
+    mast.position.set(5, 4, 0);
+    root.add(mast);
+    root.updateMatrixWorld(true);
+    const c = camera();
+    const empty = new Vector3(3.5, 3, 0).project(c);
+    expect(pickBuildingGeometry([root], c, (empty.x + 1) * 300, (1 - empty.y) * 300, 600, 600)).toBeUndefined();
+  });
+  it('ignores hidden damage blocks and hidden buildings', () => {
+    const root = building();
+    root.children[0].visible = false;
+    expect(pickBuildingGeometry([root], camera(), 300, 300, 600, 600)).toBeUndefined();
+    root.children[0].visible = true;
+    root.visible = false;
+    expect(pickBuildingGeometry([root], camera(), 300, 300, 600, 600)).toBeUndefined();
+  });
+});
+
+
+describe('partially occluded building selection', () => {
+  it('selects the visible upper part of a rear building instead of the front building', () => {
+    const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+    camera.position.set(0, 0, 20);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    const back = new Group();
+    const rearMesh = new Mesh(new BoxGeometry(4, 8, 4), new MeshBasicMaterial());
+    rearMesh.position.y = 2;
+    back.add(rearMesh);
+    const front = new Group();
+    front.add(new Mesh(new BoxGeometry(4, 2, 4), new MeshBasicMaterial()));
+    front.position.z = 6;
+    back.updateMatrixWorld(true);
+    front.updateMatrixWorld(true);
+    const visibleRear = new Vector3(0, 4, 2).project(camera);
+    expect(pickBuildingGeometry([front, back], camera, (visibleRear.x + 1) * 300, (1 - visibleRear.y) * 300, 600, 600)).toBe(back);
+  });
+});
+
+describe('selection across building states and camera views', () => {
+  for (const angle of [0, Math.PI / 3, Math.PI]) {
+    for (const distance of [24, 90]) {
+      for (const progress of [0.2, 1]) {
+        it(`picks a visible surface at angle ${angle}, zoom ${distance}, construction ${progress}`, () => {
+          const camera = new PerspectiveCamera(50, 1, 0.1, 1000);
+          camera.position.set(Math.sin(angle) * distance, distance * 0.7, Math.cos(angle) * distance);
+          camera.lookAt(0, 1, 0);
+          camera.updateMatrixWorld();
+          const root = new Group();
+          root.add(new Mesh(new BoxGeometry(8, 6, 8), new MeshBasicMaterial()));
+          // A hidden removed block must not intercept clicks after damage.
+          const removed = new Mesh(new BoxGeometry(10, 8, 10), new MeshBasicMaterial());
+          removed.visible = false;
+          root.add(removed);
+          root.scale.y = progress;
+          root.updateMatrixWorld(true);
+          const center = new Vector3(0, 0, 0).project(camera);
+          expect(pickBuildingGeometry([root], camera, (center.x + 1) * 300, (1 - center.y) * 300, 600, 600)).toBe(root);
+        });
+      }
+    }
+  }
 });

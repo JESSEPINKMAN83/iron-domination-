@@ -18,6 +18,8 @@ import {
   Path,
   PlaneGeometry,
   RingGeometry,
+  Raycaster,
+  Vector2,
   Shape,
   ShapeGeometry,
   SphereGeometry,
@@ -354,6 +356,12 @@ export class BuildingView {
     for (const id of ids) this.producerHighlightIds.add(id);
   }
 
+  private hoveredBuilding?: Entity;
+
+  setHoveredBuilding(entity?: Entity): void {
+    this.hoveredBuilding = entity;
+  }
+
   setHiddenEntity(entity?: Entity): void {
     this.hiddenEntity = entity;
   }
@@ -384,24 +392,18 @@ export class BuildingView {
     viewportW: number,
     viewportH: number,
   ): Entity | undefined {
-    let best: Entity | undefined;
-    let bestDepth = Number.POSITIVE_INFINITY;
-    let bestCenterDistance = Number.POSITIVE_INFINITY;
-    const box = new Box3();
+    const roots = new Map<Object3D, Entity>();
+    const broadBounds = new Box3();
     for (const [entity, object] of this.objects) {
-      if (!entity.building || !object.root.visible) continue;
+      if (!entity.building || entity.destroyed || !object.root.visible) continue;
       object.root.updateWorldMatrix(true, true);
-      box.setFromObject(object.root, true);
-      const bounds = projectBuildingHitBounds(box, camera, viewportW, viewportH);
-      if (!bounds || screenX < bounds.left || screenX > bounds.right || screenY < bounds.top || screenY > bounds.bottom) continue;
-      const centerDistance = Math.hypot(screenX - bounds.centerX, screenY - bounds.centerY);
-      if (bounds.depth < bestDepth || (bounds.depth === bestDepth && centerDistance < bestCenterDistance)) {
-        best = entity;
-        bestDepth = bounds.depth;
-        bestCenterDistance = centerDistance;
-      }
+      broadBounds.setFromObject(object.root, false);
+      const screen = projectBuildingHitBounds(broadBounds, camera, viewportW, viewportH, 12, 24);
+      if (!screen || screenX < screen.left || screenX > screen.right || screenY < screen.top || screenY > screen.bottom) continue;
+      roots.set(object.root, entity);
     }
-    return best;
+    const hit = pickBuildingGeometry([...roots.keys()], camera, screenX, screenY, viewportW, viewportH);
+    return hit ? roots.get(hit) : undefined;
   }
 
   private createBuildingObject(entity: Entity): BuildingObject {
@@ -469,6 +471,18 @@ export class BuildingView {
     label.position.z += 0.01;
     root.add(accent, label);
     const details = createBuildingDetails(entity, fullW, fullD, buildingHeight, this.accentMaterials[factionId(entity.team?.id)]);
+    // Tiny trim, pipes and windows do not need separate draws in every cascaded
+    // shadow map. Keep their normal shading and let the main body cast shadows.
+    details.traverse((part) => { if (part instanceof Mesh) part.castShadow = false; });
+    // One hidden-color envelope supplies the building's coarse shadow instead
+    // of drawing every damage cell or decoration into each cascade.
+    const shadowEnvelope = new Mesh(sharedBlockGeometry, new MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
+    shadowEnvelope.name = 'building-shadow-envelope';
+    shadowEnvelope.scale.set(fullW, buildingHeight, fullD);
+    shadowEnvelope.position.y = buildingHeight * 0.5;
+    shadowEnvelope.castShadow = true;
+    shadowEnvelope.raycast = () => {};
+    root.add(shadowEnvelope);
     root.add(details);
     const turretPivot = details.userData.turretPivot as Group | undefined;
     const refineryDock = entity.building?.kind === 'refinery' ? createRefineryDock(fullW, fullD, buildingHeight) : undefined;
@@ -818,12 +832,13 @@ export class BuildingView {
     const glow = this.selectedGlows.get(entity);
     if (!glow) return;
     const selected = (entity.selectable?.selected ?? false) && !entity.destroyed;
-    glow.root.visible = selected;
-    if (!selected) return;
+    const hovered = entity === this.hoveredBuilding && !entity.destroyed;
+    glow.root.visible = selected || hovered;
+    if (!selected && !hovered) return;
     const pulse = 0.5 + 0.5 * Math.sin(this.sim.tick * 0.16 + entity.id * 0.7);
     glow.root.position.set(entity.transform.x, groundY, entity.transform.z);
-    glow.ringMaterial.opacity = 0.72 + pulse * 0.22;
-    if (glow.skirtMaterial) glow.skirtMaterial.opacity = 0.34 + pulse * 0.28;
+    glow.ringMaterial.opacity = selected ? 0.72 + pulse * 0.22 : 0.48;
+    if (glow.skirtMaterial) glow.skirtMaterial.opacity = selected ? 0.34 + pulse * 0.28 : 0.14;
   }
 
   private updateProducerGlow(entity: Entity, groundY: number): void {
@@ -851,6 +866,32 @@ export interface BuildingScreenHitBounds {
   centerX: number;
   centerY: number;
   depth: number;
+}
+
+/** Pick visible surfaces, rather than the empty space inside a projected box. */
+export function pickBuildingGeometry(
+  roots: Object3D[], camera: Camera, x: number, y: number, width: number, height: number,
+): Object3D | undefined {
+  if (width <= 0 || height <= 0) return undefined;
+  const ray = new Raycaster();
+  const point = new Vector2();
+  // Exact cursor hit wins. A small edge allowance helps at normal RTS zoom.
+  for (const [dx, dy] of [[0, 0], [-5, 0], [5, 0], [0, -5], [0, 5], [-5, -5], [5, -5], [-5, 5], [5, 5], [-10, 0], [10, 0], [0, -10], [0, 10]]) {
+    point.set((x + dx) / width * 2 - 1, 1 - (y + dy) / height * 2);
+    ray.setFromCamera(point, camera);
+    for (const hit of ray.intersectObjects(roots, true)) {
+      let node: Object3D | null = hit.object;
+      let root: Object3D | undefined;
+      let visible = true;
+      while (node) {
+        if (!node.visible) visible = false;
+        if (roots.includes(node)) root = node;
+        node = node.parent;
+      }
+      if (visible && root) return root;
+    }
+  }
+  return undefined;
 }
 
 export function projectBuildingHitBounds(
@@ -1003,8 +1044,8 @@ function bodyProfileFor(kind?: string): BodyTierProfile[] | undefined {
   }
   if (kind === 'barracks') {
     return [
-      { widthScale: 1, depthScale: 1, heightShare: 0.64 },
-      { widthScale: 0.94, depthScale: 0.88, heightShare: 0.36 },
+      { widthScale: 0.9, depthScale: 0.82, heightShare: 0.8 },
+      { widthScale: 0.68, depthScale: 0.82, heightShare: 0.2 },
     ];
   }
   if (kind === 'factory') {
@@ -1254,12 +1295,12 @@ function heightForStructure(kind?: string): number {
   if (kind === 'missile-defense') return 8.4;
   if (kind === 'skylance-ciws') return 5.6;
   if (kind === 'intelligence-center') return 6.6;
-  if (kind === 'strategic-silo') return 7.8;
+  if (kind === 'strategic-silo') return 4.4;
   if (kind === 'helipad') return 4.8;
   if (kind === 'refinery') return 6.8;
   if (kind === 'factory') return 7.0;
   if (kind === 'command-yard') return 7.2;
-  if (kind === 'barracks') return 6.0;
+  if (kind === 'barracks') return 4.2;
   if (kind === 'power-plant') return 6.0;
   return DEFAULT_BUILDING_HEIGHT;
 }
@@ -1423,370 +1464,81 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
   }
 
   if (kind === 'command-yard') {
-    const sandbag = detailMaterial(0x8a7a58, 0.96, 0.02);
-    frontPanel('command-facade-inset', width * 0.74, height * 0.52, 0, height * 0.48, roof, 7);
-    for (const x of [-width * 0.26, -width * 0.13, 0, width * 0.13, width * 0.26]) {
-      frontPanel('command-cic-pane', width * 0.09, height * 0.18, x, height * 0.6, glass, 4);
-    }
-    for (const x of [-width * 0.4, width * 0.4]) {
-      frontPanel('command-blast-column', width * 0.12, height * 0.62, x, height * 0.46, concrete, 8);
-    }
-    box('command-blast-apron', width * 0.88, 0.28, 0.7, 0, 0.42, depth * 0.56, metal, 8);
-    for (const x of [-width * 0.42, width * 0.42]) {
-      for (let i = 0; i < 3; i++) {
-        const bag = cyl('command-revetment', 0.2, 0.2, 0.7, x + (i - 1) * 0.46, 0.52, depth * 0.58, sandbag, 6, 8);
-        bag.rotation.z = Math.PI / 2;
-      }
-    }
-    box('command-garage-housing', width * 0.46, height * 0.4, depth * 0.4, width * 0.2, height * 0.44, depth * 0.06, roof, 6);
-    for (let i = 0; i < 4; i++) {
-      frontPanel(
-        'command-bay-door',
-        width * 0.085,
-        height * 0.3,
-        width * 0.04 + i * width * 0.095,
-        height * 0.34,
-        i % 2 === 0 ? metal : dark,
-        5,
-      );
-    }
-    box('command-bay-header', width * 0.42, 0.2, 0.32, width * 0.2, height * 0.62, depth * 0.515, warning, 5);
-    door(width * 0.16, height * 0.28, -width * 0.22, depth * 0.515, 5);
-    ventBank('command', 5, -width * 0.22, height * 0.24, depth * 0.52);
-    box('command-tower-plinth', width * 0.4, height * 0.28, depth * 0.38, -width * 0.18, height + height * 0.14, -depth * 0.12, concrete, 7);
-    box('command-tower-shaft', width * 0.32, height * 0.42, depth * 0.3, -width * 0.18, height + height * 0.48, -depth * 0.12, roof, 6);
-    for (const x of [-width * 0.26, -width * 0.18, -width * 0.1]) {
-      box('command-tower-window', width * 0.055, height * 0.1, 0.14, x, height + height * 0.5, -depth * 0.12 + depth * 0.16, glass, 3);
-    }
-    box('command-tower-crown', width * 0.24, 0.18, depth * 0.22, -width * 0.18, height + height * 0.72, -depth * 0.12, metal, 4);
-    stripe(width * 0.36, depth * 0.08, -width * 0.18, -depth * 0.12, 4);
-    const mast = cyl('command-antenna', 0.08, 0.1, height * 0.72, -width * 0.18, height + height * 0.98, -depth * 0.22, metal, 3, 8);
-    mast.rotation.z = 0.04;
-    const dishArm = box('command-dish-arm', 0.14, 0.14, width * 0.16, -width * 0.1, height + height * 1.08, -depth * 0.22, brass, 3);
-    dishArm.rotation.y = -0.35;
-    const dish = new Mesh(new SphereGeometry(width * 0.1, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), metal);
-    dish.name = 'command-dish';
-    dish.position.set(-width * 0.04, height + height * 1.16, -depth * 0.28);
-    dish.rotation.x = 0.85;
-    dish.castShadow = true;
-    add(dish, 3);
-    const radarPivot = new Group();
-    radarPivot.name = 'command-radar-array';
-    radarPivot.position.set(width * 0.22, height + height * 0.42, depth * 0.04);
-    const radarMast = new Mesh(new CylinderGeometry(0.09, 0.13, height * 0.4, 10), metal);
-    radarMast.position.y = height * 0.2;
-    const radarBar = new Mesh(new BoxGeometry(width * 0.3, 0.12, 0.16), signal);
-    radarBar.position.y = height * 0.44;
-    const radarTip = new Mesh(new ConeGeometry(width * 0.035, height * 0.18, 8), brass);
-    radarTip.position.y = height * 0.58;
-    radarPivot.add(radarMast, radarBar, radarTip);
-    add(radarPivot, 3);
-    activity(radarBar, 'spin-y', 0.72, 1, entity.id * 0.17);
-    activity(perimeterLight('command-pulse', -width * 0.18, height + height * 1.22, -depth * 0.12), 'pulse', 2.4, 1, 0.4);
+    box('hq-operations-wing', width * 0.64, height * 0.34, depth * 0.6, -width * 0.12, height * 1.17, 0, concrete, 7);
+    box('hq-roof-overhang', width * 0.72, 0.24, depth * 0.68, -width * 0.12, height * 1.36, 0, roof, 6);
+    box('hq-observation-window', width * 0.54, height * 0.13, 0.12, -width * 0.12, height * 1.19, depth * 0.305, glass, 4);
+    frontPanel('hq-armored-entry', width * 0.2, height * 0.5, -width * 0.2, height * 0.26, dark, 7);
+    box('hq-entry-hood', width * 0.3, 0.2, depth * 0.22, -width * 0.2, height * 0.57, depth * 0.5, accentMaterial, 5);
+    cyl('hq-radio-mast', 0.08, 0.12, height * 0.9, width * 0.3, height * 1.45, -depth * 0.24, metal, 4, 8);
+    box('hq-radio-crossbar', width * 0.3, 0.1, 0.1, width * 0.3, height * 1.83, -depth * 0.24, metal, 4);
   } else if (kind === 'power-plant') {
-    // 1. Central Arc-Reactor Sphere & Gyroscopic Ring Core (Roof Center)
-    const reactorCore = new Group();
-    reactorCore.name = 'power-arc-reactor';
-    reactorCore.position.set(-width * 0.04, height + height * 0.65, 0);
-
-    // Glowing Plasma Fusion Orb
-    const orbMat = new MeshStandardMaterial({
-      color: 0x00e5ff,
-      emissive: 0x00aaff,
-      emissiveIntensity: 2.4,
-      roughness: 0.2,
-      metalness: 0.1,
-    });
-    const orb = new Mesh(new CylinderGeometry(width * 0.12, width * 0.12, height * 0.35, 18), orbMat);
-    reactorCore.add(orb);
-
-    // Vertical Energy Light Pillar
-    const beamMat = transparentBasic(0x00e5ff, 0.45);
-    const energyBeam = new Mesh(new CylinderGeometry(width * 0.08, width * 0.08, height * 1.8, 16), beamMat);
-    energyBeam.position.y = height * 0.6;
-    reactorCore.add(energyBeam);
-
-    // Outer Gyroscopic Containment Rings
-    const ring1 = new Mesh(new RingGeometry(width * 0.16, width * 0.20, 24), brass);
-    ring1.rotation.x = Math.PI * 0.5;
-    reactorCore.add(ring1);
-
-    const ring2 = new Mesh(new RingGeometry(width * 0.18, width * 0.22, 24), metal);
-    ring2.rotation.y = Math.PI * 0.5;
-    reactorCore.add(ring2);
-
-    add(reactorCore, 3);
-    activity(ring1, 'spin-y', 2.4, 1, 0);
-    activity(ring2, 'spin-z', 1.8, 1, 0.5);
-    activity(orb, 'pulse', 3.2, 0.4, 0);
-
-    // 2. MASSIVE Twin Hyperbolic Cooling Towers (Left & Back)
-    for (const x of [-width * 0.26, width * 0.22]) {
-      const z = -depth * 0.18;
-      // Flared base
-      cyl('cooling-tower-base', width * 0.18, width * 0.24, height * 0.65, x, height + height * 0.32, z, concrete, 5, 24);
-      // Tapered top rim
-      cyl('cooling-tower-top', width * 0.20, width * 0.15, height * 0.65, x, height + height * 0.95, z, concrete, 5, 24);
-      // Heavy Steel Structural Waist & Top Rings
-      cyl('cooling-tower-waist', width * 0.16, width * 0.16, 0.2, x, height + height * 0.65, z, dark, 4, 24);
-      cyl('cooling-tower-top-rim', width * 0.21, width * 0.21, 0.22, x, height + height * 1.27, z, metal, 4, 24);
-      // Glowing Reactor Well Mouth
-      cyl('cooling-tower-plasma', width * 0.17, width * 0.17, 0.16, x, height + height * 1.28, z, hotCore, 4, 20);
-      activity(perimeterLight('tower-beacon-a', x - width * 0.08, height + height * 1.38, z), 'pulse', 4.0, 1, x);
-      activity(perimeterLight('tower-beacon-b', x + width * 0.08, height + height * 1.38, z), 'pulse', 4.0, 1, x + 1);
+    // Twin cooling towers replace the elaborate animated reactor assembly.
+    for (const x of [-width * 0.24, width * 0.24]) {
+      cyl('power-cooling-tower', width * 0.16, width * 0.22, height * 0.9, x, height * 1.35, 0, concrete, 7, 10);
+      cyl('power-tower-opening', width * 0.13, width * 0.13, 0.08, x, height * 1.805, 0, dark, 5, 10);
+      cyl('power-tower-collar', width * 0.175, width * 0.175, 0.16, x, height * 1.77, 0, metal, 6, 10);
     }
-
-    // 3. Four Corner High-Voltage Tesla Energy Pillars
-    const cornerOffsets = [
-      { x: -width * 0.42, z: -depth * 0.42 },
-      { x: width * 0.42, z: -depth * 0.42 },
-      { x: -width * 0.42, z: depth * 0.42 },
-      { x: width * 0.42, z: depth * 0.42 },
-    ];
-    for (let i = 0; i < cornerOffsets.length; i++) {
-      const pos = cornerOffsets[i];
-      cyl('tesla-base', width * 0.08, width * 0.1, 0.4, pos.x, height * 0.2, pos.z, dark, 6, 14);
-      const teslaCore = cyl('tesla-core', width * 0.04, width * 0.04, height * 0.6, pos.x, height * 0.6, pos.z, hotCore, 4, 12);
-      // Induction rings
-      for (const yOff of [-0.2, 0, 0.2]) {
-        const ring = new Mesh(new CylinderGeometry(width * 0.065, width * 0.065, 0.05, 12), brass);
-        ring.position.y = yOff;
-        teslaCore.add(ring);
-      }
-      cyl('tesla-cap', width * 0.09, width * 0.09, 0.16, pos.x, height * 0.95, pos.z, metal, 4, 14);
-      activity(teslaCore, 'pulse', 3.5, 0.6, i * 0.4);
+    frontPanel('power-turbine-grille', width * 0.65, height * 0.45, 0, height * 0.45, dark, 7);
+    for (const x of [-width * 0.24, -width * 0.08, width * 0.08, width * 0.24]) {
+      frontPanel('power-intake-slat', width * 0.025, height * 0.4, x, height * 0.45, metal, 5);
     }
-
-    // 4. Front Turbine Intake & Glowing Neon Polarity (+ x +) Panels
-    frontPanel('power-intake-housing', width * 0.62, height * 0.46, -width * 0.04, height * 0.44, dark, 7);
-    box('power-intake-header', width * 0.64, height * 0.08, 0.32, -width * 0.04, height * 0.68, depth * 0.52, warning, 6);
-
-    for (const x of [-width * 0.24, -width * 0.04, width * 0.16]) {
-      const fan = new Group();
-      fan.name = 'power-turbine-intake';
-      fan.position.set(x, height * 0.46, depth * 0.528);
-
-      const rim = new Mesh(new CylinderGeometry(width * 0.085, width * 0.085, 0.2, 18), metal);
-      rim.rotation.x = Math.PI / 2;
-      fan.add(rim);
-
-      const back = new Mesh(new CircleGeometry(width * 0.08, 16), dark);
-      back.position.z = 0.02;
-      fan.add(back);
-
-      const hub = new Mesh(new CylinderGeometry(width * 0.03, width * 0.03, 0.14, 12), hotCore);
-      hub.rotation.x = Math.PI / 2;
-      hub.position.z = 0.1;
-      fan.add(hub);
-
-      const rotor = new Group();
-      rotor.position.z = 0.1;
-      for (let j = 0; j < 4; j++) {
-        const blade = new Mesh(new BoxGeometry(width * 0.07, width * 0.016, 0.06), brass);
-        blade.rotation.z = j * Math.PI * 0.5;
-        rotor.add(blade);
-      }
-      fan.add(rotor);
-      add(fan, 5);
-      activity(rotor, 'spin-z', 4.0 + x * 0.03, 1, x);
-    }
-
-    // Circular Polarity Panels (+ x +) on Front Base (matching user reference image)
-    const panelY = height * 0.18;
-    const panelZ = depth * 0.528;
-    const panelXs = [-width * 0.24, -width * 0.04, width * 0.16];
-    const isPlus = [true, false, true];
-    for (let i = 0; i < 3; i++) {
-      const px = panelXs[i];
-      const pod = cyl('polarity-pod', width * 0.07, width * 0.07, 0.16, px, panelY, panelZ, dark, 6, 16);
-      pod.rotation.x = Math.PI / 2;
-      const symbolMat = isPlus[i] ? hotCore : warning;
-      const bar1 = new Mesh(new BoxGeometry(width * 0.08, 0.045, width * 0.025), symbolMat);
-      bar1.position.z = 0.09;
-      pod.add(bar1);
-      const bar2 = new Mesh(new BoxGeometry(width * 0.08, 0.045, width * 0.025), symbolMat);
-      bar2.position.z = 0.09;
-      bar2.rotation.z = Math.PI / 2;
-      if (!isPlus[i]) bar2.rotation.z += Math.PI / 4;
-      pod.add(bar2);
-    }
-
-    // Industrial Exhaust Stacks
-    for (const x of [-width * 0.04, width * 0.32]) {
-      const z = depth * 0.25;
-      cyl('smokestack', width * 0.05, width * 0.06, height * 0.95, x, height + height * 0.48, z, metal, 4, 14);
-      cyl('stack-cap', width * 0.075, width * 0.075, 0.18, x, height + height * 0.98, z, dark, 4, 14);
-      cyl('stack-glow-rim', width * 0.055, width * 0.055, 0.14, x, height + height * 1.0, z, hotCore, 4, 12);
-    }
-
-    // Generator Hall Main Body
-    box('generator-hall', width * 0.54, height * 0.28, depth * 0.34, -width * 0.04, height + height * 0.14, depth * 0.12, roof, 6);
-    ventBank('generator-hall', 5, -width * 0.04, height + height * 0.18, depth * 0.3, true);
-    stripe(width * 0.26, depth * 0.08, width * 0.16, depth * 0.03, 4);
-
-    // Power Bus Duct & High-Voltage Conduits
-    box('power-bus-duct', width * 0.14, height * 0.22, depth * 0.82, width * 0.36, height + height * 0.14, 0, metal, 6);
+    box('power-service-cap', width * 0.9, 0.22, depth * 0.18, 0, height, depth * 0.36, warning, 6);
   } else if (kind === 'refinery') {
-    frontPanel('refinery-processor-face', width * 0.52, height * 0.46, -width * 0.08, height * 0.46, roof, 7);
-    for (const x of [-width * 0.24, -width * 0.08, width * 0.08]) {
-      frontPanel('refinery-pressure-gauge', width * 0.09, height * 0.12, x, height * 0.6, signal, 3);
+    // Storage drums and exposed process pipes read as a resource facility.
+    for (const x of [-width * 0.26, width * 0.22]) {
+      cyl('refinery-storage-tank', width * 0.19, width * 0.19, height * 0.65, x, height * 1.32, -depth * 0.1, metal, 7, 12);
+      cyl('refinery-tank-cap', width * 0.2, width * 0.2, 0.18, x, height * 1.66, -depth * 0.1, roof, 6, 12);
+      cyl('refinery-team-band', width * 0.192, width * 0.192, 0.22, x, height * 1.4, -depth * 0.1, accentMaterial, 5, 12);
     }
-    sidePanel('refinery-service-panel', depth * 0.4, height * 0.38, depth * 0.08, height * 0.44, dark, 6);
-    box('refinery-hopper', width * 0.34, height * 0.4, depth * 0.3, -width * 0.22, height + height * 0.2, -depth * 0.1, concrete, 6);
-    cone('ore-hopper-roof', width * 0.24, height * 0.26, -width * 0.22, height + height * 0.52, -depth * 0.1, roof, 5, 4).rotation.y = Math.PI * 0.25;
-    const oreTray = box('ore-feed-tray', width * 0.36, 0.2, depth * 0.26, -width * 0.3, height + height * 0.6, -depth * 0.1, dark, 5);
-    for (let i = 0; i < 9; i++) {
-      const chunk = new Mesh(new BoxGeometry(width * (0.025 + (i % 3) * 0.006), 0.2 + (i % 2) * 0.08, depth * 0.025), ore);
-      chunk.position.set((i % 3 - 1) * width * 0.065, 0.2 + (i % 2) * 0.05, (Math.floor(i / 3) - 1) * depth * 0.05);
-      chunk.rotation.set(i * 0.21, i * 0.47, i * 0.13);
-      oreTray.add(chunk);
-    }
-    cyl('refinery-column', width * 0.09, width * 0.11, height * 1.15, width * 0.08, height + height * 0.58, -depth * 0.28, metal, 5, 16);
-    cyl('refinery-column-cap', width * 0.12, width * 0.12, 0.2, width * 0.08, height + height * 1.18, -depth * 0.28, brass, 4, 16);
-    box('refinery-catwalk', width * 0.46, 0.1, depth * 0.16, 0, height + height * 0.42, -depth * 0.08, metal, 4);
-    for (const z of [-depth * 0.24, depth * 0.12]) {
-      const tank = cyl('refinery-tank', width * 0.11, width * 0.11, depth * 0.28, width * 0.28, height + 0.9, z, metal, 5, 18);
-      tank.rotation.z = Math.PI * 0.5;
-      box('tank-band', width * 0.02, 0.1, depth * 0.3, width * 0.28, height + 1.18, z, brass, 4);
-    }
-    for (const x of [-width * 0.02, width * 0.14]) {
-      const pipe = cyl('refinery-pipe', 0.12, 0.12, width * 0.56, x, height + 1.7, depth * 0.14, metal, 4, 12);
-      pipe.rotation.z = Math.PI * 0.5;
-    }
-    const rollerRack = new Group();
-    rollerRack.name = 'refinery-ore-conveyor';
-    rollerRack.position.set(-width * 0.13, height + 0.58, depth * 0.36);
-    for (let i = 0; i < 6; i++) {
-      const roller = new Mesh(new CylinderGeometry(0.12, 0.12, width * 0.08, 10), metal);
-      roller.rotation.z = Math.PI / 2;
-      roller.position.x = (i - 2.5) * width * 0.075;
-      rollerRack.add(roller);
-      activity(roller, 'spin-z', 3.2, 1, i * 0.3);
-    }
-    add(rollerRack, 4);
-    cyl('refinery-flare-stack', 0.12, 0.16, height * 1.08, width * 0.4, height + height * 0.54, -depth * 0.34, metal, 4, 10);
-    activity(perimeterLight('refinery-flare', width * 0.4, height + height * 1.12, -depth * 0.34), 'pulse', 4.4, 1.2, 1.1);
-    stripe(width * 0.34, depth * 0.08, -width * 0.12, depth * 0.12, 4);
+    box('refinery-pipe-bridge', width * 0.64, 0.3, 0.3, 0, height * 1.15, depth * 0.24, brass, 5);
+    cyl('refinery-distillation-stack', width * 0.065, width * 0.08, height * 1.25, width * 0.36, height * 1.6, depth * 0.26, metal, 5, 8);
+    frontPanel('refinery-collector-dock', width * 0.52, height * 0.55, -width * 0.12, height * 0.32, dark, 8);
+    box('refinery-dock-header', width * 0.58, 0.22, 0.28, -width * 0.12, height * 0.64, depth * 0.52, warning, 5);
   } else if (kind === 'barracks') {
-    const sandbag = detailMaterial(0x8a7a58, 0.96, 0.02);
-    frontPanel('barracks-armored-front', width * 0.72, height * 0.52, 0, height * 0.44, concrete, 7);
-    frontPanel('barracks-entry-recess', width * 0.24, height * 0.42, -width * 0.26, height * 0.34, dark, 6);
-    box('barracks-roof-left', width * 0.46, height * 0.14, depth * 0.62, -width * 0.22, height + height * 0.2, 0, roof, 5).rotation.z = -0.14;
-    box('barracks-roof-right', width * 0.46, height * 0.14, depth * 0.62, width * 0.22, height + height * 0.2, 0, roof, 5).rotation.z = 0.14;
-    box('barracks-roof-ridge', width * 0.08, height * 0.16, depth * 0.66, 0, height + height * 0.3, 0, metal, 6);
-    box('barracks-entry', width * 0.22, height * 0.38, depth * 0.14, -width * 0.26, height + height * 0.08, depth * 0.38, concrete, 5);
-    door(width * 0.16, height * 0.32, -width * 0.26, depth * 0.53, 4);
-    box('barracks-entry-canopy', width * 0.28, 0.16, depth * 0.16, -width * 0.26, height * 0.74, depth * 0.6, warning, 4).rotation.x = -0.1;
-    for (const x of [-width * 0.04, width * 0.1, width * 0.24, width * 0.38]) {
-      box('barracks-window', width * 0.08, height * 0.1, 0.16, x, height * 0.72, depth * 0.52, glass, 3);
+    // Low troop quarters: a full pitched roof and a clearly human-sized entry.
+    // Fixed primitive meshes only; no new effects or animation work.
+    for (const side of [-1, 1]) {
+      box('barracks-pitched-roof', width * 0.52, 0.24, depth * 0.94,
+        side * width * 0.23, height + width * 0.055, 0, roof, 5).rotation.z = -side * 0.24;
     }
-    for (const x of [width * 0.08, width * 0.22, width * 0.36]) {
-      frontPanel('barracks-locker', width * 0.1, height * 0.26, x, height * 0.26, metal, 5);
-      frontPanel('barracks-locker-slot', width * 0.055, 0.1, x, height * 0.3, dark, 4);
+    box('barracks-ridge', 0.18, 0.2, depth * 0.96, 0, height + width * 0.115, 0, metal, 5);
+    frontPanel('barracks-personnel-entry', width * 0.14, height * 0.62, -width * 0.24, height * 0.32, dark, 6);
+    box('barracks-entry-porch', width * 0.24, 0.18, depth * 0.24, -width * 0.24, height * 0.7, depth * 0.48, accentMaterial, 4);
+    for (const x of [0, width * 0.16, width * 0.32]) {
+      frontPanel('barracks-window', width * 0.1, height * 0.2, x, height * 0.6, glass, 4);
     }
-    for (const x of [-width * 0.42, width * 0.42]) {
-      for (let i = 0; i < 3; i++) {
-        const bag = cyl('barracks-revetment', 0.18, 0.18, 0.62, x + (i - 1) * 0.4, 0.48, depth * 0.56, sandbag, 6, 8);
-        bag.rotation.z = Math.PI / 2;
-      }
-    }
-    box('barracks-watch', width * 0.18, height * 0.22, depth * 0.16, width * 0.28, height + height * 0.42, -depth * 0.18, concrete, 4);
-    box('barracks-watch-glass', width * 0.14, height * 0.08, 0.12, width * 0.28, height + height * 0.5, -depth * 0.26, glass, 3);
-    cyl('barracks-stove-pipe', 0.08, 0.1, height * 0.42, -width * 0.32, height + height * 0.38, -depth * 0.22, metal, 4, 8);
-    cyl('barracks-radio-mast', 0.055, 0.07, height * 0.78, width * 0.34, height + height * 0.5, -depth * 0.28, metal, 3, 8);
-    activity(perimeterLight('barracks-ready-light', width * 0.34, height + height * 0.92, -depth * 0.28), 'pulse', 1.8, 0.8, 2);
-    stripe(width * 0.2, depth * 0.1, width * 0.04, 0, 4);
+    box('barracks-step', width * 0.24, 0.24, depth * 0.18, -width * 0.24, 0.12, depth * 0.5, concrete, 6);
+    cyl('barracks-flagpole', 0.055, 0.055, height * 1.9, width * 0.4, height * 0.95, depth * 0.38, metal, 4, 6);
+    box('barracks-unit-banner', width * 0.2, height * 0.36, 0.06, width * 0.3, height * 1.7, depth * 0.38, accentMaterial, 4);
   } else if (kind === 'factory') {
-    frontPanel('factory-hangar-recess', width * 0.68, height * 0.62, -width * 0.06, height * 0.42, dark, 8);
-    for (let i = 0; i < 6; i++) {
-      frontPanel(
-        'factory-hangar-door-panel',
-        width * 0.09,
-        height * 0.52,
-        -width * 0.3 + i * width * 0.11,
-        height * 0.4,
-        i % 2 === 0 ? metal : roof,
-        6,
-      );
+    // Vehicle assembly hall: broad loading bay, sawtooth roof and twin exhausts.
+    frontPanel('factory-vehicle-bay', width * 0.7, height * 0.7, 0, height * 0.38, dark, 8);
+    for (const x of [-width * 0.37, width * 0.37]) {
+      box('factory-bay-jamb', width * 0.045, height * 0.76, 0.3, x, height * 0.4, depth * 0.515, warning, 6);
     }
-    box('factory-hangar-header', width * 0.72, 0.32, 0.36, -width * 0.06, height * 0.76, depth * 0.515, warning, 6);
-    box('factory-high-bay', width * 0.48, height * 0.52, depth * 0.52, -width * 0.12, height + height * 0.26, -depth * 0.02, concrete, 6);
-    box('factory-roof-cap', width * 0.52, height * 0.12, depth * 0.56, -width * 0.12, height + height * 0.56, -depth * 0.02, roof, 5);
-    for (const x of [-width * 0.22, 0, width * 0.16]) {
-      box('factory-skylight', width * 0.12, height * 0.1, depth * 0.42, x, height + height * 0.62, -depth * 0.04, glass, 3).rotation.z = -0.18;
+    box('factory-bay-header', width * 0.78, 0.3, 0.32, 0, height * 0.8, depth * 0.515, warning, 6);
+    for (const z of [-depth * 0.26, 0, depth * 0.26]) {
+      box('factory-sawtooth-roof', width * 0.82, 0.22, depth * 0.3, 0, height + 0.6, z, roof, 5).rotation.x = -0.25;
+      box('factory-clerestory', width * 0.72, 0.65, 0.12, 0, height + 0.45, z - depth * 0.14, glass, 4);
     }
-    door(width * 0.34, height * 0.42, -width * 0.12, depth * 0.53, 5);
-    const crane = box('factory-crane-beam', width * 0.62, 0.2, 0.2, width * 0.04, height + height * 0.78, depth * 0.04, warning, 4);
-    crane.rotation.y = -0.18;
-    for (const x of [-width * 0.22, width * 0.3]) cyl('factory-crane-post', 0.12, 0.12, height * 0.64, x, height + height * 0.4, depth * 0.04, metal, 4, 10);
-    box('factory-conveyor', width * 0.44, 0.26, depth * 0.18, width * 0.24, height + 0.28, -depth * 0.36, dark, 5);
-    const gantryCar = new Group();
-    gantryCar.name = 'factory-gantry-car';
-    gantryCar.position.set(width * 0.03, height + height * 0.76, depth * 0.04);
-    const gantryBody = new Mesh(new BoxGeometry(width * 0.12, 0.28, depth * 0.13), brass);
-    const gantryHook = new Mesh(new CylinderGeometry(0.08, 0.08, height * 0.35, 8), metal);
-    gantryHook.position.y = -height * 0.2;
-    gantryCar.add(gantryBody, gantryHook);
-    add(gantryCar, 4);
-    activity(gantryCar, 'slide-x', 0.54, width * 0.18, 0.8);
-    const chassis = new Group();
-    chassis.name = 'factory-vehicle-chassis';
-    chassis.position.set(width * 0.24, height + 0.62, -depth * 0.32);
-    const chassisDeck = new Mesh(new BoxGeometry(width * 0.26, 0.34, depth * 0.12), metal);
-    chassis.add(chassisDeck);
-    for (const x of [-width * 0.09, width * 0.09]) {
-      for (const z of [-depth * 0.07, depth * 0.07]) {
-        const wheel = new Mesh(new CylinderGeometry(0.22, 0.22, 0.16, 10), dark);
-        wheel.position.set(x, -0.2, z);
-        wheel.rotation.x = Math.PI / 2;
-        chassis.add(wheel);
-      }
+    for (const z of [-depth * 0.28, depth * 0.05]) {
+      cyl('factory-exhaust-stack', width * 0.045, width * 0.06, height * 0.85, width * 0.4, height * 1.35, z, metal, 5, 8);
     }
-    add(chassis, 5);
-    for (const z of [-depth * 0.34, -depth * 0.12, depth * 0.1]) {
-      cyl('factory-stack', width * 0.045, width * 0.055, height * 0.55, width * 0.4, height + height * 0.38, z, dark, 4, 10);
-      cyl('factory-stack-cap', width * 0.065, width * 0.065, 0.14, width * 0.4, height + height * 0.68, z, metal, 4, 10);
+    box('factory-loading-apron', width * 0.7, 0.14, depth * 0.25, 0, 0.07, depth * 0.5, metal, 7);
+    for (const x of [-width * 0.22, width * 0.22]) {
+      box('factory-track-guide', width * 0.04, 0.04, depth * 0.25, x, 0.16, depth * 0.5, warning, 4);
     }
-    stripe(width * 0.32, depth * 0.08, width * 0.05, -depth * 0.18, 4);
   } else if (kind === 'helipad') {
-    frontPanel('helipad-maintenance-bay', width * 0.52, height * 0.44, width * 0.08, height * 0.42, dark, 7);
-    for (let i = 0; i < 4; i++) {
-      frontPanel('helipad-bay-door-panel', width * 0.1, height * 0.36, -width * 0.08 + i * width * 0.12, height * 0.38, metal, 5);
+    box('helipad-flight-deck', width * 1.02, 0.3, depth * 1.02, 0, height + 0.15, 0, roof, 7);
+    box('helipad-h-left', width * 0.08, 0.04, depth * 0.48, -width * 0.16, height + 0.32, 0, warning, 4);
+    box('helipad-h-right', width * 0.08, 0.04, depth * 0.48, width * 0.16, height + 0.32, 0, warning, 4);
+    box('helipad-h-middle', width * 0.4, 0.04, depth * 0.07, 0, height + 0.32, 0, warning, 4);
+    box('helipad-control-cabin', width * 0.25, height * 0.48, depth * 0.23, -width * 0.32, height * 1.28, -depth * 0.32, concrete, 6);
+    box('helipad-control-glass', width * 0.23, height * 0.16, 0.1, -width * 0.32, height * 1.36, -depth * 0.2, glass, 4);
+    box('helipad-cabin-roof', width * 0.29, 0.16, depth * 0.27, -width * 0.32, height * 1.54, -depth * 0.32, accentMaterial, 5);
+    for (const x of [-width * 0.44, width * 0.44]) {
+      box('helipad-edge-marker', width * 0.045, 0.04, depth * 0.7, x, height + 0.32, 0, warning, 4);
     }
-    box('helipad-deck', width * 0.94, 0.42, depth * 0.94, 0, height + 0.2, 0, roof, 6);
-    const padRing = new Mesh(new RingGeometry(width * 0.28, width * 0.34, 32), warning);
-    padRing.rotation.x = -Math.PI / 2;
-    padRing.position.set(0, height + 0.44, 0);
-    add(padRing, 3);
-    box('helipad-h-cross-a', width * 0.14, 0.08, depth * 0.5, 0, height + 0.46, 0, warning, 3);
-    box('helipad-h-cross-b', width * 0.42, 0.08, depth * 0.12, 0, height + 0.54, 0, warning, 3);
-    box('helipad-control-hut', width * 0.22, height * 0.42, depth * 0.2, -width * 0.36, height + height * 0.24, -depth * 0.3, concrete, 5);
-    box('helipad-glass', width * 0.18, height * 0.12, 0.14, -width * 0.36, height + height * 0.46, -depth * 0.4, glass, 3);
-    box('helipad-hut-roof', width * 0.24, 0.1, depth * 0.22, -width * 0.36, height + height * 0.5, -depth * 0.3, metal, 4);
-    const windsock = cyl('windsock-pole', 0.05, 0.05, height * 0.86, width * 0.34, height + height * 0.42, depth * 0.32, metal, 3, 8);
-    windsock.rotation.z = -0.04;
-    activity(box('windsock', width * 0.16, 0.1, 0.1, width * 0.4, height + height * 0.86, depth * 0.32, accentMaterial, 3), 'rock-z', 1.7, 0.16, 0.3);
-    const landingRing = new Group();
-    landingRing.name = 'helipad-landing-lights';
-    landingRing.position.y = height + 0.52;
-    for (let i = 0; i < 12; i++) {
-      const angle = (i / 12) * Math.PI * 2;
-      const light = new Mesh(new BoxGeometry(0.3, 0.1, 0.3), signal);
-      light.position.set(Math.cos(angle) * width * 0.38, 0, Math.sin(angle) * depth * 0.38);
-      landingRing.add(light);
-    }
-    add(landingRing, 3);
-    activity(landingRing, 'pulse', 2.2, 1, 1.3);
-    for (const [x, z] of [[-width * 0.4, -depth * 0.4], [width * 0.4, -depth * 0.4], [-width * 0.4, depth * 0.4], [width * 0.4, depth * 0.4]] as const) {
-      cyl('helipad-flood-mast', 0.06, 0.08, height * 0.55, x, height + height * 0.28, z, metal, 4, 8);
-      box('helipad-flood', 0.28, 0.16, 0.32, x, height + height * 0.58, z, brass, 3).rotation.x = 0.35;
-    }
-    for (const z of [-depth * 0.24, 0, depth * 0.24]) {
-      const fuelTank = cyl('helipad-fuel-tank', width * 0.055, width * 0.055, depth * 0.19, -width * 0.42, height + 0.8, z, metal, 5, 14);
-      fuelTank.rotation.x = Math.PI / 2;
-      box('helipad-fuel-band', width * 0.12, 0.08, depth * 0.025, -width * 0.42, height + 0.8, z, warning, 4);
-    }
-    sidePanel('helipad-service-gantry', depth * 0.42, height * 0.22, 0, height * 0.62, roof, 6);
   } else if (kind === 'wall') {
     for (const x of [-width * 0.42, -width * 0.14, width * 0.14, width * 0.42]) {
       box('wall-buttress', width * 0.16, height * 0.62, depth * 0.9, x, height + height * 0.14, 0, roof, 8);
@@ -1802,7 +1554,11 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
       box('wall-end-post', width * 0.12, height * 0.9, depth * 0.22, x, height * 0.55, 0, dark, 8);
     }
   } else if (kind === 'intelligence-center') {
-    box('intel-roof', width * 0.9, 0.32, depth * 0.86, 0, height + 0.16, 0, roof, 7);
+    box('intel-roof', width * 0.98, 0.32, depth * 0.94, 0, height + 0.16, 0, roof, 7);
+    for (const x of [-width * 0.35, width * 0.35]) {
+      box('intel-server-wing', width * 0.18, height * 0.5, depth * 0.62, x, height * 1.25, 0, concrete, 6);
+      box('intel-server-cap', width * 0.22, 0.16, depth * 0.66, x, height * 1.52, 0, accentMaterial, 5);
+    }
     frontPanel('intel-console-bank', width * 0.58, height * 0.32, 0, height * 0.5, dark, 6);
     for (const x of [-width * 0.22, 0, width * 0.22]) {
       frontPanel('intel-screen', width * 0.14, height * 0.13, x, height * 0.53, signal, 4);
@@ -1949,10 +1705,11 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
 
     // --- Shaft detail ---
     const ladderX = -shaftW * 0.52;
+    box('guard-bunker-visor', width * 0.72, 0.3, depth * 0.22, 0, height * 0.96, depth * 0.23, concrete, 6);
     box('guard-ladder-rail-l', 0.08, shaftH * 0.92, 0.08, ladderX - 0.22, plinthH + shaftH * 0.5, shaftW * 0.52, metal, 6);
     box('guard-ladder-rail-r', 0.08, shaftH * 0.92, 0.08, ladderX + 0.22, plinthH + shaftH * 0.5, shaftW * 0.52, metal, 6);
-    for (let i = 0; i < 7; i++) {
-      box(`guard-ladder-rung-${i}`, 0.44, 0.06, 0.08, ladderX, plinthH + 0.35 + i * (shaftH * 0.12), shaftW * 0.52, dark, 6);
+    for (let i = 0; i < 4; i++) {
+      box(`guard-ladder-rung-${i}`, 0.44, 0.06, 0.08, ladderX, plinthH + 0.35 + i * (shaftH * 0.21), shaftW * 0.52, dark, 6);
     }
     box('guard-shaft-vent-a', 0.55, 0.35, 0.1, shaftW * 0.52, plinthH + shaftH * 0.35, 0, dark, 5).rotation.y = Math.PI / 2;
     box('guard-shaft-vent-b', 0.55, 0.35, 0.1, shaftW * 0.52, plinthH + shaftH * 0.62, depth * 0.08, dark, 5).rotation.y = Math.PI / 2;
@@ -2055,10 +1812,11 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     box('aa-plinth-warning-side', 0.14, 0.1, depth * 0.96, width * 0.5, plinthH + 0.05, 0, warning, 6);
 
     const ladderX = shaftW * 0.52;
+    cyl('aa-radar-backplate', width * 0.22, width * 0.22, 0.2, 0, height * 1.1, -depth * 0.28, metal, 5, 8).rotation.x = Math.PI / 2;
     box('aa-ladder-rail-l', 0.08, shaftH * 0.92, 0.08, ladderX - 0.22, plinthH + shaftH * 0.5, shaftW * 0.5, metal, 6);
     box('aa-ladder-rail-r', 0.08, shaftH * 0.92, 0.08, ladderX + 0.22, plinthH + shaftH * 0.5, shaftW * 0.5, metal, 6);
-    for (let i = 0; i < 7; i++) {
-      box(`aa-ladder-rung-${i}`, 0.44, 0.06, 0.08, ladderX, plinthH + 0.35 + i * (shaftH * 0.12), shaftW * 0.5, dark, 6);
+    for (let i = 0; i < 4; i++) {
+      box(`aa-ladder-rung-${i}`, 0.44, 0.06, 0.08, ladderX, plinthH + 0.35 + i * (shaftH * 0.21), shaftW * 0.5, dark, 6);
     }
     box('aa-shaft-vent-a', 0.55, 0.35, 0.1, -shaftW * 0.52, plinthH + shaftH * 0.38, 0, dark, 5).rotation.y = Math.PI / 2;
     box('aa-shaft-vent-b', 0.55, 0.35, 0.1, -shaftW * 0.52, plinthH + shaftH * 0.65, -depth * 0.06, dark, 5).rotation.y = Math.PI / 2;
