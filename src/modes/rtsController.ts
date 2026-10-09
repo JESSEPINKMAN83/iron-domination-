@@ -27,6 +27,7 @@ export interface PlacementControls {
 }
 
 export interface BuildingPicker {
+  setHoveredBuilding?(entity?: Entity): void;
   pickAt(x: number, z: number): Entity | undefined;
   pickAtScreen?(
     camera: PerspectiveCamera,
@@ -142,6 +143,13 @@ export class RtsController {
   private twoFingerTapCandidate?: TwoFingerTapCandidate;
   private touchGestureCancelled = false;
 
+  private readonly buildingHoverLabel = document.createElement('div');
+
+  private clearBuildingHover(): void {
+    this.buildings?.setHoveredBuilding?.(undefined);
+    this.buildingHoverLabel.hidden = true;
+  }
+
   constructor(
     private readonly dom: HTMLElement,
     private readonly input: Input,
@@ -156,6 +164,11 @@ export class RtsController {
     private readonly commandSink?: RtsCommandSink,
     private readonly tacticalPing?: TacticalPingControls,
   ) {
+    this.buildingHoverLabel.hidden = true;
+    this.buildingHoverLabel.style.cssText = 'position:fixed;pointer-events:none;z-index:60;padding:7px 10px;background:rgba(9,18,16,.94);border:1px solid #73b99d;color:#f0f3e8;font:600 12px system-ui;max-width:240px;';
+    document.body.appendChild(this.buildingHoverLabel);
+    dom.addEventListener('pointerleave', () => this.clearBuildingHover());
+    window.addEventListener('blur', () => this.clearBuildingHover());
     this.selectionBox = document.createElement('div');
     this.selectionBox.style.cssText =
       'position:fixed;border:1px solid rgba(125,242,125,.9);background:rgba(125,242,125,.12);display:none;pointer-events:none;z-index:20;';
@@ -246,6 +259,7 @@ export class RtsController {
   }
 
   setEnabled(enabled: boolean): void {
+    if (!enabled) this.clearBuildingHover();
     this.enabled = enabled;
     if (!enabled) {
       this.resetTouchGesture();
@@ -342,6 +356,7 @@ export class RtsController {
     if (!this.enabled) return;
     if (e.pointerType === 'touch') this.trackTwoFingerTapMovement(e);
     if (this.placement?.isPlacing()) {
+      this.clearBuildingHover();
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (p) this.placement.preview(p.x, p.z);
       this.orderFeedback?.clearTargetHover?.();
@@ -357,6 +372,7 @@ export class RtsController {
     }
     this.orderFeedback?.clearTargetHover?.();
     this.orderFeedback?.inspectHover?.(undefined);
+    this.clearBuildingHover();
     if (this.pointerDown.button === 2 && this.rightCameraLookCandidate) {
       const dx = e.clientX - this.pointerDown.x;
       const dy = e.clientY - this.pointerDown.y;
@@ -460,6 +476,7 @@ export class RtsController {
     this.rightCameraLookCandidate = false;
     this.rightCameraLookActive = false;
     if (this.placement?.isPlacing()) {
+      this.clearBuildingHover();
       const p = this.terrainPoint(e.clientX, e.clientY);
       if (down.button === 0 && p) this.placement.confirm(p.x, p.z);
       if (down.button === 2) this.placement.cancel();
@@ -603,7 +620,7 @@ export class RtsController {
       window.innerWidth,
       window.innerHeight,
     );
-    return screenHit ?? buildingScreenHit ?? (p ? this.buildings?.pickAt(p.x, p.z) ?? this.units.pickAt(p.x, p.z) : undefined);
+    return buildingScreenHit ?? screenHit ?? (p ? (this.buildings?.pickAtScreen ? undefined : this.buildings?.pickAt(p.x, p.z)) ?? this.units.pickAt(p.x, p.z) : undefined);
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -721,7 +738,15 @@ export class RtsController {
 
   private updateInspectHover(e: PointerEvent): void {
     const hit = this.entityAt(e.clientX, e.clientY);
-    this.orderFeedback?.inspectHover?.(hit?.building && !hit.destroyed ? hit : undefined);
+    const building = hit?.building && !hit.destroyed ? hit : undefined;
+    this.orderFeedback?.inspectHover?.(building);
+    this.buildings?.setHoveredBuilding?.(building);
+    this.buildingHoverLabel.hidden = !building;
+    if (building) {
+      this.buildingHoverLabel.textContent = (building.building?.label ?? building.name ?? 'Building') + (building.building?.complete ? '' : ' · Under construction');
+      this.buildingHoverLabel.style.left = `${Math.max(8, Math.min(e.clientX + 16, window.innerWidth - 250))}px`;
+      this.buildingHoverLabel.style.top = `${Math.max(8, Math.min(e.clientY + 18, window.innerHeight - 45))}px`;
+    }
   }
 
   private updateTargetHover(e: PointerEvent): void {
@@ -747,7 +772,7 @@ export class RtsController {
     const candidates = [
       screenHit,
       buildingScreenHit,
-      p ? this.buildings?.pickAt(p.x, p.z) : undefined,
+      p ? (this.buildings?.pickAtScreen ? undefined : this.buildings?.pickAt(p.x, p.z)) : undefined,
       p ? this.units.pickAt(p.x, p.z) : undefined,
     ];
     return candidates.find((entity): entity is Entity => this.isEnemyTarget(entity));
