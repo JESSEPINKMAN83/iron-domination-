@@ -2667,6 +2667,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
 
   const startMode = params.get('start');
+  const aircraftRouteTest = params.get('aircraft-route-test') === '1' && !multiplayerMode && !isPublicHost(location.hostname);
   const weaponsLab = startMode === 'weapons-lab' && !multiplayerMode && !isPublicHost(location.hostname);
   const lineupStart = startMode === 'lineup' || weaponsLab;
   const soundBattlePreview =
@@ -2806,7 +2807,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     seedTestStartBase(sim, hf, economy, localBase);
   }
   const smokePreviewStage = smokePreview ? createSmokePreviewStage(sim, armies, localTeam) : undefined;
-  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview
+  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest
     ? () => true
     : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
@@ -2867,7 +2868,37 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const soundBattleUnits = soundBattlePreview && !loadedFromSave
     ? armies.flatMap((army) => spawnSoundBattleUnits(sim, hf, army.economy, army.base))
     : [];
-  const startingUnits = impactDemoScene
+  const aircraftRouteUnits: Entity[] = [];
+  const routeStage = { x: localBase.transform.x * 0.45, z: localBase.transform.z * 0.45 };
+  if (aircraftRouteTest && !loadedFromSave) {
+    const hostileTeam = armies.find((army) => areTeamsHostile(sim, localTeam, army.team))?.team;
+    const aircraftTypes = [spawnWaspAt, spawnVultureAt, spawnHammerheadAt];
+    for (let i = 0; i < 6; i++) {
+      const aircraft = aircraftTypes[Math.floor(i / 2)](sim, hf, routeStage.x - 70, routeStage.z - 40 + i * 16, `Route test ${i + 1}`, localTeam);
+      aircraftRouteUnits.push(aircraft);
+    }
+    if (hostileTeam !== undefined) {
+      for (let i = 0; i < 8; i++) {
+        const x = routeStage.x - 15 + (i % 4) * 35;
+        const z = routeStage.z + (i < 4 ? -55 : 55);
+        const cell = sim.nav.nearestWalkableCellGlobal(x, z);
+        const point = cell ? sim.nav.cellCenter(cell.x, cell.y) : { x, z };
+        const target = spawnTankAt(sim, point.x, point.z, `Aircraft target ${i + 1}`, hostileTeam);
+        target.weapon = undefined;
+        target.weapons = undefined;
+        if (params.get('incoming-fire') === '1' && (i === 1 || i === 5)) {
+          target.name = `Anti-aircraft defender ${i}`;
+          target.weapon = { kind: 'aaMissile', range: 165, cooldown: 0 };
+          target.mover!.attackMove = true;
+        }
+        target.health!.current = target.health!.max = 3000;
+        aircraftRouteUnits.push(target);
+      }
+    }
+  }
+  const startingUnits = aircraftRouteTest
+    ? aircraftRouteUnits
+    : impactDemoScene
     ? impactDemoScene.units
     : cinematicScene
     ? cinematicScene.units
@@ -3073,7 +3104,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       64,
       -12,
     );
-  } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
+  } else if (aircraftRouteTest) rig.focusOn(routeStage.x, routeStage.z, { x: routeStage.x - 110, z: routeStage.z - 150 }, 190, -6);
+  else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else {
     rig.jumpToOpeningView(
       localBase.transform.x,
@@ -3805,7 +3837,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         commanders,
         lockstep,
         autoFire: !lineupStart && !durabilityPreview && !impactMovementDemo && !buildingShowcase,
-        runCommanders: !lineupStart && !durabilityPreview && !impactMovementDemo && !destructionPreview,
+        runCommanders: !lineupStart && !durabilityPreview && !impactMovementDemo && !destructionPreview && !aircraftRouteTest,
       });
       const spawned = tickResult.spawned;
       for (const entity of spawned) {
@@ -4065,7 +4097,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount), undefined);
     }, 500);
   }
-  if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview) {
+  if (aircraftRouteTest) setSelected(sim, aircraftRouteUnits.filter((unit) => unit.flight), false, localTeam);
+  if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview && !aircraftRouteTest) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     const memberId = enlistedCommander()?.memberId;
     if (NARRATIVE_CHARACTERS_ENABLED && shouldShowOpeningBriefing(window.localStorage, memberId)) {

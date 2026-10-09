@@ -3,7 +3,7 @@ import type { Entity } from '../sim/components';
 import { unitKindForUpgrade } from '../sim/upgrades';
 import type { CombatEvent } from '../sim/world';
 import { impactForceFromEvent, possessionHitGain } from '../modes/vModeHitJuice';
-import { missileSoundProfile, positionalGain, type SoundProfile } from './positionalMix';
+import { explosionSoundProfile, missileSoundProfile, positionalGain, type SoundProfile } from './positionalMix';
 import { ACTIVE_UI_GAME_CLICK, ACTIVE_UI_GAME_HOVER } from './uiMenuSounds';
 
 interface SoundBus {
@@ -1844,6 +1844,7 @@ function combatProfile(profile: SoundProfile, event?: CombatEvent, missileFlyby 
     const impact = event?.kind.endsWith('-impact') || event?.kind === 'strategic-missile-intercepted';
     return missileSoundProfile(scaled, impact ? 'impact' : 'launch', weapon === 'strategicMissile');
   }
+  if (event?.kind.endsWith('-impact') || event?.killed || event?.kind === 'crash') return explosionSoundProfile(scaled);
   return scaled;
 }
 

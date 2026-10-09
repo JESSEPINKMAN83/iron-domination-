@@ -20,7 +20,7 @@ describe('quiet missile mix', () => {
   it('keeps strategic explosions local rather than audible across the map', () => {
     const profile = missileSoundProfile({ gain: 0.68, near: 65, far: 900 }, 'impact', true);
     expect(positionalGain(300, profile)).toBe(0);
-    expect(profile.gain).toBe(0.045);
+    expect(profile.gain).toBe(0.015);
   });
 
   it('preserves the existing distance curve for other sounds', () => {

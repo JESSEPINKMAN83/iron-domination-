@@ -1902,7 +1902,11 @@ function applyImpactPhysics(sim: GameSim, target: Entity, dealt: number, impact:
     splashRadius: impact.splashRadius,
     trajectory: impact.trajectory,
   });
-  if (!target.flight) {
+  // Route-first orders keep their movement through incoming fire. Damage and
+  // the impact-reaction event still apply, but hits cannot brake or throw a
+  // surviving unit off its route.
+  const followingAttackRoute = target.mover.attackThrough && !!target.mover.target;
+  if (!target.flight && !followingAttackRoute) {
     const existing = target.impactMomentum;
     const carry = existing ? 0.62 : 0;
     const infantry = target.armor?.kind === 'infantry';
@@ -1926,7 +1930,7 @@ function applyImpactPhysics(sim: GameSim, target: Entity, dealt: number, impact:
       stagger: Math.max(existing?.stagger ?? 0, stagger),
     };
   }
-  if (target.flight) {
+  if (target.flight && !followingAttackRoute) {
     target.velocity.x += response.directionX * response.impulseSpeed;
     target.velocity.z += response.directionZ * response.impulseSpeed;
     target.flight.verticalVelocity += response.verticalImpulse * 1.5;

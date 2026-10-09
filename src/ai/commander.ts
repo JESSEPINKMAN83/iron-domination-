@@ -27,6 +27,10 @@ interface Squad {
   nextOrderAt: number; // sim tick
   maneuver?: 'direct' | 'left' | 'right';
   flankUntil?: number;
+  destination?: SquadTarget;
+  progressPosition?: { x: number; z: number };
+  lastProgressAt?: number;
+  scoutIndex?: number;
 }
 
 interface SquadTarget {
@@ -44,9 +48,9 @@ export class EnemyCommander {
   private readonly squads: Squad[] = [];
   private timer = 0;
   private elapsed = 0;
-  private scoutIndex = 0;
   private strategicTargetIndex = 0;
   private readonly advancedTactics: boolean;
+  private readonly proactiveTactics: boolean;
 
   constructor(
     private readonly sim: GameSim,
@@ -63,9 +67,10 @@ export class EnemyCommander {
     this.personality = AI_PERSONALITY[personality];
     this.difficulty = AI_DIFFICULTY[difficulty];
     this.advancedTactics = difficulty === 'hard';
+    this.proactiveTactics = difficulty !== 'easy';
     economy.incomeMultiplier = this.difficulty.incomeMultiplier;
     this.buildQueue = economy.doctrine === 'missile-command'
-      ? ['power-plant', 'refinery', 'power-plant', 'factory', ...(this.advancedTactics ? ['barracks' as const] : []), 'intelligence-center', 'strategic-silo', 'guard-tower', 'aa-tower']
+      ? ['power-plant', 'refinery', 'power-plant', 'factory', ...(this.proactiveTactics ? ['barracks' as const] : []), 'intelligence-center', 'strategic-silo', 'guard-tower', 'aa-tower']
       : [...this.personality.buildOrder, ...(strategicDefenseNeeded ? ['skylance-ciws' as const, 'missile-defense' as const] : [])];
     this.log(`online — ${personality}/${difficulty}, build order: ${this.buildQueue.join(' → ')}`);
   }
@@ -201,15 +206,15 @@ export class EnemyCommander {
   private maintainProduction(): void {
     // saving up for a pending structure beats another tank
     const mine = this.myUnits();
-    // On Hard, fund a first ground expedition before saving for an entire silo
+    // On Normal and Hard, fund a first expedition before saving for a silo
     // chain. Once that force exists, construction regains its normal priority.
-    const expeditionNeeded = this.advancedTactics && mine.length < this.assaultSize() + this.homeGuardSize();
+    const expeditionNeeded = this.proactiveTactics && mine.length < this.assaultSize() + this.homeGuardSize();
     if (this.buildQueue.length > 0 && this.economy.credits < 1500 && !expeditionNeeded) return;
     const tanks = mine.filter((entity) => entity.selectable?.type === 'tank').length;
     const infantry = mine.filter((entity) => entity.selectable?.type === 'infantry').length;
     const aircraft = mine.filter((entity) => entity.flight).length;
     if (tanks < this.difficulty.tankCap) queueUnit(this.sim, this.economy, this.nextVehicleKind(tanks));
-    if (this.advancedTactics) {
+    if (this.proactiveTactics) {
       // Different producer lanes can work together: don't wait for the tank cap
       // before producing any infantry or air support.
       if (infantry < this.difficulty.infantryCap) queueUnit(this.sim, this.economy, this.nextInfantryKind(infantry));
@@ -325,14 +330,15 @@ export class EnemyCommander {
     const attacking = this.squads.filter((squad) => squad.state === 'attacking').length;
     if (
       attacking < this.personality.maxSquads + (this.advancedTactics ? 1 : 0) &&
-      this.elapsed >= Math.min(this.personality.attackDelay * this.difficulty.attackDelayMultiplier, this.advancedTactics ? 180 : Infinity) &&
+      this.elapsed >= Math.min(this.personality.attackDelay * this.difficulty.attackDelayMultiplier, this.proactiveTactics ? 180 : Infinity) &&
       idle.length - this.homeGuardSize() >= this.assaultSize()
     ) {
       const units = idle.slice(0, this.assaultSize());
       // Repeatable variation by faction and wave keeps multiplayer deterministic.
       const maneuvers = ['left', 'right', 'direct'] as const;
-      const maneuver = this.advancedTactics ? maneuvers[(this.stats.attacksLaunched + this.economy.team) % maneuvers.length] : 'direct';
-      this.squads.push({ units, state: 'attacking', nextOrderAt: 0, maneuver });
+      const maneuver = this.proactiveTactics ? maneuvers[(this.stats.attacksLaunched + this.economy.team) % maneuvers.length] : 'direct';
+      this.squads.push({ units, state: 'attacking', nextOrderAt: 0, maneuver,
+        scoutIndex: this.stats.attacksLaunched % Math.max(1, this.scoutHints.length) });
       this.stats.attacksLaunched++;
       this.log(`attack squad of ${units.length} rolling out (${this.stats.attacksLaunched} launched so far)`);
     }
@@ -354,6 +360,14 @@ export class EnemyCommander {
 
       if (this.sim.tick < squad.nextOrderAt) continue;
       squad.nextOrderAt = this.sim.tick + 30 * 4;
+      const lead = squad.units[0];
+      if (lead && (!squad.progressPosition || Math.hypot(lead.transform.x - squad.progressPosition.x, lead.transform.z - squad.progressPosition.z) > 8)) {
+        squad.progressPosition = { x: lead.transform.x, z: lead.transform.z };
+        squad.lastProgressAt = this.sim.tick;
+        // A long flank is healthy while the squad is still advancing.
+        if (squad.flankUntil !== undefined) squad.flankUntil = this.sim.tick + 30 * 60;
+      }
+      const stalled = this.sim.tick - (squad.lastProgressAt ?? this.sim.tick) >= 30 * 16;
 
       if (squad.state === 'retreating') {
         if (!base) continue;
@@ -370,7 +384,7 @@ export class EnemyCommander {
       // Keep the flank's waypoint queue intact between reaction pulses. A
       // bounded expiry prevents a blocked route from stranding an entire wave.
       if (squad.flankUntil !== undefined) {
-        if (this.sim.tick < squad.flankUntil && squad.units.some((unit) => unit.mover?.tactic)) continue;
+        if (!stalled && this.sim.tick < squad.flankUntil && squad.units.some((unit) => unit.mover?.tactic)) continue;
         squad.flankUntil = undefined;
         squad.maneuver = 'direct';
       }
@@ -379,7 +393,16 @@ export class EnemyCommander {
       const destination = target.entity
         ? attackStandoffPoint(this.sim, squad.units, target.entity)
         : target;
-      if (this.advancedTactics && squad.maneuver && squad.maneuver !== 'direct') {
+      const previous = squad.destination;
+      const sameDestination = previous && previous.entity?.id === target.entity?.id &&
+        Math.hypot(previous.x - destination.x, previous.z - destination.z) < 24;
+      // Preserve in-flight orders and weapon locks rather than resetting them
+      // every reaction pulse. Replan when the target moves or travel stalls.
+      if (!stalled && sameDestination && squad.units.some((unit) => unit.mover?.target || unit.mover?.tactic)) continue;
+      if (!stalled && sameDestination && target.entity) continue;
+      squad.destination = { ...destination, entity: target.entity };
+      squad.lastProgressAt = this.sim.tick;
+      if (this.proactiveTactics && squad.maneuver && squad.maneuver !== 'direct') {
         const lead = squad.units[0];
         if (lead) {
           const dx = destination.x - lead.transform.x;
@@ -401,18 +424,18 @@ export class EnemyCommander {
           }
         }
       }
-      // Attack-move keeps the squad responsive to defenders on the way in;
+      // Fire along the route without allowing defenders to halt the assault;
       // the standoff point prevents a large formation converging on one center.
-      issueMoveOrder(this.sim, squad.units, destination.x, destination.z, true);
+      issueTacticOrder(this.sim, squad.units, [destination], { kind: 'attack-through' });
     }
   }
 
   private assaultSize(): number {
-    return this.advancedTactics ? Math.min(5, this.personality.squadSize) : this.personality.squadSize;
+    return this.proactiveTactics ? Math.min(5, this.personality.squadSize) : this.personality.squadSize;
   }
 
   private homeGuardSize(): number {
-    return this.advancedTactics ? Math.min(2, this.personality.homeGuard) : this.personality.homeGuard;
+    return this.proactiveTactics ? Math.min(2, this.personality.homeGuard) : this.personality.homeGuard;
   }
 
   /** Honest targeting: only positions the AI's own vision grid currently sees. */
@@ -463,13 +486,16 @@ export class EnemyCommander {
     // nothing seen: scout known start areas first, then ore fields (map geography, not unit intel)
     const waypoints = [...this.scoutHints, ...this.hf.oreFields];
     if (waypoints.length === 0) waypoints.push({ x: 0, z: 0 });
-    let waypoint = waypoints[this.scoutIndex % waypoints.length];
+    let scoutIndex = squad.scoutIndex ?? 0;
+    let waypoint = waypoints[scoutIndex % waypoints.length];
     // hold course until the squad actually arrives, then move to the next waypoint
     const scoutLead = squad.units[0];
-    if (scoutLead && Math.hypot(scoutLead.transform.x - waypoint.x, scoutLead.transform.z - waypoint.z) < 50) {
-      this.scoutIndex++;
-      waypoint = waypoints[this.scoutIndex % waypoints.length];
+    const stalled = this.sim.tick - (squad.lastProgressAt ?? this.sim.tick) >= 30 * 16;
+    if (scoutLead && (Math.hypot(scoutLead.transform.x - waypoint.x, scoutLead.transform.z - waypoint.z) < 50 || stalled)) {
+      scoutIndex++;
+      waypoint = waypoints[scoutIndex % waypoints.length];
     }
+    squad.scoutIndex = scoutIndex;
     return { x: waypoint.x, z: waypoint.z };
   }
 
