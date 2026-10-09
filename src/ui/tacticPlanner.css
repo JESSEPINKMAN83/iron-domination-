@@ -248,7 +248,7 @@
 }
 
 .iron-tactic__end-actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .iron-tactic__path-actions {
@@ -306,4 +306,10 @@
   .iron-tactic__side {
     grid-template-rows: auto 140px auto auto auto;
   }
+}
+
+.iron-tactic__behavior-hint {
+  margin: 8px 0 12px;
+  color: #b8c7bf;
+  font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
 }

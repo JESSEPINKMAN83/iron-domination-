@@ -3,13 +3,8 @@ import type { Entity } from '../sim/components';
 import { unitKindForUpgrade } from '../sim/upgrades';
 import type { CombatEvent } from '../sim/world';
 import { impactForceFromEvent, possessionHitGain } from '../modes/vModeHitJuice';
+import { missileSoundProfile, positionalGain, type SoundProfile } from './positionalMix';
 import { ACTIVE_UI_GAME_CLICK, ACTIVE_UI_GAME_HOVER } from './uiMenuSounds';
-
-type SoundProfile = {
-  gain: number;
-  near: number;
-  far: number;
-};
 
 interface SoundBus {
   input: GainNode;
@@ -1025,7 +1020,7 @@ export class AudioDirector {
       STRATEGIC_MISSILE_LAUNCH_SAMPLE,
       event.fromX,
       event.fromZ,
-      combatProfile({ gain: 0.26, near: 30, far: 420 }),
+      combatProfile({ gain: 0.26, near: 30, far: 420 }, event),
       'strategic-missile-launch',
       0.25,
       'sample',
@@ -1038,7 +1033,7 @@ export class AudioDirector {
       STRATEGIC_MISSILE_IMPACT_SAMPLE,
       event.toX,
       event.toZ,
-      combatProfile({ gain: 0.68, near: 65, far: 900 }),
+      combatProfile({ gain: 0.68, near: 65, far: 900 }, event),
       'strategic-missile-impact',
       0.35,
       String(event.strategicId ?? 'area'),
@@ -1051,7 +1046,7 @@ export class AudioDirector {
       STRATEGIC_MISSILE_INTERCEPTED_SAMPLE,
       event.toX,
       event.toZ,
-      combatProfile({ gain: 0.5, near: 45, far: 600 }),
+      combatProfile({ gain: 0.5, near: 45, far: 600 }, event),
       'strategic-missile-intercepted',
       0.3,
       String(event.strategicId ?? 'air'),
@@ -1070,7 +1065,7 @@ export class AudioDirector {
       STRATEGIC_MISSILE_FLYBY_SAMPLE,
       x,
       z,
-      combatProfile({ gain: 0.48, near: 45, far: 280 }),
+      combatProfile({ gain: 0.48, near: 45, far: 280 }, undefined, true),
       'strategic-missile-flyby',
       0.2,
       String(strategicId),
@@ -1096,7 +1091,7 @@ export class AudioDirector {
     const buffer = this.sampleBuffers.get(STRATEGIC_MISSILE_FLIGHT_SAMPLE);
     if (!buffer) return;
     this.stopStrategicFlight(event.strategicId);
-    const profile: SoundProfile = { gain: 0.25, near: 35, far: 360 };
+    const profile = missileSoundProfile({ gain: 0.25, near: 35, far: 360 }, 'flight');
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
@@ -1252,7 +1247,7 @@ export class AudioDirector {
 
   private playExplosion(event: CombatEvent): void {
     const strategic = event.weaponKind === 'strategicMissile';
-    const profile = combatProfile(explosionProfile(event.kind, event.killed, event.weaponKind));
+    const profile = combatProfile(explosionProfile(event.kind, event.killed, event.weaponKind), event);
     if (!this.allowSound(event, profile, 0.045)) return;
     const bus = this.spatialBus(event.toX, event.toZ, profile);
     if (!bus) return;
@@ -1300,7 +1295,7 @@ export class AudioDirector {
       gain: kinetic ? 0.3 : heavyArc ? 0.28 : kind === 'bomb' ? 0.2 : kind === 'grenade' ? 0.12 : 0.16,
       near: 22,
       far: heavyArc ? 340 : kind === 'bomb' ? 260 : 210,
-    });
+    }, event);
     if (!this.allowSoundAt(event.kind, event.fromX, event.fromZ, profile, kind === 'aaMissile' || kind === 'agMissile' ? 0.06 : 0.04, 'launch')) return;
     const bus = this.spatialBus(event.fromX, event.fromZ, profile);
     if (!bus) return;
@@ -1323,7 +1318,7 @@ export class AudioDirector {
 
   private playRifle(event: CombatEvent): void {
     const sniper = event.kind === 'sniperRifle';
-    const profile = combatProfile({ gain: sniper ? 0.31 : 0.07, near: 16, far: sniper ? 360 : 145 });
+    const profile = combatProfile({ gain: sniper ? 0.31 : 0.07, near: 16, far: sniper ? 360 : 145 }, event);
     if (!this.allowSoundAt(event.kind, event.fromX, event.fromZ, profile, sniper ? 0.14 : 0.026)) return;
     const bus = this.spatialBus(event.fromX, event.fromZ, profile);
     if (!bus) return;
@@ -1346,7 +1341,7 @@ export class AudioDirector {
   private playCannon(event: CombatEvent): void {
     const heavy = event.kind === 'heavyCannon';
     const auto = event.kind === 'autocannon' || event.kind === 'waspAutocannon' || event.kind === 'skylanceGun';
-    const profile = combatProfile({ gain: heavy ? 0.3 : auto ? 0.12 : 0.24, near: 24, far: heavy ? 330 : 260 });
+    const profile = combatProfile({ gain: heavy ? 0.3 : auto ? 0.12 : 0.24, near: 24, far: heavy ? 330 : 260 }, event);
     if (!this.allowSoundAt(event.kind, event.fromX, event.fromZ, profile, auto ? 0.042 : 0.1)) return;
     const bus = this.spatialBus(event.fromX, event.fromZ, profile);
     if (!bus) return;
@@ -1380,7 +1375,7 @@ export class AudioDirector {
       ? { gain: 0.34, near: 24, far: 320 }
       : event.kind === 'skylanceGun'
         ? { gain: 0.3, near: 22, far: 270 }
-        : { gain: 0.31, near: 22, far: 285 });
+        : { gain: 0.31, near: 22, far: 285 }, event);
     const minInterval = event.kind === 'skylanceGun' ? 0.58 : event.kind === 'waspAutocannon' ? 0.68 : 0.75;
     return this.playSampleAt(
       sample,
@@ -1408,7 +1403,7 @@ export class AudioDirector {
         ? { gain: 0.4, near: 24, far: 360 }
         : sourceClass === 'aircraft'
           ? { gain: 0.38, near: 28, far: 400 }
-          : { gain: 0.42, near: 26, far: 430 });
+          : { gain: 0.42, near: 26, far: 430 }, event);
     const minInterval = event.weaponKind === 'rocketPod' ? 0.48 : 0.1;
     const seed = Math.round(event.fromX * 3 + event.fromZ * 5) + (event.sourceTeamId ?? 0) * 19 + variant * 41;
     return this.playSampleAt(
@@ -1434,7 +1429,7 @@ export class AudioDirector {
       gain: HEAVY_MISSILE_LAUNCH_GAINS[variant],
       near: variant === 3 ? 34 : 28,
       far: variant === 3 ? 520 : event.sourceClass === 'aircraft' ? 450 : event.sourceClass === 'tower' ? 420 : 390,
-    });
+    }, event);
     const seed = Math.round(event.fromX * 7 + event.fromZ * 11) + (event.sourceTeamId ?? 0) * 23 + variant * 67;
     return this.playSampleAt(
       sample,
@@ -1459,7 +1454,7 @@ export class AudioDirector {
       gain: MEDIUM_MISSILE_LAUNCH_GAINS[variant],
       near: 22,
       far: variant === 0 ? 360 : 320,
-    });
+    }, event);
     const seed = Math.round(event.fromX * 5 + event.fromZ * 13) + (event.sourceTeamId ?? 0) * 29 + variant * 71;
     return this.playSampleAt(
       sample,
@@ -1486,7 +1481,7 @@ export class AudioDirector {
         ? { gain: 0.43, near: 30, far: 420 }
         : variant === 2
           ? { gain: 0.4, near: 27, far: 380 }
-          : { gain: 0.48, near: 38, far: 510 });
+          : { gain: 0.48, near: 38, far: 510 }, event);
     const sequence = this.buildingImpactSequence++;
     return this.playSampleAt(
       sample,
@@ -1518,7 +1513,7 @@ export class AudioDirector {
     const contextualProfile = layeredWithStrategicImpact
       ? { ...baseProfile, gain: baseProfile.gain * 0.5, far: baseProfile.far * 0.82 }
       : baseProfile;
-    const profile = combatProfile(contextualProfile);
+    const profile = combatProfile(contextualProfile, event);
     return this.playSampleAt(
       sample,
       event.toX,
@@ -1542,7 +1537,7 @@ export class AudioDirector {
       ? { gain: 0.34, near: 24, far: 390 }
       : event.kind === 'agMissile-impact' || event.kind === 'aaMissile-impact' || event.kind === 'tankMissile-impact'
         ? { gain: 0.3, near: 22, far: 340 }
-        : { gain: 0.26, near: 18, far: 285 });
+        : { gain: 0.26, near: 18, far: 285 }, event);
     return this.playSampleAt(
       sample,
       event.toX,
@@ -1568,7 +1563,7 @@ export class AudioDirector {
         ? { gain: 0.42, near: 32, far: 490 }
         : variant === 2
           ? { gain: 0.45, near: 35, far: 520 }
-          : { gain: 0.48, near: 40, far: 560 });
+          : { gain: 0.48, near: 40, far: 560 }, event);
     return this.playSampleAt(
       sample,
       event.toX,
@@ -1591,7 +1586,7 @@ export class AudioDirector {
     }
     const profile = combatProfile(bomb
       ? { gain: 0.42, near: 36, far: 560 }
-      : { gain: 0.32, near: 28, far: 460 });
+      : { gain: 0.32, near: 28, far: 460 }, event);
     return this.playSampleAt(
       sample,
       event.toX,
@@ -1617,7 +1612,7 @@ export class AudioDirector {
         ? { gain: 0.36, near: 28, far: 450 }
         : variant === 1
           ? { gain: 0.42, near: 32, far: 520 }
-          : { gain: 0.32, near: 24, far: 380 });
+          : { gain: 0.32, near: 24, far: 380 }, event);
     return this.playSampleAt(
       sample,
       event.toX,
@@ -1631,7 +1626,7 @@ export class AudioDirector {
   }
 
   private playMetalCrash(event: CombatEvent): void {
-    const profile = combatProfile({ gain: 0.18, near: 18, far: 210 });
+    const profile = combatProfile({ gain: 0.18, near: 18, far: 210 }, event);
     if (!this.allowSound(event, profile, 0.12, 'metal')) return;
     const bus = this.spatialBus(event.toX, event.toZ, profile);
     if (!bus) return;
@@ -1718,8 +1713,7 @@ export class AudioDirector {
     const dx = x - this.camera.position.x;
     const dz = z - this.camera.position.z;
     const distance = Math.hypot(dx, dz);
-    const t = clamp01((distance - profile.near) / Math.max(1, profile.far - profile.near));
-    const gain = profile.gain * (1 - t) * (1 - t);
+    const gain = positionalGain(distance, profile);
     this.camera.getWorldDirection(TMP_FORWARD);
     const rightX = TMP_FORWARD.z;
     const rightZ = -TMP_FORWARD.x;
@@ -1842,8 +1836,15 @@ function explosionProfile(kind: string, killed: boolean, weaponKind?: string): S
   return { gain: 0.24, near: 18, far: 260 };
 }
 
-function combatProfile(profile: SoundProfile): SoundProfile {
-  return { ...profile, gain: profile.gain * COMBAT_GAIN_SCALE };
+function combatProfile(profile: SoundProfile, event?: CombatEvent, missileFlyby = false): SoundProfile {
+  const scaled = { ...profile, gain: profile.gain * COMBAT_GAIN_SCALE };
+  const weapon = event?.weaponKind ?? event?.kind.replace(/-impact$/, '');
+  if (missileFlyby) return missileSoundProfile(scaled, 'flyby');
+  if (weapon === 'strategicMissile' || weapon === 'atRocket' || isRocketWeapon(weapon)) {
+    const impact = event?.kind.endsWith('-impact') || event?.kind === 'strategic-missile-intercepted';
+    return missileSoundProfile(scaled, impact ? 'impact' : 'launch', weapon === 'strategicMissile');
+  }
+  return scaled;
 }
 
 function isRocketWeapon(kind: string | undefined): boolean {

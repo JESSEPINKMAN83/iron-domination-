@@ -50,6 +50,141 @@ function runMatch(ticks: number) {
 }
 
 describe('phase 6 enemy commander', () => {
+  function hardAssaultFixture(doctrine: 'iron-legion' | 'missile-command' = 'iron-legion') {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(2, 4600, doctrine);
+    createInitialBase(sim, hf, economy, -180, 0);
+    const vision = new VisibilityGrid(hf, 2);
+    const commander = new EnemyCommander(sim, hf, economy, vision, 'rusher', 'hard', [{ x: 170, z: 0 }]);
+    const units = Array.from({ length: 12 }, (_, i) => spawnTankAt(sim, -130 + i % 4 * 8, -12 + Math.floor(i / 4) * 8, `Raider ${i}`, 2));
+    const control = commander as unknown as {
+      elapsed: number;
+      commandSquads: () => void;
+      squads: Array<{ units: typeof units; state: string; nextOrderAt: number; maneuver?: string; flankUntil?: number }>;
+    };
+    control.elapsed = 180;
+    return { hf, sim, economy, vision, commander, units, control };
+  }
+
+  it.each(['iron-legion', 'missile-command'] as const)('launches varied ground waves on Hard for %s', (doctrine) => {
+    const { commander, control } = hardAssaultFixture(doctrine);
+    for (let i = 0; i < 3; i++) control.commandSquads();
+    expect(commander.stats.attacksLaunched).toBe(3);
+    expect(control.squads.map((squad) => squad.maneuver)).toEqual(['direct', 'left', 'right']);
+    const left = control.squads[1].units[0];
+    const right = control.squads[2].units[0];
+    expect(left.mover?.tactic?.endAction.kind).toBe('attack-through');
+    expect(right.mover?.tactic?.endAction.kind).toBe('attack-through');
+    expect(left.mover!.target!.z).toBeLessThan(0);
+    expect(right.mover!.target!.z).toBeGreaterThan(0);
+  });
+
+  it('launches a balanced missile-faction ground expedition by three minutes when units are ready', () => {
+    const { hf, sim, economy, vision } = hardAssaultFixture('missile-command');
+    const commander = new EnemyCommander(sim, hf, economy, vision, 'balanced', 'hard', [{ x: 170, z: 0 }]);
+    const control = commander as unknown as { elapsed: number; commandSquads: () => void; buildQueue: string[] };
+    control.elapsed = 180;
+    control.commandSquads();
+    expect(commander.stats.attacksLaunched).toBe(1);
+    expect(control.buildQueue.indexOf('barracks')).toBeLessThan(control.buildQueue.indexOf('strategic-silo'));
+  });
+
+  it('funds initial hard-mode ground units and infantry while expensive infrastructure is pending', () => {
+    const { hf, sim, economy, commander } = hardAssaultFixture('missile-command');
+    // Replace the ready army with an empty production pool.
+    for (const unit of Array.from(sim.world.entities)) if (unit.mover && !unit.harvester) sim.world.remove(unit);
+    const base = buildings(sim, economy.team)[0];
+    for (const kind of ['power-plant', 'refinery', 'factory', 'barracks'] as const) {
+      const spot = validPlacement(sim, hf, kind, base.transform.x + 40, base.transform.z + 40, economy.team);
+      economy.readyStructure = kind;
+      expect(placeStructure(sim, hf, economy, spot)).toBeTruthy();
+    }
+    economy.credits = 1400;
+    (commander as unknown as { maintainProduction: () => void }).maintainProduction();
+    const queued = buildings(sim, economy.team).flatMap((b) => b.producer?.queue.map((job) => job.kind) ?? []);
+    expect(queued).toContain('scout-tank');
+    expect(queued).toContain('infantry');
+  });
+
+  it('builds and sends missile-faction ground forces into the field in a real Hard opening', () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const player = createEconomy(1);
+    createInitialBase(sim, hf, player, -170, 0);
+    const economy = createEconomy(2, AI_DIFFICULTY.hard.startCredits, 'missile-command');
+    const base = createInitialBase(sim, hf, economy, 170, 0);
+    const vision = new VisibilityGrid(hf, 2);
+    const commander = new EnemyCommander(sim, hf, economy, vision, 'balanced', 'hard', [{ x: -170, z: 0 }]);
+    let fieldForceSeen = false;
+    for (let i = 0; i < 30 * 300; i++) {
+      commander.step(DT);
+      stepEconomy(sim, hf, economy, DT);
+      stepSim(sim, hf, DT);
+      stepCombat(sim, DT);
+      vision.update(sim);
+      if (i % 30 === 0) fieldForceSeen ||= Array.from(sim.world.entities).some((unit) =>
+        unit.team?.id === 2 && unit.mover && !unit.harvester && !unit.destroyed &&
+        Math.hypot(unit.transform.x - base.transform.x, unit.transform.z - base.transform.z) > 100,
+      );
+    }
+    expect(commander.stats.attacksLaunched).toBeGreaterThanOrEqual(1);
+    expect(fieldForceSeen).toBe(true);
+    vi.restoreAllMocks();
+  }, 30000);
+
+  it('does not restart flank routes on every command pulse and falls back when a route expires', () => {
+    const { sim, control } = hardAssaultFixture();
+    control.commandSquads();
+    control.commandSquads();
+    const squad = control.squads[1];
+    const unit = squad.units[0];
+    const original = unit.mover?.tactic;
+    sim.tick += 150;
+    control.commandSquads();
+    expect(unit.mover?.tactic).toBe(original);
+    sim.tick = squad.flankUntil! + 150;
+    control.commandSquads();
+    expect(unit.mover?.tactic).toBeUndefined();
+    expect(unit.mover?.attackMove).toBe(true);
+    expect(squad.maneuver).toBe('direct');
+  });
+
+  it('interrupts a flank to retreat when its force is badly damaged', () => {
+    const { sim, control, commander } = hardAssaultFixture();
+    control.commandSquads();
+    control.commandSquads();
+    const squad = control.squads[1];
+    for (const unit of squad.units) unit.health!.current = unit.health!.max * 0.2;
+    sim.tick += 150;
+    control.commandSquads();
+    expect(squad.state).toBe('retreating');
+    expect(squad.flankUntil).toBeUndefined();
+    expect(squad.units.every((unit) => !unit.mover?.tactic && !unit.mover?.attackThrough)).toBe(true);
+    expect(commander.stats.retreats).toBe(1);
+  });
+
+  it('keeps hard-mode maneuvers deterministic', () => {
+    const first = hardAssaultFixture();
+    const second = hardAssaultFixture();
+    for (let i = 0; i < 3; i++) { first.control.commandSquads(); second.control.commandSquads(); }
+    expect(hashSim(first.sim)).toBe(hashSim(second.sim));
+    expect(first.commander.stats).toEqual(second.commander.stats);
+  });
+
+  it('targets visible hostile AI armies but ignores allies and unseen enemies', () => {
+    const { hf, sim, economy, vision, commander, units } = hardAssaultFixture();
+    sim.rules.allianceSides = { 1: 1, 2: 2, 3: 3, 4: 2 };
+    createInitialBase(sim, hf, createEconomy(1), 170, 170);
+    const otherAI = createInitialBase(sim, hf, createEconomy(3), 40, 0);
+    createInitialBase(sim, hf, createEconomy(4), -40, 0);
+    vi.spyOn(vision, 'isVisibleWorld').mockImplementation((x, z) => Math.abs(z) < 10 && x < 100);
+    const target = (commander as unknown as { pickTarget: (squad: { units: typeof units }) => { entity?: { team?: { id: number } } } }).pickTarget({ units });
+    expect(target.entity).toBe(otherAI);
+    expect(target.entity?.team?.id).not.toBe(economy.team);
+    vi.restoreAllMocks();
+  });
   it('uses faction-specific infrastructure plans', () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     const hf = generateHeightfield(MAP01);

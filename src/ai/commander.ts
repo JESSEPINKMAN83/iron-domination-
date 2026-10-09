@@ -19,11 +19,14 @@ import type { Heightfield } from '../sim/heightfield';
 import type { VisibilityGrid } from '../sim/visibility';
 import { areTeamsHostile, attackStandoffPoint, issueMoveOrder, type GameSim } from '../sim/world';
 import { emberLaunchReadiness, launchEmberDroneAt, launchStrategicMissileAt } from '../sim/strategicWarfare';
+import { issueTacticOrder } from '../sim/tactics';
 
 interface Squad {
   units: Entity[];
   state: 'attacking' | 'retreating';
   nextOrderAt: number; // sim tick
+  maneuver?: 'direct' | 'left' | 'right';
+  flankUntil?: number;
 }
 
 interface SquadTarget {
@@ -43,6 +46,7 @@ export class EnemyCommander {
   private elapsed = 0;
   private scoutIndex = 0;
   private strategicTargetIndex = 0;
+  private readonly advancedTactics: boolean;
 
   constructor(
     private readonly sim: GameSim,
@@ -58,9 +62,10 @@ export class EnemyCommander {
   ) {
     this.personality = AI_PERSONALITY[personality];
     this.difficulty = AI_DIFFICULTY[difficulty];
+    this.advancedTactics = difficulty === 'hard';
     economy.incomeMultiplier = this.difficulty.incomeMultiplier;
     this.buildQueue = economy.doctrine === 'missile-command'
-      ? ['power-plant', 'refinery', 'power-plant', 'factory', 'intelligence-center', 'strategic-silo', 'guard-tower', 'aa-tower']
+      ? ['power-plant', 'refinery', 'power-plant', 'factory', ...(this.advancedTactics ? ['barracks' as const] : []), 'intelligence-center', 'strategic-silo', 'guard-tower', 'aa-tower']
       : [...this.personality.buildOrder, ...(strategicDefenseNeeded ? ['skylance-ciws' as const, 'missile-defense' as const] : [])];
     this.log(`online — ${personality}/${difficulty}, build order: ${this.buildQueue.join(' → ')}`);
   }
@@ -195,15 +200,25 @@ export class EnemyCommander {
 
   private maintainProduction(): void {
     // saving up for a pending structure beats another tank
-    if (this.buildQueue.length > 0 && this.economy.credits < 1500) return;
     const mine = this.myUnits();
+    // On Hard, fund a first ground expedition before saving for an entire silo
+    // chain. Once that force exists, construction regains its normal priority.
+    const expeditionNeeded = this.advancedTactics && mine.length < this.assaultSize() + this.homeGuardSize();
+    if (this.buildQueue.length > 0 && this.economy.credits < 1500 && !expeditionNeeded) return;
     const tanks = mine.filter((entity) => entity.selectable?.type === 'tank').length;
     const infantry = mine.filter((entity) => entity.selectable?.type === 'infantry').length;
     const aircraft = mine.filter((entity) => entity.flight).length;
     if (tanks < this.difficulty.tankCap) queueUnit(this.sim, this.economy, this.nextVehicleKind(tanks));
-    else if (this.count('helipad') > 0 && aircraft < Math.max(2, Math.floor(this.difficulty.tankCap / 7))) {
+    if (this.advancedTactics) {
+      // Different producer lanes can work together: don't wait for the tank cap
+      // before producing any infantry or air support.
+      if (infantry < this.difficulty.infantryCap) queueUnit(this.sim, this.economy, this.nextInfantryKind(infantry));
+      if (this.count('helipad') > 0 && aircraft < Math.max(2, Math.floor(this.difficulty.tankCap / 7))) {
+        queueUnit(this.sim, this.economy, this.nextAircraftKind(aircraft));
+      }
+    } else if (tanks >= this.difficulty.tankCap && this.count('helipad') > 0 && aircraft < Math.max(2, Math.floor(this.difficulty.tankCap / 7))) {
       queueUnit(this.sim, this.economy, this.nextAircraftKind(aircraft));
-    } else if (infantry < this.difficulty.infantryCap) {
+    } else if (tanks >= this.difficulty.tankCap && infantry < this.difficulty.infantryCap) {
       queueUnit(this.sim, this.economy, this.nextInfantryKind(infantry));
     }
   }
@@ -309,12 +324,15 @@ export class EnemyCommander {
 
     const attacking = this.squads.filter((squad) => squad.state === 'attacking').length;
     if (
-      attacking < this.personality.maxSquads &&
-      this.elapsed >= this.personality.attackDelay * this.difficulty.attackDelayMultiplier &&
-      idle.length - this.personality.homeGuard >= this.personality.squadSize
+      attacking < this.personality.maxSquads + (this.advancedTactics ? 1 : 0) &&
+      this.elapsed >= Math.min(this.personality.attackDelay * this.difficulty.attackDelayMultiplier, this.advancedTactics ? 180 : Infinity) &&
+      idle.length - this.homeGuardSize() >= this.assaultSize()
     ) {
-      const units = idle.slice(0, this.personality.squadSize);
-      this.squads.push({ units, state: 'attacking', nextOrderAt: 0 });
+      const units = idle.slice(0, this.assaultSize());
+      // Repeatable variation by faction and wave keeps multiplayer deterministic.
+      const maneuvers = ['left', 'right', 'direct'] as const;
+      const maneuver = this.advancedTactics ? maneuvers[(this.stats.attacksLaunched + this.economy.team) % maneuvers.length] : 'direct';
+      this.squads.push({ units, state: 'attacking', nextOrderAt: 0, maneuver });
       this.stats.attacksLaunched++;
       this.log(`attack squad of ${units.length} rolling out (${this.stats.attacksLaunched} launched so far)`);
     }
@@ -329,6 +347,7 @@ export class EnemyCommander {
       if (squad.state === 'attacking' && strength < 0.4) {
         squad.state = 'retreating';
         squad.nextOrderAt = 0;
+        squad.flankUntil = undefined;
         this.stats.retreats++;
         this.log(`squad at ${Math.round(strength * 100)}% strength — retreating to base`);
       }
@@ -348,14 +367,52 @@ export class EnemyCommander {
         continue;
       }
 
+      // Keep the flank's waypoint queue intact between reaction pulses. A
+      // bounded expiry prevents a blocked route from stranding an entire wave.
+      if (squad.flankUntil !== undefined) {
+        if (this.sim.tick < squad.flankUntil && squad.units.some((unit) => unit.mover?.tactic)) continue;
+        squad.flankUntil = undefined;
+        squad.maneuver = 'direct';
+      }
+
       const target = this.pickTarget(squad);
       const destination = target.entity
         ? attackStandoffPoint(this.sim, squad.units, target.entity)
         : target;
+      if (this.advancedTactics && squad.maneuver && squad.maneuver !== 'direct') {
+        const lead = squad.units[0];
+        if (lead) {
+          const dx = destination.x - lead.transform.x;
+          const dz = destination.z - lead.transform.z;
+          const distance = Math.hypot(dx, dz);
+          if (distance > 110) {
+            const side = squad.maneuver === 'left' ? -1 : 1;
+            const offset = Math.min(100, distance * 0.32) * side;
+            const limit = this.sim.nav.size / 2 - 24;
+            const flank = {
+              x: Math.max(-limit, Math.min(limit, lead.transform.x + dx * 0.55 - dz / distance * offset)),
+              z: Math.max(-limit, Math.min(limit, lead.transform.z + dz * 0.55 + dx / distance * offset)),
+            };
+            if (issueTacticOrder(this.sim, squad.units, [flank, destination], { kind: 'attack-through' })) {
+              squad.flankUntil = this.sim.tick + 30 * 60;
+              this.log(`${squad.maneuver} flank squad advancing through a side approach`);
+              continue;
+            }
+          }
+        }
+      }
       // Attack-move keeps the squad responsive to defenders on the way in;
       // the standoff point prevents a large formation converging on one center.
       issueMoveOrder(this.sim, squad.units, destination.x, destination.z, true);
     }
+  }
+
+  private assaultSize(): number {
+    return this.advancedTactics ? Math.min(5, this.personality.squadSize) : this.personality.squadSize;
+  }
+
+  private homeGuardSize(): number {
+    return this.advancedTactics ? Math.min(2, this.personality.homeGuard) : this.personality.homeGuard;
   }
 
   /** Honest targeting: only positions the AI's own vision grid currently sees. */

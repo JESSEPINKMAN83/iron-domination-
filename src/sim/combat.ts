@@ -105,7 +105,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     if (!attacker.health || !attacker.team) continue;
     if (attacker.playerControlled) continue; // brain bypassed; stepSim slews the turret to the crosshair
     const commandDrivenCombat = !sim.rules.autoCombat;
-    if (commandDrivenCombat && !attacker.mover?.attackMove && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined)) continue;
+    if (commandDrivenCombat && !attacker.mover?.attackMove && !attacker.mover?.attackThrough && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined)) continue;
 
     const orderedTarget = explicitOrderTarget(sim, attacker);
     let turretGoalYaw: number | undefined;
@@ -132,7 +132,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
         target = validTarget(sim, attacker, weapon, range);
       }
       if (!target) {
-        if (commandDrivenCombat && !attacker.mover?.attackMove) {
+        if (commandDrivenCombat && !attacker.mover?.attackMove && !attacker.mover?.attackThrough) {
           weapon.targetId = undefined;
           continue;
         }
@@ -348,7 +348,7 @@ function tickWeaponCooldowns(sim: GameSim, dt: number): void {
 
 /** Idle units don't stand and take bombardment — they close on visible foes. */
 function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number, engagementTarget?: Entity): void {
-  if (!attacker.mover || attacker.mover.target || attacker.mover.attackTargetId !== undefined || !attacker.vision) return;
+  if (!attacker.mover || attacker.mover.attackThrough || attacker.mover.target || attacker.mover.attackTargetId !== undefined || !attacker.vision) return;
   const slots = weaponSlots(attacker);
   if (slots.length === 0) return;
   let weaponRange = 0;
@@ -1802,7 +1802,7 @@ function alertEconomyDefenders(sim: GameSim, damaged: Entity, attacker?: Entity)
   const damagedTeamId = damaged.team.id;
   sim.spatial.visitNearby(damaged.transform.x, damaged.transform.z, DEFENSE_ALERT_RADIUS, (defender) => {
     if (defender.team?.id !== damagedTeamId || defender.destroyed || defender.playerControlled) return;
-    if (!defender.mover || !defender.health || defender.building) return;
+    if (!defender.mover || !defender.health || defender.building || defender.mover.attackThrough) return;
     const slots = weaponSlots(defender);
     if (slots.length === 0 || !slots.some((weapon) => isWeaponTargetable(sim, defender, weapon, attacker))) return;
     const dx = defender.transform.x - damaged.transform.x;

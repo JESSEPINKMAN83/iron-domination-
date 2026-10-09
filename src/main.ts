@@ -3505,7 +3505,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         orderMarkers.push(
           last.x,
           last.z,
-          payload.endAction.kind === 'hold' ? 'move' : payload.endAction.kind === 'attack-move' ? 'attack-move' : 'attack',
+          payload.endAction.kind === 'hold' ? 'move' : payload.endAction.kind === 'attack-move' || payload.endAction.kind === 'attack-through' ? 'attack-move' : 'attack',
         );
         maybeAskTacticFeedback((useful) => {
           sendTelemetryEvent('tactic-feedback', matchTelemetryMetadata(), { useful });

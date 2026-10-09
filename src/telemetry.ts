@@ -19,7 +19,7 @@ export type TacticTelemetryFeature = {
   unitKinds?: string;
   waypointCount?: number;
   pathLengthApprox?: number;
-  endAction?: 'hold' | 'attack-move' | 'attack';
+  endAction?: 'hold' | 'attack-move' | 'attack-through' | 'attack';
   plannerDurationMs?: number;
   subsetOfSelection?: boolean;
   useful?: boolean;
