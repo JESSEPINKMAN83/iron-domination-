@@ -718,12 +718,23 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       continue;
     }
     const { transform, velocity, mover } = entity;
+    if (!entity.playerControlled && mover.tactic?.endAction.kind === 'attack-through') {
+      // The route is authoritative; combat may select weapon targets, never
+      // substitute an engagement/hold order for the active waypoint.
+      mover.attackThrough = true;
+      mover.attackMove = false;
+      mover.engage = undefined;
+      mover.holdPosition = undefined;
+      mover.attackTargetId = undefined;
+      mover.defenseAlert = undefined;
+    }
     transform.y ??= sampleHeight(hf, transform.x, transform.z);
     let desiredX = 0;
     let desiredZ = 0;
     let desiredSpeed = mover.speed * (mover.sprint ? RTS_SPRINT_MULTIPLIER : 1) * combatRankSpeedMultiplier(entity);
     let orientToMovement = false;
-    const thrown = isImpactThrown(entity);
+    const followingAttackRoute = mover.attackThrough && !!mover.target;
+    const thrown = !followingAttackRoute && isImpactThrown(entity);
 
     if (entity.flight) {
       stepFlightEntity(sim, hf, entity, maxMoverRadius, dt);
@@ -767,16 +778,27 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       const finalDz = finalZ - transform.z;
       const finalDist = Math.hypot(finalDx, finalDz);
       if (finalDist < Math.max(ARRIVAL_EPSILON, mover.radius * 0.72)) {
+        const continueAttackThrough = mover.attackThrough && (mover.tactic?.remaining.length ?? 0) > 0;
         mover.holdPosition = { x: finalX, z: finalZ };
         mover.target = undefined;
         mover.formationOffset = undefined;
         mover.flow = undefined;
         mover.sprint = undefined;
         mover.turnaround = undefined;
-        mover.yawRate = 0;
-        velocity.x = 0;
-        velocity.z = 0;
         advanceTacticAfterArrival(sim, entity);
+        const nextFlow = entity.mover.flow;
+        if (continueAttackThrough && entity.mover.target && nextFlow) {
+          // Keep momentum and steer into the next planned leg instead of
+          // settling to a full stop at each attack-through waypoint.
+          const nextDirection = nextFlow.directionAt(transform.x, transform.z);
+          desiredX = nextDirection.x;
+          desiredZ = nextDirection.z;
+          orientToMovement = true;
+        } else {
+          mover.yawRate = 0;
+          velocity.x = 0;
+          velocity.z = 0;
+        }
       } else if (finalDist < 18) {
         desiredX = finalDx / finalDist;
         desiredZ = finalDz / finalDist;
@@ -864,7 +886,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     if (!entity.playerControlled && isTrackedGroundVehicle(entity) && !mover.turnaround) {
       mover.yawRate = approach(mover.yawRate ?? 0, 0, trackedAngularAcceleration(mover.radius) * dt);
     }
-    const staggerRemaining = entity.impactMomentum?.stagger ?? 0;
+    const staggerRemaining = followingAttackRoute ? 0 : entity.impactMomentum?.stagger ?? 0;
     const staggerScale = staggerRemaining > 0 ? Math.max(0, Math.min(1, 1 - staggerRemaining / 0.38)) : 1;
     if (entity.armor?.kind === 'infantry' && staggerScale < 1) {
       desiredX *= staggerScale;
@@ -924,7 +946,7 @@ function integrateGroundDisplacement(
   dt: number,
 ): void {
   const { transform, velocity } = entity;
-  const momentum = entity.impactMomentum;
+  const momentum = entity.mover.attackThrough && entity.mover.target ? undefined : entity.impactMomentum;
   const nextX = transform.x + (velocity.x + (momentum?.x ?? 0)) * dt;
   const nextZ = transform.z + (velocity.z + (momentum?.z ?? 0)) * dt;
   const cell = sim.nav.worldToCell(nextX, nextZ);
@@ -1165,6 +1187,54 @@ interface FlightCommand {
   aimYaw?: number;
 }
 
+function stepAttackThroughFlight(sim: GameSim, hf: Heightfield, entity: MovingEntity, dt: number): void {
+  const { transform, velocity, mover } = entity;
+  const flight = entity.flight!;
+  const model = FLIGHT_MODELS[flight.model];
+  const speed = mover.speed * (mover.sprint ? RTS_SPRINT_MULTIPLIER : 1) * combatRankSpeedMultiplier(entity);
+  let travel = speed * dt;
+  let directionX = 0;
+  let directionZ = 0;
+  // Spend this tick's travel across waypoint boundaries, including coincident
+  // points. Hull heading and weapon targeting cannot brake route execution.
+  for (let leg = 0; leg < 9 && mover.target; leg++) {
+    const target = mover.target;
+    const dx = target.x - transform.x;
+    const dz = target.z - transform.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance > 0.0001) {
+      directionX = dx / distance;
+      directionZ = dz / distance;
+    }
+    if (distance > travel) {
+      transform.x += directionX * travel;
+      transform.z += directionZ * travel;
+      break;
+    }
+    transform.x = target.x;
+    transform.z = target.z;
+    travel = Math.max(0, travel - distance);
+    mover.holdPosition = { ...target };
+    mover.target = undefined;
+    advanceTacticAfterArrival(sim, entity);
+    if (!entity.mover.target) break;
+  }
+  velocity.x = mover.target ? directionX * speed : 0;
+  velocity.z = mover.target ? directionZ * speed : 0;
+  const heading = Math.atan2(directionX, directionZ);
+  const turn = normalizeAngle(heading - transform.rot);
+  transform.rot = slewAngle(transform.rot, heading, model.yawRateHover, dt);
+  const attitudeT = damp(model.attitudeLag, dt);
+  flight.pitchAttitude += ((mover.target ? -model.maxTiltPitch * 0.7 : 0) - flight.pitchAttitude) * attitudeT;
+  flight.rollAttitude += (clamp(-turn * 0.3, -model.maxTiltRoll, model.maxTiltRoll) - flight.rollAttitude) * attitudeT;
+  flight.bank = flight.rollAttitude;
+  const ground = sampleHeight(hf, transform.x, transform.z);
+  const desiredY = Math.min(flight.maxAltitude, ground + flight.cruiseAltitude);
+  const currentY = transform.y ?? desiredY;
+  flight.verticalVelocity = clamp((desiredY - currentY) * 1.6, -model.climbRate, model.climbRate);
+  transform.y = clamp(currentY + flight.verticalVelocity * dt, ground + flight.minAGL, flight.maxAltitude);
+}
+
 function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, maxMoverRadius: number, dt: number): void {
   const { transform, velocity, mover } = entity;
   const flight = entity.flight;
@@ -1172,6 +1242,10 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
 
   flight.previousPitchAttitude = flight.pitchAttitude;
   flight.previousRollAttitude = flight.rollAttitude;
+  if (!entity.playerControlled && mover.attackThrough && mover.target) {
+    stepAttackThroughFlight(sim, hf, entity, dt);
+    return;
+  }
 
   const model = FLIGHT_MODELS[flight.model];
   const boost = entity.playerControlled?.boost
@@ -1379,7 +1453,6 @@ function aiFlightCommand(sim: GameSim, entity: MovingEntity): FlightCommand {
       command.throttle = clamp(Math.max(0.18, forwardDot) * slow, -0.35, 1);
       command.strafe = clamp(sideDot * 1.15 * slow, -1, 1);
       command.turn = clamp(yawDelta * 1.2, -1, 1);
-      command.aimYaw = desiredYaw;
     }
     mover.engage = undefined;
   } else if (mover.faceYaw !== undefined) {

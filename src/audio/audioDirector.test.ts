@@ -65,11 +65,15 @@ describe('missile sound routing', () => {
     for (const call of bus.mock.calls) expect(call[2].flatArea).toBe(true);
   });
 
-  it('leaves cannon impacts on the original mix', () => {
+  it.each(['cannon', 'artilleryShell', 'kineticShell', 'tankBomb', 'bomb', 'grenade'] as const)('quiets %s explosions and destruction layers too', (weapon) => {
     const { director, play } = harness(true);
-    director.handleCombatEvents([{ ...event('cannon', true), targetType: 'building' }]);
+    const weaponKind = weapon === 'kineticShell' ? 'cannon' : weapon === 'artilleryShell' ? 'heavyCannon' : weapon;
+    director.handleCombatEvents([{ ...event(weaponKind, true), kind: `${weapon}-impact`, targetType: 'building', killed: true }]);
     expect(play).toHaveBeenCalled();
-    expect(play.mock.calls[0][3].flatArea).toBeUndefined();
-    expect(play.mock.calls[0][3].gain).toBeGreaterThan(0.045);
+    for (const call of play.mock.calls) {
+      expect(call[3].flatArea).toBe(true);
+      expect(call[3].gain).toBeLessThanOrEqual(0.018);
+      expect(call[3].far).toBeLessThanOrEqual(220);
+    }
   });
 });

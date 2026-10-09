@@ -146,8 +146,8 @@ describe('phase 6 enemy commander', () => {
     expect(unit.mover?.tactic).toBe(original);
     sim.tick = squad.flankUntil! + 150;
     control.commandSquads();
-    expect(unit.mover?.tactic).toBeUndefined();
-    expect(unit.mover?.attackMove).toBe(true);
+    expect(unit.mover?.tactic?.remaining).toEqual([]);
+    expect(unit.mover?.attackThrough).toBe(true);
     expect(squad.maneuver).toBe('direct');
   });
 
@@ -163,6 +163,41 @@ describe('phase 6 enemy commander', () => {
     expect(squad.flankUntil).toBeUndefined();
     expect(squad.units.every((unit) => !unit.mover?.tactic && !unit.mover?.attackThrough)).toBe(true);
     expect(commander.stats.retreats).toBe(1);
+  });
+
+  it('preserves direct assault orders across decision pulses', () => {
+    const { sim, control } = hardAssaultFixture();
+    control.commandSquads();
+    const lead = control.squads[0].units[0];
+    const originalPlan = lead.mover!.tactic;
+    const originalFlow = lead.mover!.flow;
+    sim.tick += 150;
+    control.commandSquads();
+    expect(lead.mover!.tactic).toBe(originalPlan);
+    expect(lead.mover!.flow).toBe(originalFlow);
+    expect(lead.mover!.attackThrough).toBe(true);
+  });
+
+  it('gives squads independent scouting destinations and skips a stalled approach', () => {
+    const { hf, sim, economy, vision, units } = hardAssaultFixture();
+    const commander = new EnemyCommander(sim, hf, economy, vision, 'rusher', 'normal', [
+      { x: 170, z: 0 }, { x: 150, z: 120 },
+    ]);
+    const control = commander as unknown as {
+      elapsed: number;
+      commandSquads: () => void;
+      pickTarget: (squad: { units: typeof units; scoutIndex: number; lastProgressAt: number }) => { x: number; z: number };
+    };
+    control.elapsed = 180;
+    control.commandSquads();
+    expect(commander.stats.attacksLaunched).toBe(1);
+    const first = { units: [units[0]], scoutIndex: 0, lastProgressAt: sim.tick };
+    const second = { units: [units[4]], scoutIndex: 1, lastProgressAt: sim.tick };
+    expect(control.pickTarget(first)).toEqual({ x: 170, z: 0 });
+    expect(control.pickTarget(second)).toEqual({ x: 150, z: 120 });
+    sim.tick += 30 * 17;
+    expect(control.pickTarget(first)).toEqual({ x: 150, z: 120 });
+    expect(second.scoutIndex).toBe(1);
   });
 
   it('keeps hard-mode maneuvers deterministic', () => {
@@ -298,7 +333,7 @@ describe('phase 6 enemy commander', () => {
     vi.restoreAllMocks();
   });
 
-  it('orders large tank squads into an attack-move standoff instead of the enemy center', () => {
+  it('orders large tank squads to fire along the route to a standoff instead of the enemy center', () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -319,7 +354,7 @@ describe('phase 6 enemy commander', () => {
 
     (commander as unknown as { commandSquads: () => void }).commandSquads();
 
-    expect(tanks.every((tank) => tank.mover?.attackMove && tank.mover.attackTargetId === undefined)).toBe(true);
+    expect(tanks.every((tank) => tank.mover?.attackThrough && tank.mover.attackTargetId === undefined)).toBe(true);
     const destinations = tanks.map((tank) => ({
       x: tank.mover!.target!.x + (tank.mover!.formationOffset?.x ?? 0),
       z: tank.mover!.target!.z + (tank.mover!.formationOffset?.z ?? 0),
