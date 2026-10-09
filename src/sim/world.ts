@@ -344,11 +344,11 @@ export function spawnSiegeTankAt(sim: GameSim, x: number, z: number, name: strin
     secondary: UNIT_ARSENALS['siege-tank'].secondary,
     primaryRange: WEAPONS[UNIT_ARSENALS['siege-tank'].primary].range,
     secondaryRange: WEAPONS[UNIT_ARSENALS['siege-tank'].secondary!].range,
-    health: 138,
+    health: 180,
     speed: 13,
     radius: 2.7,
-    turretRate: 1.35,
-    vision: 132,
+    turretRate: 2.2,
+    vision: 194,
   });
 }
 

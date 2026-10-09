@@ -50,6 +50,26 @@ function runMatch(ticks: number) {
 }
 
 describe('phase 6 enemy commander', () => {
+  it('splits Hard raids between income and production instead of chasing a possessed decoy', () => {
+    const { sim, vision, commander, units } = hardAssaultFixture();
+    vi.spyOn(vision, 'isVisibleWorld').mockReturnValue(true);
+    const factory = spawnTankAt(sim, 100, 0, 'Factory target', 1);
+    const refinery = spawnTankAt(sim, 120, 30, 'Refinery target', 1);
+    const base = [...sim.world.entities].find((entity) => entity.building)!;
+    factory.building = { ...base.building!, kind: 'factory' };
+    refinery.building = { ...base.building!, kind: 'refinery' };
+    const decoy = spawnTankAt(sim, -80, 0, 'Possessed decoy', 1);
+    decoy.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    const control = commander as unknown as {
+      pickTarget: (squad: { units: typeof units; maneuver: string }) => { entity?: typeof decoy };
+    };
+    expect(control.pickTarget({ units: [units[0]], maneuver: 'direct' }).entity).toBe(factory);
+    expect(control.pickTarget({ units: [units[4]], maneuver: 'left' }).entity).toBe(refinery);
+    vi.spyOn(vision, 'isVisibleWorld').mockReturnValue(false);
+    expect(control.pickTarget({ units: [units[0]], maneuver: 'direct' }).entity).toBeUndefined();
+    vi.restoreAllMocks();
+  });
+
   function hardAssaultFixture(doctrine: 'iron-legion' | 'missile-command' = 'iron-legion') {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

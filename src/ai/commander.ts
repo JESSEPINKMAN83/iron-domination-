@@ -115,9 +115,9 @@ export class EnemyCommander {
     let rebuilding = false;
     if (!next) {
       if (this.economy.powerProduced < this.economy.powerUsed + 10) next = 'power-plant';
-      else if (this.count('refinery') < this.personality.targetRefineries) next = 'refinery';
-      else if (this.count('factory') < this.personality.targetFactories) next = 'factory';
-      else if (this.personality.wantsBarracks && this.count('barracks') < 1) next = 'barracks';
+      else if (this.count('refinery') < this.personality.targetRefineries + (this.advancedTactics ? 1 : 0)) next = 'refinery';
+      else if (this.count('factory') < this.personality.targetFactories + (this.advancedTactics ? 1 : 0)) next = 'factory';
+      else if ((this.personality.wantsBarracks || this.advancedTactics) && this.count('barracks') < 1) next = 'barracks';
       else if (this.economy.doctrine === 'iron-legion' && this.count('factory') > 0 && this.count('helipad') < 1 && this.economy.credits > 1200) next = 'helipad';
       rebuilding = next !== undefined && this.everCompleted.has(next) && this.count(next) === 0;
     }
@@ -229,6 +229,9 @@ export class EnemyCommander {
   }
 
   private nextVehicleKind(count: number): UnitKind {
+    // Hard reinforces with armor and siege fire instead of repeatedly filling
+    // the front line with scouts after casualties reduce the unit count.
+    if (this.advancedTactics) return (['scout-tank', 'tank', 'siege-tank', 'tank', 'siege-tank', 'tank'] as UnitKind[])[count % 6];
     return (['scout-tank', 'tank', 'tank', 'siege-tank', 'scout-tank', 'tank'] as UnitKind[])[count % 6];
   }
 
@@ -329,8 +332,8 @@ export class EnemyCommander {
 
     const attacking = this.squads.filter((squad) => squad.state === 'attacking').length;
     if (
-      attacking < this.personality.maxSquads + (this.advancedTactics ? 1 : 0) &&
-      this.elapsed >= Math.min(this.personality.attackDelay * this.difficulty.attackDelayMultiplier, this.proactiveTactics ? 180 : Infinity) &&
+      attacking < this.personality.maxSquads + (this.advancedTactics ? 3 : 0) &&
+      this.elapsed >= Math.min(this.personality.attackDelay * this.difficulty.attackDelayMultiplier, this.advancedTactics ? 100 : this.proactiveTactics ? 180 : Infinity) &&
       idle.length - this.homeGuardSize() >= this.assaultSize()
     ) {
       const units = idle.slice(0, this.assaultSize());
@@ -443,6 +446,8 @@ export class EnemyCommander {
     let possessed: Entity | undefined;
     let economyTarget: Entity | undefined;
     let building: Entity | undefined;
+    let production: Entity | undefined;
+    let productionD = Number.POSITIVE_INFINITY;
     let unit: Entity | undefined;
     let economyScore = Number.POSITIVE_INFINITY;
     let buildingD = Number.POSITIVE_INFINITY;
@@ -458,6 +463,10 @@ export class EnemyCommander {
       if (!this.vision.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
       const d = Math.hypot(entity.transform.x - bx, entity.transform.z - bz);
       const squadD = Math.hypot(entity.transform.x - sx, entity.transform.z - sz);
+      if (this.advancedTactics && ['factory', 'helipad', 'barracks', 'power-plant'].includes(entity.building?.kind ?? '') && squadD < productionD) {
+        production = entity;
+        productionD = squadD;
+      }
       if (entity.playerControlled) possessed = entity;
       const isEconomyTarget = entity.harvester || entity.building?.kind === 'refinery';
       if (isEconomyTarget) {
@@ -476,9 +485,15 @@ export class EnemyCommander {
       }
     }
     // the player's possessed unit is a high-value target — chase it for pressure
-    const chosen = possessed ?? economyTarget ?? building ?? unit;
+    // Split pressure: flankers raid income; the main assault breaks production.
+    // A possessed unit can no longer lure every Hard squad away from the base.
+    const chosen = this.advancedTactics
+      ? squad.maneuver === 'direct'
+        ? production ?? building ?? economyTarget ?? possessed ?? unit
+        : economyTarget ?? production ?? building ?? possessed ?? unit
+      : possessed ?? economyTarget ?? building ?? unit;
     if (chosen) {
-      if (possessed) this.log('spotted the possessed unit — converging on it');
+      if (chosen === possessed) this.log('spotted the possessed unit — converging on it');
       else if (chosen.harvester) this.log('spotted enemy collector — raiding economy');
       else if (chosen.building?.kind === 'refinery') this.log('spotted enemy refinery — raiding economy');
       return { x: chosen.transform.x, z: chosen.transform.z, entity: chosen };
