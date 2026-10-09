@@ -36,6 +36,7 @@ import {
   worldToRadarPoint,
 } from './radarTransform';
 import { unitDisplayName } from './unitDisplayName';
+import { incomingMissileContacts } from './incomingMissiles';
 import { economyAttention, ProductionIdleTracker } from './economyAttention';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
 import { colorCss, FACTION, factionId } from '../render/palette';
@@ -1429,6 +1430,7 @@ export class Sidebar {
       this.radarCtx.fillRect(Math.round(p.x) - (isBuilding ? 2 : 1), Math.round(p.y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
     this.drawRadarFog();
+    this.drawIncomingMissiles(now);
     this.drawRadarBoundary();
     this.drawRadarViewport();
     this.drawTacticalPings(now);
@@ -1451,6 +1453,25 @@ export class Sidebar {
     this.drawRadarOrientation();
     this.radarCtx.strokeStyle = 'rgba(154,176,192,.18)';
     this.radarCtx.strokeRect(0.5, 0.5, this.radar.width - 1, this.radar.height - 1);
+  }
+
+  private drawIncomingMissiles(now: number): void {
+    const ctx = this.radarCtx;
+    const pulse = 0.5 + 0.5 * Math.sin(now * Math.PI * 2 / 650);
+    ctx.save();
+    ctx.fillStyle = '#ff6d5e';
+    ctx.strokeStyle = '#ffd1b4';
+    ctx.lineWidth = 0.8;
+    for (const contact of incomingMissileContacts(this.sim, this.economy.team)) {
+      const p = this.worldToRadar(contact.x, contact.z);
+      if (p.x < 4 || p.y < 4 || p.x > this.radar.width - 4 || p.y > this.radar.height - 4) continue;
+      ctx.globalAlpha = 0.35 + pulse * 0.65;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2.2 + pulse * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private drawUnderAttackAlert(now: number): void {

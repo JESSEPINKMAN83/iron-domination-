@@ -68,7 +68,7 @@ describe('phase 4 combat simulation', () => {
     expect(damageForArmor('sniperRifle', 'infantry')).toBeCloseTo(86.4);
     expect(damageForArmor('cannon', 'heavy')).toBeCloseTo(26.32);
     expect(damageForArmor('autocannon', 'heavy')).toBeCloseTo(0.4);
-    expect(damageForArmor('heavyCannon', 'building')).toBeCloseTo(47.56);
+    expect(damageForArmor('heavyCannon', 'building')).toBeCloseTo(79.2);
     expect(damageForArmor('bomb', 'heavy')).toBeCloseTo(15.08);
     expect(damageForArmor('bomb', 'building')).toBeCloseTo(7.8);
     expect(damageForArmor('tankBomb', 'heavy')).toBeCloseTo(34.44);

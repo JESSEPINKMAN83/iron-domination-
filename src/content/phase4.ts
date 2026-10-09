@@ -191,14 +191,13 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   heavyCannon: {
     kind: 'heavyCannon',
     label: '155mm Siege Howitzer',
-    damage: 58,
-    cooldown: 5.1,
+    damage: 88,
+    cooldown: 3.8,
     range: 194,
-    minRange: 26,
     splashRadius: 8.2,
     targetTypes: ['light', 'heavy', 'building'],
-    vs: { infantry: 1.0, light: 0.9, heavy: 0.78, building: 0.82, air: 0 },
-    projectile: { kind: 'artilleryShell', speed: 62, trajectory: 'arc', impactRadius: 3.2 },
+    vs: { infantry: 1.0, light: 0.9, heavy: 0.94, building: 0.9, air: 0 },
+    projectile: { kind: 'artilleryShell', speed: 150, trajectory: 'arc', impactRadius: 3.2 },
   },
   tankBomb: {
     kind: 'tankBomb',

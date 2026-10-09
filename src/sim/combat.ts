@@ -730,7 +730,11 @@ function launchWeaponProjectile(
           turnRate: target.flight ? LOCKED_MISSILE_AIR_TURN_RATE : LOCKED_MISSILE_GROUND_TURN_RATE,
         }
       : undefined;
-  const trajectory = homing ? 'homing' : projectileDef.trajectory === 'homing' ? 'flat' : projectileDef.trajectory;
+  // A possessed siege gun uses direct fire when the reticle intersects a unit.
+  // Ground-point fire keeps its artillery arc, without making close targets
+  // wait for an indirect shell to rise and fall.
+  const manualSiegeDirect = attacker.playerControlled && target && def.kind === 'heavyCannon';
+  const trajectory = homing ? 'homing' : manualSiegeDirect || projectileDef.trajectory === 'homing' ? 'flat' : projectileDef.trajectory;
   sim.projectiles.push({
     kind: projectileDef.kind,
     weaponKind: def.kind,
