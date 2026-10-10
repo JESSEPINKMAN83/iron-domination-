@@ -144,10 +144,13 @@ export class RtsController {
   private touchGestureCancelled = false;
 
   private readonly buildingHoverLabel = document.createElement('div');
+  private hoverBuilding?: Entity;
+  private hoverClearTimer?: number;
 
   private clearBuildingHover(): void {
     this.buildings?.setHoveredBuilding?.(undefined);
     this.buildingHoverLabel.hidden = true;
+    this.hoverBuilding = undefined;
   }
 
   constructor(
@@ -163,11 +166,13 @@ export class RtsController {
     private readonly localTeam = 1,
     private readonly commandSink?: RtsCommandSink,
     private readonly tacticalPing?: TacticalPingControls,
+    private readonly repairBuilding?: (entity: Entity) => void,
   ) {
     this.buildingHoverLabel.hidden = true;
-    this.buildingHoverLabel.style.cssText = 'position:fixed;pointer-events:none;z-index:60;padding:7px 10px;background:rgba(9,18,16,.94);border:1px solid #73b99d;color:#f0f3e8;font:600 12px system-ui;max-width:240px;';
+    this.buildingHoverLabel.style.cssText = 'position:fixed;pointer-events:auto;z-index:60;padding:7px 10px;background:rgba(9,18,16,.94);border:1px solid #73b99d;color:#f0f3e8;font:600 12px system-ui;max-width:240px;';
     document.body.appendChild(this.buildingHoverLabel);
-    dom.addEventListener('pointerleave', () => this.clearBuildingHover());
+    this.buildingHoverLabel.addEventListener('pointerdown', (event) => event.stopPropagation());
+    this.buildingHoverLabel.addEventListener('pointerleave', () => this.clearBuildingHover());
     window.addEventListener('blur', () => this.clearBuildingHover());
     this.selectionBox = document.createElement('div');
     this.selectionBox.style.cssText =
@@ -737,13 +742,31 @@ export class RtsController {
   }
 
   private updateInspectHover(e: PointerEvent): void {
+    if (this.hoverClearTimer) window.clearTimeout(this.hoverClearTimer);
+    if (e.target instanceof Node && this.buildingHoverLabel.contains(e.target)) return;
     const hit = this.entityAt(e.clientX, e.clientY);
     const building = hit?.building && !hit.destroyed ? hit : undefined;
     this.orderFeedback?.inspectHover?.(building);
     this.buildings?.setHoveredBuilding?.(building);
-    this.buildingHoverLabel.hidden = !building;
+    if (!building) {
+      this.hoverClearTimer = window.setTimeout(() => this.clearBuildingHover(), 220);
+      return;
+    }
+    this.buildingHoverLabel.hidden = false;
     if (building) {
+      const changed = this.hoverBuilding !== building;
+      this.hoverBuilding = building;
       this.buildingHoverLabel.textContent = (building.building?.label ?? building.name ?? 'Building') + (building.building?.complete ? '' : ' · Under construction');
+      if (building.team?.id === this.localTeam && building.building?.complete && building.health && building.health.current < building.health.max && this.repairBuilding) {
+        const button = document.createElement('button');
+        button.textContent = building.building.repair ? '🔧 Repairing' : '🔧 Repair';
+        button.title = '10 credits per second · Full repair in 20 seconds · Pauses without funds';
+        button.disabled = Boolean(building.building.repair);
+        button.style.cssText = 'margin-left:10px;padding:4px 7px;color:#e9fff1;background:#244b3d;border:1px solid #73b99d;cursor:pointer;';
+        button.addEventListener('click', (event) => { event.stopPropagation(); this.repairBuilding?.(building); button.disabled = true; button.textContent = '🔧 Repairing'; });
+        this.buildingHoverLabel.appendChild(button);
+      }
+      if (!changed) return;
       this.buildingHoverLabel.style.left = `${Math.max(8, Math.min(e.clientX + 16, window.innerWidth - 250))}px`;
       this.buildingHoverLabel.style.top = `${Math.max(8, Math.min(e.clientY + 18, window.innerHeight - 45))}px`;
     }

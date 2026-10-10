@@ -138,6 +138,7 @@ import {
   setPrimaryProducer,
   setProducerRally,
   spawnInfantryAt,
+  startBuildingRepair,
   startStructureBuild,
   stepEconomy,
   upgradeEmberDroneQuantity,
@@ -3288,6 +3289,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         }
       : undefined,
     tacticalPing,
+    (entity) => {
+      if (!canManageArmy) return;
+      if (lockstep) lockstep.issue({ type: 'repair-building', id: entity.id });
+      else startBuildingRepair(sim, economy, entity.id);
+    },
   );
   sidebar = new Sidebar(sim, hf, economy, playerVision, {
     buildStructure: (kind) => {
@@ -4129,6 +4135,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       setSelected(sim, [aircraft], false, localTeam);
       firstPerson.enter([aircraft]);
     }, 450);
+  }
+  if (buildingShowcase && params.get('repair-test') === '1') {
+    for (const entity of buildings(sim, localTeam)) {
+      if (!entity.health || !entity.building?.complete) continue;
+      entity.health.current = entity.health.max * 0.35;
+      if (entity.structureDamage) {
+        entity.structureDamage.cells.fill(65);
+        entity.structureDamage.version++;
+      }
+    }
   }
   if (buildingShowcase) {
     window.setTimeout(() => {

@@ -476,7 +476,43 @@ export function issueHarvesterReturnOrder(sim: GameSim, harvesters: Entity[], x:
   return issued;
 }
 
+/** Repairs consume one affordable second at a time; no credit means a pause. */
+export function startBuildingRepair(sim: GameSim, economy: EconomyState, id: number): boolean {
+  const entity = buildings(sim, economy.team).find((entity) => entity.id === id);
+  if (!entity?.building?.complete || entity.destroyed || !entity.health || entity.health.current >= entity.health.max) return false;
+  if (entity.building.repair) return true;
+  entity.building.repair = { elapsed: 0 };
+  return true;
+}
+
+function stepBuildingRepairs(sim: GameSim, economy: EconomyState, dt: number): void {
+  for (const entity of buildings(sim, economy.team).sort((a, b) => a.id - b.id)) {
+    const repair = entity.building?.repair;
+    if (!repair) continue;
+    if (entity.destroyed || !entity.health || !entity.building?.complete || entity.health.current >= entity.health.max) {
+      delete entity.building!.repair;
+      continue;
+    }
+    repair.elapsed += dt;
+    while (repair.elapsed + 1e-9 >= 1) {
+      repair.elapsed -= 1;
+      if (economy.credits < 10) continue;
+      economy.credits -= 10;
+      const before = entity.health.current;
+      entity.health.current = Math.min(entity.health.max, before + entity.health.max / 20);
+      const damage = entity.structureDamage;
+      if (damage) {
+        const remaining = (entity.health.max - entity.health.current) / Math.max(1e-9, entity.health.max - before);
+        for (let i = 0; i < damage.cells.length; i++) damage.cells[i] = Math.floor(damage.cells[i] * remaining);
+        damage.version++;
+      }
+      if (entity.health.current >= entity.health.max) { delete entity.building.repair; break; }
+    }
+  }
+}
+
 export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState, dt: number): Entity[] {
+  stepBuildingRepairs(sim, economy, dt);
   const spawned: Entity[] = economy.pendingSpawned.splice(0);
   const powered = economy.powerProduced >= economy.powerUsed;
   const productionScale = powered ? 1 : 0.45;

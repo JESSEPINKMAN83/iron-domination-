@@ -200,6 +200,7 @@ export interface Destroyed {
 }
 
 export interface Building {
+  repair?: { elapsed: number };
   kind: string;
   label: string;
   footprint: { w: number; h: number };

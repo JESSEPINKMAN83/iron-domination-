@@ -2,6 +2,7 @@ import type { StructureKind, UnitKind } from '../content/phase3';
 import { isFortressTower } from '../content/fortress';
 import type { Entity } from '../sim/components';
 import {
+  startBuildingRepair,
   cancelStructureBuild,
   cancelUnitQueue,
   enterReadyStructurePlacement,
@@ -51,6 +52,7 @@ export type NetCommand =
   | { type: 'queue-unit'; kind: UnitKind; producerId?: number }
   | { type: 'cancel-unit'; kind: UnitKind; producerId?: number }
   | { type: 'primary-producer'; producerId: number }
+  | { type: 'repair-building'; id: number }
   | { type: 'rally'; producerId: number; x: number; z: number }
   | { type: 'upgrade-units'; ids: number[]; upgradeId: UnitUpgradeId }
   | { type: 'upgrade-strategic'; upgrade: 'accuracy' | 'warhead' | 'ember-quantity' | 'ember-warhead' }
@@ -510,6 +512,8 @@ export class LockstepRuntime {
     } else if (command.type === 'primary-producer') {
       const producer = entityById(this.options.sim, command.producerId);
       if (producer) setPrimaryProducer(economy, producer);
+    } else if (command.type === 'repair-building') {
+      startBuildingRepair(this.options.sim, economy, command.id);
     } else if (command.type === 'rally') {
       const producer = entityById(this.options.sim, command.producerId);
       if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
