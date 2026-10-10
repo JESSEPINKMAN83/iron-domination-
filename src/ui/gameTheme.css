@@ -225,3 +225,51 @@
 .in-match .iron-howto__header h2, .in-match .iron-feedback__header h2 { font-family: var(--game-font); text-transform: none; letter-spacing: -.5px; font-weight: 650; }
 .in-match .iron-howto__header p, .in-match .iron-feedback__header p { color: var(--game-accent); }
 .in-match .iron-feedback__submit { background: var(--game-accent); border-color: var(--game-accent); border-radius: 7px; font-family: var(--game-font); color: #12251e; }
+
+/* Live economy and queue text must not move the production cards. */
+.game-sidebar__body {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  align-content: start;
+  overflow-anchor: none;
+}
+.game-economy-summary {
+  min-width: 0;
+  grid-template-columns: 64px minmax(0, 1fr) !important;
+  grid-template-rows: 14px 14px 28px;
+  font-variant-numeric: tabular-nums;
+}
+.game-economy-summary [data-economy-status],
+.game-economy-summary [data-economy-detail] {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 14px;
+  min-width: 0;
+}
+.game-economy-summary [data-economy-attention] {
+  box-sizing: border-box;
+  height: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.game-economy-summary [data-economy-attention][hidden] {
+  display: block !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+.game-sidebar__body [data-producer-row-id] {
+  height: 18px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.game-production-summary {
+  min-width: 0;
+  max-height: 80px;
+  overflow-y: auto;
+  align-content: start;
+  overflow-anchor: none;
+}

@@ -1083,6 +1083,7 @@ export class Sidebar {
 
   private productionSummary(tab: 'infantry' | 'vehicles' | 'aircraft'): HTMLDivElement {
     const el = document.createElement('div');
+    el.className = 'game-production-summary';
     el.style.cssText =
       'grid-column:1/-1;display:grid;gap:4px;padding:7px 8px;border:1px solid #2f3735;background:#101514;color:#aebbc4;box-shadow:inset 0 0 10px rgba(0,0,0,.35);';
     const producers = this.unitProducers(tab);
@@ -1101,7 +1102,9 @@ export class Sidebar {
       const rally = producer.producer?.rally ? ' ⚑' : '';
       const row = document.createElement('div');
       row.dataset.producerRowId = String(producer.id);
+      row.title = producer.building?.label ?? 'Producer';
       row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${queueDepth(producer)}/${MAX_PRODUCER_JOBS}`;
+      row.title = row.textContent;
       el.appendChild(row);
     }
     return el;
@@ -1175,6 +1178,7 @@ export class Sidebar {
       const rally = producer.producer.rally ? ' ⚑' : '';
       const active = producer.producer.active;
       row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${queueDepth(producer)}/${MAX_PRODUCER_JOBS}`;
+      row.title = row.textContent;
     }
   }
 

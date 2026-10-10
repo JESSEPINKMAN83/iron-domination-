@@ -1596,6 +1596,8 @@ export function hashSim(sim: GameSim): number {
     if (entity.building) {
       mixText(entity.building.kind);
       mix(Math.round(entity.building.buildProgress * 1000));
+      mix(entity.building.repair ? 1 : 0);
+      if (entity.building.repair) mix(Math.round(entity.building.repair.elapsed * 1000));
       mix(entity.building.complete ? 1 : 0);
     }
     if (entity.producer) {
