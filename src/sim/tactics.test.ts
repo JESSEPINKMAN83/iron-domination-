@@ -412,7 +412,7 @@ it.each([spawnWaspAt, spawnVultureAt, spawnHammerheadAt])('finishes a dense draw
   expect(enemy.health!.current).toBeLessThan(100000);
 });
 
-it.each([false, true])('flies a zero-variation squad through every exact waypoint under fire (sprint=%s)', (sprint) => {
+it.each([false, true])('completes every zero-variation route leg under fire (sprint=%s)', (sprint) => {
   const hf = generateHeightfield(MAP01);
   const sim = createGameSim(hf);
   const squad = Array.from({ length: 9 }, (_, i) => [spawnWaspAt, spawnVultureAt, spawnHammerheadAt][i % 3](sim, hf, -80, -10 + i * 3, `Exact ${i}`, 1));
@@ -437,8 +437,9 @@ it.each([false, true])('flies a zero-variation squad through every exact waypoin
       const target = targets[i]!;
       const next = unit.mover!.target;
       if (!next || next.x !== target.x || next.z !== target.z) {
-        expect(unit.transform.x).toBeCloseTo(path[visited[i]].x, 6);
-        expect(unit.transform.z).toBeCloseTo(path[visited[i]].z, 6);
+        // Each waypoint is accepted inside the flight turn radius, in order.
+        const nextPoint = path[visited[i] + 1];
+        if (unit.mover!.tactic && nextPoint) expect(unit.mover!.target).toEqual(nextPoint);
         visited[i]++;
       }
     });
@@ -545,4 +546,32 @@ describe('persistent aggressive stance', () => {
     issueMoveOrder(sim, [unit], 50, 0);
     expect(unit.mover!.aggressive).toBeUndefined();
   });
+});
+
+it.each([spawnWaspAt, spawnVultureAt, spawnHammerheadAt])('keeps fast-flight momentum through sharp corners and U-turns, then parks', (spawn) => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const aircraft = spawn(sim, hf, -160, 0, 'Fast route', 1);
+  const speed = aircraft.mover!.speed * 1.65;
+  aircraft.transform.rot = Math.PI / 2;
+  aircraft.velocity!.x = speed;
+  aircraft.velocity!.z = 0;
+  const path = [{ x: -40, z: 0 }, { x: -40, z: 90 }, { x: -120, z: 90 }, { x: 80, z: 90 }, { x: 140, z: 0 }];
+  issueTacticOrder(sim, [aircraft], path, { kind: 'attack-through' }, true, 0);
+  let transitions = 0;
+  for (let tick = 0; tick < 2400 && aircraft.mover!.tactic; tick++) {
+    const remaining = aircraft.mover!.tactic.remaining.length;
+    const previousHeading = Math.atan2(aircraft.velocity!.x, aircraft.velocity!.z);
+    stepSim(sim, hf, 1 / 30);
+    if ((aircraft.mover!.tactic?.remaining.length ?? 0) < remaining) transitions++;
+    if (aircraft.mover!.tactic?.remaining.length) {
+      expect(Math.hypot(aircraft.velocity!.x, aircraft.velocity!.z)).toBeGreaterThanOrEqual(speed * 0.64);
+      const heading = Math.atan2(aircraft.velocity!.x, aircraft.velocity!.z);
+      expect(Math.abs(Math.atan2(Math.sin(heading - previousHeading), Math.cos(heading - previousHeading)))).toBeLessThanOrEqual(3.4 / 30 + 0.00001);
+    }
+  }
+  expect(transitions).toBe(path.length - 1);
+  expect(aircraft.mover!.tactic).toBeUndefined();
+  expect(aircraft.mover!.holdPosition).toEqual(path.at(-1));
+  expect(Math.hypot(aircraft.velocity!.x, aircraft.velocity!.z)).toBe(0);
 });
