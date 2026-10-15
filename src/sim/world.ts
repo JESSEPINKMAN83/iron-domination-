@@ -1279,22 +1279,23 @@ function stepAttackThroughFlight(sim: GameSim, hf: Heightfield, entity: MovingEn
   const travelHeading = slewAngle(velocityHeading, heading, turnRate, dt);
   const turn = normalizeAngle(travelHeading - velocityHeading);
   const headingError = Math.abs(normalizeAngle(heading - velocityHeading));
-  const next = mover.tactic?.remaining[0];
-  const cornerAngle = next ? Math.abs(normalizeAngle(Math.atan2(next.x - target.x, next.z - target.z) - heading)) : Math.PI;
-  // Brake before sharp corners, rather than skipping the point or snapping
-  // the velocity. Straight and densely sampled smooth routes retain speed.
-  const cornerSpeed = next ? speed * Math.pow(Math.max(0, Math.cos(cornerAngle / 2)), 8) : 0;
-  const acceleration = model.tiltAccel * agility;
-  const brakingSpeed = Math.sqrt(cornerSpeed * cornerSpeed + 2 * acceleration * distance * 0.65);
-  const steeringSpeed = headingError > 0.15
-    ? Math.max(0.25, distance * turnRate * 0.45 / Math.max(0.25, Math.sin(Math.min(Math.PI / 2, headingError))))
-    : speed;
-  const cruise = Math.min(speed, brakingSpeed, steeringSpeed);
-  const travelSpeed = approach(currentSpeed, cruise, acceleration * dt);
-  const arrivalRadius = Math.max(0.35, headingError < 0.12 ? travelSpeed * dt : 0.35);
+  const intermediate = Boolean(mover.tactic?.remaining.length);
+  // Route points guide a continuous flight arc. Cruise through the leg and
+  // allow a wider turn, rather than braking hard to touch every drawn corner.
+  const turnSpeed = speed * (1 - 0.35 * clamp((headingError - Math.PI / 3) / (Math.PI * 2 / 3), 0, 1));
+  const cruise = intermediate ? turnSpeed : Math.min(turnSpeed, Math.sqrt(distance * model.tiltAccel), Math.max(0.5, distance * turnRate * 0.7));
+  const travelSpeed = approach(currentSpeed, cruise, model.tiltAccel * agility * dt);
+  const arrivalRadius = intermediate
+    ? Math.max(3, travelSpeed * dt, travelSpeed / Math.max(0.1, turnRate) * (headingError > 1 ? 1.15 : 0.45))
+    : Math.max(ARRIVAL_EPSILON, travelSpeed * dt);
   if (distance <= arrivalRadius) {
-    transform.x = target.x;
-    transform.z = target.z;
+    if (intermediate) {
+      transform.x += Math.sin(travelHeading) * travelSpeed * dt;
+      transform.z += Math.cos(travelHeading) * travelSpeed * dt;
+    } else {
+      transform.x = target.x;
+      transform.z = target.z;
+    }
     mover.holdPosition = { ...target };
     mover.target = undefined;
     advanceTacticAfterArrival(sim, entity);
