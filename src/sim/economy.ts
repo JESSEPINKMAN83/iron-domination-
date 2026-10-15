@@ -9,7 +9,7 @@ import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
 import { createStructureDamage } from './structureDamage';
 import type { GameSim } from './world';
-import { issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt } from './world';
+import { reserveUnitPosition, issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt } from './world';
 
 export type UnitProducerType = 'infantry' | 'vehicles' | 'aircraft';
 export const MAX_PRODUCER_JOBS = 10;
@@ -1070,10 +1070,8 @@ function productionUnitRadius(kind: UnitKind): number {
 
 function orderToRally(sim: GameSim, producer: Entity, entity: Entity, defaultTarget: { x: number; z: number }): void {
   const rally = producer.producer?.rally;
-  // Preserve the producer's carefully authored exit lane when no rally was
-  // chosen. Spread only explicit rally destinations, where multiple completed
-  // units would otherwise reserve and occupy the exact same point.
-  const target = rally ? productionRallyTarget(sim, producer, entity, rally) : defaultTarget;
+  // Aircraft reserve separate parking slots; ground units retain the authored exit lane.
+  const target = rally ? productionRallyTarget(sim, producer, entity, rally) : entity.flight ? reserveUnitPosition(sim, entity, defaultTarget) : defaultTarget;
   issueMoveOrder(sim, [entity], target.x, target.z, false);
 }
 
@@ -1120,7 +1118,7 @@ function productionRallySlotClear(
     const reserved = other.mover.target
       && Math.hypot(other.mover.target.x - center.x, other.mover.target.z - center.z) <= reservationRadius
       ? other.mover.target
-      : other.transform;
+      : other.mover.holdPosition ?? other.transform;
     if (Math.hypot(reserved.x - center.x, reserved.z - center.z) > reservationRadius) continue;
     const otherRadius = other.mover.radius ?? other.collider?.radius ?? 1.5;
     if (Math.hypot(candidate.x - reserved.x, candidate.z - reserved.z) < unitRadius + otherRadius + 1.5) return false;

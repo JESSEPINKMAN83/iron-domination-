@@ -71,6 +71,8 @@ export interface Mover {
   holdPosition?: { x: number; z: number };
   flow?: FlowField;
   attackMove?: boolean;
+  /** Persistent fire-on-the-move stance. Movement orders take priority over combat. */
+  aggressive?: boolean;
   /** Fire in range while following the tactic route; never chase away from its destination. */
   attackThrough?: boolean;
   /** explicit player-issued target; unlike attack-move this must not be replaced by a nearer foe */

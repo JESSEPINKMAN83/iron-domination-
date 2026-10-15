@@ -5,7 +5,6 @@ import {
   startBuildingRepair,
   cancelStructureBuild,
   cancelUnitQueue,
-  enterReadyStructurePlacement,
   hashEconomy,
   issueHarvesterReturnOrder,
   issueHarvestOrder,
@@ -24,7 +23,7 @@ import {
 import type { Heightfield } from '../sim/heightfield';
 import { issueAttackOrder, issueGroundAttack, manualFireAt } from '../sim/combat';
 import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
-import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, stopEntities, type GameSim } from '../sim/world';
+import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, setAggressiveMode, stopEntities, type GameSim } from '../sim/world';
 import { issueTacticOrder } from '../sim/tactics';
 import { launchEmberDroneAt, launchStrategicMissileAt } from '../sim/strategicWarfare';
 import type { TacticEndAction } from '../sim/components';
@@ -46,6 +45,7 @@ export type NetCommand =
     }
   | { type: 'harvest'; ids: number[]; x: number; z: number }
   | { type: 'return-harvesters'; ids: number[]; x: number; z: number }
+  | { type: 'set-aggressive'; ids: number[]; enabled: boolean }
   | { type: 'stop'; ids: number[] }
   | { type: 'start-structure'; kind: StructureKind }
   | { type: 'cancel-structure'; kind?: StructureKind }
@@ -68,7 +68,7 @@ export type NetCommand =
       strafe?: number;
       boost?: boolean;
     }
-  | { type: 'possess-fire'; id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number; strategicTargetId?: number }
+  | { type: 'possess-fire'; id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number; strategicTargetId?: number; lockHoldSeconds?: number }
   | { type: 'possess-follow'; leaderId: number; followerIds: number[]; x: number; z: number; faceYaw: number }
   | { type: 'possess-release'; id: number }
   | { type: 'tick-ready' }
@@ -495,6 +495,8 @@ export class LockstepRuntime {
       issueHarvestOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.x, command.z);
     } else if (command.type === 'return-harvesters') {
       issueHarvesterReturnOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.x, command.z);
+    } else if (command.type === 'set-aggressive') {
+      setAggressiveMode(ownedEntities(this.options.sim, command.ids, team), command.enabled === true);
     } else if (command.type === 'stop') {
       stopEntities(ownedEntities(this.options.sim, command.ids, team));
     } else if (command.type === 'start-structure') {
@@ -559,7 +561,7 @@ export class LockstepRuntime {
         boost: entity.playerControlled?.boost ?? false,
       };
       if (entity.turret) entity.turret.yaw = Math.atan2(command.x - entity.transform.x, command.z - entity.transform.z);
-      manualFireAt(this.options.sim, entity, command.x, command.z, command.slot, command.y, command.targetId, command.strategicTargetId);
+      manualFireAt(this.options.sim, entity, command.x, command.z, command.slot, command.y, command.targetId, command.strategicTargetId, command.lockHoldSeconds);
       const followers = ownedEntities(this.options.sim, command.followerIds ?? [], team).filter((follower) => follower.id !== entity.id);
       for (const follower of followers) {
         if (follower.turret) follower.turret.yaw = Math.atan2(command.x - follower.transform.x, command.z - follower.transform.z);

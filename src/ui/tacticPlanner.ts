@@ -146,7 +146,7 @@ export class TacticPlanner {
               <span><strong>High speed</strong><small>Use rapid transit for the entire path</small></span>
             </label>
             <label class="iron-tactic__variation">Formation variation <output data-variation-value>${Math.round(this.variation * 100)}%</output>
-              <input type="range" min="0" max="100" step="5" value="${Math.round(this.variation * 100)}" data-tactic-variation>
+              <input type="range" min="0" max="100" step="5" value="${Math.round(this.variation * 100)}" title="Follow every route leg. Increase for departure gaps, wider route offsets and spaced arrivals." data-tactic-variation>
               <small>Stagger departures and vary routes. Final positions always stay spread out.</small>
             </label>
             <div class="iron-tactic__section-title">Combat & arrival</div>
@@ -226,6 +226,7 @@ export class TacticPlanner {
           option.classList.toggle('is-active', active);
           option.setAttribute('aria-pressed', String(active));
         }
+        this.redrawOverlay();
       });
     }
     this.overlayCanvas.style.touchAction = 'none';
@@ -523,7 +524,7 @@ export class TacticPlanner {
       });
       ctx.stroke();
 
-      this.waypoints.forEach((waypoint, index) => {
+      if (!this.drawMode) this.waypoints.forEach((waypoint, index) => {
         const point = toView(waypoint.x, waypoint.z);
         ctx.fillStyle = index === this.waypoints.length - 1 ? '#b6efd5' : '#78b99e';
         ctx.beginPath();

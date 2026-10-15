@@ -3,7 +3,7 @@ import { Group, MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
-import { canManualWeaponLockStrategic, canManualWeaponLockTarget, isManualTargetLockWeapon, manualFireAt } from '../sim/combat';
+import { canManualWeaponLockStrategic, canManualWeaponLockTarget, isManualTargetLockWeapon, lockSalvoCount, manualFireAt } from '../sim/combat';
 import { areTeamsHostile, issueMoveOrder, setSelected, type CombatEvent, type GameSim, type Projectile } from '../sim/world';
 import { FLIGHT_MODELS } from '../content/flightModels';
 import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
@@ -134,7 +134,7 @@ export interface FirstPersonCommandSink {
     strafe?: number;
     boost?: boolean;
   }): void;
-  fire(command: { id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number; strategicTargetId?: number }): void;
+  fire(command: { id: number; followerIds?: number[]; slot: 'primary' | 'secondary' | 'special'; x: number; z: number; y?: number; aimYaw: number; targetId?: number; strategicTargetId?: number; lockHoldSeconds?: number }): void;
   follow(command: { leaderId: number; followerIds: number[]; x: number; z: number; faceYaw: number }): void;
   release(id: number): void;
 }
@@ -186,6 +186,9 @@ export class FirstPersonController {
   private readonly lowHpVignette: HTMLDivElement;
   private readonly lockHud: HTMLDivElement;
   private readonly lockStatus: HTMLDivElement;
+  private readonly lockCharge: SVGRectElement;
+  private readonly lockBadge: HTMLDivElement;
+  private readonly lockCount: HTMLSpanElement;
   private readonly targetScanHud: HTMLDivElement;
   private readonly targetScanStatus: HTMLDivElement;
   private abilityStatusTimer = 0;
@@ -206,6 +209,7 @@ export class FirstPersonController {
   private lockCandidateId?: number;
   private lockedTargetId?: number;
   private lockProgress = 0;
+  private lockHoldSeconds = 0;
   private infantryAim = 0;
   private infantryStep = 0;
   private infantryDistance = 0;
@@ -288,6 +292,17 @@ export class FirstPersonController {
     this.lockStatus.style.cssText =
       'position:absolute;left:50%;top:calc(100% + 8px);transform:translateX(-50%);white-space:nowrap;' +
       'font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#9de5c4;text-shadow:0 1px 3px #000;';
+    const chargeFrame = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    chargeFrame.setAttribute('viewBox', '0 0 100 100');
+    chargeFrame.setAttribute('preserveAspectRatio', 'none');
+    chargeFrame.style.cssText = 'position:absolute;inset:-6px;width:calc(100% + 12px);height:calc(100% + 12px);overflow:visible;';
+    chargeFrame.innerHTML = '<rect x="2" y="2" width="96" height="96" rx="3" fill="none" stroke="rgba(157,229,196,.2)" stroke-width="2" vector-effect="non-scaling-stroke"/><rect data-charge x="2" y="2" width="96" height="96" rx="3" fill="none" stroke="#b6ffdb" stroke-width="3" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" vector-effect="non-scaling-stroke"/>';
+    this.lockCharge = chargeFrame.querySelector<SVGRectElement>('[data-charge]')!;
+    this.lockBadge = document.createElement('div');
+    this.lockBadge.style.cssText = 'position:absolute;right:-16px;top:-22px;display:none;align-items:center;gap:5px;padding:5px 8px;background:#0b1916;border:1px solid #b6ffdb;border-radius:5px;color:#d9ffec;font:800 17px ui-monospace,Menlo,monospace;box-shadow:0 0 14px #000a;';
+    this.lockBadge.innerHTML = '<svg width="15" height="20" viewBox="0 0 18 24" fill="none" aria-hidden="true"><path d="M9 2 13 8v10l3 4-7-3-7 3 3-4V8Z" fill="currentColor"/><path d="M9 7v7" stroke="#0b1916" stroke-width="2"/></svg><span></span>';
+    this.lockCount = this.lockBadge.querySelector('span')!;
+    this.lockHud.append(chargeFrame, this.lockBadge);
     this.lockHud.appendChild(this.lockStatus);
     document.body.appendChild(this.lockHud);
     this.targetScanHud = document.createElement('div');
@@ -625,7 +640,7 @@ export class FirstPersonController {
 
     const speed = this.possessed.velocity ? Math.hypot(this.possessed.velocity.x, this.possessed.velocity.z) : 0;
     const maxSpeed = this.possessed.flight ? FLIGHT_MODELS[this.possessed.flight.model].maxSpeed : 46;
-    const baseFov = this.possessed.flight ? MathUtils.lerp(62, 70, Math.min(1, speed / maxSpeed)) : 62;
+    const baseFov = this.possessed.flight ? MathUtils.lerp(64, 78, MathUtils.smoothstep(speed / maxSpeed, 0, 1.6)) : 62;
     this.applyPose(this.poseFor(this.possessed, this.lookYaw, this.lookPitch, this.zoomedFov(baseFov), alpha, dt), dt);
     this.updateTargetLock(dt);
   }
@@ -773,18 +788,18 @@ export class FirstPersonController {
       this.smoothFlightCenter.lerp(targetCenter, 1 - Math.exp(-dt * 9));
     }
     const center = this.smoothFlightCenter;
-    const speedT = Math.min(1, speed / model.maxSpeed);
+    const speedT = MathUtils.smoothstep(speed / model.maxSpeed, 0, 1.6);
     const followYaw = Math.atan2(this.tmpVelocityDir.x, this.tmpVelocityDir.z) + this.orbitYaw;
     this.tmpVelocityDir.set(Math.sin(followYaw), 0, Math.cos(followYaw));
-    const chaseDistance = MathUtils.lerp(14, 19, speedT) * this.zoomScale();
+    const chaseDistance = MathUtils.lerp(14, 22, speedT) * this.zoomScale();
     const flightOrbitPitch = MathUtils.clamp(this.orbitPitch, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
     const horizontalDistance = chaseDistance * Math.cos(flightOrbitPitch * 0.72);
-    const chaseHeight = MathUtils.lerp(5.2, 7.1, speedT) + Math.sin(flightOrbitPitch) * chaseDistance * 0.72;
+    const chaseHeight = MathUtils.lerp(5.2, 6.4, speedT) + Math.sin(flightOrbitPitch) * chaseDistance * 0.72;
     const position = this.tmpFlightPosition.copy(center).addScaledVector(this.tmpVelocityDir, -horizontalDistance);
     position.y += Math.max(2.6, chaseHeight);
     this.tmpAimTarget.copy(center).addScaledVector(this.tmpForward, 170);
     this.tmpCameraTarget.copy(center).addScaledVector(this.tmpForward, 80);
-    const cameraRoll = MathUtils.clamp((entity.flight?.rollAttitude ?? 0) * 0.3, MathUtils.degToRad(-8), MathUtils.degToRad(8));
+    const cameraRoll = MathUtils.clamp((entity.flight?.rollAttitude ?? 0) * 0.4, MathUtils.degToRad(-10), MathUtils.degToRad(10));
     return this.lookPose(position, this.tmpCameraTarget, fov, -cameraRoll);
   }
 
@@ -841,6 +856,7 @@ export class FirstPersonController {
           y: target.y,
           aimYaw: this.currentAimYaw(),
           targetId: lockedTarget?.kind === 'entity' ? lockedTarget.entity.id : undefined,
+          lockHoldSeconds: this.lockHoldSeconds,
           strategicTargetId: lockedTarget?.kind === 'strategic' ? lockedTarget.projectile.strategicId : undefined,
         });
       }
@@ -854,6 +870,7 @@ export class FirstPersonController {
         target.y,
         lockedTarget?.kind === 'entity' ? lockedTarget.entity.id : undefined,
         lockedTarget?.kind === 'strategic' ? lockedTarget.projectile.strategicId : undefined,
+        this.lockHoldSeconds,
       );
       for (const wingman of followers) {
         if (wingman.turret) wingman.turret.yaw = Math.atan2(target.x - wingman.transform.x, target.z - wingman.transform.z);
@@ -862,6 +879,7 @@ export class FirstPersonController {
         if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y, undefined, strategicId);
       }
     }
+    if (fired) this.lockHoldSeconds = 0;
     if (fired && slot === 'primary' && this.isFootSoldier()) {
       this.infantryKick = 0.06;
       this.lookPitch = Math.min(GROUND_LOOK_UP_MAX, this.lookPitch + 0.009 * (1 - this.infantryAim * 0.55));
@@ -890,6 +908,9 @@ export class FirstPersonController {
         this.resetTargetLock();
         return;
       }
+      // A retained manual lock alone cannot charge: keep the reticle on it.
+      const aimed = this.reticleTarget(this.possessed, false);
+      this.lockHoldSeconds = aimed && manualLockId(aimed) === manualLockId(target) ? this.lockHoldSeconds + dt : 0;
       this.renderTargetLock(target, true);
       return;
     }
@@ -903,7 +924,9 @@ export class FirstPersonController {
       this.lockCandidateId = candidateId;
       this.lockedTargetId = undefined;
       this.lockProgress = 0;
+      this.lockHoldSeconds = 0;
     }
+    if (this.lockedTargetId === candidateId) this.lockHoldSeconds += dt;
     this.lockProgress = Math.min(TARGET_LOCK_SECONDS, this.lockProgress + dt);
     if (this.lockProgress >= TARGET_LOCK_SECONDS) this.lockedTargetId = candidateId;
     const locked = this.lockedTargetId === candidateId;
@@ -978,17 +1001,31 @@ export class FirstPersonController {
       : '0 0 16px rgba(157,229,196,.34),inset 0 0 12px rgba(157,229,196,.1)';
     this.lockHud.style.transform = `translate(-50%,-50%) scale(${locked ? 0.9 : scanProgress === undefined ? 1.04 - this.lockProgress * 0.04 : 1})`;
     this.lockStatus.style.color = locked ? '#ff6b57' : '#9de5c4';
-    this.lockStatus.textContent = locked
-      ? `LOCKED  ${this.lockTargetLabel(candidate).toUpperCase()}`
-      : scanProgress === undefined
-        ? `TRACKING  ${Math.round(this.lockProgress * 100)}%`
-        : `ACQUIRING  ${Math.round(scanProgress * 100)}%`;
+    const count = this.possessed ? lockSalvoCount(this.lockHoldSeconds, this.possessed) : 1;
+    const cap = this.possessed?.unitUpgrades?.ids.length ? 10 : 5;
+    const charging = locked && candidate.kind === 'entity';
+    const progress = charging ? (count >= cap ? 1 : this.lockHoldSeconds % 3 / 3) : Math.min(1, scanProgress ?? this.lockProgress / TARGET_LOCK_SECONDS);
+    this.lockCharge.setAttribute('stroke-dashoffset', String(100 * (1 - progress)));
+    this.lockCharge.setAttribute('stroke', count >= cap && charging ? '#ffcf72' : '#b6ffdb');
+    this.lockHud.style.borderStyle = locked ? 'solid' : 'dashed';
+    this.lockHud.style.borderColor = locked ? 'rgba(157,229,196,.15)' : 'rgba(157,229,196,.5)';
+    this.lockBadge.style.display = charging ? 'flex' : 'none';
+    if (this.lockCount.textContent !== String(count)) {
+      this.lockCount.textContent = String(count);
+      if (charging) this.lockBadge.animate([{ transform: 'scale(1.3)', filter: 'brightness(1.8)' }, { transform: 'scale(1)', filter: 'brightness(1)' }], { duration: 240, easing: 'ease-out' });
+    }
+    this.lockBadge.title = count >= cap ? 'Maximum missile salvo loaded' : 'Keep aiming: one more missile every 3 seconds';
+    this.lockBadge.setAttribute('aria-label', `${count} of ${cap} missiles loaded. Keep aiming to load more.`);
+    this.lockStatus.style.display = charging ? 'none' : 'block';
+    this.lockStatus.textContent = locked ? 'LOCKED' : 'ACQUIRING';
+
   }
 
   private resetTargetLock(): void {
     this.lockCandidateId = undefined;
     this.lockedTargetId = undefined;
     this.lockProgress = 0;
+    this.lockHoldSeconds = 0;
     this.manualTargetLock = false;
     this.targetScanActive = false;
     this.targetScanProgress = 0;
@@ -1013,9 +1050,7 @@ export class FirstPersonController {
     let best: ManualLockTarget | undefined;
     let bestScore = Number.POSITIVE_INFINITY;
     for (const candidate of this.sim.world.entities) {
-      const tankTarget = candidate.selectable?.type === 'tank' && !!candidate.mover;
-      const fortressTarget = isFortressTower(entity) && Boolean(candidate.armor);
-      if ((!candidate.flight && (aircraftOnly || (!tankTarget && !fortressTarget))) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
+      if ((aircraftOnly && !candidate.flight) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
       if (![entity.weapons?.primary ?? entity.weapon, entity.weapons?.secondary]
         .some((weapon) => canManualWeaponLockTarget(weapon?.kind, candidate))) continue;
       if (isFortressTower(entity) && entity.weapons?.primary.kind === 'aaMissile' && candidate.armor?.kind !== 'air') continue;

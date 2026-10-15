@@ -105,7 +105,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     if (!attacker.health || !attacker.team) continue;
     if (attacker.playerControlled) continue; // brain bypassed; stepSim slews the turret to the crosshair
     const commandDrivenCombat = !sim.rules.autoCombat;
-    if (commandDrivenCombat && attacker.mover?.attackTargetId === undefined && !attacker.mover?.attackMove && !attacker.mover?.attackThrough && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined)) continue;
+    if (commandDrivenCombat && attacker.mover?.attackTargetId === undefined && !attacker.mover?.attackMove && !attacker.mover?.attackThrough && !attacker.mover?.aggressive && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined)) continue;
 
     const orderedTarget = explicitOrderTarget(sim, attacker);
     let turretGoalYaw: number | undefined;
@@ -132,7 +132,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
         target = validTarget(sim, attacker, weapon, range);
       }
       if (!target) {
-        if (commandDrivenCombat && !attacker.mover?.attackMove && !attacker.mover?.attackThrough) {
+        if (commandDrivenCombat && !attacker.mover?.attackMove && !attacker.mover?.attackThrough && !attacker.mover?.aggressive) {
           weapon.targetId = undefined;
           continue;
         }
@@ -348,7 +348,7 @@ function tickWeaponCooldowns(sim: GameSim, dt: number): void {
 
 /** Idle units don't stand and take bombardment — they close on visible foes. */
 function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number, engagementTarget?: Entity): void {
-  if (!attacker.mover || attacker.mover.attackThrough || attacker.mover.target || attacker.mover.attackTargetId !== undefined || !attacker.vision) return;
+  if (!attacker.mover || attacker.mover.attackThrough || attacker.mover.aggressive || attacker.mover.target || attacker.mover.attackTargetId !== undefined || !attacker.vision) return;
   const slots = weaponSlots(attacker);
   if (slots.length === 0) return;
   let weaponRange = 0;
@@ -416,6 +416,12 @@ function explicitOrderTarget(sim: GameSim, attacker: Entity): Entity | undefined
   return undefined;
 }
 
+/** A confirmed lock starts with one missile, gaining one per three seconds. */
+export function lockSalvoCount(seconds: number, attacker: Entity): number {
+  const cap = attacker.unitUpgrades?.ids.length ? 10 : 5;
+  return Math.min(cap, 1 + Math.floor(Math.max(0, Number.isFinite(seconds) ? seconds : 0) / 3));
+}
+
 export function manualFireAt(
   sim: GameSim,
   attacker: Entity,
@@ -425,6 +431,7 @@ export function manualFireAt(
   targetY?: number,
   lockedTargetId?: number,
   lockedStrategicId?: number,
+  lockHoldSeconds = 0,
 ): boolean {
   if (!attacker.team || attacker.destroyed) return false;
   const weapon = weaponForSlot(attacker, slot);
@@ -527,7 +534,11 @@ export function manualFireAt(
       : manualGroundArc
         ? sampleHeight(sim.nav.heightfield, hitX, hitZ) + 0.4
         : clampedRayTargetY;
-    launchWeaponProjectile(
+    const salvo = lockedTarget && isManualTargetLockWeapon(weapon.kind) ? lockSalvoCount(lockHoldSeconds, attacker) : 1;
+    let salvoDelay = 0;
+    for (let missile = 0; missile < salvo; missile++) {
+      const before = sim.projectiles.length;
+      launchWeaponProjectile(
       sim,
       attacker,
       weapon,
@@ -541,6 +552,22 @@ export function manualFireAt(
       forceScale,
       impactScale,
     );
+      // Separate launch rails so the volley reads as multiple missiles.
+      if (salvo > 1 && sim.projectiles.length > before) {
+        const projectile = sim.projectiles[sim.projectiles.length - 1];
+        if (missile > 0) salvoDelay += 0.14 + hash2i(attacker.id, sim.tick, missile * 7919) * 0.2;
+        projectile.launchDelay = salvoDelay;
+        const event = sim.events[sim.events.length - 1];
+        event.launchDelay = salvoDelay;
+        const offset = (missile - (salvo - 1) / 2) * 0.65;
+        projectile.fromX += Math.cos(attacker.transform.rot) * offset;
+        projectile.fromZ -= Math.sin(attacker.transform.rot) * offset;
+        projectile.x = projectile.fromX;
+        projectile.z = projectile.fromZ;
+        event.fromX = projectile.fromX;
+        event.fromZ = projectile.fromZ;
+      }
+    }
     return true;
   }
   let damage = 0;
@@ -794,7 +821,7 @@ function launchWeaponProjectile(
 function validManualLockTarget(sim: GameSim, attacker: Entity, weapon: Weapon, targetId: number | undefined): Entity | undefined {
   if (targetId === undefined || !attacker.playerControlled || !isManualTargetLockWeapon(weapon.kind) || !attacker.team) return undefined;
   const target = entityById(sim, targetId);
-  if (!target || (!isFortressTower(attacker) && !target.flight && target.selectable?.type !== 'tank')) return undefined;
+  if (!target) return undefined;
   if (!canManualWeaponLockTarget(weapon.kind, target)) return undefined;
   if (!targetableByTeam(sim, attacker.team.id, target)) return undefined;
   return target;
@@ -804,6 +831,7 @@ export function isManualTargetLockWeapon(kind: string | undefined): boolean {
   return kind === 'scoutMissile'
     || kind === 'tankMissile'
     || kind === 'siegeMissile'
+    || kind === 'rocketPod'
     || kind === 'rocketLauncher'
     || kind === 'agMissile'
     || kind === 'aaMissile';
@@ -1808,7 +1836,7 @@ function alertEconomyDefenders(sim: GameSim, damaged: Entity, attacker?: Entity)
   const damagedTeamId = damaged.team.id;
   sim.spatial.visitNearby(damaged.transform.x, damaged.transform.z, DEFENSE_ALERT_RADIUS, (defender) => {
     if (defender.team?.id !== damagedTeamId || defender.destroyed || defender.playerControlled) return;
-    if (!defender.mover || !defender.health || defender.building || defender.mover.attackThrough) return;
+    if (!defender.mover || !defender.health || defender.building || defender.mover.attackThrough || defender.mover.aggressive) return;
     const slots = weaponSlots(defender);
     if (slots.length === 0 || !slots.some((weapon) => isWeaponTargetable(sim, defender, weapon, attacker))) return;
     const dx = defender.transform.x - damaged.transform.x;
@@ -1911,7 +1939,7 @@ function applyImpactPhysics(sim: GameSim, target: Entity, dealt: number, impact:
   // Route-first orders keep their movement through incoming fire. Damage and
   // the impact-reaction event still apply, but hits cannot brake or throw a
   // surviving unit off its route.
-  const followingAttackRoute = target.mover.attackThrough && !!target.mover.target;
+  const followingAttackRoute = (target.mover.attackThrough || target.mover.aggressive) && !!target.mover.target;
   if (!target.flight && !followingAttackRoute) {
     const existing = target.impactMomentum;
     const carry = existing ? 0.62 : 0;

@@ -64,6 +64,7 @@ export class SelectionBar {
       selectEntities: (entities: Entity[]) => void;
       credits: () => number;
       purchaseUpgrade: (ids: number[], upgradeId: UnitUpgradeId) => UpgradePurchaseResult;
+      setAggressive?: (entities: Entity[], enabled: boolean) => void;
       openTacticPlanner?: (entities: Entity[]) => void;
       strategic?: {
         economy: EconomyState;
@@ -125,7 +126,7 @@ export class SelectionBar {
     this.syncWorldUpgradeButtons(selected);
     const groups = selectionGroups(selected);
     const siloSelected = selected.length === 1 && selected[0].building?.kind === 'strategic-silo' && this.actions.strategic;
-    const key = selectionGroupsKey(groups) + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
+    const key = selectionGroupsKey(groups) + selected.map((unit) => `|a:${unit.id}:${Boolean(unit.mover?.aggressive)}`).join('') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
     if (key === this.lastKey) return;
     this.lastKey = key;
     if (siloSelected) this.renderStrategicSilo(groups[0], selected[0]);
@@ -171,7 +172,24 @@ export class SelectionBar {
     const count = document.createElement('div');
     count.textContent = `${selectedCount} ${selectedCount === 1 ? 'ITEM' : 'ITEMS'}`;
     count.style.cssText = 'font-size:12px;color:#f0f3e8;text-align:right;';
-    header.append(title, count);
+    const headerActions = document.createElement('div');
+    headerActions.style.cssText = 'display:flex;align-items:center;gap:10px;';
+    const fighters = groups.flatMap((group) => group.entities).filter((unit) => unit.mover && !unit.building && !unit.harvester);
+    if (fighters.length && this.actions.setAggressive) {
+      const enabled = fighters.every((unit) => unit.mover?.aggressive);
+      const mixed = !enabled && fighters.some((unit) => unit.mover?.aggressive);
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'game-aggressive-toggle';
+      toggle.setAttribute('aria-pressed', mixed ? 'mixed' : String(enabled));
+      toggle.textContent = `⚔ Aggressive ${mixed ? 'MIXED' : enabled ? 'ON' : 'OFF'}`;
+      toggle.title = 'Fire at visible enemies in range while moving. Keep going to your destination without stopping or chasing.';
+      toggle.style.cssText = `padding:5px 9px;border:1px solid ${enabled ? '#ffb66c' : '#55756b'};border-radius:4px;background:${enabled ? '#513321' : '#172720'};color:${enabled ? '#ffdcad' : '#b6efd5'};font:700 11px ui-monospace,Menlo,monospace;cursor:pointer;`;
+      toggle.onclick = () => this.actions.setAggressive?.(fighters, !enabled);
+      headerActions.appendChild(toggle);
+    }
+    headerActions.appendChild(count);
+    header.append(title, headerActions);
 
     const grid = document.createElement('div');
     grid.className = 'game-selection-grid';

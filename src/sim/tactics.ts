@@ -1,6 +1,6 @@
 import { hash2i } from './noise';
 import type { Entity, TacticEndAction, TacticPlan } from './components';
-import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, type GameSim } from './world';
+import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, reserveUnitPosition, type GameSim } from './world';
 
 export const MAX_TACTIC_WAYPOINTS = 64;
 
@@ -94,11 +94,19 @@ export function issueTacticOrder(
         const index = ordered.indexOf(entity);
         const slot = { x: (index % columns - (columns - 1) / 2) * spacing, z: (Math.floor(index / columns) - (Math.ceil(ordered.length / columns) - 1) / 2) * spacing };
         const offset = (point: { x: number; z: number }, final: boolean, leg: number) => {
-          const jitterX = (hash2i(entity.id, sim.tick, leg * 2 + 411) - 0.5) * spacing * amount * 0.2;
-          const jitterZ = (hash2i(entity.id, sim.tick, leg * 2 + 412) - 0.5) * spacing * amount * 0.2;
-          const scale = final ? 1 : amount * 0.65;
+          // Low variation stays within a narrow corridor even in huge squads.
+          // Also bound offsets by local leg length for tightly drawn routes.
+          const previous = waypoints[Math.max(0, leg - 1)];
+          const following = waypoints[Math.min(waypoints.length - 1, leg + 1)];
+          const localLength = Math.min(
+            leg > 0 ? Math.hypot(point.x - previous.x, point.z - previous.z) : Infinity,
+            leg < waypoints.length - 1 ? Math.hypot(following.x - point.x, following.z - point.z) : Infinity,
+          );
+          const corridor = Math.min(spacing * amount * amount, Number.isFinite(localLength) ? localLength * 0.15 * amount : Infinity);
+          const extent = Math.max(spacing, Math.hypot(slot.x, slot.z));
+          const scale = final ? (entity.flight ? amount * amount : 1) : corridor / extent;
           const edge = sim.nav.size / 2 - entity.mover!.radius - 1;
-          return { x: Math.max(-edge, Math.min(edge, point.x + slot.x * scale + jitterX)), z: Math.max(-edge, Math.min(edge, point.z + slot.z * scale + jitterZ)) };
+          return { x: Math.max(-edge, Math.min(edge, point.x + slot.x * scale)), z: Math.max(-edge, Math.min(edge, point.z + slot.z * scale)) };
         };
         plan.remaining = plan.remaining.map((point, index) => offset(point, index === plan.remaining.length - 1, index + 1));
         const firstPoint = offset(first, remaining.length === 0, 0);
@@ -133,6 +141,17 @@ export function advanceTacticAfterArrival(sim: GameSim, entity: Entity): void {
 
   const endAction = plan.endAction;
   mover.tactic = undefined;
+
+  if (entity.flight && (endAction.kind === 'hold' || endAction.kind === 'attack-through')) {
+    const center = mover.holdPosition ?? entity.transform;
+    const parking = reserveUnitPosition(sim, entity, center);
+    if (Math.hypot(parking.x - center.x, parking.z - center.z) > 0.01) {
+      issueMoveOrder(sim, [entity], parking.x, parking.z);
+      // Preserve route-first firing while dispersing into parking slots.
+      mover.attackThrough = endAction.kind === 'attack-through' || undefined;
+    }
+    return;
+  }
 
   if (endAction.kind === 'attack-move') {
     mover.attackMove = true;
