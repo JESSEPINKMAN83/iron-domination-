@@ -2683,10 +2683,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (smokePreview) document.documentElement.classList.add('smoke-preview-mode');
   const debriefPreview =
     startMode === 'debrief-preview' && !multiplayerMode && !isPublicHost(location.hostname);
+  const performanceTest = params.get('performance-test') === '1' && !multiplayerMode && !isPublicHost(location.hostname);
   const cinematicWar =
     startMode === 'cinematic' && !multiplayerMode && !isPublicHost(location.hostname);
   const battleStaging =
-    startMode === 'battle-test' && !multiplayerMode && !isPublicHost(location.hostname);
+    (startMode === 'battle-test' || performanceTest) && !multiplayerMode && !isPublicHost(location.hostname);
   const largeBattleScenario = cinematicWar || battleStaging;
   const durabilityPreview =
     !multiplayerMode &&
@@ -2809,7 +2810,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     seedTestStartBase(sim, hf, economy, localBase);
   }
   const smokePreviewStage = smokePreview ? createSmokePreviewStage(sim, armies, localTeam) : undefined;
-  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest
+  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest || performanceTest
     ? () => true
     : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
@@ -2861,6 +2862,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const cinematicScene = largeBattleScenario && !loadedFromSave
     ? spawnCinematicWar(sim, hf, armies, localTeam, battleStaging)
     : undefined;
+  const performanceUnits: Entity[] = [];
+  if (performanceTest && !loadedFromSave) {
+    for (const army of armies) {
+      performanceUnits.push(...spawnStartingTanks(sim, hf, army.base.transform.x, army.base.transform.z, army.team, 60));
+      for (let i = 0; i < 9; i++) {
+        performanceUnits.push([spawnWaspAt, spawnVultureAt, spawnHammerheadAt][i % 3](sim, hf, army.base.transform.x + (i % 3 - 1) * 16, army.base.transform.z + 70 + Math.floor(i / 3) * 16, `Stress aircraft ${i}`, army.team));
+      }
+    }
+  }
   const durabilityScene = (durabilityPreview || destructionPreview) && !loadedFromSave
     ? spawnDurabilityPreview(sim, hf, armies, localTeam)
     : undefined;
@@ -2928,7 +2938,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         ]);
   for (const army of armies) army.vision.update(sim);
 
-  const unitView = new UnitView([...lineupUnits, ...startingUnits], hf, ctx, isVisibleToPlayer, localTeam);
+  const unitView = new UnitView([...lineupUnits, ...startingUnits, ...performanceUnits], hf, ctx, isVisibleToPlayer, localTeam);
   unitView.attach(ctx.scene);
   const groundTrails = mobileTouch || !groundRealism ? undefined : new GroundTrailView(hf, isVisibleToPlayer);
   if (groundTrails) ctx.scene.add(groundTrails.mesh);
