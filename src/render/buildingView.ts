@@ -1,15 +1,17 @@
+import { createIntactHull, canBatchIntactHull } from './buildingHullBatch';
+import { BattlefieldCulling, setEntityRenderActive } from './battlefieldCulling';
 import {
   AdditiveBlending,
   Box3,
   BoxGeometry,
   CanvasTexture,
-  CircleGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
   Group,
   IcosahedronGeometry,
+  InstancedMesh,
   LinearFilter,
   Mesh,
   MeshBasicMaterial,
@@ -22,7 +24,6 @@ import {
   Vector2,
   Shape,
   ShapeGeometry,
-  SphereGeometry,
   SRGBColorSpace,
   Vector3,
   type Camera,
@@ -63,6 +64,7 @@ const sharedGeometries = new Set([
 ]);
 
 export class BuildingView {
+  private readonly cameraCulling = new BattlefieldCulling();
   readonly group = new Group();
   private readonly objects = new Map<Entity, BuildingObject>();
   private hiddenEntity?: Entity;
@@ -254,6 +256,7 @@ export class BuildingView {
   }
 
   update(economy: EconomyState, camera: Camera): void {
+    this.cameraCulling.update(camera);
     for (const [entity, object] of this.objects) {
       if (this.sim.world.has(entity)) continue;
       this.clearEffects(object);
@@ -318,8 +321,11 @@ export class BuildingView {
       const fogged = !currentlyVisible;
       // enemy buildings never scouted stay hidden; once seen they persist as a frozen ghost
       const hiddenForFortressView = entity === this.hiddenEntity;
-      object.root.visible = object.everSeen && !hiddenForFortressView;
-      if (hiddenForFortressView) {
+      const radius = Math.hypot(entity.building.footprint.w, entity.building.footprint.h) * this.hf.cellSize + 30;
+      const inView = this.cameraCulling.contains(entity.transform.x, groundY + 15, entity.transform.z, radius);
+      object.root.visible = object.everSeen && !hiddenForFortressView && inView;
+      setEntityRenderActive(object.root, this.group, object.root.visible);
+      if (!object.root.visible) {
         const selectedGlow = this.selectedGlows.get(entity);
         const producerGlow = this.producerGlows.get(entity);
         const healthBar = this.healthBars.get(entity);
@@ -454,6 +460,10 @@ export class BuildingView {
       ? buildingHeight * profile[0]!.heightShare + 0.16
       : buildingHeight + (isPowerPlant ? 0.42 : 0.16);
     const accentZ = isTower ? fullD * 0.48 : fullD * (isPowerPlant ? 0.36 : 0.4);
+    // Identical body cells share one draw call until localized damage appears.
+    const intactHull = createIntactHull(blocks.map((block) => block.mesh));
+    root.add(intactHull);
+
     const accent = new Mesh(
       new BoxGeometry(fullW * (isTower ? 0.42 : 0.5), 0.22, Math.max(0.5, fullD * 0.12)),
       this.accentMaterials[factionId(entity.team?.id)],
@@ -492,6 +502,7 @@ export class BuildingView {
 
     return {
       root,
+      intactHull,
       blocks,
       accents: [accent, label],
       details,
@@ -558,6 +569,15 @@ export class BuildingView {
         this.addDebrisChip(entity, object, block, damage, value);
         debrisBudget--;
       }
+    }
+
+    const intact = canBatchIntactHull(damage.version, level, Boolean(entity.destroyed));
+    object.intactHull.visible = intact;
+    for (const block of object.blocks) {
+      if (intact) {
+        block.mesh.visible = false;
+        object.root.remove(block.mesh);
+      } else if (block.mesh.parent !== object.root) object.root.add(block.mesh);
     }
 
     for (const accent of object.accents) accent.visible = level < 4 && !entity.destroyed;
@@ -695,6 +715,7 @@ export class BuildingView {
   private disposeTree(root: Object3D): void {
     root.traverse((child) => {
       if (!(child instanceof Mesh)) return;
+      if (child instanceof InstancedMesh) child.dispose();
       if (!sharedGeometries.has(child.geometry)) child.geometry.dispose();
       const materials = Array.isArray(child.material) ? child.material : [child.material];
       for (const material of materials) {
@@ -963,6 +984,7 @@ interface DamageBlock {
 
 interface BuildingObject {
   root: Group;
+  intactHull: InstancedMesh;
   blocks: DamageBlock[];
   accents: Mesh[];
   details: Group;

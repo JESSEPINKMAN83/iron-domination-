@@ -1,3 +1,4 @@
+import { BattlefieldCulling, setEntityRenderActive } from './battlefieldCulling';
 import {
   AdditiveBlending,
   BackSide,
@@ -563,6 +564,7 @@ function sharedRingGeometry(radius: number): RingGeometry {
 }
 
 export class UnitView {
+  private readonly cameraCulling = new BattlefieldCulling();
   readonly group = new Group();
   private readonly objects = new Map<Entity, Object3D>();
   private readonly entitiesById = new Map<number, Entity>();
@@ -991,6 +993,7 @@ export class UnitView {
         this.entities.splice(i, 1);
       }
     }
+    this.cameraCulling.update(camera);
     this.visualFrame++;
     if (this.visualQuality >= 2) {
       this.updateLowDetail(alpha, dt, camera);
@@ -1006,7 +1009,9 @@ export class UnitView {
       if (!obj || !ring) continue;
       const gone = entity === this.hiddenEntity;
       const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
-      if (gone || fogged) {
+      const inView = this.cameraCulling.contains(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z), entity.transform.z, Math.max(12, (entity.mover?.radius ?? 3) * 3));
+      setEntityRenderActive(obj, this.group, inView && !gone && !fogged);
+      if (gone || fogged || !inView) {
         obj.visible = false;
         ring.visible = false;
         const shadow = this.airShadows.get(entity);
@@ -1103,7 +1108,11 @@ export class UnitView {
       if (wash) wash.mesh.visible = false;
       const gone = entity === this.hiddenEntity;
       const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
-      if (gone || fogged) {
+      const inView = this.cameraCulling.contains(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z), entity.transform.z, Math.max(12, (entity.mover?.radius ?? 3) * 3));
+      setEntityRenderActive(obj, this.group, inView && !gone && !fogged);
+      // Attachment must not enable the detailed model alongside its proxy.
+      obj.visible = false;
+      if (gone || fogged || !inView) {
         ring.visible = false;
         const healthBar = this.healthBars.get(entity);
         if (healthBar) healthBar.root.visible = false;
