@@ -15,6 +15,7 @@ describe('multiplayer lockstep commands', () => {
     const economy1 = createEconomy(1);
     const economy2 = createEconomy(2);
     const sharedTank = spawnTankAt(sim, 28, 28, 'Shared Tank', 1);
+    const enemyTank = spawnTankAt(sim, 40, 40, 'Enemy Tank', 2);
     const client = {
       connect: () => undefined,
       disconnect: () => undefined,
@@ -34,6 +35,7 @@ describe('multiplayer lockstep commands', () => {
     const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session });
 
     expect(lockstep.localTeam).toBe(1);
+    expect(lockstep.issue({ type: 'set-aggressive', ids: [sharedTank.id, enemyTank.id], enabled: true })).toBe(true);
     expect(lockstep.issue({ type: 'move', ids: [sharedTank.id], x: 72, z: 64, attackMove: false })).toBe(true);
     expect(lockstep.issue({ type: 'start-structure', kind: 'power-plant' })).toBe(false);
     for (let i = 0; i < 8; i++) {
@@ -43,6 +45,8 @@ describe('multiplayer lockstep commands', () => {
 
     expect(sharedTank.mover?.target).toEqual({ x: 72, z: 64 });
     expect(economy1.structureLine).toBeUndefined();
+    expect(sharedTank.mover?.aggressive).toBe(true);
+    expect(enemyTank.mover?.aggressive).toBeUndefined();
   });
 
   it('reserves a possessed shared unit for the teammate who controls it first', () => {

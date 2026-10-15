@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { generateHeightfield } from './heightfield';
-import { aircraftTurnRateAtSpeed, stepSim, createGameSim, spawnTankAt, spawnEnemyTanks, issueMoveOrder, stopEntities, hashSim, spawnWaspAt, spawnVultureAt, spawnHammerheadAt } from './world';
+import { aircraftTurnRateAtSpeed, stepSim, createGameSim, spawnTankAt, spawnEnemyTanks, issueMoveOrder, setAggressiveMode, stopEntities, hashSim, spawnWaspAt, spawnVultureAt, spawnHammerheadAt } from './world';
 import { manualFireAt, stepCombat } from './combat';
 import { loadSerializedSim, serializeSim } from './serialize';
 import { issueTacticOrder, MAX_TACTIC_WAYPOINTS } from './tactics';
@@ -36,7 +36,7 @@ describe('tactic orders', () => {
     expect(unit.mover!.tactic).toBeUndefined();
     expect(unit.mover!.holdPosition).toEqual({ x: 80, z: 0 });
   });
-  it.each([spawnWaspAt, spawnVultureAt, spawnHammerheadAt])('never hovers on a sharp-turn route while trading fire with an enemy', (spawn) => {
+  it.each([spawnWaspAt, spawnVultureAt, spawnHammerheadAt])('keeps smooth turns in nonzero-variation mode while trading fire with an enemy', (spawn) => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const aircraft = spawn(sim, hf, 0, 0, 'Route', 1);
@@ -49,7 +49,7 @@ describe('tactic orders', () => {
     defender.health!.current = defender.health!.max = 10000;
     defender.mover!.attackMove = true;
     const path = [{ x: 40, z: 0 }, { x: -30, z: 0 }, { x: 60, z: 60 }, { x: 170, z: 0 }];
-    issueTacticOrder(sim, [aircraft], path, { kind: 'attack-through' });
+    issueTacticOrder(sim, [aircraft], path, { kind: 'attack-through' }, false, 0.5);
     let arrivals = 0;
     for (let i = 0; i < 30 * 30 && aircraft.mover!.tactic; i++) {
       const previousRemaining = aircraft.mover!.tactic.remaining.length;
@@ -146,8 +146,8 @@ describe('tactic orders', () => {
     for (const unit of [...squad, aircraft]) {
       expect(unit.mover?.tactic).toBeUndefined();
       expect(unit.mover?.attackThrough).toBe(true);
-      expect(Math.abs((unit.mover?.holdPosition?.x ?? 0) - 60)).toBeLessThan(5);
-      expect(Math.abs(unit.transform.x - 60)).toBeLessThan(5);
+      expect(Math.abs((unit.mover?.holdPosition?.x ?? 0) - 60)).toBeLessThan(20);
+      expect(Math.abs(unit.transform.x - 60)).toBeLessThan(20);
     }
   });
   it.each([true, false])('fires while completing the route with automatic combat %s, then holds without chasing', (autoCombat) => {
@@ -410,4 +410,139 @@ it.each([spawnWaspAt, spawnVultureAt, spawnHammerheadAt])('finishes a dense draw
   }
   expect(aircraft.mover!.tactic).toBeUndefined();
   expect(enemy.health!.current).toBeLessThan(100000);
+});
+
+it.each([false, true])('flies a zero-variation squad through every exact waypoint under fire (sprint=%s)', (sprint) => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const squad = Array.from({ length: 9 }, (_, i) => [spawnWaspAt, spawnVultureAt, spawnHammerheadAt][i % 3](sim, hf, -80, -10 + i * 3, `Exact ${i}`, 1));
+  const path = [{ x: 0, z: 0 }, { x: 35, z: 0 }, { x: 35, z: 25 }, { x: 5, z: 25 }, { x: 5, z: 5 }, { x: 80, z: 5 }];
+  const enemy = spawnTankAt(sim, 40, 15, 'Defender', 2);
+  enemy.weapon = { kind: 'aaMissile', range: 200, cooldown: 0 };
+  enemy.weapons = undefined;
+  enemy.health!.current = enemy.health!.max = 100000;
+  squad.forEach((unit) => { unit.health!.current = unit.health!.max = 100000; });
+  expect(issueTacticOrder(sim, squad, path, { kind: 'attack-through' }, sprint, 0)).toBe(true);
+  const visited = squad.map(() => 0);
+  squad.forEach((unit) => {
+    expect(unit.mover!.target).toMatchObject(path[0]);
+    expect(unit.mover!.tactic!.remaining).toEqual(path.slice(1));
+    expect(unit.mover!.tactic!.startAtTick).toBe(sim.tick);
+  });
+  for (let tick = 0; tick < 1800 && squad.some((u) => u.mover!.tactic); tick++) {
+    const targets = squad.map((unit) => unit.mover!.tactic && unit.mover!.target && { ...unit.mover!.target });
+    stepSim(sim, hf, 1 / 30);
+    squad.forEach((unit, i) => {
+      if (!targets[i]) return;
+      const target = targets[i]!;
+      const next = unit.mover!.target;
+      if (!next || next.x !== target.x || next.z !== target.z) {
+        expect(unit.transform.x).toBeCloseTo(path[visited[i]].x, 6);
+        expect(unit.transform.z).toBeCloseTo(path[visited[i]].z, 6);
+        visited[i]++;
+      }
+    });
+    stepCombat(sim, 1 / 30);
+    sim.events.length = 0;
+  }
+  expect(visited).toEqual(squad.map(() => path.length));
+  expect(enemy.health!.current).toBeLessThan(enemy.health!.max);
+  expect(squad.some((unit) => unit.health!.current < unit.health!.max)).toBe(true);
+});
+
+it.each([0, 0.15, 0.9])('keeps tight group routes inside a proportional corridor at variation %s', (variation) => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const squad = Array.from({ length: 20 }, (_, i) => spawnVultureAt(sim, hf, -30, i - 10, `Corridor ${i}`, 1));
+  const path = [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 10, z: 10 }, { x: 20, z: 10 }];
+  issueTacticOrder(sim, squad, path, { kind: 'attack-through' }, true, variation);
+  for (const unit of squad) {
+    const points = [unit.mover!.target!, ...unit.mover!.tactic!.remaining];
+    for (let i = 0; i < points.length - 1; i++) {
+      expect(Math.hypot(points[i].x - path[i].x, points[i].z - path[i].z)).toBeLessThanOrEqual(1.5 * variation + 0.00001);
+    }
+  }
+  for (let tick = 0; tick < 1800 && squad.some((u) => u.mover!.tactic); tick++) {
+    const previous = squad.map((u) => ({ x: u.velocity!.x, z: u.velocity!.z }));
+    stepSim(sim, hf, 1 / 30);
+    squad.forEach((u, i) => {
+      const a = previous[i];
+      if (!u.mover!.tactic || Math.hypot(a.x, a.z) < 1 || Math.hypot(u.velocity!.x, u.velocity!.z) < 1) return;
+      const delta = Math.atan2(u.velocity!.x, u.velocity!.z) - Math.atan2(a.x, a.z);
+      expect(Math.abs(Math.atan2(Math.sin(delta), Math.cos(delta)))).toBeLessThan(3.4 / 30 + 0.00001);
+    });
+  }
+  expect(squad.every((u) => !u.mover!.tactic)).toBe(true);
+  for (let tick = 0; tick < 1800 && squad.some((u) => u.mover!.target); tick++) stepSim(sim, hf, 1 / 30);
+  expect(new Set(squad.map((u) => `${u.transform.x},${u.transform.z}`)).size).toBe(squad.length);
+});
+
+it('parks fifty aircraft in separate stable slots after an exact shared route', () => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const squad = Array.from({ length: 50 }, (_, i) => spawnHammerheadAt(sim, hf, -100 - i % 10 * 12, Math.floor(i / 10) * 12, `Parking ${i}`, 1));
+  issueTacticOrder(sim, squad, [{ x: -30, z: 0 }, { x: 60, z: 0 }], { kind: 'attack-through' }, true, 0);
+  for (let i = 0; i < 30 * 90; i++) stepSim(sim, hf, 1 / 30);
+  expect(squad.every((u) => !u.mover!.target && !u.mover!.tactic && !!u.mover!.holdPosition)).toBe(true);
+  for (let i = 0; i < squad.length; i++) for (let j = i + 1; j < squad.length; j++) {
+    expect(Math.hypot(squad[i].transform.x - squad[j].transform.x, squad[i].transform.z - squad[j].transform.z)).toBeGreaterThanOrEqual(9.5);
+  }
+  const positions = squad.map((u) => ({ x: u.transform.x, z: u.transform.z }));
+  for (let i = 0; i < 300; i++) stepSim(sim, hf, 1 / 30);
+  expect(squad.map((u) => ({ x: u.transform.x, z: u.transform.z }))).toEqual(positions);
+});
+
+
+describe('persistent aggressive stance', () => {
+  it.each(['tank', 'infantry', 'aircraft'] as const)('fires throughout ordinary %s movement without stopping or chasing', (kind) => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    sim.rules.autoCombat = false;
+    const unit = kind === 'aircraft' ? spawnVultureAt(sim, hf, 0, 0, 'Aggressor', 1) : kind === 'infantry' ? spawnInfantryAt(sim, 0, 0, 1, 'infantry') : spawnTankAt(sim, 0, 0, 'Aggressor', 1);
+    const enemy = spawnTankAt(sim, 45, 20, 'Enemy', 2);
+    unit.health!.current = unit.health!.max = 100000;
+    enemy.health!.current = enemy.health!.max = 100000;
+    enemy.weapon = { kind: kind === 'aircraft' ? 'aaMissile' : 'autocannon', range: 200, cooldown: 0 };
+    enemy.weapons = undefined;
+    enemy.mover!.attackMove = true;
+    setAggressiveMode([unit], true);
+    issueMoveOrder(sim, [unit], 120, 0);
+    let firedWhileMoving = false;
+    for (let tick = 0; tick < 1800 && unit.mover!.target; tick++) {
+      stepSim(sim, hf, 1 / 30);
+      const before = enemy.health!.current;
+      stepCombat(sim, 1 / 30);
+      firedWhileMoving ||= enemy.health!.current < before && !!unit.mover!.target;
+      expect(unit.mover!.engage).toBeUndefined();
+      if (unit.mover!.target) expect(unit.mover!.target).toEqual({ x: 120, z: 0 });
+      sim.events.length = 0;
+    }
+    expect(firedWhileMoving).toBe(true);
+    expect(unit.mover!.target).toBeUndefined();
+    expect(Math.hypot(unit.transform.x - 120, unit.transform.z)).toBeLessThan(3);
+    expect(unit.mover!.aggressive).toBe(true);
+    const parked = { x: unit.transform.x, z: unit.transform.z };
+    for (let tick = 0; tick < 90; tick++) { stepSim(sim, hf, 1 / 30); stepCombat(sim, 1 / 30); }
+    expect(unit.mover!.engage).toBeUndefined();
+    expect(Math.hypot(unit.transform.x - parked.x, unit.transform.z - parked.z)).toBeLessThan(3);
+    setAggressiveMode([unit], false);
+    expect(unit.mover!.aggressive).toBeUndefined();
+  });
+
+  it('persists across move, stop, save and restore, and affects the simulation hash', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const unit = spawnVultureAt(sim, hf, 0, 0, 'Stance', 1);
+    const normal = hashSim(sim);
+    setAggressiveMode([unit], true);
+    expect(hashSim(sim)).not.toBe(normal);
+    issueMoveOrder(sim, [unit], 30, 0);
+    stopEntities([unit]);
+    expect(unit.mover!.aggressive).toBe(true);
+    const restored = loadSerializedSim(hf, serializeSim(sim));
+    expect(restored.byId.get(unit.id)?.mover?.aggressive).toBe(true);
+    setAggressiveMode([unit], false);
+    issueMoveOrder(sim, [unit], 50, 0);
+    expect(unit.mover!.aggressive).toBeUndefined();
+  });
 });

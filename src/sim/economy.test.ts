@@ -526,6 +526,34 @@ describe('phase 3 economy and production', () => {
     }
   });
 
+  it('parks sequentially produced aircraft separately without a custom rally', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 18000);
+    const base = createInitialBase(sim, hf, economy);
+    const buildReady = (kind: Parameters<typeof canBuildStructure>[2], dx: number, z: number) => {
+      expect(startStructureBuild(sim, economy, kind)).toBe(true);
+      for (let i = 0; i < 300; i++) stepEconomy(sim, hf, economy, 1 / 30);
+      const building = placeStructure(sim, hf, economy, updatePlacement(sim, hf, kind, base.transform.x + dx, base.transform.z + z));
+      expect(building).toBeDefined();
+      return building!;
+    };
+    buildReady('power-plant', -28, 0);
+    buildReady('refinery', 28, 0);
+    buildReady('factory', 60, 20);
+    const helipad = buildReady('helipad', 82, -28);
+    for (let unit = 0; unit < 3; unit++) {
+      expect(queueUnit(sim, economy, 'wasp', helipad)).toBe(true);
+      for (let tick = 0; tick < 900; tick++) { stepEconomy(sim, hf, economy, 1 / 30); stepSim(sim, hf, 1 / 30); }
+    }
+    const aircraft = Array.from(sim.world.entities).filter((u) => u.flight && u.team?.id === 1);
+    expect(aircraft).toHaveLength(3);
+    aircraft.forEach((u) => { expect(u.mover!.target).toBeUndefined(); expect(u.mover!.holdPosition).toBeDefined(); });
+    for (let i = 0; i < aircraft.length; i++) for (let j = i + 1; j < aircraft.length; j++) {
+      expect(Math.hypot(aircraft[i].transform.x - aircraft[j].transform.x, aircraft[i].transform.z - aircraft[j].transform.z)).toBeGreaterThan(6.9);
+    }
+  });
+
   it('moves newly produced units clear of the producer when no rally is set', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

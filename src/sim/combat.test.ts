@@ -1024,7 +1024,7 @@ describe('phase 4 combat simulation', () => {
     expect(target.health?.current).toBeLessThan(target.health?.max ?? 0);
   });
 
-  it('keeps Vulture rocket pods unguided even when a target id is supplied', () => {
+  it('guides Vulture rocket pods after an explicit target lock', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const vulture = spawnVultureAt(sim, hf, -20, -20, 'Vulture');
@@ -1034,12 +1034,12 @@ describe('phase 4 combat simulation', () => {
     target.weapon = undefined;
     target.weapons = undefined;
 
-    expect(isManualTargetLockWeapon(vulture.weapons?.primary.kind)).toBe(false);
+    expect(isManualTargetLockWeapon(vulture.weapons?.primary.kind)).toBe(true);
     expect(manualFireAt(sim, vulture, target.transform.x, target.transform.z, 'primary', target.transform.y, target.id)).toBe(true);
     const projectile = sim.projectiles.at(-1);
     expect(projectile?.weaponKind).toBe('rocketPod');
-    expect(projectile?.trajectory).toBe('flat');
-    expect(projectile?.homing).toBeUndefined();
+    expect(projectile?.trajectory).toBe('homing');
+    expect(projectile?.homing?.targetId).toBe(target.id);
   });
 
   it('lets a player lock and manually intercept a hostile strategic missile', () => {
@@ -1495,3 +1495,84 @@ function neighborSum(damage: NonNullable<ReturnType<typeof createInitialBase>['s
   }
   return sum;
 }
+
+describe('charged lock-on salvos', () => {
+  it.each([[0, false, 1], [2.99, false, 1], [3, false, 2], [6, false, 3], [100, false, 5], [27, true, 10], [100, true, 10]] as const)('fires the capped guided salvo after %s seconds (upgraded=%s)', (seconds, upgraded, count) => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, -20, -20, 'Player');
+    const target = spawnTankAt(sim, -20, 42, 'Enemy', 2);
+    tank.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    tank.turret!.yaw = 0;
+    if (upgraded) tank.unitUpgrades = { ids: ['reinforced-armor'] };
+    expect(manualFireAt(sim, tank, -20, 42, 'primary', target.transform.y, target.id, undefined, seconds)).toBe(true);
+    expect(sim.projectiles).toHaveLength(count);
+    expect(sim.projectiles.every((p) => p.homing?.targetId === target.id)).toBe(true);
+    expect(new Set(sim.projectiles.map((p) => p.fromX)).size).toBe(count);
+    expect(manualFireAt(sim, tank, -20, 42, 'primary', target.transform.y, target.id, undefined, seconds)).toBe(false);
+    expect(sim.projectiles).toHaveLength(count);
+  });
+  it('staggers launches with repeatable uneven gaps and holds queued missiles still', () => {
+    const run = () => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const tank = spawnTankAt(sim, -20, -20, 'Player');
+      const target = spawnTankAt(sim, -20, 90, 'Enemy', 2);
+      tank.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+      tank.turret!.yaw = 0;
+      manualFireAt(sim, tank, -20, 90, 'primary', target.transform.y, target.id, undefined, 12);
+      const delays = sim.projectiles.map((p) => p.launchDelay ?? 0);
+      expect(delays[0]).toBe(0);
+      const gaps = delays.slice(1).map((delay, i) => delay - delays[i]);
+      gaps.forEach((gap) => { expect(gap).toBeGreaterThanOrEqual(0.14); expect(gap).toBeLessThanOrEqual(0.34); });
+      expect(new Set(gaps.map((gap) => gap.toFixed(4))).size).toBeGreaterThan(1);
+      expect(sim.events.map((e) => e.launchDelay ?? 0)).toEqual(delays);
+      const queued = sim.projectiles[1];
+      const initial = { x: queued.x, z: queued.z };
+      stepCombat(sim, 1 / 30, { autoFire: false });
+      expect(sim.projectiles[0].elapsed).toBeGreaterThan(0);
+      expect(queued.elapsed).toBe(0);
+      expect({ x: queued.x, z: queued.z }).toEqual(initial);
+      for (let i = 0; i < 12; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+      expect(queued.elapsed).toBeGreaterThan(0);
+      return delays;
+    };
+    expect(run()).toEqual(run());
+  });
+  it('does not multiply unlocked shots', () => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const tank = spawnTankAt(sim, -20, -20, 'Player');
+    tank.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+    tank.turret!.yaw = 0;
+    expect(manualFireAt(sim, tank, -20, 42, 'primary', undefined, undefined, undefined, 100)).toBe(true);
+    expect(sim.projectiles).toHaveLength(1);
+  });
+});
+
+describe('charged salvo damage delivery', () => {
+  it.each(['tankMissile', 'siegeMissile', 'agMissile', 'rocketPod', 'aaMissile'] as const)('delivers independent damage from all four and five %s missiles', (kind) => {
+    const fire = (count: number) => {
+      const hf = generateHeightfield(MAP01);
+      const sim = createGameSim(hf);
+      const attacker = spawnHammerheadAt(sim, hf, 0, 0, 'Launcher', 1);
+      const target = kind === 'aaMissile' ? spawnVultureAt(sim, hf, 0, 75, 'Air target', 2) : spawnTankAt(sim, 0, 75, 'Ground target', 2);
+      target.health!.current = target.health!.max = 10000;
+      target.weapon = undefined;
+      target.weapons = undefined;
+      attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: 0 };
+      attacker.weapon = { kind, range: 200, cooldown: 0 };
+      attacker.weapons = { primary: attacker.weapon };
+      if (attacker.turret) attacker.turret.yaw = 0;
+      expect(manualFireAt(sim, attacker, 0, 75, 'primary', target.transform.y, target.id, undefined, (count - 1) * 3)).toBe(true);
+      for (let tick = 0; tick < 30 * 15 && sim.projectiles.length; tick++) stepCombat(sim, 1 / 30, { autoFire: false });
+      const hits = sim.events.filter((event) => event.kind.endsWith('-impact') && event.targetId === target.id && event.damage > 0);
+      expect(hits).toHaveLength(count);
+      return 10000 - target.health!.current;
+    };
+    const single = fire(1);
+    expect(single).toBeGreaterThan(0);
+    expect(fire(4)).toBeCloseTo(single * 4, 6);
+    expect(fire(5)).toBeCloseTo(single * 5, 6);
+  });
+});

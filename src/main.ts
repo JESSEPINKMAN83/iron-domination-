@@ -67,10 +67,8 @@ import { AI_DIFFICULTY, type Difficulty, type Personality } from './content/phas
 import { COMBAT_MODE_DESCRIPTIONS, COMBAT_MODES, type CombatMode } from './content/rules';
 import {
   armyStartPosition,
-  defaultSpawnPoints,
   sanitizeSpawnPoints,
   spawnPointsFromSlots,
-  startPosition,
   type ArmySpawnPoints,
   type SpawnPoint,
 } from './content/startPositions';
@@ -170,6 +168,7 @@ import {
   issueMoveOrder,
   selectedEntities,
   setSelected,
+  setAggressiveMode,
   spawnHammerheadAt,
   spawnScoutTankAt,
   spawnSiegeTankAt,
@@ -2900,7 +2899,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           target.weapon = { kind: 'aaMissile', range: 165, cooldown: 0 };
           target.mover!.attackMove = true;
         }
-        target.health!.current = target.health!.max = infantryCombatTest ? 100 : 3000;
+        // Use real combat durability by default so salvo damage is meaningful.
+        // Opt in to durable targets when repeatedly testing flight and aiming.
+        if (infantryCombatTest || params.get('durable-targets') === '1') {
+          target.health!.current = target.health!.max = infantryCombatTest ? 100 : 3000;
+        }
         aircraftRouteUnits.push(target);
       }
     }
@@ -3406,6 +3409,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       if (result.ok) playUpgradeConfirmation(ids);
       else audio.playUi('error');
       return result;
+    },
+    setAggressive: (entities, enabled) => {
+      audio.playUi('select');
+      if (lockstep) lockstep.issue({ type: 'set-aggressive', ids: entities.map((unit) => unit.id), enabled });
+      else setAggressiveMode(entities, enabled);
     },
     openTacticPlanner: (entities) => {
       audio.playUi('select');

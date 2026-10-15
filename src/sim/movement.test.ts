@@ -623,6 +623,26 @@ describe('phase 2 movement simulation', () => {
     expect(hardTurn).toBeGreaterThan(normalTurn * 1.35);
   });
 
+  it.each([spawnWaspAt, spawnVultureAt, spawnHammerheadAt])('carries speed through a powered V-mode turn without sideways thrust', (spawn) => {
+    const hf = generateHeightfield(MAP01);
+    const sim = createGameSim(hf);
+    const unit = spawn(sim, hf, 0, 0, 'Flight test');
+    unit.transform.rot = 0;
+    unit.velocity!.x = 0;
+    unit.velocity!.z = 30;
+    unit.playerControlled = { throttle: 1, turn: 0, aimYaw: 0, strafe: 0, climb: 0 };
+    let minimumSpeed = 30;
+    for (let i = 0; i < 60; i++) {
+      unit.playerControlled.aimYaw = unit.transform.rot + 0.5;
+      stepSim(sim, hf, 1 / 30);
+      minimumSpeed = Math.min(minimumSpeed, Math.hypot(unit.velocity!.x, unit.velocity!.z));
+    }
+    expect(minimumSpeed).toBeGreaterThan(24);
+    expect(Math.abs(unit.flight!.rollAttitude)).toBeGreaterThan(0.1);
+    expect(unit.transform.x).toBeGreaterThan(15);
+    expect(unit.destroyed).toBeUndefined();
+  });
+
   it('integrates possessed gunship flight deterministically with strafe and attitude', () => {
     const run = () => {
       const hf = generateHeightfield(MAP01);
@@ -702,3 +722,20 @@ describe('phase 2 movement simulation', () => {
 function angleDelta(a: number, b: number): number {
   return Math.atan2(Math.sin(a - b), Math.cos(a - b));
 }
+
+it('settles an aircraft group at normal move destinations without orbiting', () => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const squad = [spawnWaspAt(sim, hf, -80, -15, 'Wasp'), spawnVultureAt(sim, hf, -80, 0, 'Vulture'), spawnHammerheadAt(sim, hf, -80, 15, 'Hammerhead')];
+  issueMoveOrder(sim, squad, 60, 20);
+  const destinations = squad.map((u) => ({ ...u.mover!.target! }));
+  for (let i = 0; i < 1800; i++) stepSim(sim, hf, 1 / 30);
+  squad.forEach((u, i) => {
+    expect(u.mover!.target).toBeUndefined();
+    expect(u.transform.x).toBeCloseTo(destinations[i].x, 5);
+    expect(u.transform.z).toBeCloseTo(destinations[i].z, 5);
+    expect(Math.hypot(u.velocity!.x, u.velocity!.z)).toBe(0);
+  });
+  for (let i = 0; i < 300; i++) stepSim(sim, hf, 1 / 30);
+  squad.forEach((u, i) => expect(u.mover!.holdPosition).toEqual(destinations[i]));
+});
