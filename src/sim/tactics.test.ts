@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { generateHeightfield } from './heightfield';
-import { stepSim, createGameSim, spawnTankAt, spawnEnemyTanks, issueMoveOrder, stopEntities, hashSim, spawnWaspAt, spawnVultureAt, spawnHammerheadAt } from './world';
+import { aircraftTurnRateAtSpeed, stepSim, createGameSim, spawnTankAt, spawnEnemyTanks, issueMoveOrder, stopEntities, hashSim, spawnWaspAt, spawnVultureAt, spawnHammerheadAt } from './world';
 import { manualFireAt, stepCombat } from './combat';
 import { loadSerializedSim, serializeSim } from './serialize';
 import { issueTacticOrder, MAX_TACTIC_WAYPOINTS } from './tactics';
@@ -53,10 +53,17 @@ describe('tactic orders', () => {
     let arrivals = 0;
     for (let i = 0; i < 30 * 30 && aircraft.mover!.tactic; i++) {
       const previousRemaining = aircraft.mover!.tactic.remaining.length;
+      const previousSpeed = Math.hypot(aircraft.velocity!.x, aircraft.velocity!.z);
+      const previousHeading = Math.atan2(aircraft.velocity!.x, aircraft.velocity!.z);
       stepSim(sim, hf, 1 / 30);
       stepCombat(sim, 1 / 30);
       if (aircraft.mover!.tactic) {
-        expect(Math.hypot(aircraft.velocity!.x, aircraft.velocity!.z)).toBeGreaterThan(aircraft.mover!.speed * 0.95);
+        expect(Math.hypot(aircraft.velocity!.x, aircraft.velocity!.z)).toBeGreaterThan(0.1);
+        if (previousSpeed > 1) {
+          const heading = Math.atan2(aircraft.velocity!.x, aircraft.velocity!.z);
+          const delta = Math.atan2(Math.sin(heading - previousHeading), Math.cos(heading - previousHeading));
+          expect(Math.abs(delta)).toBeLessThanOrEqual(3.4 / 30 + 0.00001);
+        }
         if (aircraft.mover!.tactic.remaining.length < previousRemaining) arrivals++;
       }
       sim.events.length = 0;
@@ -139,7 +146,7 @@ describe('tactic orders', () => {
     for (const unit of [...squad, aircraft]) {
       expect(unit.mover?.tactic).toBeUndefined();
       expect(unit.mover?.attackThrough).toBe(true);
-      expect(unit.mover?.holdPosition?.x).toBe(60);
+      expect(Math.abs((unit.mover?.holdPosition?.x ?? 0) - 60)).toBeLessThan(5);
       expect(Math.abs(unit.transform.x - 60)).toBeLessThan(5);
     }
   });
@@ -323,4 +330,84 @@ describe('tactic orders', () => {
     expect(tank.mover?.sprint).toBe(true);
     expect(tank.mover?.tactic?.sprint).toBe(true);
   });
+});
+
+
+it('widens the turn radius at cruise and boost speeds', () => {
+  const hover = aircraftTurnRateAtSpeed(2.6, 1.3, 0, 46);
+  const cruise = aircraftTurnRateAtSpeed(2.6, 1.3, 46, 46);
+  const boost = aircraftTurnRateAtSpeed(2.6, 1.3, 92, 46);
+  expect(cruise).toBeLessThan(hover);
+  expect(boost).toBeLessThan(cruise);
+  expect(92 / boost).toBeGreaterThan(46 / cruise);
+});
+
+it.each([spawnWaspAt, spawnVultureAt, spawnHammerheadAt])('carries sprint speed through intermediate straight waypoints', (spawn) => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const unit = spawn(sim, hf, -150, 0, 'Fly-through', 1);
+  unit.transform.rot = Math.PI / 2;
+  const speed = unit.mover!.speed * 1.65;
+  unit.velocity!.x = speed;
+  unit.velocity!.z = 0;
+  issueTacticOrder(sim, [unit], [{ x: -30, z: 0 }, { x: 80, z: 0 }, { x: 180, z: 0 }], { kind: 'attack-through' }, true);
+  let transitions = 0;
+  for (let tick = 0; tick < 600 && unit.mover!.tactic; tick++) {
+    const remaining = unit.mover!.tactic.remaining.length;
+    stepSim(sim, hf, 1 / 30);
+    if (unit.mover!.tactic && unit.mover!.tactic.remaining.length < remaining) {
+      transitions++;
+      expect(Math.hypot(unit.velocity!.x, unit.velocity!.z)).toBeGreaterThan(speed * 0.95);
+    }
+  }
+  expect(transitions).toBe(2);
+  expect(unit.mover!.tactic).toBeUndefined();
+});
+
+
+it('gives twenty aircraft distinct spaced final positions and staggered deterministic departures', () => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const squad = Array.from({ length: 20 }, (_, i) => spawnHammerheadAt(sim, hf, -100, i - 10, `Flight ${i}`, 1));
+  issueTacticOrder(sim, squad, [{ x: 0, z: 0 }, { x: 100, z: 0 }], { kind: 'attack-through' }, false, 1);
+  const destinations = squad.map((unit) => unit.mover!.tactic!.remaining[0]);
+  expect(new Set(destinations.map((p) => `${p.x},${p.z}`)).size).toBe(20);
+  expect(new Set(squad.map((unit) => unit.mover!.tactic!.startAtTick)).size).toBeGreaterThan(10);
+  for (let tick = 0; tick < 30 * 45; tick++) stepSim(sim, hf, 1 / 30);
+  expect(squad.every((unit) => !unit.mover!.tactic)).toBe(true);
+  for (let i = 0; i < squad.length; i++) {
+    expect(Math.abs(squad[i].transform.x - destinations[i].x)).toBeLessThan(2);
+    expect(Math.abs(squad[i].transform.z - destinations[i].z)).toBeLessThan(2);
+    for (let j = i + 1; j < squad.length; j++) {
+      expect(Math.hypot(squad[i].transform.x - squad[j].transform.x, squad[i].transform.z - squad[j].transform.z)).toBeGreaterThan(7.6);
+    }
+  }
+});
+
+
+it('accepts a 64-point route and preserves every remaining waypoint', () => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const unit = spawnWaspAt(sim, hf, -180, 0, 'Long route', 1);
+  const path = Array.from({ length: 64 }, (_, i) => ({ x: -160 + i * 5, z: Math.sin(i / 6) * 35 }));
+  expect(issueTacticOrder(sim, [unit], path, { kind: 'attack-through' })).toBe(true);
+  expect(unit.mover!.tactic!.remaining).toEqual(path.slice(1));
+});
+
+it.each([spawnWaspAt, spawnVultureAt, spawnHammerheadAt])('finishes a dense drawn route and fires at its selected target in manual combat', (spawn) => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  sim.rules.autoCombat = false;
+  const aircraft = spawn(sim, hf, 0, 0, 'Route', 1);
+  const enemy = spawnTankAt(sim, 90, 20, 'Target', 2);
+  enemy.health!.current = enemy.health!.max = 100000;
+  const path = Array.from({ length: 40 }, (_, i) => ({ x: i * 2, z: Math.sin(i / 8) * 12 }));
+  expect(issueTacticOrder(sim, [aircraft], path, { kind: 'attack', targetId: enemy.id }, true)).toBe(true);
+  for (let i = 0; i < 1800; i++) {
+    stepSim(sim, hf, 1 / 30);
+    stepCombat(sim, 1 / 30);
+    sim.events.length = 0;
+  }
+  expect(aircraft.mover!.tactic).toBeUndefined();
+  expect(enemy.health!.current).toBeLessThan(100000);
 });

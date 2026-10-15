@@ -2668,7 +2668,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
 
   const startMode = params.get('start');
-  const aircraftRouteTest = params.get('aircraft-route-test') === '1' && !multiplayerMode && !isPublicHost(location.hostname);
+  const infantryCombatTest = params.get('infantry-combat-test') === '1';
+  const tankCombatTest = params.get('tank-combat-test') === '1';
+  const aircraftRouteTest = (params.get('aircraft-route-test') === '1' || tankCombatTest || infantryCombatTest) && !multiplayerMode && !isPublicHost(location.hostname);
   const weaponsLab = startMode === 'weapons-lab' && !multiplayerMode && !isPublicHost(location.hostname);
   const lineupStart = startMode === 'lineup' || weaponsLab;
   const soundBattlePreview =
@@ -2875,7 +2877,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     const hostileTeam = armies.find((army) => areTeamsHostile(sim, localTeam, army.team))?.team;
     const aircraftTypes = [spawnWaspAt, spawnVultureAt, spawnHammerheadAt];
     for (let i = 0; i < 6; i++) {
-      const aircraft = aircraftTypes[Math.floor(i / 2)](sim, hf, routeStage.x - 70, routeStage.z - 40 + i * 16, `Route test ${i + 1}`, localTeam);
+      const aircraft = infantryCombatTest
+        ? spawnInfantryAt(sim, routeStage.x - 70, routeStage.z - 40 + i * 8, localTeam, (['infantry', 'grenadier', 'sniper', 'rocket-infantry', 'infantry', 'sniper'] as const)[i])
+        : tankCombatTest
+        ? [spawnScoutTankAt, spawnTankAt, spawnSiegeTankAt][Math.floor(i / 2)](sim, routeStage.x - 70, routeStage.z - 40 + i * 16, `Tank trial ${i + 1}`, localTeam)
+        : aircraftTypes[Math.floor(i / 2)](sim, hf, routeStage.x - 70, routeStage.z - 40 + i * 16, `Route test ${i + 1}`, localTeam);
       aircraftRouteUnits.push(aircraft);
     }
     if (hostileTeam !== undefined) {
@@ -2884,7 +2890,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         const z = routeStage.z + (i < 4 ? -55 : 55);
         const cell = sim.nav.nearestWalkableCellGlobal(x, z);
         const point = cell ? sim.nav.cellCenter(cell.x, cell.y) : { x, z };
-        const target = spawnTankAt(sim, point.x, point.z, `Aircraft target ${i + 1}`, hostileTeam);
+        const target = infantryCombatTest
+          ? spawnInfantryAt(sim, point.x, point.z, hostileTeam, i % 2 ? 'grenadier' : 'infantry')
+          : spawnTankAt(sim, point.x, point.z, `Aircraft target ${i + 1}`, hostileTeam);
         target.weapon = undefined;
         target.weapons = undefined;
         if (params.get('incoming-fire') === '1' && (i === 1 || i === 5)) {
@@ -2892,7 +2900,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           target.weapon = { kind: 'aaMissile', range: 165, cooldown: 0 };
           target.mover!.attackMove = true;
         }
-        target.health!.current = target.health!.max = 3000;
+        target.health!.current = target.health!.max = infantryCombatTest ? 100 : 3000;
         aircraftRouteUnits.push(target);
       }
     }
@@ -3530,8 +3538,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
               endAction: payload.endAction.kind,
               endTargetId: payload.endAction.kind === 'attack' ? payload.endAction.targetId : undefined,
               sprint: payload.highSpeed,
+              variation: payload.variation,
             })
-          : issueTacticOrder(sim, units, payload.waypoints, payload.endAction, payload.highSpeed);
+          : issueTacticOrder(sim, units, payload.waypoints, payload.endAction, payload.highSpeed, payload.variation);
         if (!issued) {
           audio.playUi('error');
           return;
@@ -3625,6 +3634,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       : undefined,
   });
   let mobileControls: MobileGameControls | undefined;
+  if (!ctx.camera.parent) ctx.scene.add(ctx.camera);
   const firstPerson = new FirstPersonController(
     ctx.renderer.domElement,
     ctx.camera,
@@ -4103,7 +4113,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount), undefined);
     }, 500);
   }
-  if (aircraftRouteTest) setSelected(sim, aircraftRouteUnits.filter((unit) => unit.flight), false, localTeam);
+  if (aircraftRouteTest) setSelected(sim, aircraftRouteUnits.filter((unit) => unit.team?.id === localTeam), false, localTeam);
   if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview && !aircraftRouteTest) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     const memberId = enlistedCommander()?.memberId;
@@ -6071,6 +6081,10 @@ async function start(): Promise<void> {
   sendTelemetryEvent('session-start');
   showFeedbackWidget();
   showHowToPlayWidget();
+  if (!isPublicHost(location.hostname) && params.get('guide-preview') === '1') {
+    openHowToPlay();
+    return;
+  }
   const inviteRoom = roomFromInvite(params);
   const mobileLandscape = new MobileLandscapeGate();
   mobileLandscape.activate();

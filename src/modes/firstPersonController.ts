@@ -1,4 +1,5 @@
-import { MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
+import { buildInfantryWeapon } from '../render/infantryWeapon';
+import { Group, MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
@@ -205,6 +206,12 @@ export class FirstPersonController {
   private lockCandidateId?: number;
   private lockedTargetId?: number;
   private lockProgress = 0;
+  private infantryAim = 0;
+  private infantryStep = 0;
+  private infantryDistance = 0;
+  private infantryDistanceTarget = 0;
+  private readonly infantryWeapon = new Group();
+  private infantryKick = 0;
   private manualTargetLock = false;
   private targetScanActive = false;
   private targetScanProgress = 0;
@@ -229,6 +236,9 @@ export class FirstPersonController {
     private readonly commandSink?: FirstPersonCommandSink,
     private readonly isVisible: (x: number, z: number) => boolean = () => true,
   ) {
+    for (const kind of ['rifle', 'grenade', 'sniperRifle', 'rocketLauncher']) this.infantryWeapon.add(buildInfantryWeapon(kind));
+    this.infantryWeapon.visible = false;
+    this.camera.add(this.infantryWeapon);
     this.scopeOverlay = document.createElement('div');
     this.scopeOverlay.style.cssText =
       'position:fixed;inset:0;display:none;pointer-events:none;z-index:12;' +
@@ -301,7 +311,7 @@ export class FirstPersonController {
       'pointerdown',
       (event) => {
         if (event.pointerType === 'touch') return;
-        if (this.mode !== 'fps' || (event.button !== 0 && event.button !== 2)) return;
+        if (this.mode !== 'fps' || (event.button !== 0 && event.button !== 2 && !(event.button === 1 && this.isFootSoldier()))) return;
         event.preventDefault();
         event.stopPropagation();
         this.ensurePointerLock();
@@ -315,7 +325,8 @@ export class FirstPersonController {
           this.updateScopeOverlay(this.sniperScopeActive);
           return;
         }
-        this.fire(event.button === 2 ? 'secondary' : 'primary');
+        if (this.isFootSoldier() && event.button === 2) return;
+        this.fire(event.button === 2 || event.button === 1 ? 'secondary' : 'primary');
       },
       { capture: true },
     );
@@ -460,18 +471,24 @@ export class FirstPersonController {
     const baseTurn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
     const hardTurn = this.possessed.flight ? (this.input.isDown('KeyQ') ? 1 : 0) - (this.input.isDown('KeyE') ? 1 : 0) : 0;
     const turn = fortress ? 0 : MathUtils.clamp(baseTurn + hardTurn * 1.55 + mobile.turn, -1.75, 1.75);
-    const strafe = 0;
+    const foot = this.isFootSoldier();
+    const aiming = foot && (this.input.isButton(2) || this.isSniperScoped());
+    const strafe = foot ? MathUtils.clamp(baseTurn + mobile.turn, -1, 1) * (aiming ? 0.55 : 1) : 0;
     const climb = fortress ? 0 : MathUtils.clamp(
       keyboardAircraftClimb((code) => this.input.isDown(code)) + mobile.climb,
       -1,
       1,
     );
     const boost = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') || mobile.boost;
-    const control = { throttle: forward, turn, aimYaw: this.currentAimYaw(), climb, strafe, boost };
+    const control = { throttle: forward * (aiming ? 0.55 : 1), turn: foot ? 0 : turn, aimYaw: this.currentAimYaw(), climb, strafe, boost: boost && !aiming };
     if (fortress && this.possessed.turret) this.possessed.turret.yaw = control.aimYaw;
     if (this.commandSink) this.publishControlState(control);
     else if (this.possessed.playerControlled) Object.assign(this.possessed.playerControlled, control);
     this.updateSquadFollowers();
+    if (foot && this.mode === 'fps' && this.input.isButton(0) && !this.input.isMetaDown()) {
+      const weapon = this.possessed.weapons?.primary ?? this.possessed.weapon;
+      if (weapon && weapon.cooldown <= 0) this.fire('primary');
+    }
   }
 
   useSpecialAbility(): boolean {
@@ -532,6 +549,17 @@ export class FirstPersonController {
 
   update(dt: number, alpha = 1): void {
     if (!this.active || !this.possessed) return;
+    const infantryAiming = this.isFootSoldier() && !this.isSniper(this.possessed) && this.input.isButton(2);
+    this.infantryDistance += (this.infantryDistanceTarget - this.infantryDistance) * (1 - Math.exp(-dt * 12));
+    this.infantryKick *= Math.exp(-dt * 18);
+    const near = this.isFootSoldier() ? 0.08 : 2;
+    if (this.camera.near !== near) { this.camera.near = near; this.camera.updateProjectionMatrix(); }
+    this.infantryWeapon.visible = this.mode === 'fps' && this.isFootSoldier() && this.infantryDistance < 0.65 && !this.isSniperScoped();
+    this.infantryWeapon.position.set(MathUtils.lerp(0.23, 0, this.infantryAim), -0.26 - this.infantryKick * 0.3, -0.85 + this.infantryKick);
+    this.infantryWeapon.rotation.x = this.infantryKick * 0.4;
+    const infantryKind = this.possessed.weapon?.kind ?? 'rifle';
+    for (const model of this.infantryWeapon.children) model.visible = model.name === infantryKind;
+    this.infantryAim += ((infantryAiming ? 1 : 0) - this.infantryAim) * (1 - Math.exp(-dt * 16));
     const sniperScoped = this.isSniperScoped();
     const fortress = isFortressTower(this.possessed);
     this.sniperReloadFlash = Math.max(0, this.sniperReloadFlash - dt);
@@ -539,7 +567,10 @@ export class FirstPersonController {
     if (this.abilityStatusTimer <= 0) this.abilityStatus.style.display = 'none';
     const wheel = this.input.consumeWheel();
     if (wheel !== 0) {
-      if (sniperScoped) this.sniperScopeZoom = MathUtils.clamp(this.sniperScopeZoom - wheel * 0.0018, 0, 1);
+      if (this.isFootSoldier()) {
+        this.infantryDistanceTarget = MathUtils.clamp(this.infantryDistanceTarget + wheel * 0.012, 0, 18);
+        if (this.infantryDistanceTarget > 0) this.sniperScopeActive = false;
+      } else if (sniperScoped) this.sniperScopeZoom = MathUtils.clamp(this.sniperScopeZoom - wheel * 0.0018, 0, 1);
       else if (fortress) {
         this.fortressZoomTarget = MathUtils.clamp(
           this.fortressZoomTarget - wheel * 0.0018,
@@ -569,10 +600,10 @@ export class FirstPersonController {
         this.orbitYaw -= aimDx * 0.004;
         this.orbitPitch = MathUtils.clamp(this.orbitPitch - aimDy * 0.003, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
       } else {
-        this.lookYaw -= aimDx * 0.0024;
+        this.lookYaw -= aimDx * 0.0024 * (1 - this.infantryAim * 0.45);
         const minPitch = this.possessed.flight ? FLIGHT_LOOK_DOWN_MIN : GROUND_LOOK_DOWN_MIN;
         const maxPitch = this.possessed.flight ? FLIGHT_LOOK_UP_MAX : GROUND_LOOK_UP_MAX;
-        this.lookPitch = MathUtils.clamp(this.lookPitch - aimDy * 0.0018, minPitch, maxPitch);
+        this.lookPitch = MathUtils.clamp(this.lookPitch - aimDy * 0.0018 * (1 - this.infantryAim * 0.45), minPitch, maxPitch);
       }
     }
 
@@ -606,12 +637,15 @@ export class FirstPersonController {
     this.toPose = resolveExitCameraPose(preparedPose, () => this.rtsPoseNear(this.possessed!));
     this.transitionT = 0;
     this.mode = 'exiting';
+    this.infantryWeapon.visible = false;
     this.dom.style.cursor = this.savedCursor;
     this.input.resetMobileDrive();
     if (!this.input.isTouchDevice) document.exitPointerLock?.();
   }
 
   private finishExit(): void {
+    this.camera.near = 2;
+    this.camera.updateProjectionMatrix();
     const entity = this.possessed;
     if (entity) {
       if (this.commandSink) this.commandSink.release(entity.id);
@@ -652,6 +686,8 @@ export class FirstPersonController {
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
     if (entity.flight) return this.flightPoseFor(entity, yaw, pitch, fov, alpha, dt);
     if (isFortressTower(entity)) return this.fortressPoseFor(entity, yaw, pitch);
+    if (this.isSniperScoped(entity)) return this.sniperPoseFor(entity, yaw, pitch);
+    if (this.isFootSoldier(entity)) return this.infantryPoseFor(entity, yaw, pitch, alpha, dt);
     if (this.isSniper(entity)) return this.sniperPoseFor(entity, yaw, pitch, this.isSniperScoped(entity) ? undefined : this.zoomedFov(54));
     const center = this.interpolatedCenter(entity, alpha);
     const groundY = sampleHeight(this.hf, center.x, center.z);
@@ -687,11 +723,31 @@ export class FirstPersonController {
     return this.lookPose(position, this.tmpCameraTarget, fortressOpticalFov(this.fortressZoom));
   }
 
+  private isFootSoldier(entity = this.possessed): boolean {
+    return entity?.selectable?.type === 'infantry';
+  }
+
+  private infantryPoseFor(entity: Entity, yaw: number, pitch: number, alpha: number, dt: number): CameraPose {
+    const center = this.interpolatedCenter(entity, alpha);
+    const speed = Math.hypot(entity.velocity?.x ?? 0, entity.velocity?.z ?? 0);
+    this.infantryStep += speed * dt * 1.8;
+    const bob = Math.sin(this.infantryStep) * Math.min(1, speed / 8) * 0.025 * (1 - this.infantryAim);
+    this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    const position = new Vector3(center.x, sampleHeight(this.hf, center.x, center.z) + (entity.infantryStance?.height ?? 0) - (entity.infantryStance?.crouch ?? 0) + 1.72 + bob, center.z);
+    const distance = this.infantryDistance * (1 - this.infantryAim);
+    position.addScaledVector(this.tmpForward, 0.3 - distance);
+    position.y += distance * 0.38;
+    position.y = Math.max(position.y, sampleHeight(this.hf, position.x, position.z) + 0.5);
+    this.tmpAimTarget.copy(position).addScaledVector(this.tmpForward, 230);
+    const sprint = entity.playerControlled?.boost ? 4 : 0;
+    return this.lookPose(position, this.tmpAimTarget, MathUtils.lerp(74 + sprint, 50, this.infantryAim));
+  }
+
   private sniperPoseFor(entity: Entity, yaw: number, pitch: number, regularFov?: number): CameraPose {
     const center = this.interpolatedCenter(entity, 1);
     const groundY = sampleHeight(this.hf, center.x, center.z);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-    const position = new Vector3(center.x, groundY + 1.72, center.z).addScaledVector(this.tmpForward, 0.2);
+    const position = new Vector3(center.x, groundY + 1.72 + (entity.infantryStance?.height ?? 0) - (entity.infantryStance?.crouch ?? 0), center.z).addScaledVector(this.tmpForward, 0.2);
     this.tmpAimTarget.copy(position).addScaledVector(this.tmpForward, 230);
     const fov = regularFov ?? MathUtils.lerp(SNIPER_SCOPE_FOV_WIDE, SNIPER_SCOPE_FOV_TIGHT, this.sniperScopeZoom);
     return this.lookPose(position, this.tmpAimTarget, fov);
@@ -805,6 +861,10 @@ export class FirstPersonController {
         manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y, undefined, strategicId);
         if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y, undefined, strategicId);
       }
+    }
+    if (fired && slot === 'primary' && this.isFootSoldier()) {
+      this.infantryKick = 0.06;
+      this.lookPitch = Math.min(GROUND_LOOK_UP_MAX, this.lookPitch + 0.009 * (1 - this.infantryAim * 0.55));
     }
     if (slot === 'special') this.flashAbilityStatus(fired ? 'SPECIAL DEPLOYED' : 'ALIGN WEAPON WITH TARGET');
     return fired;
@@ -1066,7 +1126,7 @@ export class FirstPersonController {
 
   private currentAimYaw(): number {
     const entity = this.possessed;
-    if (!entity || entity.flight || this.isSniper(entity)) return this.lookYaw;
+    if (!entity || entity.flight || entity.selectable?.type === 'infantry') return this.lookYaw;
     const dx = this.tmpAimTarget.x - entity.transform.x;
     const dz = this.tmpAimTarget.z - entity.transform.z;
     return Math.hypot(dx, dz) > 0.001 ? Math.atan2(dx, dz) : this.lookYaw;
@@ -1165,7 +1225,7 @@ export class FirstPersonController {
     this.camera.getWorldDirection(dir);
     const horizontal = Math.max(0.001, Math.hypot(dir.x, dir.z));
     const range = entity.weapon?.range ?? 320;
-    const muzzleY = sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 1.72;
+    const muzzleY = sampleHeight(this.hf, entity.transform.x, entity.transform.z) + 1.72 + (entity.infantryStance?.height ?? 0) - (entity.infantryStance?.crouch ?? 0);
     return new Vector3(
       entity.transform.x + (dir.x / horizontal) * range,
       muzzleY + (dir.y / horizontal) * range,
@@ -1255,6 +1315,8 @@ export class FirstPersonController {
       else delete this.possessed.playerControlled;
     }
     this.possessed = entity;
+    this.infantryDistance = this.infantryDistanceTarget = 0;
+    this.infantryAim = 0;
     const initialYaw = isFortressTower(entity) ? this.fortressOutwardYaw(entity) : entity.turret?.yaw ?? entity.transform.rot;
     this.lookYaw = nearestEquivalentAngle(initialYaw, this.lookYaw);
     this.lookPitch = entity.flight ? MathUtils.degToRad(-7) : isFortressTower(entity) ? MathUtils.degToRad(-7) : MathUtils.degToRad(-3);

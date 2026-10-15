@@ -389,7 +389,7 @@ describe('phase 3 economy and production', () => {
     expect(units.some((entity) => entity.name === 'Rocket Team' && entity.weapon?.kind === 'rocketLauncher')).toBe(true);
     expect(units.some((entity) => entity.name?.includes('Jackal') && entity.weapon?.kind === 'autocannon' && entity.weapons?.secondary?.kind === 'scoutMissile')).toBe(true);
     expect(units.some((entity) => entity.name?.includes('M-17') && entity.weapon?.kind === 'cannon' && entity.weapons?.secondary?.kind === 'tankMissile')).toBe(true);
-    expect(units.some((entity) => entity.name?.includes('Mauler') && entity.weapon?.kind === 'heavyCannon' && entity.weapons?.secondary?.kind === 'autocannon')).toBe(true);
+    expect(units.some((entity) => entity.name?.includes('Mauler') && entity.weapon?.kind === 'heavyCannon' && entity.weapons?.secondary?.kind === 'siegeMissile')).toBe(true);
     expect(units.some((entity) => entity.name?.includes('Wasp') && entity.flight && entity.weapon?.kind === 'waspAutocannon' && entity.weapons?.secondary?.kind === 'aaMissile')).toBe(true);
     expect(units.some((entity) => entity.name?.includes('Vulture') && entity.flight && entity.weapon?.kind === 'rocketPod' && entity.weapons?.secondary?.kind === 'autocannon')).toBe(true);
     expect(units.some((entity) => entity.name?.includes('Hammerhead') && entity.flight && entity.health?.max === 230 && entity.weapons?.secondary?.kind === 'bomb' && entity.weapons.secondary.salvoCount === 4)).toBe(true);

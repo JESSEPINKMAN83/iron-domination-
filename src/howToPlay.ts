@@ -1,4 +1,6 @@
 import './howToPlay.css';
+import { fieldGuideIllustration as scene } from './ui/fieldGuideIllustrations';
+import { ARMY_DOCTRINES } from './content/armyDoctrines';
 import { isMobileTouchDevice } from './mobile/platform';
 
 type GuideSection = {
@@ -58,6 +60,13 @@ export function openHowToPlay(options: { forceMobile?: boolean; lifecycle?: Guid
   };
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') close();
+    if (event.key === 'Tab') {
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button, a[href]'));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
   };
 
   closeButton.onclick = close;
@@ -121,7 +130,9 @@ export function controlGuideSections(mobile: boolean): GuideSection[] {
       items: [
         { control: 'V / Escape', action: 'Take over the selected unit or return to command view.' },
         { control: 'W/S · A/D · Shift', action: 'Drive, steer, and boost. Move the mouse to aim.' },
-        { control: 'Left / right click', action: 'Fire primary and secondary weapons. F uses a special ability.' },
+        { control: 'Left / right click', action: 'Vehicles fire primary and secondary weapons. F uses a special ability.' },
+        { control: 'Infantry', action: 'WASD moves and strafes; hold left-click to fire, right-click to aim, and middle-click for the secondary weapon.' },
+        { control: 'Infantry view & stance', action: 'Scroll between first and third person. Space jumps; hold C to crouch. Snipers toggle their scope with right-click.' },
         { control: 'Defense tower', action: 'In V-mode, use the wheel for optical zoom. Hold T to scan; release to lock.' },
         { control: 'Tab', action: 'Swap to the next unit in the currently selected squad.' },
         { control: 'Aircraft', action: 'Q/E hard turn, Space climbs, and C descends.' },
@@ -138,7 +149,7 @@ export function controlGuideSections(mobile: boolean): GuideSection[] {
   ];
 }
 
-function guideMarkup(mobile: boolean): string {
+export function guideMarkup(mobile: boolean): string {
   const controls = controlGuideSections(mobile)
     .map((section) => `
       <section class="iron-howto__control-group">
@@ -151,56 +162,16 @@ function guideMarkup(mobile: boolean): string {
     .join('');
 
   return `
-    <section class="iron-howto__dialog" role="dialog" aria-modal="true" aria-labelledby="iron-howto-title">
-      <header class="iron-howto__header">
-        <div>
-          <p>FIELD MANUAL · ${mobile ? 'MOBILE' : 'DESKTOP'}</p>
-          <h2 id="iron-howto-title">How to play</h2>
-        </div>
-        <button class="iron-howto__close" type="button" aria-label="Close How to Play">×</button>
-      </header>
-
-      <div class="iron-howto__intro-grid">
-        <div class="iron-howto__intro">
-          <span>THE BATTLE</span>
-          <p>Iron Dominion combines real-time strategy with direct first-person combat. Build and command from above, then take control of any selected unit and join the fight yourself.</p>
-        </div>
-        <div class="iron-howto__objective">
-          <span>YOUR MISSION · WIN CONDITION</span>
-          <strong>Destroy the enemy Command Yard</strong>
-          <p>Protect your own base and eliminate every hostile Command Yard to win the battle.</p>
-        </div>
-      </div>
-
-      <section class="iron-howto__section">
-        <div class="iron-howto__section-heading"><span>01</span><h3>The battle plan</h3></div>
-        <ol class="iron-howto__loop">
-          <li><b>Establish</b><span>Build a Power Plant, then a Refinery to unlock a working economy.</span></li>
-          <li><b>Expand</b><span>Collectors harvest oil for credits. Add Barracks, a Factory, and a Helipad.</span></li>
-          <li><b>Command</b><span>Mix infantry, armor, defenses, and aircraft. Scout before committing your army.</span></li>
-          <li><b>Dominate</b><span>Break enemy production, protect your base, and destroy the hostile Command Yard.</span></li>
-        </ol>
-      </section>
-
-      <section class="iron-howto__section">
-        <div class="iron-howto__section-heading"><span>02</span><h3>What you can do</h3></div>
-        <div class="iron-howto__capabilities">
-          <article><b>Build a base</b><span>Power, economy, production, walls, and defensive towers.</span></article>
-          <article><b>Field an army</b><span>Infantry, snipers, rockets, tanks, artillery, and aircraft.</span></article>
-          <article><b>Control any unit</b><span>Switch from command view to direct combat whenever it matters.</span></article>
-          <article><b>Adapt your force</b><span>Use upgrades and unit counters to answer the enemy composition.</span></article>
-        </div>
-      </section>
-
-      <section class="iron-howto__section">
-        <div class="iron-howto__section-heading"><span>03</span><h3>${mobile ? 'Touch controls' : 'Keyboard & mouse'}</h3></div>
-        <div class="iron-howto__controls">${controls}</div>
-      </section>
-
-      <footer class="iron-howto__footer">
-        <p><strong>New commander tip:</strong> start small—secure income, build one production line, scout, then expand.</p>
-        <button class="iron-howto__footer-close" type="button">Ready for battle</button>
-      </footer>
+    <section class="iron-howto__dialog field-guide" role="dialog" aria-modal="true" aria-labelledby="iron-howto-title">
+      <header class="iron-howto__header"><div><p>COMMANDER’S FIELD GUIDE · ${mobile ? 'TOUCH' : 'DESKTOP'}</p><h2 id="iron-howto-title">Your first victory starts here.</h2></div><button class="iron-howto__close" type="button" aria-label="Close How to Play">×</button></header>
+      <div class="field-guide-lead"><span>BUILD A BASE. COMMAND AN ARMY. JOIN THE FIGHT.</span><p>Start above the battlefield. Build an economy, scout your opponent, and send a mixed force into battle. Take direct control of a unit when you want to fight yourself.</p><strong>Your objective: protect your Command Yard and destroy every hostile Command Yard.</strong></div>
+      <nav class="field-guide-nav" aria-label="Guide chapters"><a href="#guide-start">First five minutes</a><a href="#guide-armies">Choose your army</a><a href="#guide-tactics">Fight smarter</a><a href="#guide-care">Protect & repair</a><a href="#guide-controls">Controls</a></nav>
+      <section id="guide-start" class="iron-howto__section"><div class="iron-howto__section-heading"><span>01</span><h3>First five minutes</h3></div><div class="field-guide-split">${scene('base')}<ol class="field-guide-steps"><li><b>Power your base</b><p>Build a Power Plant. Keep power production ahead of demand so production stays efficient.</p></li><li><b>Secure income</b><p>Place a Refinery near resources. Collectors gather and return cargo for credits. Use the idle-collector notice to locate a collector that needs attention.</p></li><li><b>Build a fighting force</b><p>Barracks produce infantry; Factories produce armor. Mix affordable scouts, M-17 tanks, and powerful Mauler siege guns instead of buying only one unit type.</p></li><li><b>Scout, then commit</b><p>Reveal enemy positions before attacking. Protect collectors and production while your main force advances.</p></li></ol></div></section>
+      <section id="guide-armies" class="iron-howto__section"><div class="iron-howto__section-heading"><span>02</span><h3>Two armies. Two ways to win.</h3></div><p>Choose each army’s doctrine in battle setup. Both build an economy and field ground forces; their special capabilities change your plan.</p><div class="field-guide-armies"><article>${scene('air')}<small>AIR POWER & DEFENSE</small><h4>${ARMY_DOCTRINES['iron-legion'].label}</h4><p>Produce Wasp, Vulture, and Hammerhead aircraft from Helipads. Use air power to flank ground forces and support your tanks.</p><ul><li>Layer missile interception and ground defenses around valuable buildings.</li><li>Aircraft give you mobile pressure and a direct-control fighting option.</li><li><b>Tradeoff:</b> no strategic missile program.</li></ul><aside>Try this: send aircraft around the flank while armor presses the front.</aside></article><article>${scene('missile')}<small>LONG-RANGE STRIKE</small><h4>${ARMY_DOCTRINES['missile-command'].label}</h4><p>Build intelligence and missile infrastructure, then mark a location for a strategic strike. Upgrade warheads and accuracy as your economy grows.</p><ul><li>Use strategic missiles and Ember drones to pressure valuable locations.</li><li>Scout targets: a marked location is not a promise that an enemy will stay there.</li><li><b>Tradeoff:</b> no Helipads or aircraft production.</li></ul><aside>Try this: pressure production with a strike, then follow with ground troops.</aside></article></div></section>
+      <section id="guide-tactics" class="iron-howto__section"><div class="iron-howto__section-heading"><span>03</span><h3>Give your squad a plan</h3></div><div class="field-guide-split">${scene('route')}<div><h4>Define tactics → plot waypoints → choose behavior</h4><p>Select a unit or squad, open <b>Define tactics</b>, and click up to 64 waypoints or use <b>Draw path</b> to drag a route. Adjust <b>Formation variation</b> to stagger departures and vary each unit’s path; the squad spreads out at the final point.</p><div class="field-guide-modes"><article><b>Attack as you move</b><p>Keep moving through the route and fire at available targets. Incoming fire does not make the squad stop to duel. The squad holds at the final point.</p></article><article><b>Attack-move</b><p>Choose this when engaging enemies matters more than passing through without stopping.</p></article><article><b>Hold / attack a target</b><p>Finish in position or give the squad a specific target. Choose the option that matches your mission.</p></article></div><aside>Scenario: facing strong front defenses? Route around the side and threaten the refinery or factory.</aside></div></div><div class="field-guide-callout"><b>Command from above. Fight from inside.</b><p>${mobile ? 'Select a unit and tap CONTROL.' : 'Select a unit and press V.'} Drive, aim, and fire yourself; swap within the selected squad. Return to strategy view to manage the whole battle.</p></div></section>
+      <section id="guide-care" class="iron-howto__section"><div class="iron-howto__section-heading"><span>04</span><h3>Keep your base alive</h3></div><div class="field-guide-split">${scene('repair')}<div><h4>Repair before rebuilding</h4><p>Hover a damaged, completed friendly building and click <b>🔧 Repair</b>. It restores health gradually and repairs visible damage.</p><ul><li><b>10 credits per second per building.</b> A full health bar takes 20 paid seconds; partial damage takes less.</li><li>Repairs pause without credits and stop automatically at full health.</li><li>A destroyed building cannot be repaired. Keep troops nearby to protect the repair.</li></ul><h4>Watch the minimap</h4><p>Flashing red dots warn of hostile missiles approaching your base. Spread valuable buildings and use your army’s available defenses.</p><aside>Hard commanders attack earlier, flank, and raid income or production. Defend more than your front gate.</aside></div></div></section>
+      <section id="guide-controls" class="iron-howto__section"><div class="iron-howto__section-heading"><span>05</span><h3>${mobile ? 'Touch controls' : 'Keyboard & mouse'}</h3></div><p>You can reopen this guide during a game. Start with selection, movement, and direct control; learn the shortcuts as you play.</p><div class="iron-howto__controls">${controls}</div></section>
+      <footer class="iron-howto__footer"><p><strong>Your next move:</strong> choose an army, secure income, scout, then launch one supported attack.</p><button class="iron-howto__footer-close" type="button">Ready for battle</button></footer>
     </section>
   `;
 }
