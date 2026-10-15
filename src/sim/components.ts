@@ -49,6 +49,7 @@ export type TacticEndAction =
 
 /** Multi-waypoint path plan; `remaining` are waypoints after the current `target`. */
 export interface TacticPlan {
+  startAtTick?: number;
   remaining: Array<{ x: number; z: number }>;
   endAction: TacticEndAction;
   /** Keep rapid transit enabled for every leg of this tactic. */
@@ -85,6 +86,8 @@ export interface Mover {
 }
 
 export interface Flight {
+  /** Premium steering authority, independent of weapon loadout. */
+  agility?: number;
   cruiseAltitude: number;
   minAGL: number;
   maxAltitude: number;
@@ -257,6 +260,7 @@ export interface Entity {
   builder?: Builder;
   possessable?: Possessable;
   playerControlled?: PlayerControlled;
+  infantryStance?: { height: number; velocity: number; jumpHeld: boolean; crouch: number };
   collider?: Collider;
   armor?: Armor;
   destroyed?: Destroyed;

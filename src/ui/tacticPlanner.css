@@ -313,3 +313,8 @@
   color: #b8c7bf;
   font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
 }
+.iron-tactic__variation { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 12px; border: 1px solid #3e5c4b; border-radius: 7px; color: #cce4d4; font-size: 12px; }
+.iron-tactic__variation input, .iron-tactic__variation small { grid-column: 1 / -1; width: 100%; }
+.iron-tactic__variation input { accent-color: #a6cfb0; }
+.iron-tactic__variation small { color: #8fa69b; line-height: 1.5; }
+.iron-tactic__variation output { font-variant-numeric: tabular-nums; }

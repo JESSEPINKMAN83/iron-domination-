@@ -565,7 +565,7 @@ describe('phase 2 movement simulation', () => {
     expect(Math.abs(angleDelta(vulture.transform.rot, start.rot))).toBeLessThan(0.12);
   });
 
-  it('lets a player-controlled gunship make a fast 180-degree turn at speed', () => {
+  it('makes a player-controlled gunship finish a gradual 180-degree turn at speed', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const vulture = spawnVultureAt(sim, hf, -hf.size * 0.08, -hf.size * 0.08, 'Vulture 1');
@@ -578,7 +578,11 @@ describe('phase 2 movement simulation', () => {
     const reverseYaw = startYaw + Math.PI;
     vulture.playerControlled.aimYaw = reverseYaw;
 
-    for (let i = 0; i < 30 * 1.35; i++) stepSim(sim, hf, 1 / 30);
+    for (let i = 0; i < 30 * 2.5; i++) {
+      const previousYaw = vulture.transform.rot;
+      stepSim(sim, hf, 1 / 30);
+      expect(Math.abs(angleDelta(previousYaw, vulture.transform.rot))).toBeLessThanOrEqual(2.6 / 30 + 0.00001);
+    }
 
     expect(Math.abs(angleDelta(vulture.transform.rot, reverseYaw))).toBeLessThan(0.52);
     expect(vulture.destroyed).toBeUndefined();

@@ -245,7 +245,10 @@ export class CombatView {
     if (remaining <= 0) return;
     const selectedEvents = selectCombatVisualEvents(events, this.localTeam, this.visualQuality, remaining);
     this.visualEventsThisFrame += selectedEvents.length;
-    for (const event of selectedEvents) {
+    for (const originalEvent of selectedEvents) {
+      const victim = originalEvent.targetId === undefined ? undefined : this.resolveEntity(originalEvent.targetId);
+      const heavyWreck = originalEvent.killed && originalEvent.targetType === 'tank' && (victim?.weapons?.primary.kind ?? victim?.weapon?.kind) === 'heavyCannon';
+      const event = heavyWreck ? { ...originalEvent, impactScale: (originalEvent.impactScale ?? 1) * 1.35 } : originalEvent;
       const sourceVisible = this.isVisible(event.fromX, event.fromZ);
       const impactVisible = this.isVisible(event.toX, event.toZ);
       const playerHiddenHit = event.sourceTeamId === this.localTeam && event.damage > 0;
@@ -1342,8 +1345,8 @@ export class CombatView {
     const fullCount = strategic ? 22 : destroyedTank ? 12 : heavyImpact ? 9 : 6;
     const count = Math.max(2, Math.round(fullCount * qualityDensity));
     const warheadScale = strategic ? Math.max(1.6, event.impactScale ?? 1.6) : Math.max(0.55, event.impactScale ?? 1);
-    const baseSize = strategic ? 1.8 * warheadScale : destroyedTank ? 2.2 : heavyImpact ? 2.35 * warheadScale : 1.8 * warheadScale;
-    const baseTtl = strategic ? 7.2 : destroyedTank ? 5.6 : heavyImpact ? 4.2 : 3.1;
+    const baseSize = strategic ? 1.8 * warheadScale : destroyedTank ? 2.2 * Math.min(1.5, warheadScale) : heavyImpact ? 2.35 * warheadScale : 1.8 * warheadScale;
+    const baseTtl = strategic ? 7.2 : destroyedTank ? 5.6 * Math.min(1.25, warheadScale) : heavyImpact ? 4.2 : 3.1;
     const spread = strategic ? 4.6 * warheadScale : destroyedTank ? 1.45 : heavyImpact ? 1.35 * warheadScale : 0.75 * warheadScale;
     const delayStep = strategic ? 0.07 : destroyedTank ? 0.2 : 0.09;
     const seed = hashScorchSeed(`${event.kind}-smoke`, event.toX, event.toZ);

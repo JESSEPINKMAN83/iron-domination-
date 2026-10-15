@@ -60,9 +60,9 @@ export const UNIT_ARSENALS: Record<UnitKind, UnitArsenal> = {
   },
   'siege-tank': {
     primary: 'heavyCannon',
-    secondary: 'autocannon',
+    secondary: 'siegeMissile',
     designation: 'MAULER SIEGE GUN',
-    fireControl: '155MM INDIRECT FCS',
+    fireControl: '155MM CANNON + GUIDED MISSILE',
     hud: 'artillery',
   },
   wasp: {

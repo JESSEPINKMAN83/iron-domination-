@@ -39,6 +39,7 @@ export type NetCommand =
       type: 'tactic';
       ids: number[];
       waypoints: Array<{ x: number; z: number }>;
+      variation?: number;
       endAction: 'hold' | 'attack-move' | 'attack-through' | 'attack';
       endTargetId?: number;
       sprint?: boolean;
@@ -482,6 +483,7 @@ export class LockstepRuntime {
           command.waypoints,
           endAction,
           command.sprint,
+          command.variation,
         );
       }
     } else if (command.type === 'attack') {

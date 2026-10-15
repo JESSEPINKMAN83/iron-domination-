@@ -1019,7 +1019,7 @@ export class UnitView {
         if (rankBadge) rankBadge.root.visible = false;
         continue;
       }
-      obj.visible = true;
+      obj.visible = !(entity.playerControlled && entity.selectable?.type === 'infantry' && Math.hypot(entity.transform.x - camera.position.x, entity.transform.z - camera.position.z) < 0.9);
       this.updateUpgradeVisuals(entity);
       const x = lerp(entity.previousTransform.x, entity.transform.x, alpha);
       const z = lerp(entity.previousTransform.z, entity.transform.z, alpha);
@@ -1034,6 +1034,7 @@ export class UnitView {
         const attitude = this.updateGroundAttitude(entity, x, z, rot, dt);
         y = attitude.y + 0.35;
       }
+      if (entity.infantryStance) y += entity.infantryStance.height - entity.infantryStance.crouch * 0.6;
       obj.position.set(x, y, z);
       obj.rotation.y = rot;
       if (updateDetails && !entity.destroyed) this.updateFriendlyGlow(entity, x, y, z, glowTime);
@@ -1144,9 +1145,10 @@ export class UnitView {
         destroyed: Boolean(entity.destroyed),
       });
       if (keepDetailed) {
-        obj.visible = true;
+        obj.visible = !(entity.playerControlled && entity.selectable?.type === 'infantry' && Math.hypot(entity.transform.x - camera.position.x, entity.transform.z - camera.position.z) < 0.9);
         this.updateUpgradeVisuals(entity);
-        obj.position.set(x, y, z);
+        if (entity.infantryStance) y += entity.infantryStance.height - entity.infantryStance.crouch * 0.6;
+      obj.position.set(x, y, z);
         if (terrainAttitude) obj.rotation.order = 'YXZ';
         obj.rotation.y = rot;
         this.applyPose(entity, obj, dt);
@@ -1206,6 +1208,7 @@ export class UnitView {
   }
 
   private updateFriendlyGlow(entity: Entity, x: number, y: number, z: number, time: number): void {
+    if (entity.selectable?.type === 'infantry') return;
     if (factionId(entity.team?.id) !== factionId(this.localTeam) || this.friendlyGlow.count >= MAX_FRIENDLY_GLOWS) return;
     const type = entity.selectable?.type;
     const pulse = 0.5 + 0.5 * Math.sin(time + entity.id * 0.71);

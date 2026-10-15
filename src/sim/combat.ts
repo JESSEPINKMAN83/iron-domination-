@@ -105,7 +105,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     if (!attacker.health || !attacker.team) continue;
     if (attacker.playerControlled) continue; // brain bypassed; stepSim slews the turret to the crosshair
     const commandDrivenCombat = !sim.rules.autoCombat;
-    if (commandDrivenCombat && !attacker.mover?.attackMove && !attacker.mover?.attackThrough && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined)) continue;
+    if (commandDrivenCombat && attacker.mover?.attackTargetId === undefined && !attacker.mover?.attackMove && !attacker.mover?.attackThrough && !weaponSlots(attacker).some((weapon) => weapon.targetId !== undefined)) continue;
 
     const orderedTarget = explicitOrderTarget(sim, attacker);
     let turretGoalYaw: number | undefined;
@@ -1760,7 +1760,9 @@ function acquireLineTarget(
     const radius = candidate.collider?.radius ?? candidate.selectable?.radius ?? 2.4;
     let along = horizontalAlong;
     let perp = Math.abs(dx * uz - dz * ux);
-    let tolerance = strictManualAim ? radius * 0.82 : radius + 2.2;
+    const tankAimAssist = strictManualAim && !!attacker.playerControlled && !attacker.flight && attacker.selectable?.type === 'tank';
+    const assistMargin = tankAimAssist ? Math.min(1.8, horizontalAlong * 0.018) : 0;
+    let tolerance = strictManualAim ? radius * 0.82 + assistMargin : radius + 2.2;
     if (aimRay) {
       const baseY = candidate.transform.y;
       const centerOffset = candidate.flight ? 0 : candidate.building ? 2.4 : candidate.selectable?.type === 'infantry' ? 1 : 1.4;
@@ -1769,7 +1771,7 @@ function acquireLineTarget(
       along = dx * aimRay.x + dy * aimRay.y + dz * aimRay.z;
       if (along < 0) continue;
       perp = Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along));
-      tolerance = strictManualAim ? radius * (candidate.flight ? 0.9 : 0.82) : radius + (candidate.flight ? 1.35 : 0.8);
+      tolerance = strictManualAim ? radius * (candidate.flight ? 0.9 : 0.82) + (candidate.flight ? 0 : assistMargin) : radius + (candidate.flight ? 1.35 : 0.8);
     }
     if (along > bestAlong || perp > tolerance) continue;
     best = candidate;

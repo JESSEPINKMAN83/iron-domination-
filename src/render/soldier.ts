@@ -2,7 +2,7 @@
 // turretPivot contract, but now reads as a small soldier: human proportions,
 // helmet/goggles, camo uniform, kit silhouettes, held weapons, and cached refs
 // for aim/recoil/death animation.
-import { BoxGeometry, CylinderGeometry, Group, Mesh, type BufferGeometry, type Material } from 'three';
+import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Material } from 'three';
 import type { UnitVisualKind } from './unitKinds';
 
 export interface SoldierMaterials {
@@ -217,6 +217,8 @@ function buildCombatBike(m: SoldierMaterials): { root: Group; steering: Group; w
 function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, kit: SoldierKit): { antenna?: Group; backBlast?: Mesh } {
   if (kit !== 'rifle') torso.add(box(0.035, 0.58, 0.045, m.gear, -0.16, 0.42, -0.16).rotateZ(-0.55)); // sling
   if (kit === 'grenadier') {
+    torso.add(box(0.67, 0.18, 0.38, m.uniform, 0, 0.64, 0));
+    torso.add(box(0.42, 0.55, 0.24, m.canvas, 0, 0.38, -0.29));
     torso.scale.x = 1.08;
     torso.rotation.y = 0.16;
     torso.add(box(0.5, 0.28, 0.3, m.gear, 0, 0.38, 0.02));
@@ -234,6 +236,8 @@ function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, 
     rifle.scale.set(1.2, 1.08, 1.12);
     root.scale.set(1.05, 1.02, 1.05);
   } else if (kit === 'rocket') {
+    torso.add(box(0.6, 0.13, 0.32, m.uniform, 0, 0.65, 0));
+    torso.add(cyl(0.08, 0.08, 0.8, 8, m.uniform, 0.28, 0.52, -0.3));
     const pack = box(0.34, 0.58, 0.2, m.gear, 0, 0.42, -0.23);
     torso.add(pack);
     torso.add(box(0.3, 0.055, 0.21, m.accent, 0, 0.69, -0.35));
@@ -261,6 +265,10 @@ function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, 
     root.scale.set(0.98, 1.08, 0.98);
     return { antenna, backBlast };
   } else if (kit === 'sniper') {
+    torso.add(box(0.65, 0.12, 0.48, m.uniform, 0, 0.72, -0.08));
+    const cape = box(0.55, 0.82, 0.08, m.uniform, 0, 0.25, -0.24);
+    cape.rotation.x = -0.18; torso.add(cape);
+    torso.add(box(0.3, 0.24, 0.25, m.uniform, 0, 1.02, -0.03));
     rifle.scale.set(1.04, 0.98, 1.5);
     rifle.position.set(0.08, 0.42, 0.31);
     rifle.rotation.x = -0.16;
@@ -275,7 +283,15 @@ function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, 
   return {};
 }
 
+const kitUniforms = {
+  rifle: new MeshStandardMaterial({ color: 0x59664a, roughness: 0.95 }),
+  grenadier: new MeshStandardMaterial({ color: 0x887452, roughness: 0.95 }),
+  sniper: new MeshStandardMaterial({ color: 0x414e38, roughness: 1 }),
+  rocket: new MeshStandardMaterial({ color: 0x555b60, roughness: 0.95 }),
+};
+
 export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): SoldierRig {
+  m = { ...m, uniform: kitUniforms[kit] };
   const root = new Group();
   const combatBike = buildCombatBike(m);
   root.add(combatBike.root);

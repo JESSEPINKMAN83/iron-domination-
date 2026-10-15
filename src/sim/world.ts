@@ -418,6 +418,7 @@ export function spawnHammerheadAt(sim: GameSim, hf: Heightfield, x: number, z: n
     primary: UNIT_ARSENALS.hammerhead.primary,
     secondary: UNIT_ARSENALS.hammerhead.secondary,
     health: 230,
+    agility: 1.25,
     speed: 34,
     cruiseAltitude: 34,
     minAGL: 8,
@@ -432,6 +433,7 @@ export function spawnHammerheadAt(sim: GameSim, hf: Heightfield, x: number, z: n
 }
 
 interface AircraftVariant {
+  agility?: number;
   primary: string;
   secondary?: string;
   primaryRange: number;
@@ -471,6 +473,7 @@ function spawnAircraftAt(sim: GameSim, hf: Heightfield, x: number, z: number, na
       previousPitchAttitude: 0,
       previousRollAttitude: 0,
       model: 'gunship',
+      agility: variant.agility,
       bank: 0,
       verticalVelocity: 0,
     },
@@ -712,6 +715,11 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
   for (let i = 0; i < movers.length; i++) {
     const entity = movers[i];
+    if (!entity.destroyed && !entity.playerControlled && entity.mover.tactic?.startAtTick !== undefined && sim.tick < entity.mover.tactic.startAtTick) {
+      entity.velocity.x = 0;
+      entity.velocity.z = 0;
+      continue;
+    }
     if (entity.destroyed) {
       if (entity.flight) stepDestroyedAircraft(sim, hf, entity, dt);
       else stepDestroyedGroundVehicle(sim, hf, entity, dt);
@@ -755,8 +763,8 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       const throttle = Math.max(-1, Math.min(1, entity.playerControlled.throttle));
       const turn = Math.max(-1, Math.min(1, entity.playerControlled.turn));
       const boost = entity.playerControlled.boost ? POSSESSION_BOOST_MULTIPLIER : 1;
-      const driveSpeed = mover.speed * boost * (throttle < 0 ? 0.42 : 0.78) * combatRankSpeedMultiplier(entity);
-      const turnRate = throttle === 0 ? 1.55 : 1.15;
+      const driveSpeed = mover.speed * boost * (throttle < 0 ? 0.62 : 0.9) * combatRankSpeedMultiplier(entity);
+      const turnRate = throttle === 0 ? 1.85 : 1.35;
       if (isTrackedGroundVehicle(entity)) {
         // V-mode remains quick, but a tracked chassis now winds its angular
         // velocity up and down over a few frames instead of snapping instantly.
@@ -769,8 +777,17 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       }
       desiredX = Math.sin(transform.rot) * driveSpeed * throttle;
       desiredZ = Math.cos(transform.rot) * driveSpeed * throttle;
+      if (entity.selectable?.type === 'infantry') {
+        transform.rot = entity.playerControlled.aimYaw;
+        const side = clamp(entity.playerControlled.strafe ?? 0, -1, 1);
+        const length = Math.max(1, Math.hypot(throttle, side));
+        const crouching = (entity.playerControlled.climb ?? 0) < -0.5;
+        const footSpeed = mover.speed * (crouching ? 0.5 : boost) * combatRankSpeedMultiplier(entity);
+        desiredX = (Math.sin(transform.rot) * throttle + Math.cos(transform.rot) * side) * footSpeed / length;
+        desiredZ = (Math.cos(transform.rot) * throttle - Math.sin(transform.rot) * side) * footSpeed / length;
+      }
       // real traverse speed — you feel the turret's weight chasing the crosshair
-      if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, entity.playerControlled.aimYaw, entity.turret.turnRate, dt);
+      if (entity.turret) entity.turret.yaw = slewAngle(entity.turret.yaw, entity.playerControlled.aimYaw, entity.turret.turnRate * (isTrackedGroundVehicle(entity) ? 1.45 : 1), dt);
     } else if (mover.target && mover.flow) {
       const finalX = mover.target.x + (mover.formationOffset?.x ?? 0);
       const finalZ = mover.target.z + (mover.formationOffset?.z ?? 0);
@@ -913,6 +930,18 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         : moveYaw;
     }
     transform.y = sampleHeight(hf, transform.x, transform.z);
+    if (entity.selectable?.type === 'infantry') {
+      const stance = entity.infantryStance ??= { height: 0, velocity: 0, jumpHeld: false, crouch: 0 };
+      const climb = entity.playerControlled?.climb ?? 0;
+      const jump = climb > 0.5;
+      if (jump && !stance.jumpHeld && stance.height <= 0) stance.velocity = 6.2;
+      stance.jumpHeld = jump;
+      stance.velocity -= 18 * dt;
+      stance.height = Math.max(0, stance.height + stance.velocity * dt);
+      if (stance.height === 0) stance.velocity = 0;
+      stance.crouch = approach(stance.crouch, climb < -0.5 && stance.height === 0 ? 0.65 : 0, dt * 5);
+      transform.y += stance.height;
+    }
   }
 
   sim.tick++;
@@ -1187,46 +1216,62 @@ interface FlightCommand {
   aimYaw?: number;
 }
 
+export function aircraftTurnRateAtSpeed(hoverRate: number, cruiseRate: number, speed: number, cruiseSpeed: number): number {
+  const fraction = clamp(speed / Math.max(1, cruiseSpeed), 0, 1);
+  const base = lerp(hoverRate, cruiseRate, fraction);
+  // Boost increases the turn radius, not the angular authority.
+  return base * Math.min(1, cruiseSpeed / Math.max(1, speed));
+}
+
 function stepAttackThroughFlight(sim: GameSim, hf: Heightfield, entity: MovingEntity, dt: number): void {
   const { transform, velocity, mover } = entity;
   const flight = entity.flight!;
   const model = FLIGHT_MODELS[flight.model];
   const speed = mover.speed * (mover.sprint ? RTS_SPRINT_MULTIPLIER : 1) * combatRankSpeedMultiplier(entity);
-  let travel = speed * dt;
-  let directionX = 0;
-  let directionZ = 0;
-  // Spend this tick's travel across waypoint boundaries, including coincident
-  // points. Hull heading and weapon targeting cannot brake route execution.
-  for (let leg = 0; leg < 9 && mover.target; leg++) {
-    const target = mover.target;
-    const dx = target.x - transform.x;
-    const dz = target.z - transform.z;
-    const distance = Math.hypot(dx, dz);
-    if (distance > 0.0001) {
-      directionX = dx / distance;
-      directionZ = dz / distance;
+  const target = mover.target!;
+  const dx = target.x - transform.x;
+  const dz = target.z - transform.z;
+  const distance = Math.hypot(dx, dz);
+  const heading = Math.atan2(dx, dz);
+  const currentSpeed = Math.hypot(velocity.x, velocity.z);
+  const agility = flight.agility ?? 1;
+  const turnRate = aircraftTurnRateAtSpeed(model.yawRateHover, model.yawRateAtSpeed, currentSpeed, model.maxSpeed) * agility;
+  const velocityHeading = currentSpeed > 0.1 ? Math.atan2(velocity.x, velocity.z) : transform.rot;
+  const travelHeading = slewAngle(velocityHeading, heading, turnRate, dt);
+  const turn = normalizeAngle(travelHeading - velocityHeading);
+  const intermediate = Boolean(mover.tactic?.remaining.length);
+  const headingError = Math.abs(normalizeAngle(heading - velocityHeading));
+  // Fly through intermediate points; only the final destination is a stop.
+  // U-turns reduce speed modestly instead of braking to waypoint arrival speed.
+  const turnSpeed = speed * (1 - 0.35 * clamp((headingError - Math.PI / 3) / (Math.PI * 2 / 3), 0, 1));
+  const cruise = intermediate ? turnSpeed : Math.min(turnSpeed, Math.sqrt(distance * model.tiltAccel), Math.max(0.5, distance * turnRate * 0.7));
+  const travelSpeed = approach(currentSpeed, cruise, model.tiltAccel * agility * dt);
+  const arrivalRadius = intermediate
+    ? Math.max(3, travelSpeed * dt, travelSpeed / Math.max(0.1, turnRate) * 0.45)
+    : Math.max(ARRIVAL_EPSILON, travelSpeed * dt);
+  if (distance <= arrivalRadius) {
+    if (!intermediate) {
+      transform.x = target.x;
+      transform.z = target.z;
+    } else {
+      transform.x += Math.sin(travelHeading) * travelSpeed * dt;
+      transform.z += Math.cos(travelHeading) * travelSpeed * dt;
     }
-    if (distance > travel) {
-      transform.x += directionX * travel;
-      transform.z += directionZ * travel;
-      break;
-    }
-    transform.x = target.x;
-    transform.z = target.z;
-    travel = Math.max(0, travel - distance);
     mover.holdPosition = { ...target };
     mover.target = undefined;
     advanceTacticAfterArrival(sim, entity);
-    if (!entity.mover.target) break;
+    velocity.x = mover.target ? Math.sin(travelHeading) * travelSpeed : 0;
+    velocity.z = mover.target ? Math.cos(travelHeading) * travelSpeed : 0;
+  } else {
+    velocity.x = Math.sin(travelHeading) * travelSpeed;
+    velocity.z = Math.cos(travelHeading) * travelSpeed;
+    transform.x += velocity.x * dt;
+    transform.z += velocity.z * dt;
   }
-  velocity.x = mover.target ? directionX * speed : 0;
-  velocity.z = mover.target ? directionZ * speed : 0;
-  const heading = Math.atan2(directionX, directionZ);
-  const turn = normalizeAngle(heading - transform.rot);
-  transform.rot = slewAngle(transform.rot, heading, model.yawRateHover, dt);
+  transform.rot = slewAngle(transform.rot, travelHeading, turnRate, dt);
   const attitudeT = damp(model.attitudeLag, dt);
   flight.pitchAttitude += ((mover.target ? -model.maxTiltPitch * 0.7 : 0) - flight.pitchAttitude) * attitudeT;
-  flight.rollAttitude += (clamp(-turn * 0.3, -model.maxTiltRoll, model.maxTiltRoll) - flight.rollAttitude) * attitudeT;
+  flight.rollAttitude += (clamp(-turn / Math.max(dt, 0.001) * travelSpeed * 0.012, -model.maxTiltRoll, model.maxTiltRoll) - flight.rollAttitude) * attitudeT;
   flight.bank = flight.rollAttitude;
   const ground = sampleHeight(hf, transform.x, transform.z);
   const desiredY = Math.min(flight.maxAltitude, ground + flight.cruiseAltitude);
@@ -1242,7 +1287,7 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
 
   flight.previousPitchAttitude = flight.pitchAttitude;
   flight.previousRollAttitude = flight.rollAttitude;
-  if (!entity.playerControlled && mover.attackThrough && mover.target) {
+  if (!entity.playerControlled && (mover.attackThrough || mover.tactic) && mover.target) {
     stepAttackThroughFlight(sim, hf, entity, dt);
     return;
   }
@@ -1260,7 +1305,7 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
   const speed = Math.hypot(velocity.x, velocity.z);
   const command = entity.playerControlled ? possessedFlightCommand(entity) : aiFlightCommand(sim, entity);
   const yawSpeedT = clamp(speed / maxSpeed, 0, 1);
-  const yawRate = lerp(model.yawRateHover, model.yawRateAtSpeed, yawSpeedT);
+  const yawRate = lerp(model.yawRateHover, model.yawRateAtSpeed, yawSpeedT) * (flight.agility ?? 1);
   let yawApplied = command.turn * yawRate * dt;
   let aimDeltaForVane = 0;
 
@@ -1270,7 +1315,7 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
     if (entity.playerControlled) {
       const absAim = Math.abs(aimDelta);
       const hardTurnBoost = absAim > Math.PI * 0.62 ? 2.05 : absAim > Math.PI * 0.34 ? 1.55 : 1.1;
-      yawApplied += Math.sign(aimDelta) * Math.min(absAim, model.mouseFollowRate * hardTurnBoost * dt);
+      yawApplied += Math.sign(aimDelta) * Math.min(absAim, model.mouseFollowRate * hardTurnBoost * (flight.agility ?? 1) * dt);
     } else {
       const outsideGimbal = Math.max(0, Math.abs(aimDelta) - model.gimbalHalfAngle);
       if (outsideGimbal > 0) yawApplied += Math.sign(aimDelta) * Math.min(outsideGimbal, model.mouseFollowRate * dt);
@@ -1286,6 +1331,8 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
     yawApplied += clamp(vaneDelta, -vaneStep, vaneStep);
   }
 
+  const turnLimit = aircraftTurnRateAtSpeed(model.yawRateHover, model.yawRateAtSpeed, speed, model.maxSpeed) * (flight.agility ?? 1) * dt;
+  yawApplied = clamp(yawApplied, -turnLimit, turnLimit);
   transform.rot = normalizeAngle(transform.rot + yawApplied);
 
   const noInput = Math.abs(command.throttle) < 0.001 && Math.abs(command.strafe) < 0.001 && Math.abs(command.turn) < 0.001 && Math.abs(command.climb) < 0.001;
@@ -1306,7 +1353,7 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
   const powerScale = Math.abs(command.climb) > 0.5 ? 0.75 : 1;
   const pitchDenom = Math.max(0.001, Math.sin(model.maxTiltPitch));
   const rollDenom = Math.max(0.001, Math.sin(model.maxTiltRoll));
-  const accelBoost = boost;
+  const accelBoost = boost * (flight.agility ?? 1);
   const accelFwd = (-Math.sin(flight.pitchAttitude) / pitchDenom) * model.tiltAccel * powerScale * accelBoost;
   const accelSide = (Math.sin(flight.rollAttitude) / rollDenom) * model.strafeAccel * powerScale * accelBoost;
   let accelX = accelFwd * forwardX + accelSide * rightX;
@@ -1633,6 +1680,7 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.defenseAlert ? Math.round(entity.mover.defenseAlert.ttl * 1000) : 0);
       mix(entity.mover.sprint ? 1 : 0);
       if (entity.mover.tactic) {
+        mix(entity.mover.tactic.startAtTick ?? 0);
         mix(entity.mover.tactic.remaining.length);
         for (const point of entity.mover.tactic.remaining) {
           mix(Math.round(point.x * 10));
@@ -1644,6 +1692,12 @@ export function hashSim(sim: GameSim): number {
       }
     }
     if (entity.aiCombat) mix(entity.aiCombat.nextAcquireTick ?? 0);
+    if (entity.infantryStance) {
+      mix(Math.round(entity.infantryStance.height * 10000));
+      mix(Math.round(entity.infantryStance.velocity * 10000));
+      mix(Math.round(entity.infantryStance.crouch * 10000));
+      mix(entity.infantryStance.jumpHeld ? 1 : 0);
+    }
     if (entity.playerControlled) {
       mix(Math.round(entity.playerControlled.throttle * 1000));
       mix(Math.round(entity.playerControlled.turn * 1000));
@@ -1673,6 +1727,7 @@ export function hashSim(sim: GameSim): number {
       }
     }
     if (entity.flight) {
+      mix(Math.round((entity.flight.agility ?? 1) * 1000));
       mix(Math.round(entity.flight.pitchAttitude * 1000));
       mix(Math.round(entity.flight.rollAttitude * 1000));
       mix(Math.round(entity.flight.verticalVelocity * 1000));

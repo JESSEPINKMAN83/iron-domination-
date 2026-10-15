@@ -1,7 +1,8 @@
+import { hash2i } from './noise';
 import type { Entity, TacticEndAction, TacticPlan } from './components';
 import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, type GameSim } from './world';
 
-export const MAX_TACTIC_WAYPOINTS = 8;
+export const MAX_TACTIC_WAYPOINTS = 64;
 
 export function cloneTacticEndAction(endAction: TacticEndAction): TacticEndAction {
   if (endAction.kind === 'attack') return { kind: 'attack', targetId: endAction.targetId };
@@ -13,6 +14,7 @@ export function cloneTacticPlan(plan: TacticPlan): TacticPlan {
     remaining: plan.remaining.map((point) => ({ x: point.x, z: point.z })),
     endAction: cloneTacticEndAction(plan.endAction),
     sprint: plan.sprint,
+    startAtTick: plan.startAtTick,
   };
 }
 
@@ -56,6 +58,7 @@ export function issueTacticOrder(
   waypoints: Array<{ x: number; z: number }>,
   endAction: TacticEndAction,
   sprint = false,
+  variation = 0,
 ): boolean {
   if (!validateTacticWaypoints(waypoints) || !validateTacticEndAction(endAction)) return false;
   const movers = tacticEligibleEntities(entities);
@@ -77,12 +80,32 @@ export function issueTacticOrder(
 
   if (!issueMoveOrder(sim, movers, first.x, first.z, false, undefined, undefined, sprint)) return false;
 
+  const amount = Number.isFinite(variation) ? Math.max(0, Math.min(1, variation)) : 0;
+  const ordered = [...movers].sort((a, b) => a.id - b.id);
+  const spacing = Math.max(...ordered.map((entity) => entity.mover!.radius * 2 + 3));
+  const columns = Math.ceil(Math.sqrt(ordered.length));
   let assigned = 0;
   for (const entity of movers) {
     if (!entity.mover) continue;
     // issueMoveOrder clears tactic; re-attach the shared remaining queue per unit.
     if (entity.mover.target || entity.mover.holdPosition || entity.flight) {
-      entity.mover.tactic = cloneTacticPlan(planSeed);
+      const plan = cloneTacticPlan(planSeed);
+      if (ordered.length > 1) {
+        const index = ordered.indexOf(entity);
+        const slot = { x: (index % columns - (columns - 1) / 2) * spacing, z: (Math.floor(index / columns) - (Math.ceil(ordered.length / columns) - 1) / 2) * spacing };
+        const offset = (point: { x: number; z: number }, final: boolean, leg: number) => {
+          const jitterX = (hash2i(entity.id, sim.tick, leg * 2 + 411) - 0.5) * spacing * amount * 0.2;
+          const jitterZ = (hash2i(entity.id, sim.tick, leg * 2 + 412) - 0.5) * spacing * amount * 0.2;
+          const scale = final ? 1 : amount * 0.65;
+          const edge = sim.nav.size / 2 - entity.mover!.radius - 1;
+          return { x: Math.max(-edge, Math.min(edge, point.x + slot.x * scale + jitterX)), z: Math.max(-edge, Math.min(edge, point.z + slot.z * scale + jitterZ)) };
+        };
+        plan.remaining = plan.remaining.map((point, index) => offset(point, index === plan.remaining.length - 1, index + 1));
+        const firstPoint = offset(first, remaining.length === 0, 0);
+        issueMoveOrder(sim, [entity], firstPoint.x, firstPoint.z, false, undefined, undefined, sprint);
+        plan.startAtTick = sim.tick + Math.floor(hash2i(entity.id, sim.tick, 413) * amount * 60);
+      }
+      entity.mover.tactic = plan;
       entity.mover.attackThrough = endAction.kind === 'attack-through' || undefined;
       entity.mover.engage = undefined;
       assigned += 1;

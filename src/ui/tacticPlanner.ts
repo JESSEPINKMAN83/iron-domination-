@@ -27,6 +27,7 @@ export type TacticExecutePayload = {
   selectionCount: number;
   plannerDurationMs: number;
   highSpeed: boolean;
+  variation: number;
 };
 
 type EndMode = 'hold' | 'attack-move' | 'attack-through' | 'attack';
@@ -47,9 +48,13 @@ export class TacticPlanner {
   private openedAt = 0;
   private candidates: Entity[] = [];
   private selectedIds = new Set<number>();
+  private drawMode = false;
+  private drawingPointer?: number;
+  private lastDrawPoint?: { x: number; y: number };
   private waypoints: Array<{ x: number; z: number }> = [];
   private endMode: EndMode = 'hold';
   private attackTargetId?: number;
+  private variation = 0.5;
   private highSpeed = false;
   private onKeyDown?: (event: KeyboardEvent) => void;
   private lastDynamicRefreshAt = 0;
@@ -77,6 +82,9 @@ export class TacticPlanner {
     this.candidates = eligible;
     this.selectedIds = new Set(eligible.map((entity) => entity.id));
     this.waypoints = [];
+    this.drawMode = false;
+    this.drawingPointer = undefined;
+    this.lastDrawPoint = undefined;
     this.endMode = 'hold';
     this.attackTargetId = undefined;
     this.highSpeed = loadHighSpeedPreference();
@@ -113,7 +121,7 @@ export class TacticPlanner {
           </div>
           <button type="button" class="iron-tactic__close" aria-label="Close">×</button>
         </header>
-        <p class="iron-tactic__intro">Select units, click the map to place up to ${MAX_TACTIC_WAYPOINTS} path points, choose their combat and arrival behavior, then execute. The match keeps running. Map is oriented with your army at the bottom.</p>
+        <p class="iron-tactic__intro">Select units, click to place up to ${MAX_TACTIC_WAYPOINTS} points, or choose Draw path and drag across the map, choose their combat and arrival behavior, then execute. The match keeps running. Map is oriented with your army at the bottom.</p>
         <div class="iron-tactic__body">
           <div class="iron-tactic__map-pane">
             <div class="iron-tactic__map-wrap">
@@ -137,6 +145,10 @@ export class TacticPlanner {
               <input type="checkbox" data-tactic-high-speed ${this.highSpeed ? 'checked' : ''}>
               <span><strong>High speed</strong><small>Use rapid transit for the entire path</small></span>
             </label>
+            <label class="iron-tactic__variation">Formation variation <output data-variation-value>${Math.round(this.variation * 100)}%</output>
+              <input type="range" min="0" max="100" step="5" value="${Math.round(this.variation * 100)}" data-tactic-variation>
+              <small>Stagger departures and vary routes. Final positions always stay spread out.</small>
+            </label>
             <div class="iron-tactic__section-title">Combat & arrival</div>
             <div class="iron-tactic__end-actions" role="group" aria-label="Combat and arrival behavior">
               <button type="button" data-end="hold" class="is-active">Hold</button>
@@ -145,6 +157,11 @@ export class TacticPlanner {
               <button type="button" data-end="attack">Attack unit</button>
             </div>
             <p class="iron-tactic__behavior-hint" data-behavior-hint></p>
+            <div class="iron-tactic__end-actions" role="group" aria-label="Path input method">
+              <button type="button" data-path-mode="points" aria-pressed="true" class="is-active">Place points</button>
+              <button type="button" data-path-mode="draw" aria-pressed="false">Draw path</button>
+            </div>
+            <small>Draw with the mouse or finger. Release to finish; drag again to extend. Up to 64 points.</small>
             <div class="iron-tactic__path-actions">
               <button type="button" data-action="undo">Undo point</button>
               <button type="button" data-action="clear">Clear path</button>
@@ -181,6 +198,11 @@ export class TacticPlanner {
       this.syncChrome();
     });
     this.executeBtn.addEventListener('click', () => this.execute());
+    const variationInput = overlay.querySelector<HTMLInputElement>('[data-tactic-variation]')!;
+    variationInput.addEventListener('input', () => {
+      this.variation = Number(variationInput.value) / 100;
+      overlay.querySelector<HTMLOutputElement>('[data-variation-value]')!.value = `${variationInput.value}%`;
+    });
     const highSpeedInput = overlay.querySelector<HTMLInputElement>('[data-tactic-high-speed]')!;
     highSpeedInput.addEventListener('change', () => {
       this.highSpeed = highSpeedInput.checked;
@@ -196,11 +218,44 @@ export class TacticPlanner {
       });
     }
 
+    for (const button of Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-path-mode]'))) {
+      button.addEventListener('click', () => {
+        this.drawMode = button.dataset.pathMode === 'draw';
+        for (const option of Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-path-mode]'))) {
+          const active = (option.dataset.pathMode === 'draw') === this.drawMode;
+          option.classList.toggle('is-active', active);
+          option.setAttribute('aria-pressed', String(active));
+        }
+      });
+    }
+    this.overlayCanvas.style.touchAction = 'none';
     this.overlayCanvas.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || !event.isPrimary) return;
       event.preventDefault();
       event.stopPropagation();
+      const previousPointCount = this.waypoints.length;
       this.handleMapPointer(event);
+      if (this.drawMode && this.waypoints.length > previousPointCount) {
+        this.drawingPointer = event.pointerId;
+        this.lastDrawPoint = { x: event.clientX, y: event.clientY };
+        this.overlayCanvas!.setPointerCapture(event.pointerId);
+      }
     });
+    this.overlayCanvas.addEventListener('pointermove', (event) => {
+      if (this.drawingPointer !== event.pointerId || !this.lastDrawPoint) return;
+      event.preventDefault();
+      if (Math.hypot(event.clientX - this.lastDrawPoint.x, event.clientY - this.lastDrawPoint.y) < 12) return;
+      this.handleMapPointer(event, false);
+      this.lastDrawPoint = { x: event.clientX, y: event.clientY };
+    });
+    this.overlayCanvas.addEventListener('pointerup', (event) => {
+      if (this.drawingPointer !== event.pointerId) return;
+      if (this.lastDrawPoint && Math.hypot(event.clientX - this.lastDrawPoint.x, event.clientY - this.lastDrawPoint.y) > 3) this.handleMapPointer(event, false);
+      this.drawingPointer = undefined;
+      this.lastDrawPoint = undefined;
+    });
+    this.overlayCanvas.addEventListener('lostpointercapture', () => { this.drawingPointer = undefined; this.lastDrawPoint = undefined; });
+    this.overlayCanvas.addEventListener('pointercancel', () => { this.drawingPointer = undefined; this.lastDrawPoint = undefined; });
 
     overlay.addEventListener('pointerdown', (event) => event.stopPropagation());
     overlay.querySelector('.iron-tactic__dialog')!.addEventListener('click', (event) => event.stopPropagation());
@@ -282,6 +337,7 @@ export class TacticPlanner {
       selectionCount: this.candidates.length,
       plannerDurationMs: Math.round(performance.now() - this.openedAt),
       highSpeed: this.highSpeed,
+      variation: this.variation,
     };
     this.close({ silent: true });
     this.callbacks.onExecute(payload);
@@ -297,15 +353,15 @@ export class TacticPlanner {
     return undefined;
   }
 
-  private handleMapPointer(event: PointerEvent): void {
+  private handleMapPointer(event: PointerEvent, allowTargetPick = true): void {
     if (!this.overlayCanvas) return;
     const rect = this.overlayCanvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
-    const percentX = ((event.clientX - rect.left) / rect.width) * 100;
-    const percentY = ((event.clientY - rect.top) / rect.height) * 100;
+    const percentX = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+    const percentY = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
     const world = viewPercentToWorld(this.worldSize, percentX, percentY, this.flipX, this.flipY);
 
-    if (this.endMode === 'attack') {
+    if (allowTargetPick && this.endMode === 'attack') {
       const enemy = this.pickHostileNear(world.x, world.z);
       if (enemy) {
         this.attackTargetId = enemy.id;
@@ -315,7 +371,11 @@ export class TacticPlanner {
       }
     }
 
-    if (this.waypoints.length >= MAX_TACTIC_WAYPOINTS) return;
+    if (this.waypoints.length >= MAX_TACTIC_WAYPOINTS) {
+      const status = this.overlay?.querySelector<HTMLElement>('[data-tactic-status]');
+      if (status) status.textContent = '64-point limit reached. Undo or clear to change the route.';
+      return;
+    }
     this.waypoints.push(world);
     this.syncChrome();
     this.redrawOverlay();
