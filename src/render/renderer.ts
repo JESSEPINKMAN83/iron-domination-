@@ -156,8 +156,10 @@ export function visualPixelRatioForTier(
   // Keep text, terrain and unit silhouettes legible on old machines. The
   // performance tiers save most of their cost through batching and effects,
   // rather than reducing the entire scene to a very low-resolution image.
-  if (tier === 1) return Math.min(maxPixelRatio, multiplayer ? 0.75 : 0.8);
-  return Math.min(maxPixelRatio, multiplayer ? 0.68 : 0.7);
+  // Late-game pressure is CPU scene-graph work, not fill rate, so the old
+  // 0.7 scale made the fallback look broken while saving little time.
+  if (tier === 1) return Math.min(maxPixelRatio, multiplayer ? 0.75 : 1);
+  return Math.min(maxPixelRatio, multiplayer ? 0.68 : 0.85);
 }
 
 export function mobileSafePixelRatio(tier: VisualQualityTier, maxPixelRatio: number): number {
@@ -304,6 +306,11 @@ export class RenderContext {
       // Reconstruct this soft shadow layer from quarter as many sample pixels.
       this.n8ao.configuration.halfRes = true;
       this.n8ao.configuration.depthAwareUpsampling = true;
+      // N8AO otherwise auto-enables transparency mode as soon as any smoke or
+      // glow exists: four whole-scene traversals plus two extra scene renders
+      // every frame, which grew with every unit part and dominated late games.
+      (this.n8ao as N8AOPostPass & { autoDetectTransparency: boolean }).autoDetectTransparency = false;
+      this.n8ao.configuration.transparencyAware = false;
       if (this.multiplayerMode) this.n8ao.enabled = false;
       this.composer.addPass(this.n8ao);
 
