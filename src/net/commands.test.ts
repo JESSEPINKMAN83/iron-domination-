@@ -36,6 +36,7 @@ describe('multiplayer lockstep commands', () => {
 
     expect(lockstep.localTeam).toBe(1);
     expect(lockstep.issue({ type: 'set-aggressive', ids: [sharedTank.id, enemyTank.id], enabled: true })).toBe(true);
+    expect(lockstep.issue({ type: 'set-formation', ids: [sharedTank.id, enemyTank.id], preset: 'spread' })).toBe(true);
     expect(lockstep.issue({ type: 'move', ids: [sharedTank.id], x: 72, z: 64, attackMove: false })).toBe(true);
     expect(lockstep.issue({ type: 'start-structure', kind: 'power-plant' })).toBe(false);
     for (let i = 0; i < 8; i++) {
@@ -47,6 +48,8 @@ describe('multiplayer lockstep commands', () => {
     expect(economy1.structureLine).toBeUndefined();
     expect(sharedTank.mover?.aggressive).toBe(true);
     expect(enemyTank.mover?.aggressive).toBeUndefined();
+    expect(sharedTank.mover?.formationPreset).toBe('spread');
+    expect(enemyTank.mover?.formationPreset).toBeUndefined();
   });
 
   it('reserves a possessed shared unit for the teammate who controls it first', () => {

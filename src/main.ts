@@ -169,6 +169,7 @@ import {
   selectedEntities,
   setSelected,
   setAggressiveMode,
+  setFormationPreset,
   spawnHammerheadAt,
   spawnScoutTankAt,
   spawnSiegeTankAt,
@@ -2669,7 +2670,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const startMode = params.get('start');
   const infantryCombatTest = params.get('infantry-combat-test') === '1';
   const tankCombatTest = params.get('tank-combat-test') === '1';
-  const aircraftRouteTest = (params.get('aircraft-route-test') === '1' || tankCombatTest || infantryCombatTest) && !multiplayerMode && !isPublicHost(location.hostname);
+  const combatReadabilityTest = params.get('combat-readability-test') === '1';
+  const aircraftRouteTest = (params.get('aircraft-route-test') === '1' || tankCombatTest || infantryCombatTest || combatReadabilityTest) && !multiplayerMode && !isPublicHost(location.hostname);
   const weaponsLab = startMode === 'weapons-lab' && !multiplayerMode && !isPublicHost(location.hostname);
   const lineupStart = startMode === 'lineup' || weaponsLab;
   const soundBattlePreview =
@@ -2888,9 +2890,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     for (let i = 0; i < 6; i++) {
       const aircraft = infantryCombatTest
         ? spawnInfantryAt(sim, routeStage.x - 70, routeStage.z - 40 + i * 8, localTeam, (['infantry', 'grenadier', 'sniper', 'rocket-infantry', 'infantry', 'sniper'] as const)[i])
+        : combatReadabilityTest
+        ? i < 3
+          ? aircraftTypes[i](sim, hf, routeStage.x - 70, routeStage.z - 40 + i * 16, `Combat aircraft ${i + 1}`, localTeam)
+          : [spawnScoutTankAt, spawnTankAt, spawnSiegeTankAt][i - 3](sim, routeStage.x - 70, routeStage.z - 40 + i * 16, `Combat tank ${i - 2}`, localTeam)
         : tankCombatTest
         ? [spawnScoutTankAt, spawnTankAt, spawnSiegeTankAt][Math.floor(i / 2)](sim, routeStage.x - 70, routeStage.z - 40 + i * 16, `Tank trial ${i + 1}`, localTeam)
         : aircraftTypes[Math.floor(i / 2)](sim, hf, routeStage.x - 70, routeStage.z - 40 + i * 16, `Route test ${i + 1}`, localTeam);
+      if (combatReadabilityTest) {
+        aircraft.mover!.aggressive = true;
+        aircraft.health!.current = aircraft.health!.max = 5000;
+      }
       aircraftRouteUnits.push(aircraft);
     }
     if (hostileTeam !== undefined) {
@@ -2904,14 +2914,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           : spawnTankAt(sim, point.x, point.z, `Aircraft target ${i + 1}`, hostileTeam);
         target.weapon = undefined;
         target.weapons = undefined;
-        if (params.get('incoming-fire') === '1' && (i === 1 || i === 5)) {
+        if ((params.get('incoming-fire') === '1' || combatReadabilityTest) && (i === 1 || i === 5)) {
           target.name = `Anti-aircraft defender ${i}`;
           target.weapon = { kind: 'aaMissile', range: 165, cooldown: 0 };
           target.mover!.attackMove = true;
         }
         // Use real combat durability by default so salvo damage is meaningful.
         // Opt in to durable targets when repeatedly testing flight and aiming.
-        if (infantryCombatTest || params.get('durable-targets') === '1') {
+        if (infantryCombatTest || combatReadabilityTest || params.get('durable-targets') === '1') {
           target.health!.current = target.health!.max = infantryCombatTest ? 100 : 3000;
         }
         aircraftRouteUnits.push(target);
@@ -3424,6 +3434,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       audio.playUi('select');
       if (lockstep) lockstep.issue({ type: 'set-aggressive', ids: entities.map((unit) => unit.id), enabled });
       else setAggressiveMode(entities, enabled);
+    },
+    setFormation: (entities, preset) => {
+      if (lockstep) lockstep.issue({ type: 'set-formation', ids: entities.map((unit) => unit.id), preset, facing: rig.yawRadians + Math.PI });
+      else setFormationPreset(sim, entities, preset, rig.yawRadians + Math.PI);
     },
     openTacticPlanner: (entities) => {
       audio.playUi('select');
@@ -4042,6 +4056,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         lastUiRefreshTick = sim.tick;
         buildingView.setProducerHighlights(sidebar.producerHighlightIds());
         selectionBar.update();
+        orderMarkers.showSelectedDestinations(firstPerson.active ? [] : selectedEntities(sim, localTeam));
         sidebar.update();
         durabilityPanel?.update();
         destructionPanel?.update();

@@ -67,6 +67,11 @@ export interface Mover {
   sprint?: boolean;
   target?: { x: number; z: number };
   formationOffset?: { x: number; z: number };
+  formationPreset?: import('./formations').FormationPreset;
+  /** Local hover docking after changing formation; normal orders clear it. */
+  formationReforming?: boolean;
+  /** World-space slot maintained across the route, independent of optional variation. */
+  formationSlot?: { x: number; z: number };
   /** assigned formation destination retained after arrival so separation cannot drift the unit away */
   holdPosition?: { x: number; z: number };
   flow?: FlowField;

@@ -1,4 +1,40 @@
 export type TacticalFormationKind = 'staggered-column' | 'wedge' | 'battle-line';
+export type FormationPreset = 'tight' | 'spread' | 'wedge';
+
+/** Stable slots shared by every leg, so aircraft never converge on one waypoint. */
+export function presetFormationOffsets(count: number, spacing: number, preset: FormationPreset): FormationOffset[] {
+  const unitCount = Math.max(0, Math.floor(count));
+  const safeSpacing = Math.max(1, spacing);
+  // Even Tight has breathing room. Spread is a broad, staggered screen;
+  // Wedge has a clear point and swept-back wings rather than another grid.
+  const gap = safeSpacing * (preset === 'tight' ? 1.6 : preset === 'spread' ? 2.8 : 1.9);
+  const desiredColumns = preset === 'tight'
+    ? Math.max(1, Math.ceil(Math.sqrt(unitCount) * 0.75))
+    : Math.max(1, Math.ceil(Math.sqrt(unitCount) * 1.7));
+  const columns = preset === 'spread'
+    ? Math.max(1, Math.ceil(unitCount / Math.max(1, Math.ceil(unitCount / desiredColumns))))
+    : desiredColumns;
+  const wingLength = Math.max(1, Math.ceil(Math.sqrt(unitCount)));
+  const chevronSize = wingLength * 2 + 1;
+  const offsets = Array.from({ length: unitCount }, (_, i) => {
+    if (preset === 'wedge') {
+      const wingIndex = i % chevronSize;
+      const rank = Math.ceil(wingIndex / 2);
+      const side = wingIndex === 0 ? 0 : wingIndex % 2 ? -1 : 1;
+      const wave = Math.floor(i / chevronSize);
+      return { x: rank * side * gap, z: (rank * 0.9 + wave * 2.4) * gap };
+    }
+    const row = Math.floor(i / columns);
+    const col = i % columns;
+    const rowCount = Math.min(columns, unitCount - row * columns);
+    return {
+      x: (col - (rowCount - 1) / 2 + (row % 2 ? 0.25 : -0.25)) * gap,
+      z: row * gap * (preset === 'spread' ? 1.15 : 1),
+    };
+  });
+  if (offsets.length) centerOffsets(offsets);
+  return offsets;
+}
 
 export interface FormationOffset {
   x: number;
