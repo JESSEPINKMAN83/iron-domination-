@@ -1,3 +1,4 @@
+import { commandIconPath } from './commandIcons';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { isFortressTower } from '../content/fortress';
@@ -1869,10 +1870,6 @@ function healthBucket(entity: Entity): number {
   return Math.round((Math.max(0, entity.health.current) / entity.health.max) * 20);
 }
 
-function commandIconPath(kind: string): string {
-  if (kind === 'skylance-ciws') return '/assets/ui/command-icons/missile-defense.png';
-  return `/assets/ui/command-icons/${kind}.png`;
-}
 
 function unitCardDetail(kind: string): { role: string; pips: number[] } | undefined {
   const unit = UNITS[kind as UnitKind];

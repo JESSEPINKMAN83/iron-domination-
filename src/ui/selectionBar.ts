@@ -1,3 +1,4 @@
+import { commandIconPath } from './commandIcons';
 import { groupOrderFeedback } from './orderFeedback';
 import type { FormationPreset } from '../sim/formations';
 import { Vector3, type Camera } from 'three';
@@ -1000,9 +1001,6 @@ function initials(label: string): string {
     .toUpperCase();
 }
 
-function commandIconPath(kind: string): string {
-  return `/assets/ui/command-icons/${kind}.png`;
-}
 
 function factionAccent(team: number): string {
   return `#${FACTION[factionId(team)].accent.toString(16).padStart(6, '0')}`;
