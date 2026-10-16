@@ -154,9 +154,13 @@ describe('phase 6 enemy commander', () => {
     vi.restoreAllMocks();
   }, 30000);
 
-  it('does not restart flank routes on every command pulse and falls back when a route expires', () => {
-    const { sim, control } = hardAssaultFixture();
+  it('does not restart an independent flank route and falls back when it expires', () => {
+    const { sim, control, units } = hardAssaultFixture();
+    // Only one flanking squad is available; coordinated pincers have separate staging deadlines.
+    for (const unit of units.slice(8)) sim.world.remove(unit);
     control.commandSquads();
+    control.commandSquads();
+    sim.tick += 30 * 31; // no partner arrived: release the independent flank
     control.commandSquads();
     const squad = control.squads[1];
     const unit = squad.units[0];
