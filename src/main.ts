@@ -23,6 +23,7 @@ import './outcomeScreen.css';
 import './ui/menuTheme.css';
 import './ui/roomLobby.css';
 import { EnemyCommander } from './ai/commander';
+import { stageCoordinationPreview } from './match/coordinationPreview';
 import { AudioDirector } from './audio/audioDirector';
 import { showSfxPreview } from './audio/sfxPreview';
 import { installStandaloneButtonSounds } from './audio/uiMenuSounds';
@@ -2668,6 +2669,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
 
   const startMode = params.get('start');
+  const aiCoordinationPreview = params.get('ai-coordination-test') === '1' && !multiplayerMode && !isPublicHost(location.hostname);
   const infantryCombatTest = params.get('infantry-combat-test') === '1';
   const tankCombatTest = params.get('tank-combat-test') === '1';
   const combatReadabilityTest = params.get('combat-readability-test') === '1';
@@ -2799,7 +2801,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       console.warn('[save] failed to load saved match', err);
     }
   }
-  if ((missileDoctrinePreview || soundBattlePreview) && !loadedFromSave) {
+  if (aiCoordinationPreview && !loadedFromSave) {
+    for (const army of armies) seedCinematicBase(sim, hf, army.economy, army.base);
+  } else if ((missileDoctrinePreview || soundBattlePreview) && !loadedFromSave) {
     for (const army of armies) seedTestStartBase(sim, hf, army.economy, army.base);
     seedMissileDoctrinePreview(sim, hf, armies, localTeam);
     if (soundBattlePreview) seedSoundBattleDefenses(sim, hf, armies, localTeam);
@@ -2812,7 +2816,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     seedTestStartBase(sim, hf, economy, localBase);
   }
   const smokePreviewStage = smokePreview ? createSmokePreviewStage(sim, armies, localTeam) : undefined;
-  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest || performanceTest
+  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest || performanceTest || aiCoordinationPreview
     ? () => true
     : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
@@ -2928,7 +2932,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       }
     }
   }
-  const startingUnits = aircraftRouteTest
+  const coordinationStage = aiCoordinationPreview && !loadedFromSave
+    ? stageCoordinationPreview(sim, hf, armies, localTeam)
+    : undefined;
+  const startingUnits = coordinationStage
+    ? coordinationStage.units
+    : aircraftRouteTest
     ? aircraftRouteUnits
     : impactDemoScene
     ? impactDemoScene.units
@@ -2947,6 +2956,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           ...(debugArmies ? [] : spawnStartingInfantry(sim, hf, army.base.transform.x, army.base.transform.z, army.team)),
         ]);
   for (const army of armies) army.vision.update(sim);
+  if (coordinationStage) {
+    // Skip the opening buildup only in this local test, retaining real AI orders.
+    for (const commander of commanders) { commander.step(180); commander.step(5); }
+  }
 
   const unitView = new UnitView([...lineupUnits, ...startingUnits, ...performanceUnits], hf, ctx, isVisibleToPlayer, localTeam);
   unitView.attach(ctx.scene);
@@ -3136,6 +3149,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       64,
       -12,
     );
+  } else if (coordinationStage) {
+    const { focus, forward } = coordinationStage;
+    rig.focusOn(focus.x, focus.z, { x: focus.x - forward.x * 140, z: focus.z - forward.z * 140 }, 250, -6);
   } else if (aircraftRouteTest) rig.focusOn(routeStage.x, routeStage.z, { x: routeStage.x - 110, z: routeStage.z - 150 }, 190, -6);
   else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else {
@@ -4146,6 +4162,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount), undefined);
     }, 500);
   }
+  if (coordinationStage) setSelected(sim, coordinationStage.units.filter((unit) => unit.team?.id === localTeam), false, localTeam);
   if (aircraftRouteTest) setSelected(sim, aircraftRouteUnits.filter((unit) => unit.team?.id === localTeam), false, localTeam);
   if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview && !aircraftRouteTest) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;

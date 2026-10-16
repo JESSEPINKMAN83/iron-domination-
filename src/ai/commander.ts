@@ -23,7 +23,14 @@ import { issueTacticOrder } from '../sim/tactics';
 
 interface Squad {
   units: Entity[];
-  state: 'attacking' | 'retreating';
+  state: 'attacking' | 'staging' | 'retreating' | 'regrouping';
+  initialMaxHp?: number;
+  initialGroundCount?: number;
+  operation?: AssaultOperation;
+  stagingPoint?: { x: number; z: number };
+  rallyPoint?: { x: number; z: number };
+  retreatStartedAt?: number;
+  regroupStartedAt?: number;
   nextOrderAt: number; // sim tick
   maneuver?: 'direct' | 'left' | 'right';
   flankUntil?: number;
@@ -33,6 +40,13 @@ interface Squad {
   scoutIndex?: number;
 }
 
+interface AssaultOperation {
+  id: number;
+  objective: SquadTarget;
+  deadline: number;
+  released: boolean;
+}
+
 interface SquadTarget {
   x: number;
   z: number;
@@ -40,7 +54,7 @@ interface SquadTarget {
 }
 
 export class EnemyCommander {
-  readonly stats = { structuresPlaced: 0, rebuilds: 0, attacksLaunched: 0, retreats: 0 };
+  readonly stats = { structuresPlaced: 0, rebuilds: 0, attacksLaunched: 0, retreats: 0, coordinatedAttacks: 0, airSupportedAttacks: 0, regroupsCompleted: 0 };
   private readonly personality: PersonalityDef;
   private readonly difficulty: DifficultyDef;
   private readonly buildQueue: StructureKind[];
@@ -49,6 +63,8 @@ export class EnemyCommander {
   private timer = 0;
   private elapsed = 0;
   private strategicTargetIndex = 0;
+  private operationSequence = 0;
+  private pincerWaitStartedAt?: number;
   private readonly advancedTactics: boolean;
   private readonly proactiveTactics: boolean;
 
@@ -115,6 +131,7 @@ export class EnemyCommander {
     let rebuilding = false;
     if (!next) {
       if (this.economy.powerProduced < this.economy.powerUsed + 10) next = 'power-plant';
+      else if (this.proactiveTactics && this.economy.doctrine === 'iron-legion' && this.stats.attacksLaunched > 0 && this.count('factory') > 0 && this.count('helipad') < 1 && this.economy.credits > 1200) next = 'helipad';
       else if (this.count('refinery') < this.personality.targetRefineries + (this.advancedTactics ? 1 : 0)) next = 'refinery';
       else if (this.count('factory') < this.personality.targetFactories + (this.advancedTactics ? 1 : 0)) next = 'factory';
       else if ((this.personality.wantsBarracks || this.advancedTactics) && this.count('barracks') < 1) next = 'barracks';
@@ -240,7 +257,7 @@ export class EnemyCommander {
   }
 
   private nextAircraftKind(count: number): UnitKind {
-    return (['wasp', 'vulture', 'wasp', 'hammerhead'] as UnitKind[])[count % 4];
+    return (this.proactiveTactics ? ['vulture', 'hammerhead', 'wasp', 'vulture'] as UnitKind[] : ['wasp', 'vulture', 'wasp', 'hammerhead'] as UnitKind[])[count % 4];
   }
 
   private commandStrategicStrike(): void {
@@ -324,26 +341,56 @@ export class EnemyCommander {
       squad.units = squad.units.filter((unit) => !unit.destroyed && this.sim.world.has(unit));
     }
     for (let i = this.squads.length - 1; i >= 0; i--) {
-      if (this.squads[i].units.length === 0) this.squads.splice(i, 1);
+      if (this.squads[i].units.length === 0 && this.squads[i].state !== 'regrouping') this.squads.splice(i, 1);
     }
 
     const inSquads = new Set(this.squads.flatMap((squad) => squad.units));
-    const idle = this.myUnits().filter((unit) => !inSquads.has(unit));
+    // Wounded reserves defend at home; they are not recycled into suicide waves.
+    const idle = this.myUnits().filter((unit) => !inSquads.has(unit) && (unit.health?.current ?? 0) / (unit.health?.max ?? 1) >= 0.55).sort((a, b) => a.id - b.id);
+    const ground = idle.filter((unit) => !unit.flight);
+    const air = idle.filter((unit) => !!unit.flight);
+    this.reinforceRegroupingSquads(ground, air, base);
 
-    const attacking = this.squads.filter((squad) => squad.state === 'attacking').length;
+    const active = this.squads.filter((squad) => squad.state === 'attacking' || squad.state === 'staging').length;
+    const capacity = this.personality.maxSquads + (this.advancedTactics ? 3 : 0);
+    let waitForPartner = false;
+    if (this.advancedTactics && this.stats.attacksLaunched > 0 && active + 2 <= capacity && ground.length - this.homeGuardSize() >= this.assaultSize()) {
+      // Production arrives one unit at a time. Save a wave briefly instead of
+      // immediately spending every five recruits on another independent raid.
+      if (ground.length - this.homeGuardSize() < this.assaultSize() * 2) {
+        this.pincerWaitStartedAt ??= this.sim.tick;
+        waitForPartner = this.sim.tick - this.pincerWaitStartedAt < 30 * 30;
+      }
+    }
     if (
-      attacking < this.personality.maxSquads + (this.advancedTactics ? 3 : 0) &&
+      !waitForPartner &&
+      active < capacity &&
       this.elapsed >= Math.min(this.personality.attackDelay * this.difficulty.attackDelayMultiplier, this.advancedTactics ? 100 : this.proactiveTactics ? 180 : Infinity) &&
-      idle.length - this.homeGuardSize() >= this.assaultSize()
+      ground.length - this.homeGuardSize() >= this.assaultSize()
     ) {
-      const units = idle.slice(0, this.assaultSize());
-      // Repeatable variation by faction and wave keeps multiplayer deterministic.
-      const maneuvers = ['left', 'right', 'direct'] as const;
-      const maneuver = this.proactiveTactics ? maneuvers[(this.stats.attacksLaunched + this.economy.team) % maneuvers.length] : 'direct';
-      this.squads.push({ units, state: 'attacking', nextOrderAt: 0, maneuver,
-        scoutIndex: this.stats.attacksLaunched % Math.max(1, this.scoutHints.length) });
-      this.stats.attacksLaunched++;
-      this.log(`attack squad of ${units.length} rolling out (${this.stats.attacksLaunched} launched so far)`);
+      // Probe first, then use a shared objective and rendezvous for a pincer.
+      const paired = this.advancedTactics && this.stats.attacksLaunched > 0 && active + 2 <= capacity && ground.length - this.homeGuardSize() >= this.assaultSize() * 2;
+      this.pincerWaitStartedAt = undefined;
+      const count = paired ? 2 : 1;
+      const created: Squad[] = [];
+      for (let i = 0; i < count; i++) {
+        const maneuvers = ['left', 'right', 'direct'] as const;
+        const maneuver = paired ? (i === 0 ? 'left' : 'right') : this.proactiveTactics ? maneuvers[(this.stats.attacksLaunched + this.economy.team) % maneuvers.length] : 'direct';
+        const units = ground.splice(0, this.assaultSize());
+        const squad: Squad = { units, state: 'attacking', nextOrderAt: 0, maneuver,
+          scoutIndex: this.stats.attacksLaunched % Math.max(1, this.scoutHints.length) };
+        this.attachAirSupport(squad, air);
+        this.resetSquadStrength(squad);
+        this.squads.push(squad);
+        created.push(squad);
+        this.stats.attacksLaunched++;
+        this.log(`attack squad of ${units.length} rolling out (${this.stats.attacksLaunched} launched so far)`);
+      }
+      if (paired) this.preparePincer(created);
+    }
+    // Aircraft produced later join a field squad rather than launching alone.
+    for (const squad of this.squads) {
+      if ((squad.state === 'attacking' || squad.state === 'staging') && !squad.units.some((unit) => unit.flight)) this.attachAirSupport(squad, air);
     }
 
     for (const squad of this.squads) {
@@ -351,12 +398,20 @@ export class EnemyCommander {
         (acc, unit) => ({ hp: acc.hp + (unit.health?.current ?? 0), max: acc.max + (unit.health?.max ?? 1) }),
         { hp: 0, max: 0 },
       );
-      const strength = totals.max > 0 ? totals.hp / totals.max : 0;
+      const strength = totals.max > 0 ? totals.hp / Math.max(totals.max, squad.initialMaxHp ?? totals.max) : 0;
+      const groundCount = squad.units.filter((unit) => !unit.flight).length;
+      const heavyLosses = squad.initialGroundCount !== undefined && groundCount < squad.initialGroundCount * 0.5;
 
-      if (squad.state === 'attacking' && strength < 0.4) {
+      if ((squad.state === 'attacking' || squad.state === 'staging') && (strength < 0.4 || heavyLosses)) {
         squad.state = 'retreating';
         squad.nextOrderAt = 0;
         squad.flankUntil = undefined;
+        squad.retreatStartedAt = this.sim.tick;
+        squad.rallyPoint = base ? this.retreatRally(base, squad) : undefined;
+        if (squad.rallyPoint) {
+          for (const unit of squad.units) if (unit.mover) unit.mover.aggressive = true;
+          issueMoveOrder(this.sim, squad.units, squad.rallyPoint.x, squad.rallyPoint.z, false);
+        }
         this.stats.retreats++;
         this.log(`squad at ${Math.round(strength * 100)}% strength — retreating to base`);
       }
@@ -374,16 +429,48 @@ export class EnemyCommander {
 
       if (squad.state === 'retreating') {
         if (!base) continue;
-        const lead = squad.units[0];
-        const nearHome = lead && Math.hypot(lead.transform.x - base.transform.x, lead.transform.z - base.transform.z) < 60;
-        if (nearHome) {
-          squad.units = []; // disband into the defense pool
-        } else {
-          issueMoveOrder(this.sim, squad.units, base.transform.x, base.transform.z, false);
+        const rally = squad.rallyPoint ?? this.retreatRally(base, squad);
+        squad.rallyPoint = rally;
+        const groundUnits = squad.units.filter((unit) => !unit.flight);
+        const returning = groundUnits.length ? groundUnits : squad.units;
+        const nearHome = returning.filter((unit) => Math.hypot(unit.transform.x - rally.x, unit.transform.z - rally.z) < 55).length >= Math.ceil(returning.length * 0.7);
+        if (nearHome && this.sim.tick - (squad.retreatStartedAt ?? this.sim.tick) >= 30 * 3) {
+          squad.state = 'regrouping';
+          squad.regroupStartedAt = this.sim.tick;
+          squad.operation = undefined;
+          // No free healing: seriously wounded units stay in the home reserve.
+          squad.units = squad.units.filter((unit) => (unit.health?.current ?? 0) / (unit.health?.max ?? 1) >= 0.55);
+          this.log('survivors regrouping — waiting for fresh ground units and air cover');
+        } else if (stalled || !squad.units.some((unit) => unit.mover?.target && !unit.mover.tactic)) {
+          for (const unit of squad.units) if (unit.mover) unit.mover.aggressive = true;
+          issueMoveOrder(this.sim, squad.units, rally.x, rally.z, false);
         }
         continue;
       }
+      if (squad.state === 'regrouping') continue;
 
+      if (squad.state === 'staging' && squad.operation) {
+        const peers = this.squads.filter((candidate) => candidate.operation === squad.operation && candidate.state === 'staging');
+        const ready = peers.every((candidate) => {
+          const groundUnits = candidate.units.filter((unit) => !unit.flight);
+          return groundUnits.length > 0 && groundUnits.filter((unit) => !unit.mover?.target || Math.hypot(unit.transform.x - candidate.stagingPoint!.x, unit.transform.z - candidate.stagingPoint!.z) < 38).length >= Math.ceil(groundUnits.length * 0.7);
+        });
+        if (!ready && this.sim.tick < squad.operation.deadline) {
+          this.commandAirSupport(squad, squad.stagingPoint!);
+          continue;
+        }
+        squad.operation.released = true;
+        for (const peer of peers) {
+          peer.state = 'attacking';
+          peer.nextOrderAt = 0;
+          peer.flankUntil = undefined;
+          peer.destination = undefined;
+        }
+        this.log('coordinated assault — both flanks committed');
+      }
+
+      const objective = squad.operation ? this.operationTarget(squad) : undefined;
+      this.commandAirSupport(squad, objective ?? squad.destination ?? this.scoutHints[(squad.scoutIndex ?? 0) % Math.max(1, this.scoutHints.length)] ?? { x: 0, z: 0 });
       // Keep the flank's waypoint queue intact between reaction pulses. A
       // bounded expiry prevents a blocked route from stranding an entire wave.
       if (squad.flankUntil !== undefined) {
@@ -392,9 +479,9 @@ export class EnemyCommander {
         squad.maneuver = 'direct';
       }
 
-      const target = this.pickTarget(squad);
+      const target = objective ?? this.pickTarget(squad);
       const destination = target.entity
-        ? attackStandoffPoint(this.sim, squad.units, target.entity)
+        ? attackStandoffPoint(this.sim, squad.units.filter((unit) => !unit.flight), target.entity)
         : target;
       const previous = squad.destination;
       const sameDestination = previous && previous.entity?.id === target.entity?.id &&
@@ -419,7 +506,7 @@ export class EnemyCommander {
               x: Math.max(-limit, Math.min(limit, lead.transform.x + dx * 0.55 - dz / distance * offset)),
               z: Math.max(-limit, Math.min(limit, lead.transform.z + dz * 0.55 + dx / distance * offset)),
             };
-            if (issueTacticOrder(this.sim, squad.units, [flank, destination], { kind: 'attack-through' })) {
+            if (issueTacticOrder(this.sim, squad.units.filter((unit) => !unit.flight), [flank, destination], { kind: 'attack-through' })) {
               squad.flankUntil = this.sim.tick + 30 * 60;
               this.log(`${squad.maneuver} flank squad advancing through a side approach`);
               continue;
@@ -429,7 +516,112 @@ export class EnemyCommander {
       }
       // Fire along the route without allowing defenders to halt the assault;
       // the standoff point prevents a large formation converging on one center.
-      issueTacticOrder(this.sim, squad.units, [destination], { kind: 'attack-through' });
+      issueTacticOrder(this.sim, squad.units.filter((unit) => !unit.flight), [destination], { kind: 'attack-through' });
+    }
+  }
+
+  private resetSquadStrength(squad: Squad): void {
+    squad.initialMaxHp = squad.units.reduce((sum, unit) => sum + (unit.health?.max ?? 1), 0);
+    squad.initialGroundCount = squad.units.filter((unit) => !unit.flight).length;
+  }
+
+  private attachAirSupport(squad: Squad, available: Entity[]): void {
+    if (!available.length) return;
+    const escorts = available.splice(0, this.advancedTactics ? 2 : 1);
+    squad.units.push(...escorts);
+    for (const unit of escorts) if (unit.mover) unit.mover.aggressive = true;
+    squad.initialMaxHp = (squad.initialMaxHp ?? squad.units.filter((unit) => !escorts.includes(unit)).reduce((sum, unit) => sum + (unit.health?.max ?? 1), 0)) + escorts.reduce((sum, unit) => sum + (unit.health?.max ?? 1), 0);
+    this.stats.airSupportedAttacks++;
+  }
+
+  private commandAirSupport(squad: Squad, objective: { x: number; z: number }): void {
+    const air = squad.units.filter((unit) => unit.flight);
+    const ground = squad.units.filter((unit) => !unit.flight);
+    if (!air.length || !ground.length) return;
+    const anchor = ground.reduce((point, unit) => ({ x: point.x + unit.transform.x / ground.length, z: point.z + unit.transform.z / ground.length }), { x: 0, z: 0 });
+    const dx = objective.x - anchor.x, dz = objective.z - anchor.z;
+    const length = Math.hypot(dx, dz);
+    const advance = Math.min(28, length);
+    const limit = this.sim.nav.size / 2 - 30;
+    const support = { x: Math.max(-limit, Math.min(limit, anchor.x + dx / Math.max(1, length) * advance)), z: Math.max(-limit, Math.min(limit, anchor.z + dz / Math.max(1, length) * advance)) };
+    if (air.every((unit) => {
+      const point = unit.mover?.target ?? unit.mover?.holdPosition ?? unit.transform;
+      return Math.hypot(point.x - support.x, point.z - support.z) < 22;
+    })) return;
+    issueMoveOrder(this.sim, air, support.x, support.z);
+    for (const unit of air) if (unit.mover) unit.mover.aggressive = true;
+  }
+
+  private preparePincer(squads: Squad[]): void {
+    const objective = this.pickTarget({ ...squads[0], maneuver: 'direct' });
+    const operation: AssaultOperation = { id: ++this.operationSequence, objective: { ...objective }, deadline: this.sim.tick + 30 * 45, released: false };
+    for (const squad of squads) {
+      const ground = squad.units.filter((unit) => !unit.flight);
+      const anchor = ground.reduce((p, unit) => ({ x: p.x + unit.transform.x / ground.length, z: p.z + unit.transform.z / ground.length }), { x: 0, z: 0 });
+      const dx = objective.x - anchor.x, dz = objective.z - anchor.z;
+      const distance = Math.max(1, Math.hypot(dx, dz));
+      const side = squad.maneuver === 'left' ? -1 : 1;
+      const offset = Math.min(130, distance * 0.34) * side;
+      const limit = this.sim.nav.size / 2 - 35;
+      squad.stagingPoint = { x: Math.max(-limit, Math.min(limit, anchor.x + dx * 0.55 - dz / distance * offset)), z: Math.max(-limit, Math.min(limit, anchor.z + dz * 0.55 + dx / distance * offset)) };
+      squad.operation = operation;
+      squad.state = 'staging';
+      squad.flankUntil = operation.deadline;
+      issueTacticOrder(this.sim, ground, [squad.stagingPoint], { kind: 'attack-through' });
+    }
+    this.stats.coordinatedAttacks++;
+    this.log('two-pronged assault staging — left and right groups share one objective');
+  }
+
+  private operationTarget(squad: Squad): SquadTarget {
+    let objective = squad.operation!.objective;
+    const lead = squad.units.find((unit) => !unit.flight);
+    if (objective.entity?.destroyed || (objective.entity && !this.sim.world.has(objective.entity)) || (!objective.entity && lead && Math.hypot(lead.transform.x - objective.x, lead.transform.z - objective.z) < 85)) {
+      objective = this.pickTarget(squad);
+      squad.operation!.objective = { ...objective };
+    }
+    if (objective.entity && !objective.entity.destroyed && this.vision.isVisibleWorld(objective.entity.transform.x, objective.entity.transform.z)) {
+      return { x: objective.entity.transform.x, z: objective.entity.transform.z, entity: objective.entity };
+    }
+    // Last observed position is allowed; hidden units are never tracked live.
+    return { x: objective.x, z: objective.z };
+  }
+
+  private retreatRally(base: Entity, squad: Squad): { x: number; z: number } {
+    const target = squad.destination ?? squad.operation?.objective ?? this.scoutHints[0] ?? { x: 0, z: 0 };
+    const dx = target.x - base.transform.x, dz = target.z - base.transform.z;
+    const length = Math.max(1, Math.hypot(dx, dz));
+    const limit = this.sim.nav.size / 2 - 35;
+    return { x: Math.max(-limit, Math.min(limit, base.transform.x - dx / length * 42)), z: Math.max(-limit, Math.min(limit, base.transform.z - dz / length * 42)) };
+  }
+
+  private reinforceRegroupingSquads(ground: Entity[], air: Entity[], base: Entity | undefined): void {
+    if (!base) return;
+    for (const squad of this.squads) {
+      if (squad.state !== 'regrouping') continue;
+      for (let i = 0; i < ground.length && squad.units.filter((unit) => !unit.flight).length < this.assaultSize();) {
+        const unit = ground[i];
+        if (Math.hypot(unit.transform.x - base.transform.x, unit.transform.z - base.transform.z) > 115 || ground.length <= this.homeGuardSize()) { i++; continue; }
+        squad.units.push(unit);
+        ground.splice(i, 1);
+      }
+      if (!squad.units.some((unit) => unit.flight)) this.attachAirSupport(squad, air);
+      if (squad.units.filter((unit) => !unit.flight).length >= this.assaultSize() && this.sim.tick - (squad.regroupStartedAt ?? this.sim.tick) >= 30 * 12) {
+        squad.state = 'attacking';
+        squad.maneuver = (this.stats.attacksLaunched + this.economy.team) % 2 ? 'left' : 'right';
+        squad.destination = undefined;
+        squad.flankUntil = undefined;
+        squad.nextOrderAt = 0;
+        squad.lastProgressAt = this.sim.tick;
+        squad.progressPosition = undefined;
+        this.resetSquadStrength(squad);
+        this.stats.attacksLaunched++;
+        this.stats.regroupsCompleted++;
+        this.log('regroup complete — reinforced force attacking on a fresh approach');
+      } else if (this.sim.tick - (squad.regroupStartedAt ?? this.sim.tick) > 30 * 90) {
+        squad.units = [];
+        squad.state = 'retreating'; // release the reservation after a bounded wait
+      }
     }
   }
 
