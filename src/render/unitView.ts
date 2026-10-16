@@ -1,3 +1,4 @@
+import { UnitBatchLod } from './unitBatchLod';
 import { BattlefieldCulling, setEntityRenderActive } from './battlefieldCulling';
 import {
   AdditiveBlending,
@@ -519,6 +520,10 @@ const MAX_BIKE_DUST_PARTICLES = 256;
 const MAX_LOW_DETAIL_UNITS = 1024;
 const FORTRESS_OPTICS_DETAIL_RANGE_SQ = 500 * 500;
 const PERFORMANCE_DETAIL_RANGE_SQ = 520 * 520;
+// Camera distance beyond which ground units draw from the baked batch.
+const INFANTRY_DETAIL_RANGE = 150;
+const VEHICLE_DETAIL_RANGE = 210;
+const BATCH_KEEP_DETAIL_HEALTH = 0.35;
 const ORE_CHUNK_GEOM = markShared(new SphereGeometry(1, 6, 4));
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
@@ -566,6 +571,10 @@ function sharedRingGeometry(radius: number): RingGeometry {
 export class UnitView {
   private readonly cameraCulling = new BattlefieldCulling();
   readonly group = new Group();
+  private readonly batchLod = new UnitBatchLod();
+  private readonly batchKeys = new Map<Entity, string>();
+  /** Multiplies the batching distance; 0 batches every eligible unit (dev comparison). */
+  batchRangeScale = 1;
   private readonly objects = new Map<Entity, Object3D>();
   private readonly entitiesById = new Map<number, Entity>();
   private readonly refs = new Map<Entity, UnitRefs>();
@@ -640,6 +649,7 @@ export class UnitView {
     for (const meshes of Object.values(this.lowDetailMeshes)) {
       for (const proxy of Object.values(meshes)) this.group.add(proxy.body, proxy.color, proxy.detail);
     }
+    this.group.add(this.batchLod.group);
     this.friendlyGlow = createFriendlyGlowMesh(factionId(localTeam));
     this.group.add(this.friendlyGlow.mesh);
     this.bikeDustMesh = createBikeDustMesh(hf.kind);
@@ -745,6 +755,13 @@ export class UnitView {
       built = createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial);
     }
     const unit = built.root;
+    if (!entity.flight) {
+      // Bake before upgrades, overlays and scale are attached to the root.
+      const batchKey = `${kind}:${factionId(entity.team?.id)}`;
+      const rig = this.soldierRigs.get(entity);
+      this.batchLod.bake(batchKey, unit, built.refs.turretPivot, rig ? [rig.combatBike, rig.muzzleFlash] : []);
+      if (this.batchLod.has(batchKey)) this.batchKeys.set(entity, batchKey);
+    }
     built.refs.upgradeVisuals = createUnitUpgradeVisuals(entity, materials, this.gunmetalMaterial);
     for (const visual of built.refs.upgradeVisuals.values()) unit.add(visual);
     const escortVisual = built.refs.upgradeVisuals.get('reactive-plating');
@@ -834,6 +851,7 @@ export class UnitView {
       this.objects.delete(entity);
     }
     this.refs.delete(entity);
+    this.batchKeys.delete(entity);
     this.entitiesById.delete(entity.id);
     this.hitReactions.delete(entity);
     this.wreckTilts.delete(entity);
@@ -1001,8 +1019,11 @@ export class UnitView {
     }
     this.cameraCulling.update(camera);
     this.visualFrame++;
+    this.batchLod.begin();
     if (this.visualQuality >= 2) {
       this.updateLowDetail(alpha, dt, camera);
+      this.batchLod.end();
+      this.syncOverlayAttachment();
       return;
     }
     const detailInterval = this.visualQuality === 0 ? 1 : 2;
@@ -1016,7 +1037,9 @@ export class UnitView {
       const gone = entity === this.hiddenEntity;
       const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
       const inView = this.cameraCulling.contains(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z), entity.transform.z, Math.max(12, (entity.mover?.radius ?? 3) * 3));
-      setEntityRenderActive(obj, this.group, inView && !gone && !fogged);
+      const batchKey = this.batchKeys.get(entity);
+      const batched = batchKey !== undefined && inView && !gone && !fogged && this.shouldBatchDistantUnit(entity, camera);
+      setEntityRenderActive(obj, this.group, inView && !gone && !fogged && !batched);
       if (gone || fogged || !inView) {
         obj.visible = false;
         ring.visible = false;
@@ -1054,6 +1077,11 @@ export class UnitView {
       if (updateDetails) this.updateUnitDamage(entity);
       const turret = this.refs.get(entity)?.turretPivot;
       if (turret && entity.turret && !entity.destroyed) turret.rotation.y = entity.turret.yaw - rot;
+      if (batched) {
+        obj.updateMatrix();
+        turret?.updateMatrix();
+        this.batchLod.add(batchKey, obj.matrix, turret?.matrix);
+      }
       ring.position.set(x, groundY + 0.08, z);
       const selected = this.selectionOverlayVisible && !entity.destroyed && (entity.selectable?.selected ?? false);
       ring.visible = selected;
@@ -1097,6 +1125,45 @@ export class UnitView {
       this.friendlyGlow.mesh.instanceMatrix.needsUpdate = true;
       this.updateBikeDust(dt * detailInterval);
     }
+    this.batchLod.end();
+    this.syncOverlayAttachment();
+  }
+
+  /**
+   * Distant ground units render from the baked batch: same model and
+   * materials, without per-part animation. Anything the player is looking at
+   * closely, controlling, or watching take damage keeps its full hierarchy.
+   */
+  private shouldBatchDistantUnit(entity: Entity, camera: Camera): boolean {
+    if (entity.destroyed || entity.playerControlled || entity === this.priorityDetailedEntity) return false;
+    if (this.hitReactions.has(entity)) return false;
+    if (entity.health && entity.health.current < entity.health.max * BATCH_KEEP_DETAIL_HEALTH) return false;
+    if (this.soldierRigs.get(entity)?.combatBike.visible) return false;
+    const range = (entity.selectable?.type === 'infantry' ? INFANTRY_DETAIL_RANGE : VEHICLE_DETAIL_RANGE)
+      * (this.visualQuality === 0 ? 1 : 0.7) * this.batchRangeScale;
+    const dx = entity.transform.x - camera.position.x;
+    const dy = (entity.transform.y ?? 0) - camera.position.y;
+    const dz = entity.transform.z - camera.position.z;
+    return dx * dx + dy * dy + dz * dz > range * range;
+  }
+
+  /**
+   * Hidden overlays still cost a scene-graph walk every frame (and again for
+   * shadows and post-processing), so only keep visible ones attached.
+   */
+  private syncOverlayAttachment(): void {
+    const sync = (object: Object3D) => {
+      if (object.visible) {
+        if (object.parent !== this.group) this.group.add(object);
+      } else if (object.parent === this.group) {
+        this.group.remove(object);
+      }
+    };
+    for (const ring of this.selectedRings.values()) sync(ring);
+    for (const bar of this.healthBars.values()) sync(bar.root);
+    for (const badge of this.rankBadges.values()) sync(badge.root);
+    for (const shadow of this.airShadows.values()) sync(shadow);
+    for (const wash of this.rotorWashes.values()) sync(wash.mesh);
   }
 
   private updateLowDetail(alpha: number, dt: number, camera: Camera): void {
@@ -1171,7 +1238,7 @@ export class UnitView {
         this.updateUnitDamage(entity);
         const turret = this.refs.get(entity)?.turretPivot;
         if (turret && entity.turret) turret.rotation.y = entity.turret.yaw - rot;
-      } else {
+      } else if (!this.addBatchedInstance(entity, obj, x, y, z, rot, terrainAttitude)) {
         this.addLowDetailInstance(entity, x, y, z, rot, terrainAttitude);
       }
       ring.position.set(x, groundY + 0.08, z);
@@ -1190,6 +1257,30 @@ export class UnitView {
         proxy.detail.instanceMatrix.needsUpdate = true;
       }
     }
+  }
+
+  /** Performance mode uses the real baked model where one exists, not a box proxy. */
+  private addBatchedInstance(
+    entity: Entity,
+    obj: Object3D,
+    x: number,
+    y: number,
+    z: number,
+    rot: number,
+    terrainAttitude?: GroundVehicleTerrainAttitude,
+  ): boolean {
+    const batchKey = this.batchKeys.get(entity);
+    if (!batchKey || entity.destroyed || this.soldierRigs.get(entity)?.combatBike.visible) return false;
+    if (entity.infantryStance) y += entity.infantryStance.height - entity.infantryStance.crouch * 0.6;
+    obj.position.set(x, y, z);
+    obj.rotation.set(terrainAttitude?.pitch ?? 0, rot, terrainAttitude?.roll ?? 0, terrainAttitude ? 'YXZ' : 'XYZ');
+    obj.updateMatrix();
+    const turret = this.refs.get(entity)?.turretPivot;
+    if (turret && entity.turret) {
+      turret.rotation.y = entity.turret.yaw - rot;
+      turret.updateMatrix();
+    }
+    return this.batchLod.add(batchKey, obj.matrix, turret?.matrix);
   }
 
   private addLowDetailInstance(

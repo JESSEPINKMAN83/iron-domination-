@@ -86,6 +86,7 @@ import {
   type OpeningFormationBasis,
 } from './match/openingDeployment';
 import { aiControlledTeams, ensureOpposingSides, formatArmyMatchup, isVictoryFromHostileBuildingCounts, shouldAutostartFromUrl } from './match/startup';
+import { spawnStressBase, spawnStressInfantry } from './match/stressScenario';
 import { createDestructionPreviewPanel, isDestructionPreviewQuery } from './match/destructionPreview';
 import { FirstPersonController } from './modes/firstPersonController';
 import { RtsCameraRig } from './modes/rtsCamera';
@@ -2877,6 +2878,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       for (let i = 0; i < 9; i++) {
         performanceUnits.push([spawnWaspAt, spawnVultureAt, spawnHammerheadAt][i % 3](sim, hf, army.base.transform.x + (i % 3 - 1) * 16, army.base.transform.z + 70 + Math.floor(i / 3) * 16, `Stress aircraft ${i}`, army.team));
       }
+      // Late-game scale: `&stress-bases=24&stress-infantry=40` per army.
+      spawnStressBase(sim, hf, army.economy, army.base, Math.min(60, Number(params.get('stress-bases')) || 0));
+      performanceUnits.push(...spawnStressInfantry(sim, army.base, army.team, Math.min(200, Number(params.get('stress-infantry')) || 0)));
     }
   }
   const durabilityScene = (durabilityPreview || destructionPreview) && !loadedFromSave
@@ -3021,6 +3025,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   window.addEventListener('keydown', () => audio.unlock(), { passive: true });
   audio.installButtonSounds();
   const orderMarkers = new OrderMarkerView(hf);
+  // Dev-only handle for performance profiling scripts.
+  if (import.meta.env.DEV) Object.assign(window, { __iron: { ctx, sim, unitView, buildingView, combatView } });
   ctx.scene.add(orderMarkers.group);
   const fogView = new FogView(playerVision, terrain.chunkGeometries);
   ctx.scene.add(fogView.group);
