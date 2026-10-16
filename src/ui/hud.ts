@@ -12,6 +12,7 @@ export interface HudStats {
   triangles: number;
   renderScale: number;
   visualQuality: string;
+  qualityDiagnostics?: string;
   simHz: number;
   instances: number;
   zoom: number;
@@ -292,6 +293,7 @@ export class Hud {
       `units ${s.units} · selected ${s.selected}`,
       `mode ${s.mode}`,
       `zoom ${s.zoom.toFixed(1)} · yaw ${Math.round(s.yawDeg)}° · pitch ${Math.round(s.pitchDeg)}°`,
+      ...(s.qualityDiagnostics ? ['Recent graphics changes:', s.qualityDiagnostics] : []),
     ].join('\n');
   }
 

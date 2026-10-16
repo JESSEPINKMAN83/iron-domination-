@@ -4135,6 +4135,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         triangles: ctx.renderer.info.render.triangles,
         renderScale: ctx.renderScale,
         visualQuality: ctx.visualQualityLabel,
+        qualityDiagnostics: ctx.qualityDiagnostics,
         simHz,
         instances: registry.totalInstances,
         zoom: rig.distance,

@@ -1,3 +1,4 @@
+import { QualityRecoveryGate } from './qualityRecovery';
 // Owns the WebGL renderer, scene, camera, day-lighting rig (hemisphere +
 // cascaded-shadow-map sun) and the postprocessing chain (SSAO, SMAA, bloom,
 // color-grading LUT, vignette).
@@ -85,7 +86,7 @@ export function recoveredVisualQualityTier(
   averageFrameSeconds: number,
   consecutiveRecoveryWindows: number,
 ): VisualQualityTier {
-  if (current <= 0 || averageFrameSeconds >= 0.022 || consecutiveRecoveryWindows < 4) return current;
+  if (current <= 0 || averageFrameSeconds >= 0.022 || consecutiveRecoveryWindows < 12) return current;
   return Math.max(0, current - 1) as VisualQualityTier;
 }
 
@@ -194,6 +195,12 @@ export class RenderContext {
 
   private readonly composer?: EffectComposer;
   private readonly n8ao?: N8AOPostPass;
+  private readonly fullEffects?: EffectPass;
+  private readonly leanEffects?: EffectPass;
+  private readonly recoveryGate = new QualityRecoveryGate();
+  private readonly qualityHistory: string[] = [];
+
+  get qualityDiagnostics(): string { return this.qualityHistory.join('\n'); }
   private readonly maxPixelRatio: number;
   private readonly multiplayerMode: boolean;
   private readonly mobileSafeMode: boolean;
@@ -293,20 +300,29 @@ export class RenderContext {
       this.n8ao.configuration.intensity = 2.4;
       this.n8ao.configuration.distanceFalloff = 4;
       this.n8ao.setQualityMode('Low');
+      // AO was evaluated at full viewport resolution even on large displays.
+      // Reconstruct this soft shadow layer from quarter as many sample pixels.
+      this.n8ao.configuration.halfRes = true;
+      this.n8ao.configuration.depthAwareUpsampling = true;
       if (this.multiplayerMode) this.n8ao.enabled = false;
       this.composer.addPass(this.n8ao);
 
       const lut = LookupTexture.createNeutral(32);
       gradeLut(lut);
-      this.composer.addPass(
-        new EffectPass(
+      this.fullEffects = new EffectPass(
           this.camera,
           new SMAAEffect({ preset: SMAAPreset.MEDIUM }),
           new BloomEffect({ mipmapBlur: true, intensity: 0.4, luminanceThreshold: 0.8, luminanceSmoothing: 0.25 }),
           new LUT3DEffect(lut),
           new VignetteEffect({ offset: 0.26, darkness: 0.55 }),
-        ),
       );
+      this.composer.addPass(this.fullEffects);
+      // One cheap color pass preserves the look when costly AO, bloom, AA and
+      // shadows are shed. Bypassing the composer used to change the whole scene.
+      this.leanEffects = new EffectPass(this.camera, new LUT3DEffect(lut), new VignetteEffect({ offset: 0.26, darkness: 0.55 }));
+      this.leanEffects.enabled = false;
+      this.composer.addPass(this.leanEffects);
+      this.composer.autoRenderToScreen = false;
     }
     this.applyQualityTier();
 
@@ -436,6 +452,7 @@ export class RenderContext {
       return;
     }
     const sampleDt = safeAdaptiveSampleSeconds(dt);
+    this.recoveryGate.advance(sampleDt);
     if (this.qualityCooldownSeconds > 0) {
       this.qualityCooldownSeconds = Math.max(0, this.qualityCooldownSeconds - sampleDt);
       this.qualitySampleSeconds = 0;
@@ -452,6 +469,7 @@ export class RenderContext {
     this.pressureWindows = nextPressureWindowCount(this.pressureWindows, averageFrameSeconds);
     const degraded = degradedVisualQualityTierAfterPressure(this.adaptiveQualityTier, averageFrameSeconds, this.pressureWindows);
     if (degraded !== this.adaptiveQualityTier) {
+      this.recordQualityChange(degraded, averageFrameSeconds);
       this.adaptiveQualityTier = degraded;
       this.recoveryWindows = 0;
       this.pressureWindows = 0;
@@ -460,10 +478,11 @@ export class RenderContext {
       return;
     }
     this.recoveryWindows = nextRecoveryWindowCount(this.recoveryWindows, averageFrameSeconds);
-    const recovered = this.fastMotionMode
+    const recovered = this.fastMotionMode || !this.recoveryGate.canRecoverTo(Math.max(0, this.adaptiveQualityTier - 1))
       ? this.adaptiveQualityTier
       : recoveredVisualQualityTier(this.adaptiveQualityTier, averageFrameSeconds, this.recoveryWindows);
     if (recovered !== this.adaptiveQualityTier) {
+      this.recordQualityChange(recovered, averageFrameSeconds);
       this.adaptiveQualityTier = recovered;
       this.recoveryWindows = 0;
       this.pressureWindows = 0;
@@ -472,11 +491,29 @@ export class RenderContext {
     }
   }
 
+  private recordQualityChange(to: VisualQualityTier, averageSeconds: number): void {
+    const from = this.adaptiveQualityTier;
+    this.recoveryGate.changed(from, to);
+    const labels = ['FULL', 'BALANCED', 'PERFORMANCE'];
+    const detail = `${labels[from]} → ${labels[to]}: ${(averageSeconds * 1000).toFixed(1)}ms average, ${this.renderer.info.render.calls} draws, ${Math.round(this.renderer.info.render.triangles / 1000)}k tris`;
+    this.qualityHistory.push(detail);
+    if (this.qualityHistory.length > 6) this.qualityHistory.shift();
+    console.info('[Graphics quality]', detail);
+  }
+
   private applyQualityTier(): void {
     const tier = this.visualQuality;
     if (this.appliedQualityTier === tier) return;
     this.appliedQualityTier = tier;
-    this.directRender = this.mobileSafeMode || tier >= 2;
+    this.directRender = this.mobileSafeMode;
+    if (this.fullEffects) {
+      this.fullEffects.enabled = tier < 2;
+      this.fullEffects.renderToScreen = tier < 2;
+    }
+    if (this.leanEffects) {
+      this.leanEffects.enabled = tier >= 2;
+      this.leanEffects.renderToScreen = tier >= 2;
+    }
     this.renderer.toneMappingExposure = performanceExposure(this.environmentExposure, this.directRender && !this.mobileSafeMode);
     const shadows = !this.mobileSafeMode && tier < 2;
     this.renderer.shadowMap.enabled = shadows;
