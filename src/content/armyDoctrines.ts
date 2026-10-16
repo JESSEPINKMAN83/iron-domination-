@@ -15,17 +15,17 @@ export interface ArmyDoctrineDef {
 export const ARMY_DOCTRINES: Record<ArmyDoctrineId, ArmyDoctrineDef> = {
   'iron-legion': {
     id: 'iron-legion',
-    label: 'Aegis Coalition',
+    label: 'Israel',
     specialty: 'Air superiority & interception',
-    description: 'Control the sky with aircraft and layered missile-defense batteries.',
+    description: 'Control the sky with Cobra, Apache and Yasur gunships behind Iron Dome and Arrow 3 interceptors.',
     strength: 'Aircraft and strategic missile interception',
     limitation: 'No strategic missile program',
   },
   'missile-command': {
     id: 'missile-command',
-    label: 'Vesper Republic',
-    specialty: 'Long-range strategic strike',
-    description: 'Build intelligence and missile infrastructure, then strike marked locations across the map.',
+    label: 'Iran',
+    specialty: 'Ballistic missiles & drone swarms',
+    description: 'Build the IRGC Aerospace HQ and Missile City, then saturate marked targets with Fattah missiles and Shahed drones.',
     strength: 'Long-range warheads and precision guidance',
     limitation: 'No helipads or aircraft production',
   },

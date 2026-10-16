@@ -1,3 +1,4 @@
+import { armyTag } from '../content/nations';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { isFortressTower } from '../content/fortress';
@@ -475,7 +476,7 @@ export class Sidebar {
       this.radarWrap.style.borderBottomColor = '#151817';
       this.radarWrap.style.boxShadow = 'inset 0 0 0 1px rgba(157,229,196,.28),inset 0 0 18px rgba(0,0,0,.75)';
     }, 3200);
-    this.flash(`⚠ INCOMING ${threat} · ARMY ${attackerTeam}`, 120);
+    this.flash(`⚠ INCOMING ${threat} · ${armyTag(attackerTeam)}`, 120);
   }
 
   producerHighlightIds(): number[] {
@@ -556,7 +557,7 @@ export class Sidebar {
       (unit) => unit.tab === this.activeTab && (!unit.doctrine || unit.doctrine === this.economy.doctrine),
     );
     if (this.activeTab === 'aircraft' && this.economy.doctrine === 'missile-command') {
-      this.body.appendChild(this.emptyState('NO AIR FORCE', 'The Vesper Republic replaces aircraft production with strategic missile capability.'));
+      this.body.appendChild(this.emptyState('NO AIR FORCE', 'Iran replaces aircraft production with Fattah missiles and Shahed drones.'));
       return;
     }
     const hasProducer = this.unitProducers(this.activeTab).length > 0;
@@ -567,7 +568,7 @@ export class Sidebar {
         this.activeTab === 'vehicles'
           ? 'Build and place a Factory before vehicle production opens.'
           : this.activeTab === 'aircraft'
-            ? 'Build and place a Helipad before aircraft production opens.'
+            ? 'Build and place an Air Base before aircraft production opens.'
             : 'Build and place a Barracks before infantry production opens.';
       this.body.appendChild(this.emptyState(required, detail));
       return;
@@ -589,7 +590,7 @@ export class Sidebar {
       'background:linear-gradient(145deg,rgba(18,38,31,.96),rgba(8,13,13,.96));box-shadow:inset 0 0 18px rgba(0,0,0,.48);';
     const title = document.createElement('div');
     title.style.cssText = 'display:flex;justify-content:space-between;gap:8px;color:#9de5c4;font-weight:900;letter-spacing:.08em;';
-    title.innerHTML = `<span>VESPER STRIKE CONTROL</span><span>WARHEAD ${this.economy.strategicMissileLevel}/3</span>`;
+    title.innerHTML = `<span>MISSILE STRIKE CONTROL</span><span>WARHEAD ${this.economy.strategicMissileLevel}/3</span>`;
     panel.appendChild(title);
 
     const enemyTeams = Array.from(new Set(
@@ -619,7 +620,7 @@ export class Sidebar {
         const button = document.createElement('button');
         button.type = 'button';
         button.innerHTML =
-          `<span style="font-size:20px;line-height:1">ARMY ${team}</span>` +
+          `<span style="font-size:13px;line-height:1.1">${armyTag(team)}</span>` +
           '<span style="font-size:8px;color:rgba(255,255,255,.8)">SELECT TARGET ZONE</span>';
         button.style.cssText =
           `aspect-ratio:1;display:grid;place-content:center;gap:9px;border-radius:4px;border:2px solid ${accent};` +
@@ -645,7 +646,7 @@ export class Sidebar {
     const enemyHeader = document.createElement('div');
     enemyHeader.style.cssText = `display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 8px;border-left:4px solid ${accent};background:${accent}20;color:#fff;font-size:11px;font-weight:900;`;
     const enemyLabel = document.createElement('span');
-    enemyLabel.innerHTML = `<span style="color:${accent}">●</span> TARGET ARMY ${enemyTeam}`;
+    enemyLabel.innerHTML = `<span style="color:${accent}">●</span> TARGET ${armyTag(enemyTeam)}`;
     enemyHeader.appendChild(enemyLabel);
     if (enemyTeams.length > 1) {
       const changeArmy = document.createElement('button');
@@ -750,7 +751,7 @@ export class Sidebar {
     const emberHeading = document.createElement('div');
     emberHeading.style.cssText = 'display:flex;justify-content:space-between;gap:6px;font-size:10px;font-weight:900;';
     emberHeading.innerHTML =
-      `<span style="color:#ffb56f">EMBER ONE-WAY · $${EMBER_DRONE_COST}</span>` +
+      `<span style="color:#ffb56f">SHAHED-136 · $${EMBER_DRONE_COST}</span>` +
       `<span style="color:${emberReadiness.ready ? '#9cf3b1' : '#ffb59f'}">${emberReadiness.ready ? 'READY' : emberReadiness.reason.toUpperCase()}</span>`;
     const emberCopy = document.createElement('div');
     emberCopy.style.cssText = 'color:#aebbc4;font-size:9px;line-height:1.4;';
@@ -760,14 +761,14 @@ export class Sidebar {
     emberButton.disabled = !this.strategicTargeting && !emberReadiness.ready;
     emberButton.textContent = this.strategicTargeting
       ? 'CANCEL IMPACT SELECTION · ESC / RIGHT-CLICK'
-      : `MARK EMBER IMPACT POINT · $${EMBER_DRONE_COST}`;
+      : `MARK SHAHED IMPACT POINT · $${EMBER_DRONE_COST}`;
     emberButton.title = this.strategicTargeting ? 'Cancel strategic targeting' : emberReadiness.ready ? 'Choose any battlefield location' : emberReadiness.reason;
     emberButton.style.cssText = strategicThemedButtonCss(this.strategicTargeting || emberReadiness.ready, '#ff9b58', this.strategicTargeting) + 'min-height:40px;font-size:10px;';
     emberButton.onclick = () => {
       if (this.strategicTargeting) {
         this.actions.cancelStrategicTargeting();
         this.strategicTargeting = false;
-        this.flash('EMBER TARGETING CANCELLED');
+        this.flash('SHAHED TARGETING CANCELLED');
       } else {
         const result = this.actions.beginEmberTargeting(enemyTeam, FACTION[factionId(enemyTeam)].accent);
         if (!result.ok) {
@@ -775,7 +776,7 @@ export class Sidebar {
           return;
         }
         this.strategicTargeting = true;
-        this.flash('MARK EMBER IMPACT POINT · 10M SCATTER');
+        this.flash('MARK SHAHED IMPACT POINT · 10M SCATTER');
       }
       this.lastBodyKey = '';
       this.renderBody();
@@ -1092,7 +1093,7 @@ export class Sidebar {
         tab === 'vehicles'
           ? 'Build a Factory to unlock vehicle production.'
           : tab === 'aircraft'
-            ? 'Build a Helipad to unlock aircraft production.'
+            ? 'Build an Air Base to unlock aircraft production.'
             : 'Build a Barracks to unlock infantry production.';
       return el;
     }

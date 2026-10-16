@@ -1,3 +1,4 @@
+import { armyTag } from '../content/nations';
 import type { EnemyCommander } from '../ai/commander';
 import type { Entity } from '../sim/components';
 import type { EconomyState } from '../sim/economy';
@@ -212,7 +213,7 @@ export class BattleDebriefTracker {
     return {
       team: army.team,
       side: army.side,
-      label: army.label ?? (army.team === this.localTeam ? 'YOUR ARMY' : `ARMY ${army.team}`),
+      label: army.label ?? (army.team === this.localTeam ? `${armyTag(army.team)} · YOU` : armyTag(army.team)),
       isLocal: army.team === this.localTeam,
       eliminated: buildingsSurviving === 0,
       credits: Math.round(army.economy.credits),

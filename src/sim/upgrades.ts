@@ -70,7 +70,7 @@ export const UNIT_UPGRADES: Record<UnitUpgradeId, UnitUpgradeDef> = {
     description: 'F launches a precision hunter missile built to finish damaged armor.', kinds: ['scout-tank'], specialWeapon: 'swarmRocket',
   },
   'reactive-plating': {
-    id: 'reactive-plating', label: 'Aegis Micro-Drone', category: 'frame', cost: 266,
+    id: 'reactive-plating', label: 'Escort Micro-Drone', category: 'frame', cost: 266,
     description: 'Adds 60 maximum health and deploys an orbiting escort drone. Its rapid micro-laser intercepts nearby infantry and assists against the tank’s current target.', kinds: ['tank'], healthBonus: 60,
   },
   'ion-spear': {

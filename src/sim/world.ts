@@ -60,6 +60,8 @@ export interface CombatEvent {
   targetHealth?: number;
   targetMaxHealth?: number;
   /** Stable id used to keep strategic-missile flight FX and defense UI in sync. */
+  /** Defense entity that destroyed a strategic threat (strategic-missile-intercepted). */
+  interceptorId?: number;
   strategicId?: number;
   /** Terrain-aware peak lift above the straight launch-to-impact line. */
   strategicLift?: number;

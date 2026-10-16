@@ -108,7 +108,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
   },
   helipad: {
     kind: 'helipad',
-    label: 'Helipad',
+    label: 'Air Base',
     tab: 'structures',
     cost: 500,
     buildTime: 6,
@@ -121,7 +121,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
   },
   'intelligence-center': {
     kind: 'intelligence-center',
-    label: 'Intelligence Center',
+    label: 'IRGC Aerospace HQ',
     tab: 'structures',
     cost: 700,
     buildTime: 6,
@@ -135,7 +135,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
   },
   'strategic-silo': {
     kind: 'strategic-silo',
-    label: 'Missile Silo',
+    label: 'Missile City',
     tab: 'structures',
     cost: 1500,
     buildTime: 11,
@@ -195,7 +195,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
   },
   'missile-defense': {
     kind: 'missile-defense',
-    label: 'Missile Defense Battery',
+    label: 'Arrow 3 Battery',
     tab: 'defense',
     cost: 900,
     buildTime: 8,
@@ -210,7 +210,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
   },
   'skylance-ciws': {
     kind: 'skylance-ciws',
-    label: 'Skylance CIWS',
+    label: 'Phalanx CIWS',
     tab: 'defense',
     cost: 420,
     buildTime: 5,
@@ -300,7 +300,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   },
   wasp: {
     kind: 'wasp',
-    label: 'Wasp Scout',
+    label: 'AH-1 Cobra',
     role: 'Fast 20mm interceptor with air-to-air missile',
     tab: 'aircraft',
     cost: 650,
@@ -311,7 +311,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   },
   vulture: {
     kind: 'vulture',
-    label: 'Vulture',
+    label: 'AH-64 Apache',
     role: 'Unguided rocket gunship with 25mm close fire',
     tab: 'aircraft',
     cost: 950,
@@ -322,7 +322,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
   },
   hammerhead: {
     kind: 'hammerhead',
-    label: 'Hammerhead',
+    label: 'Yasur Strike Gunship',
     role: 'Multi-role guided missile carrier with heavy bomb salvo',
     tab: 'aircraft',
     cost: 1250,

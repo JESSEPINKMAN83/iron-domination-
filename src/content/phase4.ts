@@ -119,7 +119,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
   scoutMissile: {
     kind: 'scoutMissile',
-    label: 'Jackal Light ATGM',
+    label: 'Light ATGM',
     damage: 38,
     cooldown: 4.2,
     range: 148,
@@ -130,7 +130,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
   tankMissile: {
     kind: 'tankMissile',
-    label: 'M-17 Guided AT Missile',
+    label: 'LAHAT Guided AT Missile',
     damage: 52,
     cooldown: 5.4,
     range: 178,
@@ -141,7 +141,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
   siegeMissile: {
     kind: 'siegeMissile',
-    label: 'Mauler Heavy Missile',
+    label: 'Heavy Guided Missile',
     damage: 48,
     cooldown: 1.42,
     range: 118,
@@ -232,7 +232,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
   agMissile: {
     kind: 'agMissile',
-    label: 'Hammerhead Multi-Role Missile',
+    label: 'Yasur Multi-Role Missile',
     damage: 44,
     cooldown: 2.8,
     range: 150,
@@ -258,7 +258,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
   skylanceGun: {
     kind: 'skylanceGun',
-    label: 'Skylance Close-In Cannon',
+    label: 'Phalanx 20mm Cannon',
     damage: 8,
     cooldown: 0.18,
     range: 110,
@@ -324,7 +324,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
   strategicMissile: {
     kind: 'strategicMissile',
-    label: 'Long-Range Strategic Missile',
+    label: 'Fattah Ballistic Missile',
     damage: 520,
     cooldown: 30,
     range: 1800,
@@ -335,7 +335,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
   emberDrone: {
     kind: 'emberDrone',
-    label: 'Ember One-Way Drone',
+    label: 'Shahed-136 One-Way Drone',
     damage: 130,
     cooldown: 5,
     range: 1800,

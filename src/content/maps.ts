@@ -75,9 +75,9 @@ export interface MapPreset {
 export const MAP_PRESETS = {
   highlands: {
     id: 'highlands',
-    label: 'Highlands',
-    shortLabel: 'HIGHLANDS',
-    description: 'Mediterranean upland reservoir, pale limestone, olive groves, and balanced oil fields. The classic Iron Dominion battlefield.',
+    label: 'Golan Heights',
+    shortLabel: 'GOLAN',
+    description: 'Basalt uplands above the Sea of Galilee: limestone ridges, olive groves and balanced oil fields. The classic Code Red front.',
     biome: 'temperate',
     atmosphere: {
       sky: '#8fb3d6',
@@ -135,9 +135,9 @@ export const MAP_PRESETS = {
   },
   'crater-oasis': {
     id: 'crater-oasis',
-    label: 'Crater Oasis',
-    shortLabel: 'CRATER',
-    description: 'A sun-baked desert impact basin with a turquoise oasis, scarred sandstone rims, and exposed oil fields in the open.',
+    label: 'Negev',
+    shortLabel: 'NEGEV',
+    description: 'A sun-baked Negev crater with a turquoise oasis, scarred sandstone rims and exposed oil fields in the open.',
     biome: 'desert',
     atmosphere: {
       sky: '#d18a55',
@@ -195,9 +195,9 @@ export const MAP_PRESETS = {
   },
   'frostbite-pass': {
     id: 'frostbite-pass',
-    label: 'Frostbite Pass',
-    shortLabel: 'FROST',
-    description: 'A frozen mountain corridor with icy lakes, whiteout snow, narrow ridges, and high-value ore trapped in exposed passes.',
+    label: 'Mount Hermon',
+    shortLabel: 'HERMON',
+    description: 'The snow-covered Hermon ridge: icy lakes, whiteout snow, narrow passes and high-value ore on exposed slopes.',
     biome: 'snow',
     atmosphere: {
       sky: '#b9cce0',

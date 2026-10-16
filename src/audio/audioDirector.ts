@@ -779,6 +779,31 @@ export class AudioDirector {
     this.cleanup(out, duration + 0.05);
   }
 
+  /** Soft two-tone notice for a Code Red alert; deliberately not a siren. */
+  playCodeRedChime(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    if (this.voices >= MAX_VOICES) return;
+    this.voices++;
+    const now = this.ctx.currentTime;
+    const out = this.ctx.createGain();
+    out.gain.value = 0.032;
+    out.connect(this.master);
+    for (const [frequency, offset] of [[784, 0], [587, 0.2]] as const) {
+      const tone = this.ctx.createGain();
+      tone.gain.setValueAtTime(0.0001, now + offset);
+      tone.gain.exponentialRampToValueAtTime(1, now + offset + 0.02);
+      tone.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.34);
+      tone.connect(out);
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(frequency, now + offset);
+      osc.connect(tone);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.36);
+    }
+    this.cleanup(out, 0.62);
+  }
+
   installButtonSounds(root: Window = window): void {
     if (this.buttonSoundsInstalled) return;
     this.buttonSoundsInstalled = true;

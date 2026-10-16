@@ -1,3 +1,4 @@
+import { structureLabel } from '../content/sideLabels';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, type FortressTowerKind } from '../content/fortress';
 import { startPosition } from '../content/startPositions';
@@ -145,7 +146,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
   const p = sim.nav.cellCenter(cell.x, cell.y);
   const conyard = sim.world.add({
     id: sim.nextEntityId++,
-    name: 'Command Yard',
+    name: 'Command HQ',
     transform: { x: p.x, z: p.z, rot: 0 },
     previousTransform: { x: p.x, z: p.z, rot: 0 },
     health: { current: COMMAND_YARD_HEALTH, max: COMMAND_YARD_HEALTH },
@@ -154,7 +155,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
     selectable: { selected: false, type: 'building', radius: 9 },
     building: {
       kind: 'command-yard',
-      label: 'Command Yard',
+      label: 'Command HQ',
       footprint: { w: 9, h: 8 },
       powerProduced: 20,
       powerUsed: 0,
@@ -305,7 +306,7 @@ function createPlacedStructure(
   const fortressWeapons = fortressKind ? createFortressWeapons(fortressKind) : undefined;
   const entity = sim.world.add({
     id: sim.nextEntityId++,
-    name: def.label,
+    name: structureLabel(def.kind, economy.team),
     transform: { x, y: groundY, z, rot: 0 },
     previousTransform: { x, y: groundY, z, rot: 0 },
     health: {
@@ -317,7 +318,7 @@ function createPlacedStructure(
     selectable: { selected: false, type: 'building', radius: Math.max(def.footprint.w, def.footprint.h) },
     building: {
       kind: def.kind,
-      label: def.label,
+      label: structureLabel(def.kind, economy.team),
       footprint: def.footprint,
       powerProduced: def.powerProduced,
       powerUsed: def.powerUsed,
@@ -594,8 +595,8 @@ export function strategicMissileUpgradeCost(currentLevel: number): number {
 
 export function canUpgradeStrategicMissile(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
   const cost = strategicMissileUpgradeCost(economy.strategicMissileLevel);
-  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
-  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Iran only', cost };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build Missile City', cost };
   if (economy.strategicMissileLevel >= MAX_STRATEGIC_MISSILE_LEVEL) return { ok: false, reason: 'Maximum missile level', cost: 0 };
   if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
   return { ok: true, reason: '', cost };
@@ -617,9 +618,9 @@ export function strategicAccuracyUpgradeCost(currentLevel: number): number {
 
 export function canUpgradeStrategicAccuracy(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
   const cost = strategicAccuracyUpgradeCost(economy.strategicAccuracyLevel);
-  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
-  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
-  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Iran only', cost };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build Missile City', cost };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build the IRGC Aerospace HQ', cost };
   if (economy.strategicAccuracyLevel >= MAX_STRATEGIC_ACCURACY_LEVEL) return { ok: false, reason: 'Maximum accuracy level', cost: 0 };
   if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
   return { ok: true, reason: '', cost };
@@ -641,9 +642,9 @@ export function emberDroneQuantityUpgradeCost(currentLevel: number): number {
 
 export function canUpgradeEmberDroneQuantity(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
   const cost = emberDroneQuantityUpgradeCost(economy.emberDroneQuantityLevel);
-  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
-  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
-  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Iran only', cost };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build Missile City', cost };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build the IRGC Aerospace HQ', cost };
   if (economy.emberDroneQuantityLevel >= MAX_EMBER_DRONE_QUANTITY_LEVEL) return { ok: false, reason: 'Maximum drone quantity', cost: 0 };
   if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
   return { ok: true, reason: '', cost };
@@ -652,7 +653,7 @@ export function canUpgradeEmberDroneQuantity(sim: GameSim, economy: EconomyState
 export function upgradeEmberDroneQuantity(sim: GameSim, economy: EconomyState): boolean {
   const check = canUpgradeEmberDroneQuantity(sim, economy);
   if (!check.ok) return false;
-  spend(economy, sim.tick, `Ember salvo quantity ${economy.emberDroneQuantityLevel + 1}`, check.cost);
+  spend(economy, sim.tick, `Shahed salvo quantity ${economy.emberDroneQuantityLevel + 1}`, check.cost);
   economy.emberDroneQuantityLevel++;
   return true;
 }
@@ -665,9 +666,9 @@ export function emberDroneWarheadUpgradeCost(currentLevel: number): number {
 
 export function canUpgradeEmberDroneWarhead(sim: GameSim, economy: EconomyState): { ok: boolean; reason: string; cost: number } {
   const cost = emberDroneWarheadUpgradeCost(economy.emberDroneWarheadLevel);
-  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Vesper Republic only', cost };
-  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build a Missile Silo', cost };
-  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build an Intelligence Center', cost };
+  if (economy.doctrine !== 'missile-command') return { ok: false, reason: 'Iran only', cost };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ok: false, reason: 'Build Missile City', cost };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ok: false, reason: 'Build the IRGC Aerospace HQ', cost };
   if (economy.emberDroneWarheadLevel >= MAX_EMBER_DRONE_WARHEAD_LEVEL) return { ok: false, reason: 'Maximum drone warhead', cost: 0 };
   if (economy.credits < cost) return { ok: false, reason: 'Insufficient credits', cost };
   return { ok: true, reason: '', cost };
@@ -676,7 +677,7 @@ export function canUpgradeEmberDroneWarhead(sim: GameSim, economy: EconomyState)
 export function upgradeEmberDroneWarhead(sim: GameSim, economy: EconomyState): boolean {
   const check = canUpgradeEmberDroneWarhead(sim, economy);
   if (!check.ok) return false;
-  spend(economy, sim.tick, `Ember warhead level ${economy.emberDroneWarheadLevel + 1}`, check.cost);
+  spend(economy, sim.tick, `Shahed warhead level ${economy.emberDroneWarheadLevel + 1}`, check.cost);
   economy.emberDroneWarheadLevel++;
   return true;
 }

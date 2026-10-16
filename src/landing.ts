@@ -292,17 +292,17 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
       ` : ''}
       <section class="iron-landing__hero">
         <p class="iron-landing__eyebrow">${inviteRoom ? `Multiplayer invitation · Room ${inviteRoom}` : 'Beta access · Play free'}</p>
-        <h1 aria-label="Iron Domination">
-          <span data-text="Iron">Iron</span>
-          <span data-text="Domination">Domination</span>
+        <h1 aria-label="Code Red">
+          <span data-text="Code">Code</span>
+          <span data-text="Red">Red</span>
         </h1>
         <p class="iron-landing__copy">
-          ${inviteRoom ? 'Your friend is waiting in the battle room.' : 'Command a war from above. Then drop into the fight yourself.'}
+          ${inviteRoom ? 'Your friend is waiting in the battle room.' : 'Israel vs Iran. Command from above, then drop into the fight.'}
         </p>
         <p class="iron-landing__detail">
           ${inviteRoom
             ? 'Enter your details once. You will join the room automatically as soon as signup is complete.'
-            : 'Iron Dominion is a hybrid strategy war game where you build your base, deploy armies, and switch into first-person mode to fight alongside your troops on the ground.'}
+            : 'Lead Israel’s air force behind Iron Dome and Arrow 3, or Iran’s Fattah missiles and Shahed swarms. Build your base, deploy armies, and switch into first-person to fight alongside your troops.'}
         </p>
         ${splitPaths ? splitActions : returningPlayer ? `
           <div class="iron-landing__returning">

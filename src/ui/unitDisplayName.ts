@@ -1,4 +1,4 @@
-import { UNITS } from '../content/phase3';
+import { unitLabel } from '../content/sideLabels';
 import type { Entity } from '../sim/components';
 import { unitKindForUpgrade } from '../sim/upgrades';
 
@@ -6,7 +6,7 @@ export function unitDisplayName(entity: Entity | undefined): string {
   if (!entity) return 'Unit';
   if (entity.harvester) return 'Ore Harvester';
   const kind = unitKindForUpgrade(entity);
-  if (kind) return UNITS[kind].label;
+  if (kind) return unitLabel(kind, entity.team?.id);
   return entity.name?.trim() || readableType(entity.selectable?.type);
 }
 

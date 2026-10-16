@@ -114,7 +114,7 @@ export class MobileLandscapeGate {
     this.overlay.innerHTML = `
       <div class="mobile-landscape-gate__device" aria-hidden="true"><span></span></div>
       <p>ROTATE TO COMMAND</p>
-      <strong>Iron Domination plays in landscape.</strong>
+      <strong>Code Red plays in landscape.</strong>
       <small>Turn your phone sideways to continue.</small>
     `;
     document.body.appendChild(this.overlay);

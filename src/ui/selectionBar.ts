@@ -1,3 +1,4 @@
+import { armyTag } from '../content/nations';
 import { groupOrderFeedback } from './orderFeedback';
 import type { FormationPreset } from '../sim/formations';
 import { Vector3, type Camera } from 'three';
@@ -406,7 +407,7 @@ export class SelectionBar {
     card.style.width = 'auto';
     card.style.minHeight = '118px';
     card.style.gridTemplateRows = '72px auto';
-    card.title = 'Selected Missile Silo';
+    card.title = 'Selected Missile City';
 
     const attack = document.createElement('div');
     attack.style.cssText = 'min-width:0;display:grid;gap:9px;align-content:start;';
@@ -429,7 +430,7 @@ export class SelectionBar {
         const active = team === this.strategicEnemyTeam;
         const option = document.createElement('button');
         option.type = 'button';
-        option.textContent = `ARMY ${team}`;
+        option.textContent = armyTag(team);
         option.setAttribute('aria-pressed', String(active));
         option.style.cssText =
           `min-height:24px;padding:4px 9px;border:1px solid ${accent};border-radius:4px;` +
@@ -599,7 +600,7 @@ export class SelectionBar {
           economy.emberDroneQuantityLevel,
           MAX_EMBER_DRONE_QUANTITY_LEVEL,
           canUpgradeEmberDroneQuantity(this.sim, economy),
-          'Add one drone to every Ember salvo, up to ten',
+          'Add one drone to every Shahed salvo, up to ten',
           controls.upgradeEmberQuantity,
         ),
         upgradeRow(
@@ -607,7 +608,7 @@ export class SelectionBar {
           economy.emberDroneWarheadLevel,
           MAX_EMBER_DRONE_WARHEAD_LEVEL,
           canUpgradeEmberDroneWarhead(this.sim, economy),
-          'Increase each Ember drone’s impact and damage',
+          'Increase each Shahed drone’s impact and damage',
           controls.upgradeEmberWarhead,
         ),
       );

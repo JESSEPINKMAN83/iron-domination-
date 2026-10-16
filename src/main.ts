@@ -1,3 +1,6 @@
+import { applyArmyNations, armyTag, NATIONS, nationsForDoctrines } from './content/nations';
+import { applyLocalSideLabels, structureLabel } from './content/sideLabels';
+import { CodeRedAlert } from './ui/codeRedAlert';
 import { sanitizeTerrainLayout, type TerrainLayout } from './sim/heightfield';
 import { Color, Fog, MeshStandardMaterial } from 'three';
 import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic, type LandingIntent } from './landing';
@@ -368,13 +371,14 @@ function setupMapDeployments(
   spawnPoints: ArmySpawnPoints,
 ): TacticalMapDeployment[] {
   const palettes = armyFactionPalettes(armyDoctrines.slice(0, armyCount), armySides.slice(0, armyCount));
+  const nations = nationsForDoctrines(armyDoctrines.slice(0, armyCount));
   return Array.from({ length: armyCount }, (_, offset) => {
     const army = offset + 1;
     return {
       army,
       side: armySides[offset] ?? army,
       color: palettes[offset] ? colorCss(palettes[offset].accent) : '#d7dde0',
-      label: army === 1 ? 'YOU' : `AI ARMY ${army}`,
+      label: army === 1 ? `${NATIONS[nations[offset]].tag} · YOU` : NATIONS[nations[offset]].tag,
       detail: army === 1 ? 'COMMAND' : 'AI START',
       isLocal: army === 1,
       point: spawnPoints[offset],
@@ -692,7 +696,7 @@ function showLoadingOverlay(): HTMLDivElement {
   el.style.cssText =
     'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;' +
     'gap:10px;background:#0a0d10;color:#cfd8e3;font:14px ui-monospace,Menlo,monospace;z-index:100;letter-spacing:.2em;';
-  el.innerHTML = '<div style="font-size:22px">IRON DOMINION</div><div>generating terrain…</div>';
+  el.innerHTML = '<div style="font-size:22px">CODE RED</div><div>generating terrain…</div>';
   document.body.appendChild(el);
   return el;
 }
@@ -1298,6 +1302,7 @@ function createArmySetupControl(
   };
 
   const render = (): void => {
+    const setupNations = nationsForDoctrines(doctrines);
     for (const button of Array.from(countButtons.children) as HTMLButtonElement[]) {
       const active = Number(button.dataset.count) === count;
       button.classList.toggle('is-active', active);
@@ -1308,7 +1313,7 @@ function createArmySetupControl(
       const army = Number(row.dataset.army);
       row.style.display = army <= count ? 'grid' : 'none';
       const label = row.querySelector('.war-army-row__label');
-      if (label) label.innerHTML = `<strong>ARMY ${army}</strong><small>${army === playerIndex ? 'YOU' : 'PLAYER / AI'}</small>`;
+      if (label) label.innerHTML = `<strong>${NATIONS[setupNations[army - 1]].tag}</strong><small>${army === playerIndex ? 'YOU' : 'PLAYER / AI'}</small>`;
       const sideSelect = row.querySelector<HTMLSelectElement>('[data-role="side"]');
       const doctrineSelect = row.querySelector<HTMLSelectElement>('[data-role="doctrine"]');
       if (sideSelect) {
@@ -1321,7 +1326,7 @@ function createArmySetupControl(
         doctrineSelect.dataset.doctrine = doctrines[army - 1];
       }
     }
-    matchup.textContent = formatArmyMatchup(count, sides);
+    matchup.textContent = formatArmyMatchup(count, sides, (army) => NATIONS[setupNations[army - 1]].tag);
   };
 
   for (const value of [2, 3, 4] as ArmyCount[]) {
@@ -1337,6 +1342,9 @@ function createArmySetupControl(
         sides[1] = 1;
         sides[2] = 2;
         sides[3] = 2;
+        // Code Red: the default 2v2 pairs Israel with the United States
+        // against Iran and Hezbollah instead of allying Israel with Iran.
+        if (doctrines.join(',') === defaultArmyDoctrines().join(',')) doctrines[1] = 'iron-legion';
       }
       normalizeSides();
       render();
@@ -1377,7 +1385,7 @@ function createArmySetupControl(
     for (const doctrine of ARMY_DOCTRINE_IDS) {
       const option = document.createElement('option');
       option.value = doctrine;
-      option.textContent = doctrine === 'iron-legion' ? 'AEGIS · AIR FORCE' : 'VESPER · MISSILES';
+      option.textContent = doctrine === 'iron-legion' ? 'ISRAEL · AIR FORCE' : 'IRAN · MISSILES';
       doctrineSelect.appendChild(option);
     }
     doctrineSelect.onchange = () => {
@@ -1775,8 +1783,8 @@ function createRoomLobbyView(
   const briefing = document.createElement('section');
   briefing.className = 'war-lobby__briefing';
   briefing.innerHTML =
-    '<div><span>IRON DOMINION · ONLINE BATTLE</span><strong>BUILD. HARVEST. COMMAND. FIGHT.</strong></div>' +
-    '<p>Establish power and production, harvest ore, command your army from above, or enter any unit with <b>V</b>. Destroy every hostile Command Yard to win.</p>';
+    '<div><span>CODE RED · ONLINE BATTLE</span><strong>BUILD. HARVEST. COMMAND. FIGHT.</strong></div>' +
+    '<p>Establish power and production, harvest ore, command your army from above, or enter any unit with <b>V</b>. Destroy every hostile Command HQ to win.</p>';
 
   const battlefield = document.createElement('section');
   battlefield.className = 'war-lobby__battlefield';
@@ -2105,7 +2113,7 @@ function createRoomLobbyView(
     try {
       if (canNativeShare) {
         await navigator.share({
-          title: 'Join my Iron Dominion battle',
+          title: 'Join my Code Red battle',
           text: `Join room ${latestRoom.code}. The battlefield is already configured.`,
           url: inviteUrl,
         });
@@ -2581,7 +2589,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     settings.armyDoctrines.slice(0, settings.armyCount),
     settings.armySides.slice(0, settings.armyCount),
   );
+  applyArmyNations(settings.armyDoctrines.slice(0, settings.armyCount));
   const localTeam = multiplayer?.session.player.armyId ?? multiplayer?.session.player.index ?? 1;
+  applyLocalSideLabels(settings.armyDoctrines[localTeam - 1] ?? 'iron-legion');
   const humanTeams = multiplayer
     ? Array.from(new Set(multiplayer.session.room.players.map((player) => player.armyId ?? player.index)))
     : [localTeam];
@@ -2844,7 +2854,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         commander: army.commander,
         label: roomPlayers.length > 0
           ? roomPlayers.map((player) => player.name).join(' + ')
-          : army.team === localTeam ? 'YOUR ARMY' : `AI ARMY ${army.team}`,
+          : army.team === localTeam ? `${armyTag(army.team)} · YOU` : armyTag(army.team),
       };
     }),
     localTeam,
@@ -3026,13 +3036,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   audio.installButtonSounds();
   const orderMarkers = new OrderMarkerView(hf);
   // Dev-only handle for performance profiling scripts.
-  if (import.meta.env.DEV) Object.assign(window, { __iron: { ctx, sim, unitView, buildingView, combatView } });
+  if (import.meta.env.DEV) Object.assign(window, { __iron: { ctx, sim, unitView, buildingView, combatView, armies } });
   ctx.scene.add(orderMarkers.group);
   const fogView = new FogView(playerVision, terrain.chunkGeometries);
   ctx.scene.add(fogView.group);
   let lastFogTextureTick = -2;
   let lastResourceVisualTick = -1;
   const hud = new Hud(document.body);
+  const codeRedAlert = new CodeRedAlert(document.body);
   activeMatchExitGuard?.dispose();
   activeMatchExitGuard = installActiveMatchExitGuard();
   const impactDemoPanel = impactDemoScene ? createImpactMovementDemoPanel() : undefined;
@@ -3246,7 +3257,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
             ctx.renderer.domElement.style.cursor = '';
             audio.playUi('order');
             sidebar.finishStrategicTargeting(targeting.weapon === 'ember'
-              ? 'EMBER AWAY · IMPACT POINT CONFIRMED'
+              ? 'SHAHED AWAY · IMPACT POINT CONFIRMED'
               : 'MISSILE AWAY · IMPACT POINT CONFIRMED');
           } else {
             audio.playUi('error');
@@ -4019,23 +4030,28 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       firstPerson.handleCombatEvents(events);
       audio.handleCombatEvents(events, firstPerson.possessedEntity?.id);
       for (const event of events) {
-        if (event.kind === 'strategic-missile-warning' && event.targetTeamId === localTeam) {
+        if (
+          (event.kind === 'strategic-missile-warning' || event.kind === 'ember-drone-warning')
+          && event.targetTeamId === localTeam
+        ) {
           const attackerTeam = event.sourceTeamId ?? 0;
-          sidebar.signalIncomingMissile(attackerTeam);
-          hud.showBaseUnderAttack('Incoming strategic missile', true);
-          missionComms.announceIncomingMissile(attackerTeam);
-          audio.playUi('error');
-        }
-        if (event.kind === 'ember-drone-warning' && event.targetTeamId === localTeam) {
-          const attackerTeam = event.sourceTeamId ?? 0;
-          sidebar.signalIncomingMissile(attackerTeam, 'EMBER DRONE');
-          hud.showBaseUnderAttack('Incoming Ember drone', true);
-          missionComms.announceIncomingMissile(attackerTeam);
-          audio.playUi('error');
+          const drone = event.kind === 'ember-drone-warning';
+          sidebar.signalIncomingMissile(attackerTeam, drone ? 'SHAHED DRONE' : undefined);
+          const salvo = drone ? Number(/×(\d+)/.exec(event.targetLabel ?? '')?.[1] ?? 1) : 1;
+          const eta = (event.duration ?? 8) + (event.launchDelay ?? 0);
+          if (codeRedAlert.warn(drone ? 'drone' : 'missile', armyTag(attackerTeam), salvo, eta, performance.now())) {
+            audio.playCodeRedChime();
+          }
         }
         if (event.kind === 'strategic-missile-intercepted') {
+          const interceptor = event.interceptorId === undefined ? undefined : sim.byId.get(event.interceptorId);
+          const layer = interceptor?.building
+            ? structureLabel(interceptor.building.kind as StructureKind, interceptor.team?.id)
+            : interceptor ? unitDisplayName(interceptor) : undefined;
+          const defendedHere = event.sourceTeamId !== undefined && !areTeamsHostile(sim, localTeam, event.sourceTeamId);
+          if (defendedHere) codeRedAlert.intercept(layer, performance.now());
           const intercepted = event.targetLabel?.toUpperCase() ?? 'STRATEGIC THREAT INTERCEPTED';
-          sidebar.notify(intercepted);
+          sidebar.notify(layer ? `${intercepted} · ${layer.toUpperCase()}` : intercepted);
         }
         if (event.kind === 'rank-up' && event.sourceTeamId === localTeam) {
           audio.playUi('build');
@@ -4134,6 +4150,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         simTicks = 0;
         lastSimSample = now;
       }
+      codeRedAlert.update(now);
       hud.update(now, {
         fps,
         frameMs: dt * 1000,
@@ -5422,7 +5439,7 @@ function durabilityTargetOrder(entity: Entity): number {
 
 function durabilityTargetLabel(entity: Entity): string {
   const kind = entity.building?.kind;
-  if (kind === 'command-yard') return 'Command Yard';
+  if (kind === 'command-yard') return 'Command HQ';
   if (kind && kind in STRUCTURES) return STRUCTURES[kind as StructureKind].label;
   return entity.name ?? 'Building';
 }
@@ -6225,7 +6242,7 @@ void start().catch((err) => {
     'position:fixed;inset:0;z-index:300;display:flex;flex-direction:column;gap:12px;padding:32px;overflow:auto;' +
     'background:#140708;color:#ffb3a0;font:12px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;';
   el.innerHTML =
-    '<div style="font-size:20px;color:#ff6a54;letter-spacing:.14em">IRON DOMINION — failed to start</div>' +
+    '<div style="font-size:20px;color:#ff6a54;letter-spacing:.14em">CODE RED — failed to start</div>' +
     '<div style="color:#cfd8e3">Reload to try a new map, or report this:</div>';
   const pre = document.createElement('div');
   pre.textContent = String((err as Error)?.stack ?? err);
