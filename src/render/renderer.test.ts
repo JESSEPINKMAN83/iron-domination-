@@ -45,7 +45,8 @@ describe('adaptive render quality', () => {
     expect(shouldIgnoreAdaptiveQualityFrame(1 / 60, true)).toBe(true);
     expect(shouldIgnoreAdaptiveQualityFrame(1 / 60, false)).toBe(false);
     expect(recoveredVisualQualityTier(2, 1 / 60, 3)).toBe(2);
-    expect(recoveredVisualQualityTier(2, 1 / 60, 4)).toBe(1);
+    expect(recoveredVisualQualityTier(2, 1 / 60, 4)).toBe(2);
+    expect(recoveredVisualQualityTier(2, 1 / 60, 12)).toBe(1);
   });
 
   it('locks explicit visual test modes and preserves direct-render exposure', () => {
