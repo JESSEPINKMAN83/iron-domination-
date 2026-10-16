@@ -199,3 +199,38 @@
 @keyframes debrief-arrive { from { opacity: 0; transform: rotate(45deg) scale(.55); } to { opacity: 1; transform: rotate(45deg) scale(1); } }
 @keyframes debrief-copy { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
 @keyframes debrief-row { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Read the match at a glance, then explore the numbers on demand. */
+.battle-debrief__header { min-height: 142px; }
+.battle-debrief__result-copy h1 { font-family: 'Avenir Next', Inter, system-ui, sans-serif; font-weight: 850; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.035em; }
+.battle-debrief__highlights { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.battle-debrief__metric strong { font-family: 'Avenir Next', Inter, system-ui, sans-serif; font-weight: 750; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.battle-debrief__metric small { white-space: normal; line-height: 1.5; color: #a3b1aa; }
+.battle-debrief__body { grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); }
+.battle-debrief__section-title strong { font: 750 15px/1.3 'Avenir Next', system-ui, sans-serif; letter-spacing: .035em; }
+.battle-debrief__army { padding: 16px; }
+.battle-debrief__army.is-eliminated { opacity: 1; }
+.battle-debrief__army-output { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0 12px; }
+.battle-debrief__army-output span { color: #a3b1aa; font-size: 11px; }
+.battle-debrief__army-output b { display: block; margin-top: 3px; color: #eef2eb; font-size: 19px; font-variant-numeric: tabular-nums; }
+.battle-debrief__damage-bar { height: 5px; border-radius: 3px; }
+.battle-debrief__damage-bar i { background: var(--army-accent); box-shadow: none; }
+.battle-debrief__details { margin-top: 12px; }
+.battle-debrief__details summary { color: #adbbb4; font-size: 11px; cursor: pointer; width: fit-content; padding: 4px 0; }
+.battle-debrief__details summary:hover { color: #fff; }
+.battle-debrief__details summary:focus-visible { outline: 2px solid var(--debrief-accent); outline-offset: 3px; }
+.battle-debrief__army-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.battle-debrief__assessment { padding: 16px; }
+.battle-debrief__assessment strong { font-size: 13px; }
+.battle-debrief__assessment p { font-size: 12px; color: #b1beb7; line-height: 1.65; }
+.battle-debrief__footer p { max-width: 600px; }
+@media (max-width: 1000px) {
+  .battle-debrief__body { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .battle-debrief__highlights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .battle-debrief__result-copy h1 { font-size: 36px; }
+  .battle-debrief__army-output { gap: 8px; }
+  .battle-debrief__army-output b { font-size: 17px; }
+  .battle-debrief__army-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -23,6 +23,7 @@ import './outcomeScreen.css';
 import './ui/menuTheme.css';
 import './ui/roomLobby.css';
 import { EnemyCommander } from './ai/commander';
+import { stageWallPerformancePreview } from './match/wallPerformancePreview';
 import { stageCoordinationPreview } from './match/coordinationPreview';
 import { AudioDirector } from './audio/audioDirector';
 import { showSfxPreview } from './audio/sfxPreview';
@@ -2669,6 +2670,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
 
   const startMode = params.get('start');
+  const wallPerformancePreview = params.get('wall-performance-test') === '1' && !multiplayerMode && !isPublicHost(location.hostname);
   const aiCoordinationPreview = params.get('ai-coordination-test') === '1' && !multiplayerMode && !isPublicHost(location.hostname);
   const infantryCombatTest = params.get('infantry-combat-test') === '1';
   const tankCombatTest = params.get('tank-combat-test') === '1';
@@ -2816,11 +2818,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     seedTestStartBase(sim, hf, economy, localBase);
   }
   const smokePreviewStage = smokePreview ? createSmokePreviewStage(sim, armies, localTeam) : undefined;
-  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest || performanceTest || aiCoordinationPreview
+  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest || performanceTest || aiCoordinationPreview || wallPerformancePreview
     ? () => true
     : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
-    if (durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
+    if (wallPerformancePreview || durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
@@ -2932,10 +2934,15 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       }
     }
   }
+  const wallPerformanceStage = wallPerformancePreview && !loadedFromSave
+    ? stageWallPerformancePreview(sim, hf, economy)
+    : undefined;
   const coordinationStage = aiCoordinationPreview && !loadedFromSave
     ? stageCoordinationPreview(sim, hf, armies, localTeam)
     : undefined;
-  const startingUnits = coordinationStage
+  const startingUnits = wallPerformanceStage
+    ? wallPerformanceStage.units
+    : coordinationStage
     ? coordinationStage.units
     : aircraftRouteTest
     ? aircraftRouteUnits
@@ -3149,6 +3156,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       64,
       -12,
     );
+  } else if (wallPerformanceStage) {
+    const { focus } = wallPerformanceStage;
+    rig.focusOn(focus.x, focus.z, { x: focus.x - 100, z: focus.z - 150 }, 650, -6);
   } else if (coordinationStage) {
     const { focus, forward } = coordinationStage;
     rig.focusOn(focus.x, focus.z, { x: focus.x - forward.x * 140, z: focus.z - forward.z * 140 }, 250, -6);

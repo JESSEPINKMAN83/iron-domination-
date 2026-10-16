@@ -1105,12 +1105,12 @@ describe('phase 4 combat simulation', () => {
 
     expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
     for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    let placement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, 2);
+    let placement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 44, base.transform.z, 2);
     expect(placeStructure(sim, hf, economy, placement)).toBeDefined();
 
     expect(startStructureBuild(sim, economy, 'aa-tower')).toBe(true);
     for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    placement = updatePlacement(sim, hf, 'aa-tower', base.transform.x + 24, base.transform.z, 2);
+    placement = updatePlacement(sim, hf, 'aa-tower', base.transform.x + 44, base.transform.z, 2);
     const tower = placeStructure(sim, hf, economy, placement);
     expect(tower?.weapon?.kind).toBe('aaMissile');
 
@@ -1130,7 +1130,7 @@ describe('phase 4 combat simulation', () => {
 
     expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
     for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    let placement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z);
+    let placement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 44, base.transform.z);
     expect(placeStructure(sim, hf, economy, placement)).toBeDefined();
 
     expect(startStructureBuild(sim, economy, 'wall')).toBe(true);
@@ -1160,12 +1160,12 @@ describe('phase 4 combat simulation', () => {
 
     expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
     for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    let placement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z);
+    let placement = updatePlacement(sim, hf, 'power-plant', base.transform.x - 44, base.transform.z);
     expect(placeStructure(sim, hf, economy, placement)).toBeDefined();
 
     expect(startStructureBuild(sim, economy, 'guard-tower')).toBe(true);
     for (let i = 0; i < 30 * 7; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    placement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 24, base.transform.z);
+    placement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 44, base.transform.z);
     const tower = placeStructure(sim, hf, economy, placement);
     expect(tower?.weapon?.kind).toBe('siegeMissile');
     expect(tower?.weapon?.salvoCount).toBe(1);
@@ -1194,7 +1194,7 @@ describe('phase 4 combat simulation', () => {
       sim,
       hf,
       economy,
-      updatePlacement(sim, hf, 'guard-tower', base.transform.x + 26, base.transform.z, 1, economy),
+      updatePlacement(sim, hf, 'guard-tower', base.transform.x + 44, base.transform.z, 1, economy),
     )!;
     const target = spawnTankAt(sim, tower.transform.x + 86, tower.transform.z, 'Moving Raider', 2);
     target.velocity = { x: 0, z: 10 };
@@ -1225,7 +1225,7 @@ describe('phase 4 combat simulation', () => {
       sim,
       hf,
       economy,
-      updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy),
+      updatePlacement(sim, hf, 'aa-tower', base.transform.x + 44, base.transform.z, 1, economy),
     )!;
     const target = spawnWaspAt(sim, hf, tower.transform.x + 90, tower.transform.z, 'Crossing Wasp', 2);
     target.velocity = { x: 0, z: 18 };
@@ -1245,7 +1245,7 @@ describe('phase 4 combat simulation', () => {
     const base = createInitialBase(sim, hf, economy);
 
     economy.readyStructure = 'aa-tower';
-    const placement = updatePlacement(sim, hf, 'aa-tower', base.transform.x + 26, base.transform.z, 1, economy);
+    const placement = updatePlacement(sim, hf, 'aa-tower', base.transform.x + 44, base.transform.z, 1, economy);
     const tower = placeStructure(sim, hf, economy, placement);
 
     expect(tower?.weapon?.kind).toBe('aaMissile');
@@ -1267,14 +1267,14 @@ describe('phase 4 combat simulation', () => {
       sim,
       hf,
       economy,
-      updatePlacement(sim, hf, 'guard-tower', base.transform.x + 26, base.transform.z, 1, economy),
+      updatePlacement(sim, hf, 'guard-tower', base.transform.x + 44, base.transform.z, 1, economy),
     )!;
     economy.readyStructure = 'aa-tower';
     const aa = placeStructure(
       sim,
       hf,
       economy,
-      updatePlacement(sim, hf, 'aa-tower', base.transform.x - 26, base.transform.z, 1, economy),
+      updatePlacement(sim, hf, 'aa-tower', base.transform.x - 44, base.transform.z, 1, economy),
     )!;
     const tank = spawnTankAt(sim, guard.transform.x + 90, guard.transform.z, 'Locked Armor', 2);
     const aircraft = spawnWaspAt(sim, hf, aa.transform.x - 90, aa.transform.z, 'Locked Aircraft', 2);
@@ -1295,7 +1295,7 @@ describe('phase 4 combat simulation', () => {
     const sim = createGameSim(hf);
     const economy = createEconomy(1, 5200);
     const base = createInitialBase(sim, hf, economy);
-    const defender = spawnTankAt(sim, base.transform.x + 28, base.transform.z, 'Home Guard');
+    const defender = spawnTankAt(sim, base.transform.x + 44, base.transform.z, 'Home Guard');
     const attacker = spawnTankAt(sim, base.transform.x + 190, base.transform.z, 'Siege Tank', 2);
     attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: -Math.PI / 2 };
 
@@ -1319,7 +1319,7 @@ describe('phase 4 combat simulation', () => {
     sim.rules.autoDefense = false;
     const economy = createEconomy(1, 5200);
     const base = createInitialBase(sim, hf, economy);
-    const defender = spawnTankAt(sim, base.transform.x + 28, base.transform.z, 'Home Guard');
+    const defender = spawnTankAt(sim, base.transform.x + 44, base.transform.z, 'Home Guard');
     const attacker = spawnTankAt(sim, base.transform.x + 190, base.transform.z, 'Raider', 2);
     attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: -Math.PI / 2 };
 
@@ -1340,10 +1340,10 @@ describe('phase 4 combat simulation', () => {
 
     expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
     for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z))).toBeDefined();
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 44, base.transform.z))).toBeDefined();
     expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
     for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z))).toBeDefined();
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 44, base.transform.z))).toBeDefined();
     const harvester = stepEconomy(sim, hf, economy, 1 / 30).find((entity) => entity.harvester);
     expect(harvester).toBeDefined();
 

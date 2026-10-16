@@ -316,18 +316,28 @@ export class EnemyCommander {
   private applyCombatProfile(): void {
     for (const entity of this.sim.world.entities) {
       if (entity.team?.id !== this.economy.team || entity.destroyed || (!entity.weapon && !entity.weapons)) continue;
+      const sniper = entity.weapons?.primary.kind === 'sniperRifle' || entity.weapon?.kind === 'sniperRifle';
+      // AI marksmen should be counterable without changing player-owned rifles.
+      // Cap the authored instance range, rather than repeatedly multiplying it.
+      if (sniper) {
+        for (const weapon of [entity.weapon, entity.weapons?.primary, entity.weapons?.secondary]) {
+          if (weapon?.kind === 'sniperRifle') weapon.range = Math.min(weapon.range, 192);
+        }
+      }
+      const accuracy = this.difficulty.combatAccuracy * (sniper ? 0.65 : 1);
+      const scatter = sniper ? Math.max(6, this.difficulty.projectileScatter) : this.difficulty.projectileScatter;
       const profile = entity.aiCombat;
       if (profile) {
-        profile.accuracy = this.difficulty.combatAccuracy;
+        profile.accuracy = accuracy;
         profile.cooldownMultiplier = this.difficulty.combatCooldownMultiplier;
-        profile.projectileScatter = this.difficulty.projectileScatter;
+        profile.projectileScatter = scatter;
         profile.targetAcquireDelayTicks = this.difficulty.targetAcquireDelayTicks;
         profile.possessedTargetPriority = this.difficulty.possessedTargetPriority;
       } else {
         entity.aiCombat = {
-          accuracy: this.difficulty.combatAccuracy,
+          accuracy,
           cooldownMultiplier: this.difficulty.combatCooldownMultiplier,
-          projectileScatter: this.difficulty.projectileScatter,
+          projectileScatter: scatter,
           targetAcquireDelayTicks: this.difficulty.targetAcquireDelayTicks,
           possessedTargetPriority: this.difficulty.possessedTargetPriority,
         };
@@ -592,7 +602,11 @@ export class EnemyCommander {
     const dx = target.x - base.transform.x, dz = target.z - base.transform.z;
     const length = Math.max(1, Math.hypot(dx, dz));
     const limit = this.sim.nav.size / 2 - 35;
-    return { x: Math.max(-limit, Math.min(limit, base.transform.x - dx / length * 42)), z: Math.max(-limit, Math.min(limit, base.transform.z - dz / length * 42)) };
+    const rally = { x: Math.max(-limit, Math.min(limit, base.transform.x - dx / length * 42)), z: Math.max(-limit, Math.min(limit, base.transform.z - dz / length * 42)) };
+    // Base foundations now block movement too. Regroup at the accessible point
+    // units are actually sent to, rather than waiting inside an obstacle.
+    const cell = this.sim.nav.nearestWalkableCellGlobal(rally.x, rally.z);
+    return cell ? this.sim.nav.cellCenter(cell.x, cell.y) : rally;
   }
 
   private reinforceRegroupingSquads(ground: Entity[], air: Entity[], base: Entity | undefined): void {

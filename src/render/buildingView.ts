@@ -1,4 +1,5 @@
 import { createIntactHull, canBatchIntactHull } from './buildingHullBatch';
+import { WallBatch, canBatchWall } from './wallBatch';
 import { BattlefieldCulling, setEntityRenderActive } from './battlefieldCulling';
 import {
   AdditiveBlending,
@@ -13,6 +14,7 @@ import {
   IcosahedronGeometry,
   InstancedMesh,
   LinearFilter,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -29,7 +31,7 @@ import {
   type Camera,
   type Material,
 } from 'three';
-import { STRUCTURES, type StructureKind } from '../content/phase3';
+import { STRUCTURES, WALL_HEIGHT, type StructureKind } from '../content/phase3';
 import type { Entity, StructureDamage } from '../sim/components';
 import type { EconomyState } from '../sim/economy';
 import { buildings, type PlacementState } from '../sim/economy';
@@ -67,6 +69,9 @@ export class BuildingView {
   private readonly cameraCulling = new BattlefieldCulling();
   readonly group = new Group();
   private readonly objects = new Map<Entity, BuildingObject>();
+  private readonly wallBatches = new Map<FactionId, WallBatch>();
+  private readonly seenWalls = new Set<Entity>();
+  private readonly wallMatrix = new Matrix4();
   private hiddenEntity?: Entity;
   private readonly selectedGlows = new Map<Entity, SelectionGlow>();
   private readonly producerGlows = new Map<Entity, SelectionGlow>();
@@ -257,34 +262,40 @@ export class BuildingView {
 
   update(economy: EconomyState, camera: Camera): void {
     this.cameraCulling.update(camera);
+    for (const batch of this.wallBatches.values()) batch.beginFrame();
+    for (const wall of this.seenWalls) if (!this.sim.world.has(wall)) this.seenWalls.delete(wall);
     for (const [entity, object] of this.objects) {
       if (this.sim.world.has(entity)) continue;
-      this.clearEffects(object);
-      this.group.remove(object.root);
-      this.disposeTree(object.root);
-      const glow = this.selectedGlows.get(entity);
-      if (glow) {
-        this.group.remove(glow.root);
-        this.disposeTree(glow.root);
-      }
-      const producerGlow = this.producerGlows.get(entity);
-      if (producerGlow) {
-        this.group.remove(producerGlow.root);
-        this.disposeTree(producerGlow.root);
-      }
-      const healthBar = this.healthBars.get(entity);
-      if (healthBar) {
-        this.group.remove(healthBar.root);
-        this.disposeTree(healthBar.root);
-      }
-      this.objects.delete(entity);
-      this.selectedGlows.delete(entity);
-      this.producerGlows.delete(entity);
-      this.healthBars.delete(entity);
+      this.releaseBuildingObject(entity, object);
     }
 
     for (const entity of buildings(this.sim)) {
       let object = this.objects.get(entity);
+      if (entity.building?.kind === 'wall') {
+        if (entity.team?.id === 1 || this.isVisible(entity.transform.x, entity.transform.z)) this.seenWalls.add(entity);
+        const detailed = entity.selectable?.selected || entity === this.hoveredEntity || entity === this.hoveredBuilding;
+        if (!detailed && canBatchWall(entity)) {
+          if (object) this.releaseBuildingObject(entity, object);
+          const y = sampleHeight(this.hf, entity.transform.x, entity.transform.z);
+          if (this.seenWalls.has(entity) && entity !== this.hiddenEntity && this.cameraCulling.contains(entity.transform.x, y + 5, entity.transform.z, 12)) {
+            const faction = factionId(entity.team?.id);
+            let batch = this.wallBatches.get(faction);
+            if (!batch) {
+              const template = this.createBuildingObject(entity);
+              for (const block of template.blocks) template.root.remove(block.mesh);
+              batch = new WallBatch(template.root);
+              // Batch owns merged geometries; materials/textures belong to this template.
+              template.intactHull.dispose();
+              this.wallBatches.set(faction, batch);
+              this.group.add(batch.root);
+            }
+            this.wallMatrix.makeScale(1, Math.max(0.08, entity.building.buildProgress), 1);
+            this.wallMatrix.setPosition(entity.transform.x, y, entity.transform.z);
+            batch.add(entity, this.wallMatrix);
+          }
+          continue;
+        }
+      }
       if (!object && entity.building) {
         object = this.createBuildingObject(entity);
         this.objects.set(entity, object);
@@ -354,7 +365,33 @@ export class BuildingView {
       this.updateProducerGlow(entity, groundY);
       this.updateHealthBar(entity, object, groundY, camera, fogged);
     }
+    for (const batch of this.wallBatches.values()) batch.endFrame();
     this.updateGhost(economy.placement);
+  }
+
+  private releaseBuildingObject(entity: Entity, object: BuildingObject): void {
+    this.clearEffects(object);
+    this.group.remove(object.root);
+    this.disposeTree(object.root);
+    const glow = this.selectedGlows.get(entity);
+    if (glow) {
+      this.group.remove(glow.root);
+      this.disposeTree(glow.root);
+    }
+    const producerGlow = this.producerGlows.get(entity);
+    if (producerGlow) {
+      this.group.remove(producerGlow.root);
+      this.disposeTree(producerGlow.root);
+    }
+    const healthBar = this.healthBars.get(entity);
+    if (healthBar) {
+      this.group.remove(healthBar.root);
+      this.disposeTree(healthBar.root);
+    }
+    this.objects.delete(entity);
+    this.selectedGlows.delete(entity);
+    this.producerGlows.delete(entity);
+    this.healthBars.delete(entity);
   }
 
   setProducerHighlights(ids: Iterable<number>): void {
@@ -409,7 +446,16 @@ export class BuildingView {
       roots.set(object.root, entity);
     }
     const hit = pickBuildingGeometry([...roots.keys()], camera, screenX, screenY, viewportW, viewportH);
-    return hit ? roots.get(hit) : undefined;
+    const ray = new Raycaster();
+    ray.setFromCamera(new Vector2(screenX / viewportW * 2 - 1, -(screenY / viewportH) * 2 + 1), camera);
+    let wallHit: { entity: Entity; distance: number } | undefined;
+    for (const batch of this.wallBatches.values()) {
+      const candidate = batch.pick(ray);
+      if (candidate && (!wallHit || candidate.distance < wallHit.distance)) wallHit = candidate;
+    }
+    // Compare against the actual detailed model hit to preserve occlusion.
+    const detailedHit = hit ? ray.intersectObject(hit, true).find((candidate) => candidate.object instanceof Mesh && (candidate.object.material as Material).colorWrite !== false) : undefined;
+    return wallHit && (!detailedHit || wallHit.distance < detailedHit.distance) ? wallHit.entity : hit ? roots.get(hit) : undefined;
   }
 
   private createBuildingObject(entity: Entity): BuildingObject {
@@ -1312,7 +1358,7 @@ function facadeOutward(block: DamageBlock, damage: StructureDamage): { x: number
 }
 
 function heightForStructure(kind?: string): number {
-  if (kind === 'wall') return 2.6;
+  if (kind === 'wall') return WALL_HEIGHT;
   if (kind === 'guard-tower' || kind === 'aa-tower') return 10.5;
   if (kind === 'missile-defense') return 8.4;
   if (kind === 'skylance-ciws') return 5.6;

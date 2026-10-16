@@ -70,7 +70,18 @@ export function loadSerializedSim(hf: Heightfield, state: SerializedGameSim): Ga
 export function restoreSerializedSim(sim: GameSim, hf: Heightfield, state: SerializedGameSim): void {
   assertVersion(state.version);
   for (const entity of Array.from(sim.world.entities)) sim.world.remove(entity);
-  sim.nav.restoreDynamicBlockers(state.dynamicBlockers ?? []);
+  // Older saves only registered walls/towers. Reconstruct every live building
+  // footprint before restoring routes so loaded units cannot walk through bases.
+  const blockers = new Map((state.dynamicBlockers ?? []).map((blocker) => [blocker.id, blocker]));
+  for (const entity of state.entities) {
+    if (!entity.building) continue;
+    blockers.delete(entity.id);
+    if (entity.destroyed) continue;
+    const halfWidth = entity.building.footprint.w * hf.cellSize;
+    const halfDepth = entity.building.footprint.h * hf.cellSize;
+    blockers.set(entity.id, { id: entity.id, x: entity.transform.x, z: entity.transform.z, radius: Math.hypot(halfWidth, halfDepth), halfWidth, halfDepth });
+  }
+  sim.nav.restoreDynamicBlockers([...blockers.values()]);
   sim.projectiles.splice(0, sim.projectiles.length, ...clonePlain(state.projectiles));
   sim.resourceNodes.splice(0, sim.resourceNodes.length, ...clonePlain(state.resourceNodes));
   sim.events.splice(0, sim.events.length, ...clonePlain(state.events));
