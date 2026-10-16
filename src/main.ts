@@ -3037,6 +3037,20 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const orderMarkers = new OrderMarkerView(hf);
   // Dev-only handle for performance profiling scripts.
   if (import.meta.env.DEV) Object.assign(window, { __iron: { ctx, sim, unitView, buildingView, combatView, armies } });
+  // Local preview of the Code Red alert: with `performance-test=1&stress-bases=26`
+  // the first hostile missile army owns a silo, so fire a salvo every 25 s.
+  if (!isPublicHost(location.hostname) && params.get('code-red-preview') === '1') {
+    window.setInterval(() => {
+      const attacker = armies.find((army) => army.economy.doctrine === 'missile-command' && areTeamsHostile(sim, localTeam, army.team));
+      if (!attacker) return;
+      attacker.economy.credits = Math.max(attacker.economy.credits, 5000);
+      attacker.economy.strategicMissileCooldown = 0;
+      attacker.economy.emberDroneCooldown = 0;
+      const target = localBase.transform;
+      launchStrategicMissileAt(sim, attacker.economy, localTeam, target.x + 6, target.z + 4);
+      launchEmberDroneAt(sim, attacker.economy, localTeam, target.x - 10, target.z - 8);
+    }, 25_000);
+  }
   ctx.scene.add(orderMarkers.group);
   const fogView = new FogView(playerVision, terrain.chunkGeometries);
   ctx.scene.add(fogView.group);
