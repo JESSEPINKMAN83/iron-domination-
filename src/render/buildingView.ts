@@ -458,6 +458,16 @@ export class BuildingView {
     return wallHit && (!detailedHit || wallHit.distance < detailedHit.distance) ? wallHit.entity : hit ? roots.get(hit) : undefined;
   }
 
+  /** Asset studio only: use the actual building geometry without world overlays. */
+  createThumbnailModel(entity: Entity): Group {
+    const model = this.createBuildingObject(entity);
+    model.blocks.forEach((block) => { block.mesh.visible = false; });
+    model.intactHull.visible = true;
+    model.accents[1].visible = false; // tiny world-space nameplate
+    model.root.getObjectByName('building-shadow-envelope')?.removeFromParent();
+    return model.root;
+  }
+
   private createBuildingObject(entity: Entity): BuildingObject {
     const root = new Group();
     const damage = structureDamageFor(entity);

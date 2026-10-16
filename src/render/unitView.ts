@@ -811,6 +811,12 @@ export class UnitView {
     }
   }
 
+  /** Asset studio only: the same detailed model, without selection/health overlays. */
+  createThumbnailModel(entity: Entity): Object3D {
+    this.addEntity(entity);
+    return this.objects.get(entity)!;
+  }
+
   attach(scene: Scene): void {
     scene.add(this.group);
   }

@@ -106,11 +106,10 @@
 .game-command-card__copy [data-meta-kind] { text-align: left !important; max-width: none !important; font-size: 10px !important; white-space: nowrap; }
 .game-command-card__copy > div:nth-child(3) { font-size: 8px !important; color: var(--game-muted) !important; }
 .game-command-card__copy > div:nth-child(4) { height: 5px !important; gap: 3px !important; }
-/* Reframe the existing model portraits: crop their baked borders/health bars.
-   A static luminosity blend gives all thumbnails one restrained studio palette. */
+/* Model-derived studio art: preserve its framing and full material colors. */
 .game-thumbnail {
   min-height: 0 !important;
-  background: #33424d !important;
+  background: #132631 !important;
   border: 0 !important;
   box-shadow: none !important;
   isolation: isolate;
@@ -118,15 +117,14 @@
 }
 .game-thumbnail > img {
   position: absolute !important;
-  left: -5% !important;
-  top: -14% !important;
-  width: 110% !important;
-  height: 126% !important;
-  object-fit: cover !important;
-  object-position: center 58%;
-  mix-blend-mode: luminosity;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  object-position: center;
+  mix-blend-mode: normal;
 }
-.game-thumbnail > div:first-child:not([data-progress-kind]) { background: #33424d !important; }
+.game-thumbnail > div:first-child:not([data-progress-kind]) { background: #132631 !important; }
 .game-thumbnail [data-progress-kind] { top: auto !important; bottom: 0; height: 3px !important; box-shadow: none !important; background: linear-gradient(90deg,var(--game-accent) 0 var(--progress),#0b141a var(--progress) 100%) !important; }
 .game-thumbnail [data-badge-kind] { border: 0 !important; border-radius: 4px; padding: 3px 5px !important; font-family: var(--game-font) !important; }
 .game-selection-bar { padding: 12px !important; box-sizing: border-box; }
