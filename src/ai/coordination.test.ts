@@ -114,6 +114,19 @@ describe('coordinated enemy assaults', () => {
     expect(pair.every((squad) => squad.units.some((unit) => unit.mover?.target))).toBe(true);
   });
 
+  it('chooses an unblocked regrouping point when the space behind its base is occupied', () => {
+    const { sim, control } = fixture(6, 0);
+    sim.nav.setDynamicBlocker(9999, -222, 0, 20);
+    control.commandSquads();
+    const squad = control.squads[0];
+    squad.units.forEach((unit) => unit.health!.current = unit.health!.max * 0.2);
+    sim.tick += 150;
+    control.commandSquads();
+    expect(squad.state).toBe('retreating');
+    const cell = sim.nav.worldToCell(squad.rallyPoint!.x, squad.rallyPoint!.z);
+    expect(sim.nav.isWalkableCell(cell.x, cell.y)).toBe(true);
+  });
+
   it('retreats after losing most of a squad even if the survivors have full health', () => {
     const { sim, control, commander } = fixture(6, 0);
     control.commandSquads();

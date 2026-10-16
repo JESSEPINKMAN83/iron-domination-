@@ -1,3 +1,4 @@
+import { WALL_HEIGHT } from '../content/phase3';
 import type { Entity, StructureDamage } from './components';
 
 const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
@@ -108,7 +109,7 @@ function tierForHit(entity: Entity, hit: StructureDamageHit): number {
   const damage = entity.structureDamage ?? createStructureDamage(entity);
   if (hit.trajectory === 'arc' || hit.trajectory === 'drop') return damage.tiers - 1;
   if (hit.hitY === undefined) return 0;
-  const height = 3.2;
+  const height = entity.building?.kind === 'wall' ? WALL_HEIGHT : 3.2;
   const baseY = entity.transform.y ?? 0;
   const t = clamp((hit.hitY - baseY) / height, 0, 0.999);
   return clamp(Math.floor(t * damage.tiers), 0, damage.tiers - 1);

@@ -13,10 +13,14 @@ export interface BlockedFootprint {
 
 interface DynamicBlocker extends BlockedFootprint {
   id: number;
+  halfWidth?: number;
+  halfDepth?: number;
 }
 
 export interface DynamicBlockerSnapshot extends BlockedFootprint {
   id: number;
+  halfWidth?: number;
+  halfDepth?: number;
 }
 
 export class NavigationGrid {
@@ -25,6 +29,9 @@ export class NavigationGrid {
   readonly cellSize: number;
   readonly size: number;
   readonly blocked: Uint8Array;
+  revision = 0;
+  private blockerBatchDepth = 0;
+  private blockerBatchDirty = false;
   private readonly baseBlocked: Uint8Array;
   private readonly dynamicBlockers = new Map<number, DynamicBlocker>();
 
@@ -108,12 +115,43 @@ export class NavigationGrid {
 
   setDynamicBlocker(id: number, x: number, z: number, radius: number): void {
     this.dynamicBlockers.set(id, { id, x, z, radius });
-    this.rebuildBlocked();
+    this.invalidateBlockers();
+  }
+
+  setBuildingBlocker(id: number, x: number, z: number, halfWidth: number, halfDepth: number): void {
+    this.dynamicBlockers.set(id, { id, x, z, radius: Math.hypot(halfWidth, halfDepth), halfWidth, halfDepth });
+    this.invalidateBlockers();
+  }
+
+  batchBlockers<T>(change: () => T): T {
+    this.blockerBatchDepth++;
+    try { return change(); }
+    finally {
+      this.blockerBatchDepth--;
+      if (!this.blockerBatchDepth && this.blockerBatchDirty) {
+        this.blockerBatchDirty = false;
+        this.rebuildBlocked();
+      }
+    }
+  }
+
+  private invalidateBlockers(): void {
+    if (this.blockerBatchDepth) this.blockerBatchDirty = true;
+    else this.rebuildBlocked();
+  }
+
+  isWalkableSegment(fromX: number, fromZ: number, toX: number, toZ: number): boolean {
+    const steps = Math.max(1, Math.ceil(Math.hypot(toX - fromX, toZ - fromZ) / (this.cellSize * 0.45)));
+    for (let i = 1; i <= steps; i++) {
+      const cell = this.worldToCell(fromX + (toX - fromX) * i / steps, fromZ + (toZ - fromZ) * i / steps);
+      if (!this.isWalkableCell(cell.x, cell.y)) return false;
+    }
+    return true;
   }
 
   removeDynamicBlocker(id: number): void {
     if (!this.dynamicBlockers.delete(id)) return;
-    this.rebuildBlocked();
+    this.invalidateBlockers();
   }
 
   snapshotDynamicBlockers(): DynamicBlockerSnapshot[] {
@@ -128,7 +166,14 @@ export class NavigationGrid {
 
   private rebuildBlocked(): void {
     this.blocked.set(this.baseBlocked);
-    for (const blocker of this.dynamicBlockers.values()) this.blockCircle(blocker.x, blocker.z, blocker.radius);
+    for (const blocker of this.dynamicBlockers.values()) {
+      if (blocker.halfWidth !== undefined && blocker.halfDepth !== undefined) {
+        const min = this.worldToCell(blocker.x - blocker.halfWidth, blocker.z - blocker.halfDepth);
+        const max = this.worldToCell(blocker.x + blocker.halfWidth, blocker.z + blocker.halfDepth);
+        for (let cy = min.y; cy <= max.y; cy++) for (let cx = min.x; cx <= max.x; cx++) this.blocked[this.index(cx, cy)] = 1;
+      } else this.blockCircle(blocker.x, blocker.z, blocker.radius);
+    }
+    this.revision++;
   }
 
   private blockCircle(x: number, z: number, radius: number): void {
@@ -147,6 +192,7 @@ export class NavigationGrid {
 }
 
 export class FlowField {
+  private builtRevision = -1;
   readonly distance: Int32Array;
   readonly targetCell: Cell;
 
@@ -162,7 +208,10 @@ export class FlowField {
   directionAt(x: number, z: number): { x: number; z: number; distance: number } {
     const cell = this.grid.worldToCell(x, z);
     const here = this.distance[this.grid.index(cell.x, cell.y)];
-    if (here <= 0) return { x: 0, z: 0, distance: here };
+    if (here <= 0) {
+      if (this.builtRevision !== this.grid.revision && this.refreshAfterChange()) return this.directionAt(x, z);
+      return { x: 0, z: 0, distance: here };
+    }
 
     let best = here;
     let bestCell = cell;
@@ -172,6 +221,7 @@ export class FlowField {
         const cx = cell.x + dx;
         const cy = cell.y + dy;
         if (!this.grid.isWalkableCell(cx, cy)) continue;
+        if (dx !== 0 && dy !== 0 && (!this.grid.isWalkableCell(cell.x + dx, cell.y) || !this.grid.isWalkableCell(cell.x, cell.y + dy))) continue;
         const d = this.distance[this.grid.index(cx, cy)];
         if (d >= 0 && d < best) {
           best = d;
@@ -179,6 +229,10 @@ export class FlowField {
         }
       }
     }
+
+    // Rebuild only when a changed obstacle actually blocks this route. A distant
+    // construction event must not rebuild every army's flow fields at once.
+    if (bestCell === cell && this.builtRevision !== this.grid.revision && this.refreshAfterChange()) return this.directionAt(x, z);
 
     const from = this.grid.cellCenter(cell.x, cell.y);
     const to = this.grid.cellCenter(bestCell.x, bestCell.y);
@@ -188,7 +242,20 @@ export class FlowField {
     return { x: vx / len, z: vz / len, distance: here };
   }
 
+  private refreshAfterChange(): boolean {
+    const position = this.grid.cellCenter(this.targetCell.x, this.targetCell.y);
+    const target = this.grid.nearestWalkableCellGlobal(position.x, position.z);
+    this.builtRevision = this.grid.revision;
+    if (!target) return false;
+    this.targetCell.x = target.x;
+    this.targetCell.y = target.y;
+    this.distance.fill(-1);
+    this.build();
+    return true;
+  }
+
   private build(): void {
+    this.builtRevision = this.grid.revision;
     const qx = new Int32Array(this.grid.cells * this.grid.cells);
     const qy = new Int32Array(this.grid.cells * this.grid.cells);
     let head = 0;

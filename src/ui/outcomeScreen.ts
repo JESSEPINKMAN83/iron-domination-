@@ -1,3 +1,4 @@
+import { debriefInsights } from '../match/debriefInsights';
 import { currentCommander } from '../identity/commander';
 import type { MapId, MapSize } from '../content/maps';
 import { MAP_PRESETS, MAP_SIZE_PRESETS } from '../content/maps';
@@ -36,10 +37,6 @@ function formatNumber(value: number): string {
   return number.format(Math.round(value));
 }
 
-function accuracy(army: ArmyDebriefStats): number {
-  return army.shotsFired > 0 ? Math.min(100, Math.round((army.hits / army.shotsFired) * 100)) : 0;
-}
-
 function survival(army: ArmyDebriefStats): number {
   return army.unitsDeployed > 0 ? Math.round((army.unitsSurviving / army.unitsDeployed) * 100) : 0;
 }
@@ -64,8 +61,9 @@ function teamCard(army: ArmyDebriefStats, maxDamage: number, localSide: number):
   header.className = 'battle-debrief__army-header';
   header.innerHTML = `
     <span class="battle-debrief__army-index">${army.team}</span>
-    <div><strong>${army.label}</strong><small>SIDE ${army.side}${army.isLocal ? ' · COMMANDER' : army.side === localSide ? ' · ALLIED FORCE' : ' · OPPOSITION'}</small></div>
+    <div><strong>ARMY</strong><small>SIDE ${army.side}${army.isLocal ? ' · COMMANDER' : army.side === localSide ? ' · ALLIED FORCE' : ' · OPPOSITION'}</small></div>
     <b>${army.eliminated ? 'ELIMINATED' : 'OPERATIONAL'}</b>`;
+  header.querySelector('strong')!.textContent = army.label;
   const stats = document.createElement('div');
   stats.className = 'battle-debrief__army-stats';
   stats.append(
@@ -74,35 +72,28 @@ function teamCard(army: ArmyDebriefStats, maxDamage: number, localSide: number):
     metric('FORCE LEFT', `${army.unitsSurviving}`, `${army.unitLosses} lost · ${survival(army)}% survival`),
     metric('BASE LEFT', `${army.buildingsSurviving}`, `${army.buildingLosses} lost`),
     metric('ECONOMY', `$${formatNumber(army.income)}`, `$${formatNumber(army.spent)} invested`),
-    metric('ACCURACY', `${accuracy(army)}%`, `${army.hits} hits · ${army.shotsFired} shots`),
+    metric('CREDITS LEFT', `$${formatNumber(army.credits)}`, 'available at match end'),
   );
   const bar = document.createElement('div');
   bar.className = 'battle-debrief__damage-bar';
-  bar.innerHTML = `<i style="width:${maxDamage > 0 ? Math.max(3, (army.damageDealt / maxDamage) * 100) : 3}%"></i>`;
-  root.append(header, stats, bar);
+  bar.innerHTML = `<i style="width:${maxDamage > 0 ? (army.damageDealt / maxDamage) * 100 : 0}%"></i>`;
+  const details = document.createElement('details');
+  details.className = 'battle-debrief__details';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Detailed army statistics';
+  details.append(summary, stats);
+  const output = document.createElement('div');
+  output.className = 'battle-debrief__army-output';
+  output.innerHTML = `<span>Damage dealt <b>${formatNumber(army.damageDealt)}</b></span><span>Units destroyed / lost <b>${army.unitKills} / ${army.unitLosses}</b></span><span>Harvested <b>$${formatNumber(army.income)}</b></span>`;
+  root.append(header, output, bar, details);
   return root;
 }
 
 /** Names the player on their own debrief once they have an identity worth naming. */
 function commanderLine(win: boolean): string {
-  const base = win ? 'OPERATION COMPLETE · TOTAL DOMINANCE' : 'OPERATION FAILED · COMMAND REVIEW';
+  const base = win ? 'OPERATION COMPLETE · BATTLE DEBRIEF' : 'OPERATION FAILED · COMMAND REVIEW';
   const commander = currentCommander();
   return commander ? `${base} · COMMANDER ${commander.name.toUpperCase()}` : base;
-}
-
-function assessmentFor(local: ArmyDebriefStats, enemies: ArmyDebriefStats[]): Array<{ title: string; text: string; tone: string }> {
-  const enemyDamage = enemies.reduce((total, army) => total + army.damageDealt, 0);
-  const enemyKills = enemies.reduce((total, army) => total + army.unitKills + army.buildingKills, 0);
-  const result: Array<{ title: string; text: string; tone: string }> = [];
-  const localSurvival = survival(local);
-  if (localSurvival >= 65) result.push({ title: 'Force preservation', text: `${localSurvival}% of deployed units survived. Your army traded efficiently and retained momentum.`, tone: 'positive' });
-  else result.push({ title: 'Reinforce the front', text: `${local.unitLosses} units were lost. Use formations, repairs and fallback orders to preserve expensive units.`, tone: 'warning' });
-  if (local.damageDealt >= enemyDamage) result.push({ title: 'Fire superiority', text: `Your force dealt ${formatNumber(local.damageDealt - enemyDamage)} more damage than all hostile armies combined.`, tone: 'positive' });
-  else result.push({ title: 'Damage deficit', text: `Hostile armies dealt ${formatNumber(enemyDamage - local.damageDealt)} more damage. Focus fire and use unit counters.`, tone: 'warning' });
-  if (local.collectorsSurviving >= 2 || local.income >= local.spent * 0.65) result.push({ title: 'Economy sustained', text: `$${formatNumber(local.income)} harvested with ${local.collectorsSurviving} collectors remaining. Production stayed funded.`, tone: 'neutral' });
-  else result.push({ title: 'Economy exposed', text: `Only ${local.collectorsSurviving} collectors remained. Protect ore routes before committing to the next assault.`, tone: 'warning' });
-  if (enemyKills === 0 && local.unitKills + local.buildingKills > 0) result[0] = { title: 'Flawless engagement', text: 'No confirmed friendly losses were credited to hostile fire.', tone: 'positive' };
-  return result.slice(0, 3);
 }
 
 export function showOutcomeScreen(options: OutcomeScreenOptions): void {
@@ -111,9 +102,7 @@ export function showOutcomeScreen(options: OutcomeScreenOptions): void {
   const local = options.snapshot.armies.find((army) => army.isLocal) ?? options.snapshot.armies[0];
   const enemies = options.snapshot.armies.filter((army) => army.side !== local.side);
   const maxDamage = Math.max(1, ...options.snapshot.armies.map((army) => army.damageDealt));
-  const totalEnemyKills = local.unitKills + local.buildingKills;
-  const totalEnemyLosses = enemies.reduce((total, army) => total + army.unitLosses + army.buildingLosses, 0);
-  const totalAssaults = enemies.reduce((total, army) => total + army.attacksLaunched, 0);
+
 
   const overlay = document.createElement('div');
   overlay.id = 'battle-debrief';
@@ -129,8 +118,8 @@ export function showOutcomeScreen(options: OutcomeScreenOptions): void {
   header.innerHTML = `
     <div class="battle-debrief__result-mark"><span>${win ? '✓' : '×'}</span></div>
     <div class="battle-debrief__result-copy">
-      <small>${commanderLine(win)}</small>
-      <h1>${win ? 'DECISIVE VICTORY' : 'FORCES DEFEATED'}</h1>
+      <small>BATTLE DEBRIEF</small>
+      <h1>${win ? 'VICTORY' : 'DEFEAT'}</h1>
       <p>${win ? 'Every hostile command yard has fallen. The battlefield is under your control.' : 'Your command network has collapsed. Review the battle data and return stronger.'}</p>
     </div>
     <div class="battle-debrief__operation">
@@ -139,15 +128,15 @@ export function showOutcomeScreen(options: OutcomeScreenOptions): void {
       <small>${MAP_SIZE_PRESETS[options.settings.mapSize].label} · SEED ${options.settings.seed}</small>
     </div>`;
 
+  header.querySelector('.battle-debrief__result-copy > small')!.textContent = commanderLine(win);
+
   const highlights = document.createElement('div');
   highlights.className = 'battle-debrief__highlights';
   highlights.append(
-    metric('BATTLE TIME', formatDuration(options.snapshot.elapsedSeconds), 'engagement duration'),
-    metric('HOSTILE LOSSES', `${totalEnemyKills}`, `${totalEnemyLosses} confirmed losses`),
-    metric('COMBAT OUTPUT', formatNumber(local.damageDealt), `${accuracy(local)}% weapon accuracy`),
-    metric('FORCE SURVIVAL', `${survival(local)}%`, `${local.unitsSurviving} of ${local.unitsDeployed} units`),
-    metric('ORE HARVESTED', `$${formatNumber(local.income)}`, `${local.collectorsSurviving} collectors remain`),
-    metric('ENEMY PRESSURE', `${totalAssaults}`, `${enemies.reduce((t, a) => t + a.rebuilds, 0)} rebuilds · ${enemies.reduce((t, a) => t + a.retreats, 0)} retreats`),
+    metric('TIME IN BATTLE', formatDuration(options.snapshot.elapsedSeconds), 'simulated match time'),
+    metric('UNITS DESTROYED', `${local.unitKills}`, `${local.buildingKills} structures also destroyed`),
+    metric('YOUR UNIT LOSSES', `${local.unitLosses}`, `${local.unitsSurviving} remained from ${local.unitsDeployed} deployed`),
+    metric('ORE HARVESTED', `$${formatNumber(local.income)}`, options.snapshot.elapsedSeconds >= 60 ? `$${formatNumber(local.income / (options.snapshot.elapsedSeconds / 60))} per minute` : 'total collected during this match'),
   );
 
   const body = document.createElement('div');
@@ -156,7 +145,7 @@ export function showOutcomeScreen(options: OutcomeScreenOptions): void {
   comparison.className = 'battle-debrief__comparison';
   const comparisonTitle = document.createElement('div');
   comparisonTitle.className = 'battle-debrief__section-title';
-  comparisonTitle.innerHTML = '<span>01</span><div><strong>ARMY PERFORMANCE</strong><small>FINAL FORCE, COMBAT AND ECONOMY COMPARISON</small></div>';
+  comparisonTitle.innerHTML = '<span>01</span><div><strong>ARMY PERFORMANCE</strong><small>DAMAGE BARS SHARE THE SAME SCALE · EXPAND FOR DETAILS</small></div>';
   const teams = document.createElement('div');
   teams.className = 'battle-debrief__armies';
   for (const army of [...options.snapshot.armies].sort((a, b) => Number(b.isLocal) - Number(a.isLocal) || a.team - b.team)) {
@@ -168,13 +157,15 @@ export function showOutcomeScreen(options: OutcomeScreenOptions): void {
   intelligence.className = 'battle-debrief__intelligence';
   const assessmentTitle = document.createElement('div');
   assessmentTitle.className = 'battle-debrief__section-title';
-  assessmentTitle.innerHTML = '<span>02</span><div><strong>COMMANDER ASSESSMENT</strong><small>WHAT TO CARRY INTO THE NEXT BATTLE</small></div>';
+  assessmentTitle.innerHTML = '<span>02</span><div><strong>BATTLEFIELD FINDINGS</strong><small>THE STORY BEHIND THE NUMBERS</small></div>';
   const assessments = document.createElement('div');
   assessments.className = 'battle-debrief__assessments';
-  for (const item of assessmentFor(local, enemies)) {
+  for (const item of debriefInsights(local, enemies, options.snapshot.elapsedSeconds)) {
     const card = document.createElement('div');
     card.className = `battle-debrief__assessment is-${item.tone}`;
-    card.innerHTML = `<i></i><div><strong>${item.title}</strong><p>${item.text}</p></div>`;
+    card.innerHTML = `<i></i><div><strong></strong><p></p></div>`;
+    card.querySelector('strong')!.textContent = item.title;
+    card.querySelector('p')!.textContent = item.text;
     assessments.append(card);
   }
   const doctrine = document.createElement('div');
@@ -186,7 +177,7 @@ export function showOutcomeScreen(options: OutcomeScreenOptions): void {
   const footer = document.createElement('footer');
   footer.className = 'battle-debrief__footer';
   const hint = document.createElement('p');
-  hint.innerHTML = '<strong>BATTLE DATA SAVED</strong><span>Use this report to refine your army composition and economy timing.</span>';
+  hint.innerHTML = '<strong>AFTER ACTION REPORT</strong><span>Totals include starting forces. Damage includes units and structures; splash can hit multiple targets.</span>';
   const actions = document.createElement('div');
   actions.className = 'battle-debrief__actions';
   const setup = outcomeButton('RETURN TO SETUP', options.onSetup, false);

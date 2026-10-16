@@ -14,6 +14,7 @@ import { hash2i, smoothstep } from './noise';
 import { hasTerrainLineOfSight, sampleHeight } from './heightfield';
 import { directionalImpactResponse } from './impactModel';
 import { applyStructureDamage } from './structureDamage';
+import { firstWallCoverHit } from './wallCover';
 import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, stopEntities, type GameSim, type Projectile } from './world';
 
 /** Cannons may only fire once the turret has traversed onto the bearing. */
@@ -354,7 +355,7 @@ function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number, engagem
   let weaponRange = 0;
   for (const weapon of slots) {
     const def = WEAPONS[weapon.kind as WeaponKind];
-    if (def && def.kind !== 'bomb') weaponRange = Math.max(weaponRange, def.range);
+    if (def && def.kind !== 'bomb') weaponRange = Math.max(weaponRange, weapon.range || def.range);
   }
   if (weaponRange === 0) weaponRange = WEAPONS[slots[0].kind as WeaponKind]?.range ?? 42;
   // Reuse the target already found by the weapon pass. Previously every idle
@@ -503,7 +504,7 @@ export function manualFireAt(
     weapon.cooldown = weaponCooldown(def.cooldown, attacker);
     return true;
   }
-  const target = lockedTarget ?? acquireLineTarget(
+  let target = lockedTarget ?? acquireLineTarget(
     sim,
     attacker,
     weapon,
@@ -514,8 +515,25 @@ export function manualFireAt(
     isTankDirectMissile(def.kind) && !!attacker.playerControlled,
     Boolean(attacker.playerControlled),
   );
-  const hitX = target?.transform.x ?? attacker.transform.x + ux * range;
-  const hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
+  let hitX = target?.transform.x ?? attacker.transform.x + ux * range;
+  let hitZ = target?.transform.z ?? attacker.transform.z + uz * range;
+  let wallHit: ReturnType<typeof firstWallCoverHit>;
+  if (!def.projectile) {
+    const fromY = absoluteDirectMuzzleY(sim, attacker);
+    const horizontalDistance = Math.hypot(hitX - attacker.transform.x, hitZ - attacker.transform.z);
+    const endY = aimRay
+      ? fromY + aimRay.y * horizontalDistance / Math.max(1e-9, Math.hypot(aimRay.x, aimRay.z))
+      : target
+        ? (target.transform.y ?? sampleHeight(sim.nav.heightfield, hitX, hitZ)) + (target.flight ? 0 : target.building ? 2.8 : 1.15)
+        : fromY;
+    wallHit = firstWallCoverHit(sim, { x: attacker.transform.x, y: fromY, z: attacker.transform.z }, { x: hitX, y: endY, z: hitZ }, target);
+    if (wallHit) {
+      target = wallHit.wall;
+      hitX = wallHit.x;
+      hitZ = wallHit.z;
+      targetY = wallHit.y;
+    }
+  }
   if (def.projectile || lockedTarget) {
     // A terrain reticle can be far behind a unit caught by the ray. Once an
     // entity is acquired, use its own center height; otherwise ground vehicles
@@ -577,7 +595,7 @@ export function manualFireAt(
     const direct = applyDamage(sim, target, directDamageForTarget(def.kind, target) * damageScale, {
       hitX,
       hitZ,
-      hitY: structureHitY(target, attacker),
+      hitY: wallHit?.y ?? structureHitY(target, attacker),
       fromX: attacker.transform.x,
       fromY: directMuzzleY(attacker),
       fromZ: attacker.transform.z,
@@ -608,7 +626,7 @@ export function manualFireAt(
     fromY: directMuzzleY(attacker),
     fromZ: attacker.transform.z,
     toX: hitX,
-    toY: target ? targetYForEvent(target) : targetY,
+    toY: wallHit?.y ?? (target ? targetYForEvent(target) : targetY),
     toZ: hitZ,
     sourceTeamId: attacker.team.id,
     damage,
@@ -1740,7 +1758,7 @@ function hasWeaponTerrainLineOfSight(sim: GameSim, attacker: Entity, weapon: Wea
   const targetY = target.flight
     ? targetBaseY
     : targetBaseY + (target.building ? 2.8 : target.selectable?.type === 'infantry' ? 1.15 : 1.7);
-  return hasTerrainLineOfSight(
+  const terrainClear = hasTerrainLineOfSight(
     terrain,
     attacker.transform.x,
     fromY,
@@ -1749,6 +1767,12 @@ function hasWeaponTerrainLineOfSight(sim: GameSim, attacker: Entity, weapon: Wea
     targetY,
     target.transform.z,
   );
+  if (!terrainClear) return false;
+  // Arcing weapons return above; physical projectiles retain their own flight
+  // collision path. Instant bullets must not bypass a solid wall between units.
+  return !!def?.projectile || !firstWallCoverHit(sim,
+    { x: attacker.transform.x, y: fromY, z: attacker.transform.z },
+    { x: target.transform.x, y: targetY, z: target.transform.z }, target);
 }
 
 interface ManualAimRay {

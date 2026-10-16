@@ -99,12 +99,12 @@ describe('phase 3 economy and production', () => {
 
     expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
     for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    const power = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, economy.team));
+    const power = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 44, base.transform.z, economy.team));
     expect(power).toBeDefined();
 
     expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
     for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z, economy.team));
+    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 44, base.transform.z, economy.team));
     expect(refinery).toBeDefined();
     sim.resourceNodes = [
       {
@@ -148,11 +148,11 @@ describe('phase 3 economy and production', () => {
 
     expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
     for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, economy.team))).toBeDefined();
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 44, base.transform.z, economy.team))).toBeDefined();
 
     expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
     for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z, economy.team));
+    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 44, base.transform.z, economy.team));
     expect(refinery).toBeDefined();
     sim.resourceNodes = [{ id: 77, kind: 'oil', x: refinery!.transform.x + 42, z: refinery!.transform.z + 8, radius: 12, capacity: 500, remaining: 500 }];
 
@@ -181,11 +181,11 @@ describe('phase 3 economy and production', () => {
 
     expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
     for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, economy.team))).toBeDefined();
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 44, base.transform.z, economy.team))).toBeDefined();
 
     expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
     for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z, economy.team));
+    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 44, base.transform.z, economy.team));
     expect(refinery).toBeDefined();
     sim.resourceNodes = [{ id: 88, kind: 'oil', x: refinery!.transform.x + 56, z: refinery!.transform.z, radius: 12, capacity: 500, remaining: 500 }];
 
@@ -193,6 +193,9 @@ describe('phase 3 economy and production', () => {
     expect(harvester).toBeDefined();
     expect(issueHarvestOrder(sim, [harvester!], sim.resourceNodes[0].x, sim.resourceNodes[0].z)).toBe(true);
 
+    // Put the collector out at the ore field before the raider hits it.
+    harvester!.transform.x = sim.resourceNodes[0].x;
+    harvester!.transform.z = sim.resourceNodes[0].z;
     const attacker = spawnTankAt(sim, harvester!.transform.x + 44, harvester!.transform.z, 'Collector Raider', 2);
     const yaw = Math.atan2(harvester!.transform.x - attacker.transform.x, harvester!.transform.z - attacker.transform.z);
     attacker.playerControlled = { throttle: 0, turn: 0, aimYaw: yaw };
@@ -206,7 +209,11 @@ describe('phase 3 economy and production', () => {
     expect(harvester!.health!.current).toBeLessThan(harvester!.health!.max);
     expect(harvester!.harvester?.threatTimer).toBeGreaterThan(0);
     expect(harvester!.harvester?.state).toBe('to-refinery');
-    expect(harvester!.mover?.target).toEqual({ x: refinery!.transform.x, z: refinery!.transform.z });
+    const dock = harvester!.mover!.target!;
+    expect(dock).toBeDefined();
+    const dockCell = sim.nav.worldToCell(dock.x, dock.z);
+    expect(sim.nav.isWalkableCell(dockCell.x, dockCell.y)).toBe(true);
+    expect(Math.hypot(dock.x - refinery!.transform.x, dock.z - refinery!.transform.z)).toBeLessThan(30);
   });
 
   it('replaces a lost refinery harvester after a delay', () => {
@@ -217,11 +224,11 @@ describe('phase 3 economy and production', () => {
 
     expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
     for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z, economy.team))).toBeDefined();
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 44, base.transform.z, economy.team))).toBeDefined();
 
     expect(startStructureBuild(sim, economy, 'refinery')).toBe(true);
     for (let i = 0; i < 30 * 8; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 28, base.transform.z, economy.team));
+    const refinery = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'refinery', base.transform.x + 44, base.transform.z, economy.team));
     expect(refinery).toBeDefined();
 
     const first = stepEconomy(sim, hf, economy, 1 / 30).find((entity) => entity.harvester);
@@ -267,11 +274,11 @@ describe('phase 3 economy and production', () => {
       return entity!;
     };
 
-    build('power-plant', -28, 0);
-    build('refinery', 28, 0);
-    build('barracks', 0, 28);
+    build('power-plant', -44, 0);
+    build('refinery', 44, 0);
+    build('barracks', 0, 44);
     const f1 = build('factory', -80, 20);
-    const f2 = build('factory', 60, 20);
+    const f2 = build('factory', 80, 50);
     expect(f1.producer).toBeDefined();
     expect(f2.producer).toBeDefined();
     expect(economy.powerProduced).toBe(60);
@@ -303,7 +310,7 @@ describe('phase 3 economy and production', () => {
 
     expect(startStructureBuild(sim, economy, 'power-plant')).toBe(true);
     for (let i = 0; i < 30 * 5; i++) stepEconomy(sim, hf, economy, 1 / 30);
-    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 28, base.transform.z))).toBeDefined();
+    expect(placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'power-plant', base.transform.x - 44, base.transform.z))).toBeDefined();
 
     expect(startStructureBuild(sim, economy, 'barracks')).toBe(true);
     expect(startStructureBuild(sim, economy, 'guard-tower')).toBe(true);
@@ -320,8 +327,8 @@ describe('phase 3 economy and production', () => {
     expect(economy.readyStructure).toBe('barracks');
     expect(economy.readyDefenseStructure).toBe('guard-tower');
 
-    const barracks = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'barracks', base.transform.x + 28, base.transform.z));
-    const tower = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'guard-tower', base.transform.x, base.transform.z + 28));
+    const barracks = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'barracks', base.transform.x + 44, base.transform.z));
+    const tower = placeStructure(sim, hf, economy, updatePlacement(sim, hf, 'guard-tower', base.transform.x, base.transform.z + 44));
     expect(barracks?.building?.kind).toBe('barracks');
     expect(tower?.building?.kind).toBe('guard-tower');
     expect(economy.readyStructure).toBeUndefined();
@@ -343,8 +350,8 @@ describe('phase 3 economy and production', () => {
       return entity!;
     };
 
-    buildReady('power-plant', -28, 0);
-    const barracks = buildReady('barracks', 0, 28);
+    buildReady('power-plant', -44, 0);
+    const barracks = buildReady('barracks', 0, 44);
     for (let i = 0; i < MAX_PRODUCER_JOBS; i++) expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(true);
     expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(false);
     expect(barracks.producer?.queue.length).toBe(MAX_PRODUCER_JOBS);
@@ -366,10 +373,10 @@ describe('phase 3 economy and production', () => {
       return entity!;
     };
 
-    buildReady('power-plant', -28, 0);
-    buildReady('refinery', 28, 0);
-    const barracks = buildReady('barracks', 0, 28);
-    const factory = buildReady('factory', 60, 20);
+    buildReady('power-plant', -44, 0);
+    buildReady('refinery', 44, 0);
+    const barracks = buildReady('barracks', 0, 44);
+    const factory = buildReady('factory', 80, 50);
     const helipad = buildReady('helipad', 82, -28);
 
     for (const kind of Object.keys(UNITS) as UnitKind[]) {
@@ -496,9 +503,9 @@ describe('phase 3 economy and production', () => {
       return entity!;
     };
 
-    buildReady('power-plant', -28, 0);
-    buildReady('refinery', 28, 0);
-    const factory = buildReady('factory', -70, 18);
+    buildReady('power-plant', -44, 0);
+    buildReady('refinery', 44, 0);
+    const factory = buildReady('factory', -84, 30);
     const rally = setProducerRally(sim, economy, factory, base.transform.x + 80, base.transform.z + 80);
     expect(rally).toBeDefined();
 
@@ -538,9 +545,9 @@ describe('phase 3 economy and production', () => {
       expect(building).toBeDefined();
       return building!;
     };
-    buildReady('power-plant', -28, 0);
-    buildReady('refinery', 28, 0);
-    buildReady('factory', 60, 20);
+    buildReady('power-plant', -44, 0);
+    buildReady('refinery', 44, 0);
+    buildReady('factory', 80, 50);
     const helipad = buildReady('helipad', 82, -28);
     for (let unit = 0; unit < 3; unit++) {
       expect(queueUnit(sim, economy, 'wasp', helipad)).toBe(true);
@@ -569,9 +576,9 @@ describe('phase 3 economy and production', () => {
       return entity!;
     };
 
-    buildReady('power-plant', -28, 0);
-    buildReady('refinery', 28, 0);
-    const factory = buildReady('factory', -70, 18);
+    buildReady('power-plant', -44, 0);
+    buildReady('refinery', 44, 0);
+    const factory = buildReady('factory', -84, 30);
 
     expect(queueUnit(sim, economy, 'tank', factory)).toBe(true);
     for (let i = 0; i < 30 * 10; i++) {

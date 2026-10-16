@@ -210,8 +210,8 @@ describe('multiplayer lockstep commands', () => {
     } as unknown as MultiplayerClient;
     const lockstep = new LockstepRuntime({ sim, hf, economies: { 1: economy1, 2: economy2 }, client, session: sessionFor(1) });
 
-    lockstep.issue({ type: 'place-structure', kind: 'power-plant', x: base.transform.x - 28, z: base.transform.z });
-    lockstep.issue({ type: 'place-structure', kind: 'power-plant', x: base.transform.x + 28, z: base.transform.z });
+    lockstep.issue({ type: 'place-structure', kind: 'power-plant', x: base.transform.x - 44, z: base.transform.z });
+    lockstep.issue({ type: 'place-structure', kind: 'power-plant', x: base.transform.x + 44, z: base.transform.z });
     for (let i = 0; i < 8; i++) {
       sim.tick++;
       lockstep.tick();
@@ -309,12 +309,12 @@ describe('multiplayer lockstep commands', () => {
     const economy2 = createEconomy(2);
     const base = createInitialBase(sim, hf, economy1);
     economy1.readyStructure = 'guard-tower';
-    const placement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 28, base.transform.z, 1, economy1);
+    const placement = updatePlacement(sim, hf, 'guard-tower', base.transform.x + 44, base.transform.z, 1, economy1);
     const tower = placeStructure(sim, hf, economy1, placement);
     expect(tower?.possessable).toBeDefined();
     expect(tower?.mover).toBeUndefined();
     economy1.readyStructure = 'aa-tower';
-    const aaPlacement = updatePlacement(sim, hf, 'aa-tower', base.transform.x - 28, base.transform.z, 1, economy1);
+    const aaPlacement = updatePlacement(sim, hf, 'aa-tower', base.transform.x - 44, base.transform.z, 1, economy1);
     const aaTower = placeStructure(sim, hf, economy1, aaPlacement);
     expect(aaTower?.possessable).toBeDefined();
     expect(aaTower?.mover).toBeUndefined();

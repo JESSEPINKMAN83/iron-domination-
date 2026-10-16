@@ -57,6 +57,9 @@ export interface UnitDef {
   doctrine?: ArmyDoctrineId;
 }
 
+/** Solid wall body height, shared by rendering and bullet-cover checks. */
+export const WALL_HEIGHT = 5.2;
+
 export const STRUCTURES: Record<StructureKind, StructureDef> = {
   'power-plant': {
     kind: 'power-plant',
@@ -148,7 +151,7 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
     kind: 'wall',
     label: 'Wall Segment',
     tab: 'defense',
-    cost: 80,
+    cost: 40,
     buildTime: 1.4,
     health: 294,
     footprint: { w: 2, h: 2 },

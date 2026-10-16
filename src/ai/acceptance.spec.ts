@@ -12,7 +12,7 @@ import { EnemyCommander } from './commander';
 const DT = 1 / 30;
 
 describe('phase 6 acceptance', () => {
-  it('normal/balanced AI defeats a passive player within ~24 sim-minutes', () => {
+  it('normal/balanced AI defeats a passive player within ~30 sim-minutes', () => {
     const logs: string[] = [];
     vi.spyOn(console, 'info').mockImplementation((msg: string) => logs.push(String(msg)));
     const hf = generateHeightfield(MAP01);
@@ -30,7 +30,9 @@ describe('phase 6 acceptance', () => {
     spawnDebugTanks(sim, hf, 8);
 
     let defeatTick = -1;
-    const maxTicks = 30 * 60 * 24;
+    // Solid foundations require real detours, and enemy snipers are deliberately
+    // less lethal. Preserve eventual-victory coverage with a bounded 30-minute match.
+    const maxTicks = 30 * 60 * 30;
     for (let i = 0; i < maxTicks; i++) {
       commander.step(DT);
       stepEconomy(sim, hf, playerEconomy, DT);

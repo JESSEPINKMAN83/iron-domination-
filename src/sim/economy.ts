@@ -166,6 +166,7 @@ export function createInitialBase(sim: GameSim, hf: Heightfield, economy: Econom
     armor: { kind: 'building' },
   });
   conyard.structureDamage = createStructureDamage(conyard);
+  sim.nav.setBuildingBlocker(conyard.id, p.x, p.z, 9 * hf.cellSize, 8 * hf.cellSize);
   recomputePower(sim, economy);
   return conyard;
 }
@@ -274,12 +275,16 @@ export function placeStructure(sim: GameSim, hf: Heightfield, economy: EconomySt
     spend(economy, sim.tick, `${def.label} line`, extraCost);
   }
   let first: Entity | undefined;
-  for (const point of points) {
-    const entity = createPlacedStructure(sim, hf, economy, def, point.x, point.z);
-    const harvester = entity.building?.kind === 'refinery' ? spawnHarvesterAtRefinery(sim, entity) : undefined;
-    if (harvester) economy.pendingSpawned.push(harvester);
-    first ??= entity;
-  }
+  const placePoints = () => {
+    for (const point of points) {
+      const entity = createPlacedStructure(sim, hf, economy, def, point.x, point.z);
+      const harvester = entity.building?.kind === 'refinery' ? spawnHarvesterAtRefinery(sim, entity) : undefined;
+      if (harvester) economy.pendingSpawned.push(harvester);
+      first ??= entity;
+    }
+  };
+  if (placement.kind === 'wall') sim.nav.batchBlockers(placePoints);
+  else placePoints();
   clearReadyStructure(economy, placement.kind);
   recomputePower(sim, economy);
   return first;
@@ -330,7 +335,7 @@ function createPlacedStructure(
   });
   if (fortressKind) entity.vision = { radius: def.visionRadius ?? FORTRESS_TOWER.visionRadius };
   entity.structureDamage = createStructureDamage(entity);
-  if (def.blocksMovement) sim.nav.setDynamicBlocker(entity.id, entity.transform.x, entity.transform.z, entity.collider?.radius ?? 4);
+  sim.nav.setBuildingBlocker(entity.id, entity.transform.x, entity.transform.z, def.footprint.w * hf.cellSize, def.footprint.h * hf.cellSize);
   return entity;
 }
 
@@ -822,8 +827,14 @@ function stepHarvesters(sim: GameSim, economy: EconomyState, dt: number): void {
       entity.cargo.amount += amount;
       if (entity.cargo.amount >= entity.cargo.capacity - 0.01 || node.remaining <= 0.01) sendHarvesterToRefinery(sim, entity, refinery);
     } else if (harvester.state === 'to-refinery') {
-      const dist = Math.hypot(entity.transform.x - refinery.transform.x, entity.transform.z - refinery.transform.z);
-      if (dist <= (refinery.collider?.radius ?? 8) + entity.mover.radius + 2) {
+      // Dock beside the foundation, never at the refinery's now-blocked center.
+      const halfW = refinery.building!.footprint.w * sim.nav.cellSize;
+      const halfD = refinery.building!.footprint.h * sim.nav.cellSize;
+      const dist = Math.hypot(
+        Math.max(0, Math.abs(entity.transform.x - refinery.transform.x) - halfW),
+        Math.max(0, Math.abs(entity.transform.z - refinery.transform.z) - halfD),
+      );
+      if (dist <= entity.mover.radius + 2) {
         harvester.state = 'depositing';
         harvester.timer = HARVESTER_DEPOSIT_SECONDS;
         entity.mover.target = undefined;
@@ -1260,11 +1271,22 @@ function footprintBlocked(sim: GameSim, hf: Heightfield, x: number, z: number, f
   for (let dz = -halfH; dz <= halfH; dz += hf.cellSize * 2) {
     for (let dx = -halfW; dx <= halfW; dx += hf.cellSize * 2) {
       const cell = sim.nav.worldToCell(x + dx, z + dz);
-      if (!sim.nav.isWalkableCell(cell.x, cell.y)) return true;
+      // Building overlap is checked below. Navigation now also contains every
+      // foundation, so use terrain here to preserve the construction spacing rules.
+      if (!sim.nav.inBounds(cell.x, cell.y) || hf.walkable[sim.nav.index(cell.x, cell.y)] === 0) return true;
     }
   }
   const radius = Math.hypot(halfW, halfH);
-  return buildings(sim).some((entity) => Math.hypot(entity.transform.x - x, entity.transform.z - z) < (entity.collider?.radius ?? 5) + radius);
+  return buildings(sim).some((entity) => {
+    // Keep a usable ground corridor between solid foundations. The old small
+    // selection radii permitted overlapping buildings that sealed in producers.
+    if (entity.building) {
+      const otherW = entity.building.footprint.w * hf.cellSize;
+      const otherH = entity.building.footprint.h * hf.cellSize;
+      return Math.abs(entity.transform.x - x) < halfW + otherW + 6 && Math.abs(entity.transform.z - z) < halfH + otherH + 6;
+    }
+    return Math.hypot(entity.transform.x - x, entity.transform.z - z) < (entity.collider?.radius ?? 5) + radius;
+  });
 }
 
 function wallFootprintBlocked(sim: GameSim, hf: Heightfield, x: number, z: number, team: number): boolean {

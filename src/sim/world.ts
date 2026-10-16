@@ -874,6 +874,35 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       continue;
     }
 
+    // A new foundation (or an older saved match) may enclose a ground unit.
+    // Move it to the nearest free cell rather than trapping it inside the mesh.
+    const occupiedCell = sim.nav.worldToCell(transform.x, transform.z);
+    if (!sim.nav.isWalkableCell(occupiedCell.x, occupiedCell.y) && hf.walkable[sim.nav.index(occupiedCell.x, occupiedCell.y)] !== 0) {
+      const escape = sim.nav.nearestWalkableCellGlobal(transform.x, transform.z);
+      if (escape) {
+        const point = sim.nav.cellCenter(escape.x, escape.y);
+        transform.x = point.x;
+        transform.z = point.z;
+        entity.previousTransform.x = point.x;
+        entity.previousTransform.z = point.z;
+        mover.holdPosition = undefined;
+        velocity.x = velocity.z = 0;
+      }
+    }
+    if (mover.target) {
+      const finalX = mover.target.x + (mover.formationOffset?.x ?? 0);
+      const finalZ = mover.target.z + (mover.formationOffset?.z ?? 0);
+      const targetCell = sim.nav.worldToCell(finalX, finalZ);
+      if (!sim.nav.isWalkableCell(targetCell.x, targetCell.y)) {
+        const nearest = sim.nav.nearestWalkableCellGlobal(finalX, finalZ);
+        if (nearest) {
+          mover.target = sim.nav.cellCenter(nearest.x, nearest.y);
+          mover.formationOffset = undefined;
+          mover.flow = new FlowField(sim.nav, mover.target.x, mover.target.z);
+        }
+      }
+    }
+
     if (entity.playerControlled) {
       mover.target = undefined;
       mover.formationOffset = undefined;
@@ -941,7 +970,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
           velocity.x = 0;
           velocity.z = 0;
         }
-      } else if (finalDist < 18) {
+      } else if (finalDist < 18 && sim.nav.isWalkableSegment(transform.x, transform.z, finalX, finalZ)) {
         desiredX = finalDx / finalDist;
         desiredZ = finalDz / finalDist;
         orientToMovement = true;
@@ -1101,30 +1130,35 @@ function integrateGroundDisplacement(
 ): void {
   const { transform, velocity } = entity;
   const momentum = (entity.mover.attackThrough || entity.mover.aggressive) && entity.mover.target ? undefined : entity.impactMomentum;
-  const nextX = transform.x + (velocity.x + (momentum?.x ?? 0)) * dt;
-  const nextZ = transform.z + (velocity.z + (momentum?.z ?? 0)) * dt;
-  const cell = sim.nav.worldToCell(nextX, nextZ);
-  if (sim.nav.isWalkableCell(cell.x, cell.y) || boostedTerrainPassable(sim, hf, entity, nextX, nextZ)) {
-    transform.x = nextX;
-    transform.z = nextZ;
-    return;
-  }
-  const xCell = sim.nav.worldToCell(nextX, transform.z);
-  const zCell = sim.nav.worldToCell(transform.x, nextZ);
-  if (sim.nav.isWalkableCell(xCell.x, xCell.y) || boostedTerrainPassable(sim, hf, entity, nextX, transform.z)) {
-    transform.x = nextX;
-    velocity.z = 0;
-    if (momentum) momentum.z = 0;
-  } else if (sim.nav.isWalkableCell(zCell.x, zCell.y) || boostedTerrainPassable(sim, hf, entity, transform.x, nextZ)) {
-    transform.z = nextZ;
-    velocity.x = 0;
-    if (momentum) momentum.x = 0;
-  } else {
-    velocity.x = 0;
-    velocity.z = 0;
-    if (momentum) {
-      momentum.x = 0;
-      momentum.z = 0;
+  const displacementX = (velocity.x + (momentum?.x ?? 0)) * dt;
+  const displacementZ = (velocity.z + (momentum?.z ?? 0)) * dt;
+  const steps = Math.max(1, Math.ceil(Math.hypot(displacementX, displacementZ) / (sim.nav.cellSize * 0.45)));
+  for (let step = 0; step < steps; step++) {
+    const nextX = transform.x + displacementX / steps;
+    const nextZ = transform.z + displacementZ / steps;
+    const cell = sim.nav.worldToCell(nextX, nextZ);
+    if (sim.nav.isWalkableCell(cell.x, cell.y) || boostedTerrainPassable(sim, hf, entity, nextX, nextZ)) {
+      transform.x = nextX;
+      transform.z = nextZ;
+      continue;
+    }
+    const xCell = sim.nav.worldToCell(nextX, transform.z);
+    const zCell = sim.nav.worldToCell(transform.x, nextZ);
+    if (sim.nav.isWalkableCell(xCell.x, xCell.y) || boostedTerrainPassable(sim, hf, entity, nextX, transform.z)) {
+      transform.x = nextX;
+      velocity.z = 0;
+      if (momentum) momentum.z = 0;
+    } else if (sim.nav.isWalkableCell(zCell.x, zCell.y) || boostedTerrainPassable(sim, hf, entity, transform.x, nextZ)) {
+      transform.z = nextZ;
+      velocity.x = 0;
+      if (momentum) momentum.x = 0;
+    } else {
+      velocity.x = 0;
+      velocity.z = 0;
+      if (momentum) {
+        momentum.x = 0;
+        momentum.z = 0;
+      }
     }
   }
 }
