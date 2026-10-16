@@ -1,3 +1,5 @@
+import { groupOrderFeedback } from './orderFeedback';
+import type { FormationPreset } from '../sim/formations';
 import { Vector3, type Camera } from 'three';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import type { Entity } from '../sim/components';
@@ -55,6 +57,9 @@ export class SelectionBar {
   private worldPopover?: HTMLDivElement;
   private worldPopoverEntityId?: number;
   private lastKey = '';
+  private formationMenuOpen = false;
+  private formationMenuDismissed = false;
+  private formationSelectionKey = '';
   private visible = true;
   private strategicEnemyTeam?: number;
 
@@ -64,6 +69,7 @@ export class SelectionBar {
       selectEntities: (entities: Entity[]) => void;
       credits: () => number;
       purchaseUpgrade: (ids: number[], upgradeId: UnitUpgradeId) => UpgradePurchaseResult;
+      setFormation?: (entities: Entity[], preset: FormationPreset) => void;
       setAggressive?: (entities: Entity[], enabled: boolean) => void;
       openTacticPlanner?: (entities: Entity[]) => void;
       strategic?: {
@@ -98,6 +104,8 @@ export class SelectionBar {
     document.addEventListener('pointerdown', (event) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      const formationMenu = this.root.querySelector('.game-formation-dropdown');
+      if (formationMenu && !formationMenu.contains(target)) this.setFormationMenuOpen(false);
       const openPopovers = document.querySelectorAll<HTMLElement>('[data-upgrade-popover]');
       if (Array.from(openPopovers).some((popover) => popover.contains(target))) return;
       this.closeAllUpgradePopovers();
@@ -123,14 +131,32 @@ export class SelectionBar {
       this.syncWorldUpgradeButtons([]);
       return;
     }
+    const selectionKey = selected.map((unit) => unit.id).join(',');
+    if (selectionKey !== this.formationSelectionKey) {
+      this.formationSelectionKey = selectionKey;
+      this.formationMenuDismissed = false;
+      this.setFormationMenuOpen(false);
+    }
     this.syncWorldUpgradeButtons(selected);
     const groups = selectionGroups(selected);
     const siloSelected = selected.length === 1 && selected[0].building?.kind === 'strategic-silo' && this.actions.strategic;
-    const key = selectionGroupsKey(groups) + selected.map((unit) => `|a:${unit.id}:${Boolean(unit.mover?.aggressive)}`).join('') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
-    if (key === this.lastKey) return;
-    this.lastKey = key;
-    if (siloSelected) this.renderStrategicSilo(groups[0], selected[0]);
-    else this.render(groups, selected.length);
+    const key = selectionGroupsKey(groups) + selected.map((unit) => `|a:${unit.id}:${Boolean(unit.mover?.aggressive)}:${unit.mover?.formationPreset}`).join('') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
+    if (key !== this.lastKey) {
+      this.lastKey = key;
+      if (siloSelected) this.renderStrategicSilo(groups[0], selected[0]);
+      else this.render(groups, selected.length);
+    }
+    for (const [index, group] of groups.entries()) {
+      const row = this.root.querySelector<HTMLElement>(`[data-order-group="${index}"]`);
+      if (!row) continue;
+      const feedback = groupOrderFeedback(group.entities, this.sim.tick);
+      const compact = feedback.status.replace(/(\d+) moving/g, '↑ $1').replace(/(\d+) attacking/g, '⚔ $1').replace(/(\d+) parked/g, '▪ $1').replace(/(\d+) waiting/g, '◷ $1');
+      if (row.textContent !== compact) row.textContent = compact;
+      row.style.color = feedback.status.includes('attacking') ? '#ffd397' : feedback.status.includes('moving') ? '#a5eed2' : '#b2c0b9';
+      const description = `${group.label}: ${feedback.status}. ${feedback.mode}. ${feedback.destination}`;
+      row.title = description;
+      row.setAttribute('aria-label', description);
+    }
   }
 
   updateWorldAnchors(): void {
@@ -169,9 +195,9 @@ export class SelectionBar {
     const title = document.createElement('div');
     title.textContent = 'Selected force';
     title.style.cssText = 'font-size:12px;color:#9de5c4;letter-spacing:.08em;';
-    const count = document.createElement('div');
+    const count = document.createElement('span');
     count.textContent = `${selectedCount} ${selectedCount === 1 ? 'ITEM' : 'ITEMS'}`;
-    count.style.cssText = 'font-size:12px;color:#f0f3e8;text-align:right;';
+    count.style.cssText = 'font-size:12px;color:#f0f3e8;text-align:right;white-space:nowrap;';
     const headerActions = document.createElement('div');
     headerActions.style.cssText = 'display:flex;align-items:center;gap:10px;';
     const fighters = groups.flatMap((group) => group.entities).filter((unit) => unit.mover && !unit.building && !unit.harvester);
@@ -194,24 +220,140 @@ export class SelectionBar {
     const grid = document.createElement('div');
     grid.className = 'game-selection-grid';
     grid.style.cssText = 'display:flex;gap:8px;overflow-x:auto;padding-bottom:1px;';
-    for (const group of groups) grid.appendChild(this.groupButton(group, selectedCount));
+    groups.forEach((group, index) => {
+      const card = this.groupButton(group, selectedCount);
+      if (group.entities.some((unit) => unit.mover && !unit.harvester && !unit.building)) {
+        const status = document.createElement('span');
+        status.dataset.orderGroup = String(index);
+        status.style.cssText = 'position:absolute;bottom:3px;left:4px;right:4px;z-index:5;width:max-content;max-width:calc(100% - 8px);box-sizing:border-box;padding:2px 4px;border-radius:3px;background:rgba(7,16,13,.86);font:600 9px/12px ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+        card.querySelector('.game-thumbnail')?.appendChild(status);
+      }
+      grid.appendChild(card);
+    });
 
     this.root.append(header, grid);
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:8px;';
+    if (fighters.length > 1 && this.actions.setFormation) {
+      const dropdown = document.createElement('div');
+      dropdown.className = 'game-formation-dropdown';
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'game-formation-trigger';
+      trigger.setAttribute('aria-label', `${selectedCount} items, choose formation`);
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.setAttribute('aria-controls', 'game-formation-popover');
+      const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      chevron.setAttribute('viewBox', '0 0 16 16');
+      chevron.setAttribute('width', '12');
+      chevron.setAttribute('height', '12');
+      chevron.setAttribute('aria-hidden', 'true');
+      const chevronPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      chevronPath.setAttribute('d', 'M4 6 L8 10 L12 6');
+      chevronPath.setAttribute('fill', 'none');
+      chevronPath.setAttribute('stroke', 'currentColor');
+      chevronPath.setAttribute('stroke-width', '1.5');
+      chevronPath.setAttribute('stroke-linecap', 'round');
+      chevronPath.setAttribute('stroke-linejoin', 'round');
+      chevron.appendChild(chevronPath);
+      count.replaceWith(dropdown);
+      trigger.append(count, chevron);
+      const formations = document.createElement('div');
+      formations.className = 'game-formation-popover';
+      formations.id = 'game-formation-popover';
+      formations.setAttribute('role', 'group');
+      formations.setAttribute('aria-label', 'Formation');
+      dropdown.append(trigger, formations);
+      dropdown.onpointerenter = () => { if (!this.formationMenuDismissed) this.setFormationMenuOpen(true); };
+      dropdown.onpointerleave = () => {
+        if (!dropdown.isConnected) return;
+        this.formationMenuDismissed = false;
+        if (!dropdown.contains(document.activeElement)) this.setFormationMenuOpen(false);
+      };
+      dropdown.addEventListener('focusin', () => { if (!this.formationMenuDismissed) this.setFormationMenuOpen(true); });
+      dropdown.addEventListener('focusout', () => queueMicrotask(() => {
+        if (dropdown.isConnected && !dropdown.contains(document.activeElement)) this.setFormationMenuOpen(false);
+      }));
+      trigger.onclick = () => { this.formationMenuDismissed = false; this.setFormationMenuOpen(true); };
+      dropdown.onkeydown = (event) => {
+        if (event.key === 'Escape') {
+          this.formationMenuDismissed = true;
+          event.stopPropagation();
+          trigger.focus();
+          this.setFormationMenuOpen(false);
+        } else if (event.key === 'ArrowDown' && event.target === trigger) {
+          event.preventDefault();
+          this.formationMenuDismissed = false;
+          this.setFormationMenuOpen(true);
+          formations.querySelector('button')?.focus();
+        }
+      };
+      for (const preset of ['tight', 'spread', 'wedge'] as const) {
+        const button = document.createElement('button');
+        const active = fighters.every((unit) => unit.mover?.formationPreset === preset);
+        button.type = 'button';
+        const name = preset[0].toUpperCase() + preset.slice(1);
+        button.className = 'game-formation-action';
+        button.setAttribute('aria-label', `${name} formation`);
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('viewBox', '0 0 32 32');
+        icon.setAttribute('width', '28');
+        icon.setAttribute('height', '28');
+        icon.setAttribute('aria-hidden', 'true');
+        // One repeated unit glyph, identical sizing and optical margins.
+        const positions = preset === 'tight'
+          ? [[12, 7], [20, 7], [12, 16], [20, 16], [12, 25], [20, 25]]
+          : preset === 'spread'
+            ? [[5, 8], [16, 8], [27, 8], [5, 24], [16, 24], [27, 24]]
+            : [[13, 6], [19, 6], [9, 16], [23, 16], [5, 26], [27, 26]];
+        for (const [x, y] of positions) {
+          const unit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          unit.setAttribute('d', `M${x - 2} ${y + 2} L${x} ${y - 2} L${x + 2} ${y + 2} L${x} ${y + 0.8} Z`);
+          unit.setAttribute('fill', 'currentColor');
+          unit.setAttribute('stroke', 'currentColor');
+          unit.setAttribute('stroke-width', '0.6');
+          unit.setAttribute('stroke-linejoin', 'round');
+          icon.appendChild(unit);
+        }
+        button.appendChild(icon);
+        button.setAttribute('aria-pressed', String(active));
+        button.title = `${name} formation: ${preset === 'tight' ? 'Compact staggered ranks, with room between units' : preset === 'spread' ? 'Wide screen with large gaps between units' : 'Pointed V with swept-back wings'}. Re-form now and keep this formation on moves and tactical routes.`;
+        button.style.cssText = `display:grid;place-items:center;width:44px;height:42px;padding:6px;border:1px solid ${active ? '#9de5c4' : '#37574a'};border-radius:3px;background:${active ? '#294d3f' : '#12231c'};color:#c0eed8;cursor:pointer;font:600 10px ui-monospace,monospace;`;
+        const chooseFormation = () => {
+          this.formationMenuDismissed = true;
+          this.actions.setFormation?.(fighters, preset);
+          trigger.focus();
+          this.setFormationMenuOpen(false);
+        };
+        button.onpointerdown = (event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.stopPropagation();
+          chooseFormation();
+        };
+        button.onclick = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.detail === 0) chooseFormation(); // Keyboard and assistive activation.
+        };
+        formations.appendChild(button);
+      }
+      this.setFormationMenuOpen(this.formationMenuOpen);
+    }
     const tacticalUnits = groups
       .flatMap((group) => group.entities)
       .filter((entity) => entity.mover && !entity.building && !entity.harvester);
     if (tacticalUnits.length > 0 && this.actions.openTacticPlanner) {
-      const actions = document.createElement('div');
-      actions.style.cssText = 'display:flex;justify-content:flex-end;';
       const tacticBtn = document.createElement('button');
       tacticBtn.type = 'button';
       tacticBtn.textContent = 'Define Tactic';
       tacticBtn.className = 'game-primary-action';
+      tacticBtn.style.flexShrink = '0';
       tacticBtn.title = 'Plan a multi-point path for the selected units';
       tacticBtn.style.cssText =
         'padding:7px 12px;border:1px solid #78b99e;border-radius:2px;cursor:pointer;' +
         'background:linear-gradient(180deg,#29483e,#172720);color:#b6efd5;font:700 11px ui-monospace,Menlo,monospace;' +
-        'letter-spacing:.08em;text-transform:uppercase;';
+        'letter-spacing:.08em;text-transform:uppercase;flex-shrink:0;';
       tacticBtn.onpointerdown = (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -222,8 +364,17 @@ export class SelectionBar {
         this.actions.openTacticPlanner?.(tacticalUnits);
       };
       actions.appendChild(tacticBtn);
-      this.root.appendChild(actions);
     }
+    if (actions.childElementCount) this.root.appendChild(actions);
+  }
+
+  private setFormationMenuOpen(open: boolean): void {
+    this.formationMenuOpen = open;
+    const dropdown = this.root.querySelector<HTMLElement>('.game-formation-dropdown');
+    if (!dropdown) return;
+    dropdown.dataset.open = String(open);
+    dropdown.querySelector('.game-formation-trigger')?.setAttribute('aria-expanded', String(open));
+    dropdown.querySelector('.game-formation-popover')?.setAttribute('aria-hidden', String(!open));
   }
 
   private renderStrategicSilo(group: SelectionGroup, silo: Entity): void {

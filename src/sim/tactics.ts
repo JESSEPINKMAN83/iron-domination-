@@ -1,3 +1,4 @@
+import { presetFormationOffsets, rotateFormationOffset } from './formations';
 import { hash2i } from './noise';
 import type { Entity, TacticEndAction, TacticPlan } from './components';
 import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, reserveUnitPosition, type GameSim } from './world';
@@ -84,6 +85,9 @@ export function issueTacticOrder(
   const ordered = [...movers].sort((a, b) => a.id - b.id);
   const spacing = Math.max(...ordered.map((entity) => entity.mover!.radius * 2 + 3));
   const columns = Math.ceil(Math.sqrt(ordered.length));
+  const preset = ordered[0].mover!.formationPreset;
+  const center = ordered.reduce((p, unit) => ({ x: p.x + unit.transform.x / ordered.length, z: p.z + unit.transform.z / ordered.length }), { x: 0, z: 0 });
+  const formationSlots = preset ? presetFormationOffsets(ordered.length, spacing, preset).map((slot) => rotateFormationOffset(slot, Math.atan2(first.x - center.x, first.z - center.z))) : undefined;
   let assigned = 0;
   for (const entity of movers) {
     if (!entity.mover) continue;
@@ -106,13 +110,19 @@ export function issueTacticOrder(
           const extent = Math.max(spacing, Math.hypot(slot.x, slot.z));
           const scale = final ? (entity.flight ? amount * amount : 1) : corridor / extent;
           const edge = sim.nav.size / 2 - entity.mover!.radius - 1;
-          return { x: Math.max(-edge, Math.min(edge, point.x + slot.x * scale)), z: Math.max(-edge, Math.min(edge, point.z + slot.z * scale)) };
+          const formation = formationSlots?.[index];
+          // Presets supply the safe baseline; variation adds a small route drift
+          // rather than collapsing the wing back onto the centerline.
+          const dx = formation ? formation.x + slot.x * scale * 0.25 : slot.x * scale;
+          const dz = formation ? formation.z + slot.z * scale * 0.25 : slot.z * scale;
+          return { x: Math.max(-edge, Math.min(edge, point.x + dx)), z: Math.max(-edge, Math.min(edge, point.z + dz)) };
         };
         plan.remaining = plan.remaining.map((point, index) => offset(point, index === plan.remaining.length - 1, index + 1));
         const firstPoint = offset(first, remaining.length === 0, 0);
         issueMoveOrder(sim, [entity], firstPoint.x, firstPoint.z, false, undefined, undefined, sprint);
         plan.startAtTick = sim.tick + Math.floor(hash2i(entity.id, sim.tick, 413) * amount * 60);
       }
+      entity.mover.formationSlot = formationSlots?.[ordered.indexOf(entity)];
       entity.mover.tactic = plan;
       entity.mover.attackThrough = endAction.kind === 'attack-through' || undefined;
       entity.mover.engage = undefined;
@@ -130,8 +140,10 @@ export function advanceTacticAfterArrival(sim: GameSim, entity: Entity): void {
   const plan = mover.tactic;
   if (plan.remaining.length > 0) {
     const next = plan.remaining.shift()!;
+    const slot = mover.formationSlot;
     issueMoveOrder(sim, [entity], next.x, next.z, false, undefined, undefined, !!plan.sprint);
     if (entity.mover) {
+      entity.mover.formationSlot = slot;
       entity.mover.tactic = plan;
       entity.mover.attackThrough = plan.endAction.kind === 'attack-through' || undefined;
       entity.mover.engage = undefined;

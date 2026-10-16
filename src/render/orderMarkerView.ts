@@ -95,6 +95,7 @@ interface StrategicAreaTarget {
 export class OrderMarkerView {
   readonly group = new Group();
   private readonly markers: Marker[] = [];
+  private readonly selectedDestinations: Mesh[] = [];
   private preview?: FacingPreview;
   private targetHover?: TargetHover;
   private strategicAreaTarget?: StrategicAreaTarget;
@@ -102,6 +103,37 @@ export class OrderMarkerView {
   private readonly terrainNormal = new Vector3();
 
   constructor(private readonly hf: Heightfield) {}
+
+  /** Persistent, pooled destination rings for the selected unit types. */
+  showSelectedDestinations(entities: Entity[]): void {
+    const groups = new Map<string, Array<{ x: number; z: number }>>();
+    for (const unit of entities) {
+      const mover = unit.mover;
+      if (!mover?.target || unit.destroyed || unit.building || unit.harvester) continue;
+      const final = mover.tactic?.remaining.at(-1) ?? mover.target;
+      const key = `${unit.selectable?.type}:${unit.weapons?.primary.kind ?? unit.weapon?.kind}`;
+      const points = groups.get(key) ?? [];
+      points.push({ x: final.x + (mover.formationOffset?.x ?? 0), z: final.z + (mover.formationOffset?.z ?? 0) });
+      groups.set(key, points);
+    }
+    let index = 0;
+    for (const points of groups.values()) {
+      let ring = this.selectedDestinations[index];
+      if (!ring) {
+        ring = new Mesh(ringGeometry, new MeshBasicMaterial({ color: 0x9de5c4, transparent: true, opacity: 0.8, depthWrite: false, side: DoubleSide }));
+        ring.rotation.x = -Math.PI / 2;
+        ring.renderOrder = 75;
+        this.group.add(ring);
+        this.selectedDestinations.push(ring);
+      }
+      const x = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+      const z = points.reduce((sum, point) => sum + point.z, 0) / points.length;
+      ring.position.set(x, sampleHeight(this.hf, x, z) + 1.2, z);
+      ring.visible = true;
+      index++;
+    }
+    for (; index < this.selectedDestinations.length; index++) this.selectedDestinations[index].visible = false;
+  }
 
   push(x: number, z: number, kind: OrderMarkerKind): void {
     const y = sampleHeight(this.hf, x, z);

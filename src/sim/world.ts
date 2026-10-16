@@ -11,7 +11,7 @@ import { startMusterPosition } from '../content/startPositions';
 import { WEAPONS, type ProjectileKind, type WeaponKind } from '../content/phase4';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
 import type { ImpactZone } from './impactModel';
-import { rotateFormationOffset, tacticalFormationLayout } from './formations';
+import { presetFormationOffsets, type FormationPreset, rotateFormationOffset, tacticalFormationLayout } from './formations';
 import { SpatialHash } from './spatialHash';
 import { advanceTacticAfterArrival } from './tactics';
 import { combatRankSpeedMultiplier } from './combatRank';
@@ -531,10 +531,18 @@ export function issueMoveOrder(
     }
   }
 
+  const centerX = movers.reduce((sum, unit) => sum + unit.transform.x, 0) / movers.length;
+  const centerZ = movers.reduce((sum, unit) => sum + unit.transform.z, 0) / movers.length;
+  const preset = movers[0].mover.formationPreset;
+  const presetSlots = preset && movers.length > 1 && !tacticalLayout
+    ? presetFormationOffsets(movers.length, baseSpacing, preset).map((slot) => rotateFormationOffset(slot, faceYaw ?? Math.atan2(targetX - centerX, targetZ - centerZ)))
+    : undefined;
   movers.forEach((entity, i) => {
-    const offset = tacticalLayout && faceYaw !== undefined
+    const offset = presetSlots?.[i] ?? (tacticalLayout && faceYaw !== undefined
       ? rotateFormationOffset(tacticalLayout.offsets[i], faceYaw)
-      : formationOffset(i % width, Math.floor(i / width), width, movers.length, spacing, faceYaw);
+      : formationOffset(i % width, Math.floor(i / width), width, movers.length, spacing, faceYaw));
+    entity.mover.formationSlot = movers.length > 1 ? { ...offset } : undefined;
+    entity.mover.formationReforming = undefined;
     if (entity.flight) {
       entity.mover.turnaround = undefined;
       entity.mover.target = {
@@ -657,6 +665,67 @@ export function attackStandoffPoint(sim: GameSim, attackers: Entity[], target: E
   return raw;
 }
 
+/** Re-form active routes without replacing their end action or combat stance. */
+export function setFormationPreset(sim: GameSim, entities: Entity[], preset: FormationPreset, idleFacing?: number): void {
+  if (!['tight', 'spread', 'wedge'].includes(preset)) return;
+  const units = entities.filter((unit) => unit.mover && !unit.destroyed && !unit.building && !unit.harvester).sort((a, b) => a.id - b.id);
+  if (!units.length) return;
+  const center = units.reduce((p, unit) => ({ x: p.x + unit.transform.x / units.length, z: p.z + unit.transform.z / units.length }), { x: 0, z: 0 });
+  // Snapshot before issuing orders: every member must use the same center,
+  // not its individual old destination (which may already be scattered).
+  const snapshots = units.map((unit) => {
+    const mover = unit.mover!;
+    const old = mover.formationSlot ?? { x: 0, z: 0 };
+    const point = mover.target ?? mover.holdPosition ?? unit.transform;
+    const origin = { x: point.x + (mover.formationOffset?.x ?? 0) - old.x, z: point.z + (mover.formationOffset?.z ?? 0) - old.z };
+    return { unit, origin, plan: mover.tactic, old,
+      stage: mover.tactic ? `route:${mover.tactic.remaining.length}` : 'destination',
+      moving: !!mover.target, attackThrough: mover.attackThrough, attackTargetId: mover.attackTargetId,
+      attackMove: !!mover.attackMove, sprint: !!mover.sprint };
+  });
+  const stages = new Map<string, { center: { x: number; z: number }; remaining: Array<{ x: number; z: number }> }>();
+  for (const snapshot of snapshots) {
+    if (stages.has(snapshot.stage)) continue;
+    const members = snapshots.filter((item) => item.stage === snapshot.stage);
+    const average = (points: Array<{ x: number; z: number }>) => points.reduce((p, point) => ({ x: p.x + point.x / points.length, z: p.z + point.z / points.length }), { x: 0, z: 0 });
+    stages.set(snapshot.stage, {
+      center: average(members.map((item) => item.origin)),
+      remaining: (snapshot.plan?.remaining ?? []).map((_, index) => average(members.map((item) => ({ x: item.plan!.remaining[index].x - item.old.x, z: item.plan!.remaining[index].z - item.old.z })))),
+    });
+  }
+  const leader = units[0].mover!;
+  const destination = stages.get(snapshots[0].stage)!.center;
+  const dx = destination.x - center.x, dz = destination.z - center.z;
+  const reforming = snapshots.some((item) => item.moving) && leader.formationPreset && leader.faceYaw !== undefined && !leader.tactic;
+  const travelling = snapshots.some((item) => item.moving) && Math.hypot(dx, dz) > 1 && !reforming;
+  const yaw = travelling ? Math.atan2(dx, dz)
+    : reforming ? leader.faceYaw!
+      : Number.isFinite(idleFacing) ? idleFacing! : leader.faceYaw ?? units[0].transform.rot;
+  const slots = presetFormationOffsets(units.length, formationBaseSpacing(units), preset).map((slot) => rotateFormationOffset(slot, yaw));
+  const edge = sim.nav.size / 2 - Math.max(...units.map((unit) => unit.mover!.radius)) - 1;
+  const minX = Math.min(...slots.map((slot) => slot.x)), maxX = Math.max(...slots.map((slot) => slot.x));
+  const minZ = Math.min(...slots.map((slot) => slot.z)), maxZ = Math.max(...slots.map((slot) => slot.z));
+  const fitCenter = (point: { x: number; z: number }) => ({ x: clamp(point.x, -edge - minX, edge - maxX), z: clamp(point.z, -edge - minZ, edge - maxZ) });
+  snapshots.forEach((snapshot, i) => {
+    const { unit, plan } = snapshot;
+    const mover = unit.mover!;
+    const slot = slots[i];
+    const stage = stages.get(snapshot.stage)!;
+    const origin = fitCenter(stage.center);
+    if (plan) plan.remaining = stage.remaining.map((point) => {
+      const p = fitCenter(point);
+      return { x: p.x + slot.x, z: p.z + slot.z };
+    });
+    issueMoveOrder(sim, [unit], origin.x + slot.x, origin.z + slot.z, snapshot.attackMove, yaw, undefined, snapshot.sprint);
+    mover.formationPreset = preset;
+    mover.formationReforming = !plan || undefined;
+    mover.formationSlot = slot;
+    mover.tactic = plan;
+    mover.attackThrough = snapshot.attackThrough;
+    mover.attackTargetId = snapshot.attackTargetId;
+  });
+}
+
 export function setAggressiveMode(entities: Entity[], enabled: boolean): void {
   for (const entity of entities) {
     if (!entity.mover || entity.destroyed || entity.building || entity.harvester) continue;
@@ -673,6 +742,7 @@ export function stopEntities(entities: Entity[]): void {
     if (!entity.mover || !entity.velocity) continue;
     entity.mover.target = undefined;
     entity.mover.formationOffset = undefined;
+    entity.mover.formationReforming = undefined;
     entity.mover.holdPosition = { x: entity.transform.x, z: entity.transform.z };
     entity.mover.flow = undefined;
     entity.mover.attackMove = false;
@@ -785,6 +855,22 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
     if (entity.flight) {
       stepFlightEntity(sim, hf, entity, maxMoverRadius, dt);
+      if (mover.formationPreset && mover.target && !entity.playerControlled) {
+        // Slot routes keep wings apart over a whole leg; local avoidance also
+        // protects the transition when units cross while taking up new slots.
+        sim.spatial.visitNearby(transform.x, transform.z, mover.radius + maxMoverRadius + 3, (other) => {
+          if (other === entity || !other.flight || !other.mover || other.destroyed || other.team?.id !== entity.team?.id) return;
+          let dx = transform.x - other.transform.x;
+          let dz = transform.z - other.transform.z;
+          const minimum = mover.radius + other.mover.radius + 2;
+          let distance = Math.hypot(dx, dz);
+          if (distance >= minimum || Math.abs((transform.y ?? 0) - (other.transform.y ?? 0)) > minimum) return;
+          if (distance < 0.001) { dx = entity.id < other.id ? -1 : 1; dz = 0; distance = 1; }
+          const correction = (minimum - distance) * 0.8;
+          transform.x = clamp(transform.x + dx / distance * correction, -sim.nav.size / 2, sim.nav.size / 2);
+          transform.z = clamp(transform.z + dz / distance * correction, -sim.nav.size / 2, sim.nav.size / 2);
+        });
+      }
       continue;
     }
 
@@ -1271,6 +1357,36 @@ function stepAttackThroughFlight(sim: GameSim, hf: Heightfield, entity: MovingEn
   const dx = target.x - transform.x;
   const dz = target.z - transform.z;
   const distance = Math.hypot(dx, dz);
+  if (mover.formationReforming && !mover.tactic && distance < Math.max(32, mover.radius * 10)) {
+    // A stationary wing reshuffles using its hover/strafe authority. Banking
+    // cruise turns at these tiny distances can orbit a slot indefinitely.
+    const dockSpeed = Math.min(speed * 0.65, distance * 2);
+    const blend = damp(8, dt);
+    velocity.x += ((distance > 0.001 ? dx / distance * dockSpeed : 0) - velocity.x) * blend;
+    velocity.z += ((distance > 0.001 ? dz / distance * dockSpeed : 0) - velocity.z) * blend;
+    if (distance <= ARRIVAL_EPSILON) {
+      transform.x = target.x;
+      transform.z = target.z;
+      velocity.x = velocity.z = 0;
+      mover.holdPosition = { ...target };
+      mover.target = undefined;
+      mover.formationReforming = undefined;
+    } else {
+      transform.x += velocity.x * dt;
+      transform.z += velocity.z * dt;
+    }
+    transform.rot = slewAngle(transform.rot, mover.faceYaw ?? transform.rot, model.yawRateHover * (flight.agility ?? 1), dt);
+    const settle = damp(5, dt);
+    flight.pitchAttitude *= 1 - settle;
+    flight.rollAttitude *= 1 - settle;
+    flight.bank = flight.rollAttitude;
+    const ground = sampleHeight(hf, transform.x, transform.z);
+    const desiredY = Math.min(flight.maxAltitude, ground + flight.cruiseAltitude);
+    const currentY = transform.y ?? desiredY;
+    flight.verticalVelocity = clamp((desiredY - currentY) * 1.6, -model.climbRate, model.climbRate);
+    transform.y = clamp(currentY + flight.verticalVelocity * dt, ground + flight.minAGL, flight.maxAltitude);
+    return;
+  }
   const heading = Math.atan2(dx, dz);
   const currentSpeed = Math.hypot(velocity.x, velocity.z);
   const agility = flight.agility ?? 1;
@@ -1747,6 +1863,10 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.attackMove ? 1 : 0);
       mix(entity.mover.attackThrough ? 1 : 0);
       mix(entity.mover.aggressive ? 1 : 0);
+      mix(entity.mover.formationReforming ? 1 : 0);
+      mix(['tight', 'spread', 'wedge'].indexOf(entity.mover.formationPreset ?? '') + 1);
+      mix(Math.round((entity.mover.formationSlot?.x ?? 0) * 100));
+      mix(Math.round((entity.mover.formationSlot?.z ?? 0) * 100));
       mix(entity.mover.faceYaw === undefined ? 0 : Math.round(entity.mover.faceYaw * 10000));
       mix(entity.mover.defenseAlert?.targetId ?? 0);
       mix(entity.mover.defenseAlert ? Math.round(entity.mover.defenseAlert.ttl * 1000) : 0);

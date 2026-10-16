@@ -1,3 +1,4 @@
+import { createMissileTrail, missileTrailProfile, updateMissileTrail } from './missileTrail';
 import {
   BoxGeometry,
   BufferGeometry,
@@ -19,6 +20,7 @@ import {
   Sprite,
   SpriteMaterial,
   Vector3,
+  type Object3D,
 } from 'three';
 import type { CombatEvent } from '../sim/world';
 import type { Entity } from '../sim/components';
@@ -41,7 +43,7 @@ interface Burst {
 
 interface BombProjectile {
   group: Group;
-  trail: Line;
+  trail: Mesh<BufferGeometry, MeshBasicMaterial>;
   trailPositions: Vector3[];
   from: Vector3;
   control: Vector3;
@@ -81,6 +83,9 @@ interface HitIndicator {
   ttl: number;
   total: number;
   rise: number;
+  width: number;
+  height: number;
+  targetId?: number;
 }
 
 interface SmokePuff {
@@ -116,6 +121,17 @@ interface GroundScorch {
 }
 
 type VisualQualityTier = 0 | 1 | 2;
+
+/** Maximum active renderable FX objects, shared by all effect families. */
+export const COMBAT_EFFECT_DRAW_BUDGET = [640, 400, 220] as const;
+
+function effectDrawCost(root: Object3D): number {
+  if (root.userData.effectDrawCost !== undefined) return root.userData.effectDrawCost as number;
+  let count = 0;
+  root.traverse((object) => { if (object instanceof Mesh || object instanceof Line || object instanceof Sprite) count++; });
+  root.userData.effectDrawCost = count;
+  return count;
+}
 
 interface IndexedCombatEvent {
   event: CombatEvent;
@@ -154,13 +170,15 @@ export function selectCombatVisualEvents(
 
   const indexed = visualEvents.map((event, index) => ({ event, index }));
   const critical = indexed.filter(({ event }) => isCriticalVisualEvent(event));
-  const local = indexed.filter(({ event }) => !isCriticalVisualEvent(event) && event.sourceTeamId === localTeam);
-  const remote = indexed.filter(({ event }) => !isCriticalVisualEvent(event) && event.sourceTeamId !== localTeam);
+  const heavy = indexed.filter(({ event }) => !isCriticalVisualEvent(event) && isHeavyImpact(event));
+  const local = indexed.filter(({ event }) => !isCriticalVisualEvent(event) && !isHeavyImpact(event) && event.sourceTeamId === localTeam);
+  const remote = indexed.filter(({ event }) => !isCriticalVisualEvent(event) && !isHeavyImpact(event) && event.sourceTeamId !== localTeam);
   const selected = new Set<number>();
 
   const criticalReservation = Math.min(budget.critical, Math.ceil((total * budget.critical) / budget.total));
   const localReservation = Math.min(budget.local, Math.ceil((total * budget.local) / budget.total));
   addSpreadSelection(selected, critical, Math.min(criticalReservation, total));
+  addSpreadSelection(selected, heavy, Math.min(Math.ceil(total / 6), total - selected.size));
   addSpreadSelection(selected, local, Math.min(localReservation, total - selected.size));
   addSpreadSelection(selected, remote, total - selected.size);
 
@@ -174,6 +192,10 @@ export function selectCombatVisualEvents(
     .filter(({ index }) => selected.has(index))
     .sort((a, b) => a.index - b.index)
     .map(({ event }) => event);
+}
+
+function isHeavyImpact(event: CombatEvent): boolean {
+  return isProjectileImpact(event.kind) && (event.weaponKind === 'heavyCannon' || event.kind === 'siegeMissile-impact' || event.kind === 'artilleryShell-impact' || isBombImpact(event.kind));
 }
 
 function isCriticalVisualEvent(event: CombatEvent): boolean {
@@ -224,6 +246,7 @@ export class CombatView {
 
   setVisualQuality(tier: VisualQualityTier): void {
     this.visualQuality = tier;
+    this.enforceEffectBudget();
   }
 
   /** Called once after a browser frame so catch-up ticks share one FX budget. */
@@ -287,7 +310,7 @@ export class CombatView {
             : sampleHeight(this.hf, event.toX, event.toZ) + 0.4;
         if (event.weaponKind === 'strategicMissile') {
           this.spawnStrategicBlast(event, impactY);
-        } else if (isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
+        } else if (event.weaponKind === 'heavyCannon' || isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
           this.spawnBombBlast(
             event.toX,
             impactY,
@@ -348,6 +371,7 @@ export class CombatView {
         if (!waterHit) this.spawnHitFragments(event, toY);
       }
     }
+    this.enforceEffectBudget();
   }
 
   update(dt: number): void {
@@ -374,8 +398,9 @@ export class CombatView {
       if (burst.kind === 'bomb') {
         burst.group.scale.setScalar(burst.baseScale * (1 + age * 1.28));
         for (const material of burst.materials) {
-          if (material.userData.role === 'smoke') material.opacity = Math.min(0.2, age * 0.36) * life;
-          else if (material.userData.role === 'shock') material.opacity = life * 0.2;
+          if (material.userData.role === 'core') material.opacity = Math.max(0, 1 - age * 6) * 0.9;
+          else if (material.userData.role === 'smoke') material.opacity = Math.min(0.2, age * 0.36) * life;
+          else if (material.userData.role === 'shock') material.opacity = life * life * 0.42;
           else if (material.userData.role === 'scorch') material.opacity = life * 0.14;
           else if (material.userData.role === 'debris') material.opacity = life * 0.42;
           else material.opacity = life * 0.54;
@@ -400,7 +425,8 @@ export class CombatView {
       const life = Math.max(0, indicator.ttl / indicator.total);
       const age = 1 - life;
       indicator.sprite.position.y += indicator.rise * dt;
-      indicator.sprite.scale.setScalar(1 + Math.sin(Math.min(1, age * 3.5) * Math.PI) * 0.12);
+      const pulse = 1 + Math.sin(Math.min(1, age * 3.5) * Math.PI) * 0.12;
+      indicator.sprite.scale.set(indicator.width * pulse, indicator.height * pulse, 1);
       indicator.material.opacity = Math.min(1, life * 1.6);
       if (indicator.ttl <= 0) {
         this.group.remove(indicator.sprite);
@@ -409,6 +435,36 @@ export class CombatView {
         this.hitIndicators.splice(i, 1);
       }
     }
+    this.enforceEffectBudget();
+  }
+
+  /** Read-only counters for regression tests and local performance inspection. */
+  effectStats(): { drawables: number; budget: number; projectiles: number; smoke: number } {
+    const drawables = this.tracers.length + this.smokePuffs.length + this.hitFragments.length + this.groundScorches.length + this.hitIndicators.length
+      + this.bursts.reduce((total, burst) => total + effectDrawCost(burst.group), 0)
+      + this.strategicWrecks.reduce((total, wreck) => total + effectDrawCost(wreck.group), 0)
+      + this.bombProjectiles.reduce((total, projectile) => total + effectDrawCost(projectile.group) + 1 + (projectile.healthBar ? effectDrawCost(projectile.healthBar.group) : 0), 0);
+    return { drawables, budget: COMBAT_EFFECT_DRAW_BUDGET[this.visualQuality], projectiles: this.bombProjectiles.length, smoke: this.smokePuffs.length };
+  }
+
+  private enforceEffectBudget(): void {
+    let cost = this.effectStats().drawables;
+    const limit = COMBAT_EFFECT_DRAW_BUDGET[this.visualQuality];
+    const trim = <T>(items: T[], weight: (item: T) => number, dispose: (item: T) => void) => {
+      while (cost > limit && items.length) {
+        const item = items.shift()!;
+        cost -= weight(item);
+        dispose(item);
+      }
+    };
+    // Preserve flight silhouettes and hit confirmation ahead of decorative debris.
+    trim(this.smokePuffs, () => 1, (item) => this.disposeSmokePuff(item));
+    trim(this.hitFragments, () => 1, (item) => this.disposeHitFragment(item));
+    trim(this.groundScorches, () => 1, (item) => this.disposeGroundScorch(item));
+    trim(this.tracers, () => 1, (item) => this.disposeTracer(item));
+    trim(this.strategicWrecks, (item) => effectDrawCost(item.group), (item) => this.disposeStrategicWreck(item));
+    trim(this.bombProjectiles, (item) => effectDrawCost(item.group) + 1 + (item.healthBar ? effectDrawCost(item.healthBar.group) : 0), (item) => this.disposeBombProjectile(item));
+    trim(this.bursts, (item) => effectDrawCost(item.group), (item) => this.disposeBurst(item));
   }
 
   private trimTracers(): void {
@@ -483,16 +539,9 @@ export class CombatView {
     this.group.add(group);
 
     const homing = event.trajectory === 'homing';
-    const trailCapacity = event.weaponKind === 'strategicMissile' ? 72 : ember ? 30 : homing ? 20 : 8;
-    const trailGeometry = new BufferGeometry();
-    trailGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(trailCapacity * 3), 3));
-    const trail = new Line(trailGeometry, new LineBasicMaterial({
-      color: trailColor(event.weaponKind ?? event.kind),
-      transparent: true,
-      opacity: homing ? 0.88 : 0.5,
-      depthWrite: false,
-    }));
-    trail.renderOrder = 58;
+    const trailKind = event.weaponKind ?? event.kind;
+    const trailCapacity = missileTrailProfile(trailKind).samples;
+    const trail = createMissileTrail(trailKind);
     this.group.add(trail);
 
     const launchDelay = Math.max(0, event.launchDelay ?? 0);
@@ -656,7 +705,7 @@ export class CombatView {
       this.bombProjectiles.splice(i, 1);
       this.group.remove(projectile.trail);
       projectile.trail.geometry.dispose();
-      (projectile.trail.material as LineBasicMaterial).dispose();
+      projectile.trail.material.dispose();
       if (projectile.healthBar) {
         this.group.remove(projectile.healthBar.group);
         projectile.healthBar.group.traverse((object) => {
@@ -816,7 +865,7 @@ export class CombatView {
     });
     this.group.remove(projectile.trail);
     projectile.trail.geometry.dispose();
-    (projectile.trail.material as LineBasicMaterial).dispose();
+    projectile.trail.material.dispose();
     if (projectile.healthBar) {
       this.group.remove(projectile.healthBar.group);
       projectile.healthBar.group.traverse((object) => {
@@ -826,16 +875,8 @@ export class CombatView {
   }
 
   private updateTrail(projectile: BombProjectile): void {
-    const attribute = projectile.trail.geometry.getAttribute('position') as Float32BufferAttribute;
-    const first = projectile.trailPositions[0];
-    for (let i = 0; i < projectile.trailCapacity; i++) {
-      const p = projectile.trailPositions[i] ?? first;
-      attribute.setXYZ(i, p.x, p.y, p.z);
-    }
-    attribute.needsUpdate = true;
-    const material = projectile.trail.material as LineBasicMaterial;
-    const maxOpacity = projectile.event.trajectory === 'homing' ? 0.88 : 0.55;
-    material.opacity = Math.min(maxOpacity, projectile.elapsed / 0.18);
+    updateMissileTrail(projectile.trail, projectile.trailPositions);
+    projectile.trail.material.opacity = Math.min(0.9, projectile.elapsed / 0.12);
   }
 
   private emitProjectileSmoke(projectile: BombProjectile, tangent: Vector3, dt: number): void {
@@ -1292,7 +1333,7 @@ export class CombatView {
     const group = new Group();
     const overWater = isWaterSurfaceHit(this.hf, x, z);
     const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xffc66b : 0xff9738, transparent: true, opacity: 0.54, depthWrite: false });
-    const shockMaterial = new MeshBasicMaterial({ color: overWater ? 0xd5ebe8 : 0xffb861, transparent: true, opacity: 0.2, depthWrite: false, side: 2 });
+    const shockMaterial = new MeshBasicMaterial({ color: overWater ? 0xd5ebe8 : 0xffb861, transparent: true, opacity: 0.42, depthWrite: false, side: 2 });
     fireMaterial.userData.role = 'fire';
     shockMaterial.userData.role = 'shock';
     const fireball = new Mesh(new SphereGeometry(killed ? 3.9 : 3.0, 14, 9), fireMaterial);
@@ -1302,6 +1343,14 @@ export class CombatView {
     shock.position.y = 0.16;
     group.add(shock, fireball);
     const materials: MeshBasicMaterial[] = [fireMaterial, shockMaterial];
+    if (baseScale >= 1.3) {
+      const coreMaterial = new MeshBasicMaterial({ color: 0xfff3d6, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false });
+      coreMaterial.userData.role = 'core';
+      const core = new Mesh(new SphereGeometry(1.65, 8, 6), coreMaterial);
+      core.position.y = 1.05;
+      group.add(core);
+      materials.push(coreMaterial);
+    }
     if (!overWater) {
       const smokeMaterial = new MeshBasicMaterial({ color: 0x292520, transparent: true, opacity: 0.01, depthWrite: false });
       const scorchMaterial = new MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.14, depthWrite: false, side: 2 });
@@ -1315,7 +1364,7 @@ export class CombatView {
       scorch.rotation.x = -Math.PI / 2;
       scorch.position.y = 0.08;
       group.add(scorch, smoke);
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < (this.visualQuality === 0 ? 3 : 0); i++) {
         const debris = new Mesh(new BoxGeometry(0.36, 0.14, 0.22), debrisMaterial);
         const angle = (i / 5) * Math.PI * 2 + (i % 2) * 0.18;
         const radius = 1.5 + (i % 3) * 0.75;
@@ -1526,16 +1575,26 @@ export class CombatView {
       this.visualQuality === 1 &&
       (Math.abs(Math.floor(event.toX * 7) + Math.floor(event.toZ * 11)) & 1) === 1
     ) return;
+    // A rapid volley confirms one target instead of stacking labels over it.
+    const previous = event.targetId === undefined ? undefined : this.hitIndicators.find((indicator) => indicator.targetId === event.targetId);
+    if (previous) {
+      this.group.remove(previous.sprite);
+      previous.texture.dispose();
+      previous.material.dispose();
+      this.hitIndicators.splice(this.hitIndicators.indexOf(previous), 1);
+    }
     const texture = makeHitTexture(event);
     const material = new SpriteMaterial({ map: texture, transparent: true, opacity: 1, depthWrite: false, depthTest: false });
     const sprite = new Sprite(material);
-    const y = sampleHeight(this.hf, event.toX, event.toZ) + (event.targetType === 'building' ? 8.2 : 5.1);
+    const y = (event.toY ?? sampleHeight(this.hf, event.toX, event.toZ)) + (event.targetType === 'building' ? 8.2 : 5.1);
     sprite.position.set(event.toX, y, event.toZ);
-    sprite.scale.set(10.6, 3.9, 1);
+    const width = event.killed ? 12 : 10.6;
+    const height = event.killed ? 4.4 : 3.9;
+    sprite.scale.set(width, height, 1);
     sprite.renderOrder = 95;
     this.group.add(sprite);
     const ttl = event.sourceTeamId === this.localTeam && !this.isVisible(event.toX, event.toZ) ? 3.1 : 1.65;
-    this.hitIndicators.push({ sprite, material, texture, ttl, total: ttl, rise: 0.45 });
+    this.hitIndicators.push({ sprite, material, texture, ttl, total: ttl, rise: 0.45, width, height, targetId: event.targetId });
     const maxIndicators = this.visualQuality === 0 ? 28 : this.visualQuality === 1 ? 20 : 14;
     while (this.hitIndicators.length > maxIndicators) {
       const old = this.hitIndicators.shift();
@@ -1557,7 +1616,8 @@ function makeHitTexture(event: CombatEvent): CanvasTexture {
   const health = event.targetHealth ?? 0;
   const healthPct = maxHealth > 0 ? Math.max(0, Math.min(1, health / maxHealth)) : 0;
   const damagePct = maxHealth > 0 ? Math.max(1, Math.round((event.damage / maxHealth) * 100)) : Math.max(1, Math.round(event.damage));
-  const title = event.killed ? 'DESTROYED' : `HIT -${damagePct}%`;
+  const loss = maxHealth > 0 ? `${damagePct}%` : `${Math.max(1, Math.round(event.damage))} HP`;
+  const title = event.killed ? 'DESTROYED' : `${maxHealth > 0 && damagePct >= 20 ? 'HEAVY HIT' : 'HIT'} -${loss}`;
   const label = (event.targetLabel ?? 'target').slice(0, 18).toUpperCase();
   const healthText = maxHealth > 0 ? `${Math.round(healthPct * 100)}%` : '';
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1829,6 +1889,8 @@ function makeSoftSmokeTexture(): CanvasTexture {
 }
 
 function impactBlastScale(kind: string, weaponKind?: string): number {
+  if (weaponKind === 'heavyCannon') return 1.5;
+  if (weaponKind === 'siegeMissile') return 1.3;
   if (weaponKind === 'emberDrone') return 1.15;
   if (kind === 'kineticShell-impact') return 0.34;
   if (kind === 'artilleryShell-impact') return 1.16;
