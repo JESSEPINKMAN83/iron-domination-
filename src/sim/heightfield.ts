@@ -426,11 +426,11 @@ function flattenDeploymentShelves(heights: Float32Array, samples: number, cellSi
 // and Yehudiya canyons, and dropping in a steep escarpment to the Sea of
 // Galilee along the west edge. Bases sit in the four corners, clear of all of it.
 const GOLAN_CONES = [
-  { x: 0.1, z: -0.17, r: 0.085, h: 48 }, // Har Bental
-  { x: 0.27, z: -0.02, r: 0.08, h: 42 }, // Har Avital
-  { x: 0.04, z: 0.12, r: 0.07, h: 34 },
-  { x: -0.13, z: -0.05, r: 0.065, h: 30 },
-  { x: 0.17, z: 0.21, r: 0.065, h: 28 },
+  { x: 0.08, z: -0.16, r: 0.17, h: 105 }, // Har Bental
+  { x: 0.27, z: 0.0, r: 0.15, h: 92 }, // Har Avital
+  { x: 0.0, z: 0.14, r: 0.14, h: 72 },
+  { x: -0.16, z: -0.05, r: 0.13, h: 64 },
+  { x: 0.12, z: 0.28, r: 0.11, h: 56 },
 ] as const;
 const GOLAN_CANYONS = [
   { z: -0.02, amp: 0.035, freq: 9.5, phase: 0.4, x0: -0.46, x1: 0.06, width: 0.03, depth: 11 },
@@ -447,14 +447,16 @@ function golanHeight(
   reliefScale: number,
 ): number {
   let g = 11 + (continent - 0.5) * 8 + (plate - 0.5) * 6 + rolling * 1.3;
-  g += -nz * 14; // the plateau climbs toward Hermon
-  const hermon = smoothstep(0.4, 0, Math.hypot(nx * 0.8, nz + 0.6));
-  g += hermon * hermon * 105;
+  g += -nz * 22; // the plateau climbs toward Hermon
+  // Hermon: a broad massif filling the northern skyline.
+  const hermon = smoothstep(0.72, 0, Math.hypot(nx * 0.58, nz + 0.74));
+  g += hermon * hermon * 270;
   for (const cone of GOLAN_CONES) {
     const d = Math.hypot(nx - cone.x, nz - cone.z);
     const body = smoothstep(cone.r, 0, d);
     const crater = smoothstep(cone.r * 0.24, cone.r * 0.06, d);
-    g += cone.h * Math.pow(body, 1.35) - crater * cone.h * 0.18;
+    // Broad flanks: most of the footprint is a gentle, drivable apron.
+    g += cone.h * Math.pow(body, 1.6) - crater * cone.h * 0.16;
   }
   for (const canyon of GOLAN_CANYONS) {
     const along = smoothstep(canyon.x1, canyon.x1 - 0.08, nx) * smoothstep(canyon.x0 - 0.04, canyon.x0 + 0.04, nx);
