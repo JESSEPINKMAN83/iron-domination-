@@ -93,6 +93,8 @@ export interface Mover {
 }
 
 export interface Flight {
+  /** Produced aircraft spool on the pad, then rise before accepting horizontal flight. */
+  launch?: { startedTick:number; fromY:number };
   /** Premium steering authority, independent of weapon loadout. */
   agility?: number;
   cruiseAltitude: number;
@@ -229,6 +231,7 @@ export interface StructureDamage {
 }
 
 export interface Producer {
+  lastDepartureTick?: number;
   queue: ProductionJob[];
   active?: ProductionJob;
   rally?: { x: number; z: number };

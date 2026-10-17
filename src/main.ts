@@ -1,3 +1,4 @@
+import { threatBearing } from './ui/threatBearing';
 import { applyArmyNations, armyTag, NATIONS, nationsForDoctrines } from './content/nations';
 import { applyLocalSideLabels, structureLabel } from './content/sideLabels';
 import { CodeRedAlert } from './ui/codeRedAlert';
@@ -139,6 +140,7 @@ import {
   isStructureReady,
   placeStructure,
   queueUnit,
+  recomputePower,
   setPrimaryProducer,
   setProducerRally,
   spawnInfantryAt,
@@ -2982,6 +2984,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     for (const commander of commanders) { commander.step(180); commander.step(5); }
   }
 
+  const workingBasePreview=import.meta.env.DEV && params.get('base-activity-test')==='1';
+  if(workingBasePreview) seedWorkingBasePreview(sim,hf,armies,localTeam);
   const unitView = new UnitView([...lineupUnits, ...startingUnits, ...performanceUnits], hf, ctx, isVisibleToPlayer, localTeam);
   unitView.attach(ctx.scene);
   const groundTrails = mobileTouch || !groundRealism ? undefined : new GroundTrailView(hf, isVisibleToPlayer);
@@ -3054,6 +3058,28 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       launchStrategicMissileAt(sim, attacker.economy, localTeam, target.x + 6, target.z + 4);
       launchEmberDroneAt(sim, attacker.economy, localTeam, target.x - 10, target.z - 8);
     }, 25_000);
+  }
+  if(workingBasePreview) {
+    const panel=document.createElement('div');
+    panel.style.cssText='position:fixed;left:12px;top:60px;z-index:30;max-width:280px;padding:12px;background:#0c1d25ee;color:#dff3e8;border:1px solid #729d91;border-radius:8px;font:12px/1.5 system-ui';
+    panel.innerHTML='<strong>WORKING BASE · LOCAL TEST</strong><p>Iron Dome intercepts early. Guns defend up close. Watch production doors and helicopter spool-up.</p>';
+    const button=(label:string,action:()=>void)=>{const b=document.createElement('button');b.textContent=label;b.style.cssText='display:block;margin:6px 0;padding:7px;width:100%;cursor:pointer';b.onclick=action;panel.append(b);};
+    const focusProducer=(kind:string)=>{
+      const e=Array.from(sim.buildingsQuery).find(e=>e.team?.id===localTeam&&e.building?.kind===kind);
+      if(e)rig.focusOn(e.transform.x,e.transform.z,{x:e.transform.x-70,z:e.transform.z+90},115,-2);
+    };
+    const incoming=(drone:boolean)=>{
+      const attacker=armies.find(a=>a.economy.doctrine==='missile-command'&&areTeamsHostile(sim,localTeam,a.team));if(!attacker)return;
+      attacker.economy.credits=100000;attacker.economy.strategicMissileCooldown=0;attacker.economy.emberDroneCooldown=0;
+      if(drone)launchEmberDroneAt(sim,attacker.economy,localTeam,localBase.transform.x,localBase.transform.z);
+      else launchStrategicMissileAt(sim,attacker.economy,localTeam,localBase.transform.x,localBase.transform.z);
+    };
+    button('View Iron Dome',()=>focusProducer('aa-tower'));
+    button('Send incoming missile',()=>incoming(false));button('Send incoming drone',()=>incoming(true));
+    button('Produce Apache',()=>{economy.credits=50000;queueUnit(sim,economy,'vulture');focusProducer('helipad');});
+    button('Produce tank + infantry',()=>{economy.credits=50000;queueUnit(sim,economy,'tank');queueUnit(sim,economy,'infantry');focusProducer('factory');});
+    button('Repair damaged facilities',()=>{for(const e of sim.buildingsQuery)if(e.team?.id===localTeam&&e.health&&e.building&&e.building.kind!=='command-yard'){e.health.current=e.health.max*.65;e.building.repair={elapsed:0};}});
+    document.body.append(panel);
   }
   ctx.scene.add(orderMarkers.group);
   const fogView = new FogView(playerVision, terrain.chunkGeometries);
@@ -3947,7 +3973,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         commanders,
         lockstep,
         autoFire: !lineupStart && !durabilityPreview && !impactMovementDemo && !buildingShowcase,
-        runCommanders: !lineupStart && !durabilityPreview && !impactMovementDemo && !destructionPreview && !aircraftRouteTest,
+        runCommanders: !workingBasePreview && !lineupStart && !durabilityPreview && !impactMovementDemo && !destructionPreview && !aircraftRouteTest,
       });
       const spawned = tickResult.spawned;
       for (const entity of spawned) {
@@ -4055,10 +4081,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         ) {
           const attackerTeam = event.sourceTeamId ?? 0;
           const drone = event.kind === 'ember-drone-warning';
-          sidebar.signalIncomingMissile(attackerTeam, drone ? 'SHAHED DRONE' : undefined);
+          const bearing = threatBearing(event.fromX,event.fromZ,event.toX,event.toZ);
+          sidebar.signalIncomingMissile(attackerTeam, drone ? 'SHAHED DRONE' : 'FATTAH MISSILE', { x:event.toX, z:event.toZ, bearing });
           const salvo = drone ? Number(/×(\d+)/.exec(event.targetLabel ?? '')?.[1] ?? 1) : 1;
           const eta = (event.duration ?? 8) + (event.launchDelay ?? 0);
-          if (codeRedAlert.warn(drone ? 'drone' : 'missile', armyTag(attackerTeam), salvo, eta, performance.now())) {
+          if (codeRedAlert.warn(drone ? 'drone' : 'missile', armyTag(attackerTeam), salvo, eta, performance.now(), bearing)) {
             audio.playCodeRedChime();
           }
         }
@@ -6298,4 +6325,19 @@ function createTerrainLayoutSelect(): HTMLSelectElement {
 
 function terrainLayoutLabel(value: unknown): string {
   return { classic: 'Classic', plains: 'Open plains', hills: 'Broken hills', lakes: 'Lake district' }[sanitizeTerrainLayout(value)];
+}
+
+
+function seedWorkingBasePreview(sim:ReturnType<typeof createGameSim>,hf:ReturnType<typeof generateHeightfield>,armies:ArmyRuntime[],localTeam:number):void {
+  for(const army of armies) {
+    army.economy.credits=50000;
+    const local=army.team===localTeam;
+    const kinds:StructureKind[]=local?['power-plant','power-plant','power-plant','barracks','factory','helipad','aa-tower','skylance-ciws']:['power-plant','power-plant','intelligence-center','strategic-silo'];
+    kinds.forEach((kind,i)=>placePreviewStructure(sim,hf,army.economy,army.base,kind,[
+      {x:(i%3-1)*50,z:40+Math.floor(i/3)*44},
+      {x:(i%3-1)*55,z:-40-Math.floor(i/3)*44},
+    ]));
+    for (let i=0;i<3;i++) placePreviewStructure(sim,hf,army.economy,army.base,'power-plant',[{x:-105+i*55,z:-85},{x:-100+i*55,z:145},{x:100,z:-85+i*45}]);
+    recomputePower(sim,army.economy);
+  }
 }

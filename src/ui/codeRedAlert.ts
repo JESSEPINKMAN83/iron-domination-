@@ -47,6 +47,7 @@ export class CodeRedAlert {
   private missiles = 0;
   private drones = 0;
   private readonly origins = new Set<string>();
+  private readonly bearings = new Set<string>();
   private intercepted = 0;
   private launched = 0;
   private lastInterceptor = '';
@@ -69,7 +70,7 @@ export class CodeRedAlert {
   }
 
   /** Returns true when this starts a new alert (the caller plays the chime once). */
-  warn(threat: 'missile' | 'drone', origin: string, count: number, etaSeconds: number, nowMs: number): boolean {
+  warn(threat: 'missile' | 'drone', origin: string, count: number, etaSeconds: number, nowMs: number, bearing?: string): boolean {
     const fresh = this.threats.length === 0;
     if (fresh) {
       this.intercepted = 0;
@@ -77,11 +78,13 @@ export class CodeRedAlert {
       this.missiles = 0;
       this.drones = 0;
       this.origins.clear();
+      this.bearings.clear();
       this.lastInterceptor = '';
     }
     if (threat === 'missile') this.missiles += Math.max(1, count);
     else this.drones += Math.max(1, count);
     this.origins.add(origin);
+    if (bearing) this.bearings.add(bearing);
     this.launched += Math.max(1, count);
     const impactAt = nowMs + Math.max(0, etaSeconds) * 1000;
     for (let i = 0; i < Math.max(1, count); i++) this.threats.push({ impactAt });
@@ -124,7 +127,7 @@ export class CodeRedAlert {
     const label = this.threatLabel();
     if (pending.length > 0) {
       const seconds = Math.ceil((Math.min(...pending.map((threat) => threat.impactAt)) - nowMs) / 1000);
-      setText(this.detail, `${label} · FROM ${[...this.origins].join(' + ')} · IMPACT ${seconds}s`);
+      setText(this.detail, `${label} · ${this.bearings.size ? 'APPROACHING FROM THE '+[...this.bearings].join(' / ') : 'INCOMING'} · ${[...this.origins].join(' + ')} · IMPACT ${seconds}s`);
     } else {
       setText(this.detail, this.intercepted >= this.launched ? `${label} · ALL INTERCEPTED` : `${label} · IMPACT`);
     }

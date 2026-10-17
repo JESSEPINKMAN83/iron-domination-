@@ -732,6 +732,14 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
   else if (kind === 'hammerhead') entity = spawnHammerheadAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Hammerhead' : 'Hammerhead'} ${suffix}`, team);
   else entity = spawnInfantryAt(sim, pos.x, pos.z, team, kind);
   if (!entity) return undefined;
+  if (producer.producer) producer.producer.lastDepartureTick = sim.tick;
+  if (entity.flight) {
+    const pad = reserveUnitPosition(sim, entity, producer.transform);
+    entity.transform.x = pad.x; entity.transform.z = pad.z;
+    const fromY = sampleHeight(hf,pad.x,pad.z)+6.3;
+    entity.transform.y = fromY; entity.previousTransform = {...entity.transform};
+    entity.flight.launch = {startedTick:sim.tick,fromY};
+  }
   void sampleHeight(hf, pos.x, pos.z);
   orderToRally(sim, producer, entity, exit.defaultTarget);
   return entity;

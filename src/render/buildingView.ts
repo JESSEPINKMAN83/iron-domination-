@@ -1,3 +1,4 @@
+import { updateBaseActivity } from './baseActivity';
 import { legacyModelPreview } from './codeRedPreview';
 import { codeRedStructure } from './codeRedStructures';
 import { createIntactHull, canBatchIntactHull } from './buildingHullBatch';
@@ -363,6 +364,7 @@ export class BuildingView {
         entity.id,
         !fogged && !entity.destroyed && entity.building.buildProgress >= 1 && damageLevel(entity) < 6,
       );
+      updateBaseActivity(object.details,entity,this.sim.tick,!fogged && !entity.destroyed);
       this.updateSelectionGlow(entity, groundY);
       this.updateProducerGlow(entity, groundY);
       this.updateHealthBar(entity, object, groundY, camera, fogged);
@@ -754,6 +756,7 @@ export class BuildingView {
   private isSharedMaterial(m: Material): boolean {
     return (
       m.userData.codeRedSharedMaterial === true ||
+      m.userData.baseActivitySharedMaterial === true ||
       Object.values(this.accentMaterials).includes(m) ||
       m === this.healthBackMaterial ||
       m === this.healthFrameMaterial ||
@@ -776,7 +779,7 @@ export class BuildingView {
     root.traverse((child) => {
       if (!(child instanceof Mesh)) return;
       if (child instanceof InstancedMesh) child.dispose();
-      if (!sharedGeometries.has(child.geometry)) child.geometry.dispose();
+      if (!sharedGeometries.has(child.geometry) && !child.geometry.userData.baseActivitySharedGeometry) child.geometry.dispose();
       const materials = Array.isArray(child.material) ? child.material : [child.material];
       for (const material of materials) {
         if (this.isSharedMaterial(material)) continue;
@@ -1977,6 +1980,12 @@ export function createBuildingDetails(entity: Entity, width: number, depth: numb
   }
 
   syncDetailPartBases(parts);
+  if (kind === 'factory' || kind === 'barracks') {
+    const factory=kind==='factory';
+    const shutter=box('production-shutter',width*(factory?.68:.135),height*(factory?.66:.6),.08,factory?0:-width*.24,height*(factory?.38:.32),depth*.535,metal,5);
+    root.userData.productionShutter=shutter;
+    shutter.userData.homeY=shutter.position.y;shutter.userData.height=height*(factory?.66:.6);
+  }
   root.userData.detailParts = parts;
   root.userData.activityParts = activityParts;
   root.userData.hullSize = { fullW: width, fullD: depth, height };

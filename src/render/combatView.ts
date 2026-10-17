@@ -519,7 +519,7 @@ export class CombatView {
     const distance = Math.hypot(event.toX - event.fromX, event.toZ - event.fromZ);
     const drop = event.trajectory === 'drop';
     const flat = event.trajectory === 'flat' || event.trajectory === 'homing';
-    const strategic = event.strategicId !== undefined;
+    const strategic = event.weaponKind === 'strategicMissile' || event.weaponKind === 'emberDrone';
     const ember = event.weaponKind === 'emberDrone';
     const strategicLift = event.strategicLift;
     const arrowInterceptor = event.strategicId !== undefined && event.sourceBuildingKind === 'missile-defense';
@@ -637,8 +637,26 @@ export class CombatView {
         projectile.terminalGlow.visible=t>.64;
         projectile.terminalGlow.material.opacity=Math.min(.72,Math.max(0,(t-.64)*2));
       }
-      const position = bezier(projectile.from, projectile.control, projectile.to, t);
-      const tangent = bezierTangent(projectile.from, projectile.control, projectile.to, t).normalize();
+      let position = bezier(projectile.from, projectile.control, projectile.to, t);
+      let tangent = bezierTangent(projectile.from, projectile.control, projectile.to, t).normalize();
+      const event = projectile.event;
+      if (event.weaponKind === 'strategicMissile' || event.weaponKind === 'emberDrone') {
+        // Same sine arc as the simulation, so interceptors meet the drawn body.
+        const lift = event.strategicLift ?? (event.weaponKind === 'emberDrone' ? 5 : Math.min(28,projectile.from.distanceTo(projectile.to)*.32));
+        position = projectile.from.clone().lerp(projectile.to,t); position.y += Math.sin(Math.PI*t)*lift;
+        tangent = projectile.to.clone().sub(projectile.from); tangent.y += Math.PI*Math.cos(Math.PI*t)*lift; tangent.normalize();
+      }
+      if (event.strategicInterceptor) {
+        const threat = this.bombProjectiles.find(p => p !== projectile && !p.event.strategicInterceptor && p.event.strategicId === event.strategicId && (p.event.weaponKind === 'strategicMissile' || p.event.weaponKind === 'emberDrone'));
+        if (threat) {
+          const left = Math.max(dt,projectile.duration-projectile.elapsed+dt);
+          const future = Math.min(1,(threat.elapsed+left)/threat.duration);
+          const dest = threat.from.clone().lerp(threat.to,future);
+          dest.y += Math.sin(Math.PI*future)*(threat.event.strategicLift ?? (threat.event.weaponKind === 'emberDrone' ? 5 : 28));
+          position = projectile.group.position.clone().lerp(dest,Math.min(1,dt/left));
+          tangent = dest.sub(projectile.group.position).normalize();
+        }
+      }
       projectile.group.position.copy(position);
       projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, tangent));
       this.syncStrategicHealthBar(projectile);
@@ -672,7 +690,7 @@ export class CombatView {
 
   private retargetEmberProjectile(event: CombatEvent): void {
     if (event.strategicId === undefined || event.targetId === undefined) return;
-    const projectile = this.bombProjectiles.find((candidate) => candidate.event.strategicId === event.strategicId);
+    const projectile = this.bombProjectiles.find((candidate) => candidate.event.strategicId === event.strategicId && !candidate.event.strategicInterceptor);
     if (!projectile) return;
     const progress = Math.min(1, projectile.elapsed / Math.max(0.001, projectile.duration));
     const currentDirection = projectile.direction?.clone()
@@ -689,7 +707,7 @@ export class CombatView {
 
   private resumeEmberProjectile(event: CombatEvent): void {
     if (event.strategicId === undefined) return;
-    const projectile = this.bombProjectiles.find((candidate) => candidate.event.strategicId === event.strategicId);
+    const projectile = this.bombProjectiles.find((candidate) => candidate.event.strategicId === event.strategicId && !candidate.event.strategicInterceptor);
     if (!projectile) return;
     const launchKind = projectile.event.kind;
     projectile.event = { ...projectile.event, ...event, kind: launchKind, targetId: undefined };
@@ -710,7 +728,7 @@ export class CombatView {
     if (strategicId === undefined) return;
     for (let i = this.bombProjectiles.length - 1; i >= 0; i--) {
       const projectile = this.bombProjectiles[i];
-      if (projectile.event.strategicId !== strategicId) continue;
+      if (projectile.event.strategicId !== strategicId || projectile.event.strategicInterceptor) continue;
       this.bombProjectiles.splice(i, 1);
       this.group.remove(projectile.trail);
       projectile.trail.geometry.dispose();

@@ -53,6 +53,8 @@ export interface CombatEvent {
   sourceClass?: 'infantry' | 'vehicle' | 'aircraft' | 'tower';
   /** Render-only launcher identity; does not affect interception or damage. */
   sourceBuildingKind?: string;
+  /** A real defense round tracking a strategic threat, not the threat itself. */
+  strategicInterceptor?: boolean;
   /** Defending army for warnings or effects that are aimed at a team rather than one entity. */
   targetTeamId?: number;
   targetId?: number;
@@ -1493,6 +1495,18 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
 
   flight.previousPitchAttitude = flight.pitchAttitude;
   flight.previousRollAttitude = flight.rollAttitude;
+  if (flight.launch) {
+    const age=Math.max(0,(sim.tick-flight.launch.startedTick)/30);
+    if(age<2.5 && !entity.playerControlled) {
+      velocity.x=velocity.z=0;flight.verticalVelocity=0;
+      const lift=Math.max(0,Math.min(1,(age-1)/1.5));
+      const targetY=sampleHeight(hf,transform.x,transform.z)+flight.cruiseAltitude;
+      transform.y=flight.launch.fromY+(targetY-flight.launch.fromY)*lift*lift*(3-2*lift);
+      return;
+    }
+    delete flight.launch;
+  }
+
   if (!entity.playerControlled && mover.target) {
     stepAttackThroughFlight(sim, hf, entity, dt);
     return;
@@ -1966,6 +1980,8 @@ export function hashSim(sim: GameSim): number {
       }
     }
     if (entity.flight) {
+      mix(entity.flight.launch?.startedTick ?? -1);
+      mix(Math.round((entity.flight.launch?.fromY ?? 0)*1000));
       mix(Math.round((entity.flight.agility ?? 1) * 1000));
       mix(Math.round(entity.flight.pitchAttitude * 1000));
       mix(Math.round(entity.flight.rollAttitude * 1000));
