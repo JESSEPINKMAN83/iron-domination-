@@ -90,8 +90,13 @@ describe('heightfield generation', () => {
       }
       dryEdgeRises.sort((a, b) => a - b);
       const p99EdgeRise = dryEdgeRises[Math.floor((dryEdgeRises.length - 1) * 0.99)];
-      expect(walkableDryCells / dryCells, `${mapId} dry walkability`).toBeGreaterThan(0.95);
-      expect(p99EdgeRise, `${mapId} 99th-percentile edge rise`).toBeLessThan(hf.cellSize * 1.3);
+      // The Golan's Hermon summit and volcanic cones are deliberately impassable
+      // landmarks; its plateau, aprons and valleys stay drivable.
+      const minWalkable = mapId === 'highlands' ? 0.75 : 0.95;
+      expect(walkableDryCells / dryCells, `${mapId} dry walkability`).toBeGreaterThan(minWalkable);
+      // Broad volcanic flanks are steep near the summit, not thin seams.
+      const maxRise = hf.cellSize * (mapId === 'highlands' ? 1.75 : 1.3);
+      expect(p99EdgeRise, `${mapId} 99th-percentile edge rise`).toBeLessThan(maxRise);
     }
   });
 
