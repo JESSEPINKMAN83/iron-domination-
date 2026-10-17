@@ -1,3 +1,4 @@
+import { isDesertKind } from '../sim/heightfield';
 import { armyTag } from '../content/nations';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
@@ -1336,10 +1337,15 @@ export class Sidebar {
         const rock = this.hf.splat[splat + 2] / 255;
         const dirt = this.hf.splat[splat + 1] / 255;
         const height = this.hf.heights[sample];
-        let r = 38 + dirt * 36 + ore * 48 + rock * 28;
-        let g = 72 + dirt * 8 + ore * 28 + rock * 8;
-        let b = 38 + dirt * 4 + ore * 12 + rock * 24;
-        if (this.hf.kind === 'crater-oasis') {
+        // Golan: dry golden grass over dark basalt.
+        let r = 92 + dirt * 30 + ore * 44 + rock * -18;
+        let g = 86 + dirt * 10 + ore * 26 + rock * -14;
+        let b = 46 + dirt * 4 + ore * 10 + rock * 6;
+        if (this.hf.kind === 'natanz') {
+          r = 150 + dirt * 18 + ore * 44 + rock * -10;
+          g = 138 + dirt * 14 + ore * 26 + rock * -8;
+          b = 110 + dirt * 8 + ore * 4 + rock * -4;
+        } else if (isDesertKind(this.hf.kind)) {
           r = 132 + dirt * 34 + ore * 52 + rock * 24;
           g = 96 + dirt * 18 + ore * 30 + rock * 10;
           b = 54 + dirt * 4 + ore * 8 + rock * 8;
@@ -1349,7 +1355,7 @@ export class Sidebar {
           b = 184 + dirt * 20 + ore * 12 + rock * 18;
         }
         if (height < this.hf.waterLevel + 0.35) {
-          if (this.hf.kind === 'crater-oasis') {
+          if (isDesertKind(this.hf.kind)) {
             r = 18;
             g = 104;
             b = 112;

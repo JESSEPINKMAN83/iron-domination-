@@ -795,7 +795,7 @@ function normalizeTerrainRelief(value, mapId = 'highlands') {
 }
 
 function normalizeMapId(value) {
-  return value === 'crater-oasis' || value === 'frostbite-pass' ? value : 'highlands';
+  return value === 'crater-oasis' || value === 'frostbite-pass' || value === 'natanz' ? value : 'highlands';
 }
 
 function normalizeMapSize(value) {

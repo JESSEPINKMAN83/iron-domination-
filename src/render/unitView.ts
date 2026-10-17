@@ -32,7 +32,7 @@ import type { Entity } from '../sim/components';
 import { escortDroneLocalPosition } from '../sim/combat';
 import type { ImpactZone } from '../sim/impactModel';
 import type { CombatEvent } from '../sim/world';
-import { sampleHeight, type Heightfield } from '../sim/heightfield';
+import { isDesertKind, sampleHeight, type Heightfield } from '../sim/heightfield';
 import { factionCamoColors, factionId, FACTION, type FactionId } from './palette';
 import type { RenderContext, VisualQualityTier } from './renderer';
 import { buildSoldier, type SoldierMaterials, type SoldierRig } from './soldier';
@@ -2314,7 +2314,7 @@ const LOW_DETAIL_GEOMETRY: Record<LowDetailKind, { body: BufferGeometry; color: 
 };
 
 function createBikeDustMesh(kind: Heightfield['kind']): InstancedMesh {
-  const color = kind === 'frostbite-pass' ? 0xaebdc3 : kind === 'crater-oasis' ? 0xc69458 : 0x9b8965;
+  const color = kind === 'frostbite-pass' ? 0xaebdc3 : isDesertKind(kind) ? 0xc69458 : 0x9b8965;
   const material = new MeshBasicMaterial({
     color,
     transparent: true,

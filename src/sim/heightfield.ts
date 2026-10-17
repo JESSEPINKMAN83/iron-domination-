@@ -12,7 +12,12 @@ export function oreFieldCapacity(field: OreField): number {
   return Math.round(field.radius * field.radius * 15 * (field.richness ?? 1));
 }
 
-export type MapKind = 'highlands' | 'crater-oasis' | 'frostbite-pass';
+export type MapKind = 'highlands' | 'crater-oasis' | 'frostbite-pass' | 'natanz';
+
+/** Maps that share the arid desert look (textures, vegetation, dust). */
+export function isDesertKind(kind: MapKind | undefined): boolean {
+  return kind === 'crater-oasis' || kind === 'natanz';
+}
 
 export interface MapConfig {
   seed: number;
@@ -190,6 +195,23 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
         const frozenBasin = smoothstep(size * 0.19, size * 0.05, Math.hypot(wx, wz - size * 0.04));
         const northShelf = smoothstep(size * 0.46, size * 0.18, Math.abs(wz - size * 0.3));
         h += (ridgeA * 26.0 + ridgeB * 24.0 + northShelf * 6.0 - pass * 16.0 - frozenBasin * 18.0) * reliefScale;
+      } else if (kind === 'natanz') {
+        // Natanz plateau: a raised central mesa reached by four ramps, Karkas
+        // foothills framing the edge midpoints between bases, and dry wadis.
+        const r = Math.hypot(wx, wz);
+        const bearing = Math.atan2(wz, wx);
+        // Ramps only cut the mesa's flank; its top stays one flat plateau.
+        const ramps = smoothstep(0.3, 0.06, Math.abs(Math.sin(bearing * 2))) * smoothstep(size * 0.1, size * 0.16, r);
+        const mesa = smoothstep(size * 0.21, size * 0.13, r) * (1 - ramps * 0.55);
+        const edgeDistance = Math.max(Math.abs(wx), Math.abs(wz));
+        const betweenBases = smoothstep(size * 0.24, size * 0.1, Math.min(Math.abs(wx), Math.abs(wz)));
+        const foothills = smoothstep(size * 0.36, size * 0.48, edgeDistance) * betweenBases;
+        const ridgeNoise = fbm2(wx * 0.004 + 5.1, wz * 0.004 - 2.7, seed ^ 0x4a7a, 3);
+        const wadiDistance = Math.abs(wz - wx * 0.35 - Math.sin(wx * 0.0058 + 0.9) * size * 0.07);
+        const wadi = smoothstep(size * 0.07, size * 0.018, wadiDistance) * smoothstep(size * 0.2, size * 0.3, r);
+        h += (mesa * 15.0 + foothills * (24.0 + ridgeNoise * 18.0) - wadi * 7.0) * reliefScale;
+        // A dry high desert: no standing water anywhere.
+        h = Math.max(h, waterLevel + 1.2);
       }
       if (layout !== 'classic') {
         h = waterLevel + 3 + Math.max(0, h - waterLevel) * (layout === 'plains' ? 0.12 : 0.25);
@@ -310,6 +332,12 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
         const passIce = smoothstep(size * 0.15, size * 0.035, Math.abs(wz + Math.sin(wx * 0.006) * 38));
         adjustedRockW = Math.max(adjustedRockW, ridgeIce * 0.72);
         dirtW = Math.max(dirtW, windScrape * 0.34, passIce * 0.58);
+      } else if (kind === 'natanz') {
+        const r = Math.hypot(wx, wz);
+        const mesaRim = smoothstep(size * 0.11, size * 0.17, r) * smoothstep(size * 0.25, size * 0.19, r);
+        const gravel = smoothstep(0.42, 0.7, fbm2(wx * 0.006 + 17.3, wz * 0.006 - 9.9, seed ^ 0x9a7a, 3));
+        adjustedRockW = Math.max(adjustedRockW, mesaRim * 0.55);
+        dirtW = Math.max(dirtW, 0.28 + gravel * 0.38);
       }
       dirtW *= 1 - adjustedRockW;
       let oreW = 0;

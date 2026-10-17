@@ -23,7 +23,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32 } from '../sim/noise';
-import { sampleHeight, type Heightfield } from '../sim/heightfield';
+import { isDesertKind, sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { InstancedMeshRegistry, InstanceTransform } from './instancing';
 import type { MacroTintMap } from './textures';
 
@@ -196,6 +196,41 @@ function acaciaGeometry(rng: () => number): BufferGeometry {
   return mergeGeometries([trunk, branchA, branchB, ...crowns]);
 }
 
+/** Mediterranean cypress: the tall dark exclamation mark of Galilee hillsides. */
+function cypressGeometry(rng: () => number): BufferGeometry {
+  const trunk = paint(new CylinderGeometry(0.11, 0.17, 1.1, 6).translate(0, 0.55, 0), new Color('#5a4a36'));
+  const spire = new ConeGeometry(0.78, 6.4, 8, 3);
+  const pos = spire.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const k = 0.86 + rng() * 0.24;
+    pos.setXYZ(i, pos.getX(i) * k, pos.getY(i), pos.getZ(i) * k);
+  }
+  // Rounded shoulders rather than a perfect cone.
+  spire.scale(1, 1, 1).translate(0, 4.15, 0);
+  return mergeGeometries([trunk, paint(spire, new Color('#3c4f34'))]);
+}
+
+/** Date palm: leaning ringed trunk with a drooping crown of fronds. */
+function datePalmGeometry(rng: () => number): BufferGeometry {
+  const bark = new Color('#7a6346');
+  const lower = paint(new CylinderGeometry(0.2, 0.27, 3.1, 7).translate(0, 1.55, 0), bark);
+  const upper = paint(new CylinderGeometry(0.16, 0.2, 2.8, 7).rotateZ(0.08).translate(-0.1, 4.45, 0), bark);
+  const parts: BufferGeometry[] = [lower, upper];
+  const fronds = 9;
+  for (let i = 0; i < fronds; i++) {
+    const yaw = (i / fronds) * Math.PI * 2 + rng() * 0.3;
+    const droop = 0.95 + rng() * 0.45;
+    const frond = new ConeGeometry(0.34, 2.9, 4, 1);
+    frond.scale(1, 1, 0.22);
+    // Point the frond outward from the crown, then let it droop.
+    frond.translate(0, 1.45, 0).rotateZ(-droop).rotateY(yaw).translate(-0.22, 5.85, 0);
+    parts.push(paint(frond, new Color(i % 2 === 0 ? '#5d7a3c' : '#6f8b46')));
+  }
+  const heart = paint(new IcosahedronGeometry(0.42, 0).translate(-0.22, 5.9, 0), new Color('#56473a'));
+  parts.push(heart);
+  return mergeGeometries(parts);
+}
+
 function snagGeometry(style: Heightfield['kind'] = 'highlands'): BufferGeometry {
   const wood = new Color(style === 'frostbite-pass' ? '#7a706a' : style === 'crater-oasis' ? '#7b5d3c' : '#5f4938');
   const trunk = paint(new CylinderGeometry(0.12, 0.3, 3.5, 6).translate(0, 1.75, 0), wood);
@@ -252,7 +287,7 @@ function rockGeometry(rng: () => number, flatten: number, style: Heightfield['ki
     pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * flatten, pos.getZ(i) * k);
   }
   rock.computeVertexNormals();
-  const color = style === 'crater-oasis' ? '#9c805b' : style === 'frostbite-pass' ? '#b6c0c6' : '#c4b8a0';
+  const color = style === 'natanz' ? '#9a9080' : style === 'crater-oasis' ? '#a7825c' : style === 'frostbite-pass' ? '#9aa3a8' : '#6c665d';
   return paint(rock, new Color(color));
 }
 
@@ -268,55 +303,66 @@ interface ScatterDef {
 }
 
 export const VEGETATION_COUNTS = {
+  // Golan / Galilee: oak scrub, olive groves, cypress and planted Aleppo pine.
   highlands: {
-    spruce: 720,
-    pine: 420,
-    broadleaf: 500,
-    birch: 320,
-    snag: 110,
-    shrub: 460,
-    fallenLog: 90,
+    cypress: 260,
+    pine: 220,
+    oak: 520,
+    olive: 620,
+    snag: 60,
+    shrub: 620,
+    fallenLog: 30,
   },
+  // Negev: acacia washes and date palms around the spring.
   'crater-oasis': {
     acacia: 230,
-    broadleaf: 140,
-    snag: 90,
-    shrub: 360,
-    fallenLog: 55,
+    palm: 110,
+    snag: 70,
+    shrub: 300,
+    fallenLog: 20,
   },
+  // Natanz: open high desert with saltbush, tamarisk snags and a few acacias.
+  natanz: {
+    acacia: 60,
+    palm: 0,
+    snag: 110,
+    shrub: 420,
+    fallenLog: 10,
+  },
+  // Hermon: sparse conifers below a bare, rocky snow ridge.
   'frostbite-pass': {
-    spruce: 520,
-    pine: 260,
-    birch: 180,
+    spruce: 220,
+    pine: 200,
     snag: 80,
-    shrub: 220,
-    fallenLog: 65,
+    shrub: 260,
+    fallenLog: 30,
   },
 } as const satisfies Record<Heightfield['kind'], Record<string, number>>;
 
 function scatterDefs(kind: Heightfield['kind'], rng: () => number): ScatterDef[] {
-  const rocks = kind === 'crater-oasis' ? 1.45 : kind === 'frostbite-pass' ? 1.25 : 1;
+  // Natanz reuses the arid geometry palette with its own, sparser counts.
+  const look: Heightfield['kind'] = isDesertKind(kind) ? 'crater-oasis' : kind;
+  const rocks = isDesertKind(kind) ? 1.45 : kind === 'frostbite-pass' ? 1.25 : 1;
   const commonRocks: ScatterDef[] = [
-    { name: 'rock-a', geometry: rockGeometry(rng, 0.72, kind), count: Math.round(800 * rocks), scaleMin: 0.5, scaleMax: 1.9, maxSlope: 0.9, isTree: false, isVegetation: false },
-    { name: 'rock-b', geometry: rockGeometry(rng, 0.45, kind), count: Math.round(700 * rocks), scaleMin: 0.4, scaleMax: 1.5, maxSlope: 0.9, isTree: false, isVegetation: false },
+    { name: 'rock-a', geometry: rockGeometry(rng, 0.72, kind === 'natanz' ? kind : look), count: Math.round(800 * rocks), scaleMin: 0.5, scaleMax: 1.9, maxSlope: 0.9, isTree: false, isVegetation: false },
+    { name: 'rock-b', geometry: rockGeometry(rng, 0.45, kind === 'natanz' ? kind : look), count: Math.round(700 * rocks), scaleMin: 0.4, scaleMax: 1.5, maxSlope: 0.9, isTree: false, isVegetation: false },
   ];
-  if (kind === 'crater-oasis') {
-    const counts = VEGETATION_COUNTS['crater-oasis'];
-    return [
+  if (kind === 'crater-oasis' || kind === 'natanz') {
+    const counts = VEGETATION_COUNTS[kind];
+    return ([
       { name: 'acacia', geometry: acaciaGeometry(rng), count: counts.acacia, scaleMin: 0.76, scaleMax: 1.35, maxSlope: 0.48, isTree: true, isVegetation: true },
-      { name: 'oasis-broadleaf', geometry: broadleafGeometry(rng, kind), count: counts.broadleaf, scaleMin: 0.7, scaleMax: 1.18, maxSlope: 0.48, isTree: true, isVegetation: true },
-      { name: 'desert-snag', geometry: snagGeometry(kind), count: counts.snag, scaleMin: 0.68, scaleMax: 1.22, maxSlope: 0.58, isTree: true, isVegetation: true },
-      { name: 'desert-shrub', geometry: shrubGeometry(rng, kind), count: counts.shrub, scaleMin: 0.48, scaleMax: 1.18, maxSlope: 0.7, isTree: false, isVegetation: true },
-      { name: 'desert-log', geometry: fallenLogGeometry(kind), count: counts.fallenLog, scaleMin: 0.6, scaleMax: 1.12, maxSlope: 0.42, isTree: false, isVegetation: true },
+      { name: 'date-palm', geometry: datePalmGeometry(rng), count: counts.palm, scaleMin: 0.78, scaleMax: 1.2, maxSlope: 0.4, isTree: true, isVegetation: true },
+      { name: 'desert-snag', geometry: snagGeometry(look), count: counts.snag, scaleMin: 0.68, scaleMax: 1.22, maxSlope: 0.58, isTree: true, isVegetation: true },
+      { name: 'desert-shrub', geometry: shrubGeometry(rng, look), count: counts.shrub, scaleMin: 0.48, scaleMax: 1.18, maxSlope: 0.7, isTree: false, isVegetation: true },
+      { name: 'desert-log', geometry: fallenLogGeometry(look), count: counts.fallenLog, scaleMin: 0.6, scaleMax: 1.12, maxSlope: 0.42, isTree: false, isVegetation: true },
       ...commonRocks,
-    ];
+    ] satisfies ScatterDef[]).filter((def) => def.count > 0);
   }
   if (kind === 'frostbite-pass') {
     const counts = VEGETATION_COUNTS['frostbite-pass'];
     return [
       { name: 'frost-spruce', geometry: spruceGeometry(kind), count: counts.spruce, scaleMin: 0.72, scaleMax: 1.5, maxSlope: 0.52, isTree: true, isVegetation: true },
       { name: 'frost-pine', geometry: pineGeometry(kind), count: counts.pine, scaleMin: 0.66, scaleMax: 1.32, maxSlope: 0.52, isTree: true, isVegetation: true },
-      { name: 'frost-birch', geometry: birchGeometry(rng, kind), count: counts.birch, scaleMin: 0.7, scaleMax: 1.25, maxSlope: 0.48, isTree: true, isVegetation: true },
       { name: 'frost-snag', geometry: snagGeometry(kind), count: counts.snag, scaleMin: 0.7, scaleMax: 1.3, maxSlope: 0.56, isTree: true, isVegetation: true },
       { name: 'frost-shrub', geometry: shrubGeometry(rng, kind), count: counts.shrub, scaleMin: 0.5, scaleMax: 1.08, maxSlope: 0.66, isTree: false, isVegetation: true },
       { name: 'frost-log', geometry: fallenLogGeometry(kind), count: counts.fallenLog, scaleMin: 0.62, scaleMax: 1.1, maxSlope: 0.42, isTree: false, isVegetation: true },
@@ -325,10 +371,10 @@ function scatterDefs(kind: Heightfield['kind'], rng: () => number): ScatterDef[]
   }
   const counts = VEGETATION_COUNTS.highlands;
   return [
-    { name: 'highland-spruce', geometry: spruceGeometry(kind), count: counts.spruce, scaleMin: 0.72, scaleMax: 1.48, maxSlope: 0.52, isTree: true, isVegetation: true },
+    { name: 'highland-cypress', geometry: cypressGeometry(rng), count: counts.cypress, scaleMin: 0.7, scaleMax: 1.3, maxSlope: 0.52, isTree: true, isVegetation: true },
     { name: 'highland-pine', geometry: pineGeometry(kind), count: counts.pine, scaleMin: 0.68, scaleMax: 1.36, maxSlope: 0.52, isTree: true, isVegetation: true },
-    { name: 'highland-broadleaf', geometry: broadleafGeometry(rng, kind), count: counts.broadleaf, scaleMin: 0.7, scaleMax: 1.38, maxSlope: 0.48, isTree: true, isVegetation: true },
-    { name: 'highland-birch', geometry: birchGeometry(rng, kind), count: counts.birch, scaleMin: 0.72, scaleMax: 1.3, maxSlope: 0.48, isTree: true, isVegetation: true },
+    { name: 'highland-oak', geometry: broadleafGeometry(rng, kind), count: counts.oak, scaleMin: 0.62, scaleMax: 1.18, maxSlope: 0.48, isTree: true, isVegetation: true },
+    { name: 'highland-olive', geometry: birchGeometry(rng, kind), count: counts.olive, scaleMin: 0.62, scaleMax: 1.05, maxSlope: 0.48, isTree: true, isVegetation: true },
     { name: 'highland-snag', geometry: snagGeometry(kind), count: counts.snag, scaleMin: 0.7, scaleMax: 1.25, maxSlope: 0.58, isTree: true, isVegetation: true },
     { name: 'highland-shrub', geometry: shrubGeometry(rng, kind), count: counts.shrub, scaleMin: 0.5, scaleMax: 1.15, maxSlope: 0.68, isTree: false, isVegetation: true },
     { name: 'highland-log', geometry: fallenLogGeometry(kind), count: counts.fallenLog, scaleMin: 0.65, scaleMax: 1.12, maxSlope: 0.42, isTree: false, isVegetation: true },
@@ -346,7 +392,7 @@ function woodlandAffinity(kind: Heightfield['kind'], x: number, z: number, seed:
     const groves = Math.max(0, Math.min(1, (raw - 0.3) / 0.52));
     return 0.05 + groves * groves * 0.9;
   }
-  const biomeBias = kind === 'crater-oasis' ? -0.15 : -0.04;
+  const biomeBias = kind === 'natanz' ? -0.24 : kind === 'crater-oasis' ? -0.15 : -0.04;
   return Math.max(0.08, Math.min(0.96, 0.5 + broad * 0.34 + medium + fine + biomeBias));
 }
 
@@ -573,10 +619,12 @@ export function buildScatter(
           const waterClearance = h - hf.waterLevel;
           if (def.name.includes('shrub')) chance *= waterClearance < 7.5 ? 1.45 : 0.72;
           else if (def.isTree && waterClearance < 6.5) chance *= 0.32;
-          if (def.name.includes('pine') || def.name.includes('spruce')) {
+          if (def.name.includes('pine') || def.name.includes('spruce') || def.name.includes('cypress')) {
             chance *= waterClearance > 9 ? 1.18 : 0.68;
           }
         }
+        // Date palms gather at the spring; acacias keep the dry washes.
+        if (def.name === 'date-palm') chance *= h - hf.waterLevel < 9 ? 3 : 0.18;
         if (rng() > chance) continue;
       } else if (kind === 'highlands' && rng() > rockClusterAffinity(x, z, seed) * (0.55 + Math.min(1, Math.max(gx, gz) / 0.42) * 0.7)) {
         continue;
@@ -586,7 +634,7 @@ export function buildScatter(
       const tint =
         def.isVegetation && kind === 'frostbite-pass'
           ? new Color(v * 0.92, v, v * 1.06)
-          : def.isVegetation && kind === 'crater-oasis'
+          : def.isVegetation && isDesertKind(kind)
             ? new Color(v * 1.08, v * 0.94, v * 0.72)
             : def.isVegetation
               ? new Color(v * (0.88 + rng() * 0.1), v * (0.96 + rng() * 0.08), v * (0.78 + rng() * 0.1))
@@ -690,7 +738,7 @@ function createGroundTufts(hf: Heightfield, seed: number, macro?: MacroTintMap):
     ) / 1.8;
     if (slope > 0.55) continue;
     const macroColor = sampleMacroTint(macro, x, z);
-    const base = hf.kind === 'crater-oasis' ? new Color('#c0a465') : hf.kind === 'frostbite-pass' ? new Color('#d2dfdc') : new Color('#8a9a64');
+    const base = hf.kind === 'natanz' ? new Color('#b9ad8c') : isDesertKind(hf.kind) ? new Color('#c0a465') : hf.kind === 'frostbite-pass' ? new Color('#d2dfdc') : new Color('#a89a5e');
     base.multiply(macroColor).multiplyScalar(0.86 + rng() * 0.24);
     result.push({ x, y: h + 0.02, z, rotY: rng() * Math.PI * 2, scale: 0.82 + rng() * 0.72, tint: base });
   }

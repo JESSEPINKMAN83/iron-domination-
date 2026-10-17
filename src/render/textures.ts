@@ -2,10 +2,10 @@
 // Phase 7 content pass, but seeded and consistent.
 import { CanvasTexture, LinearFilter, NoColorSpace, RepeatWrapping, SRGBColorSpace } from 'three';
 import { mulberry32, fbm2 } from '../sim/noise';
-import { sampleHeight, type Heightfield } from '../sim/heightfield';
+import { isDesertKind, sampleHeight, type Heightfield } from '../sim/heightfield';
 
 type Painter = (ctx: CanvasRenderingContext2D, rng: () => number, size: number) => void;
-export type TerrainTextureStyle = 'temperate' | 'desert' | 'snow';
+export type TerrainTextureStyle = 'temperate' | 'desert' | 'snow' | 'plateau';
 
 export interface MacroTintMap {
   texture: CanvasTexture;
@@ -69,10 +69,20 @@ function blotches(
 
 export function createGrassTexture(style: TerrainTextureStyle = 'temperate'): CanvasTexture {
   return makeTexture(512, 101 + styleSeed(style), (ctx, rng, s) => {
-    if (style === 'desert') {
-      ctx.fillStyle = '#b88d52';
+    if (style === 'plateau') {
+      // Iranian high plateau: pale grey-beige gravel desert.
+      ctx.fillStyle = '#b3a487';
       ctx.fillRect(0, 0, s, s);
-      blotches(ctx, rng, s, 28, ['#c79d60', '#a97d48', '#d2b06e'], 18, 52, 0.19);
+      blotches(ctx, rng, s, 28, ['#c1b294', '#a29276', '#cbbd9e', '#978a73'], 18, 52, 0.19);
+      speckle(ctx, rng, s, 22000, ['#bcad8e', '#988a70', '#d3c6a7', '#80776a']);
+      speckle(ctx, rng, s, 900, ['#6f675c', '#e2d8c0'], 1, 3);
+      return;
+    }
+    if (style === 'desert') {
+      ctx.fillStyle = '#bb8d55';
+      ctx.fillRect(0, 0, s, s);
+      // Makhtesh sandstone: ochre with pink and plum bands.
+      blotches(ctx, rng, s, 28, ['#c99c62', '#a97d48', '#d2b06e', '#b98066', '#9a6a5c'], 18, 52, 0.19);
       speckle(ctx, rng, s, 22000, ['#c49a5c', '#a77b45', '#d8b978', '#8f6c43']);
       ctx.lineWidth = 1;
       for (let i = 0; i < 170; i++) {
@@ -109,14 +119,15 @@ export function createGrassTexture(style: TerrainTextureStyle = 'temperate'): Ca
       ctx.globalAlpha = 1;
       return;
     }
-    ctx.fillStyle = '#6d7548';
+    // Golan summer grassland: dry straw over basalt soil, olive-green patches.
+    ctx.fillStyle = '#8f8452';
     ctx.fillRect(0, 0, s, s);
-    blotches(ctx, rng, s, 22, ['#7d8254', '#5c6640', '#8b8658', '#9a8a5c'], 18, 58, 0.22);
-    blotches(ctx, rng, s, 14, ['#c4b48a', '#b39a6c', '#8f7a52'], 10, 32, 0.14);
-    speckle(ctx, rng, s, 24000, ['#7a824e', '#5a623c', '#8e8a5a', '#4e5634', '#b7a878']);
+    blotches(ctx, rng, s, 22, ['#a39561', '#7b7a4c', '#b3a26a', '#8a8a56'], 18, 58, 0.22);
+    blotches(ctx, rng, s, 14, ['#c9b47e', '#6f7346', '#5e5a44'], 10, 32, 0.14);
+    speckle(ctx, rng, s, 24000, ['#a5975f', '#7d7a4b', '#bba86f', '#5f5c45', '#cdb985']);
     ctx.lineWidth = 1;
     for (let i = 0; i < 900; i++) {
-      ctx.strokeStyle = rng() > 0.55 ? '#8a9258' : '#4f5834';
+      ctx.strokeStyle = rng() > 0.55 ? '#bba76c' : '#6d6c45';
       ctx.globalAlpha = 0.08 + rng() * 0.12;
       const x = rng() * s;
       const y = rng() * s;
@@ -131,6 +142,13 @@ export function createGrassTexture(style: TerrainTextureStyle = 'temperate'): Ca
 
 export function createDirtTexture(style: TerrainTextureStyle = 'temperate'): CanvasTexture {
   return makeTexture(512, 202 + styleSeed(style), (ctx, rng, s) => {
+    if (style === 'plateau') {
+      ctx.fillStyle = '#9a8b72';
+      ctx.fillRect(0, 0, s, s);
+      blotches(ctx, rng, s, 32, ['#a99a7f', '#7f7260', '#b6a789'], 12, 38, 0.24);
+      speckle(ctx, rng, s, 21000, ['#ab9c80', '#76695a', '#c0b193', '#655b4f']);
+      return;
+    }
     if (style === 'desert') {
       ctx.fillStyle = '#8b6842';
       ctx.fillRect(0, 0, s, s);
@@ -172,7 +190,12 @@ export function createDirtTexture(style: TerrainTextureStyle = 'temperate'): Can
 
 export function createRockTexture(style: TerrainTextureStyle = 'temperate'): CanvasTexture {
   return makeTexture(512, 303 + styleSeed(style), (ctx, rng, s) => {
-    if (style === 'desert') {
+    if (style === 'plateau') {
+      ctx.fillStyle = '#8c8377';
+      ctx.fillRect(0, 0, s, s);
+      blotches(ctx, rng, s, 24, ['#9b9184', '#6f675d', '#aba092', '#5f584f'], 16, 44, 0.22);
+      speckle(ctx, rng, s, 19000, ['#a1978a', '#665f56', '#b5ab9d', '#776f64']);
+    } else if (style === 'desert') {
       ctx.fillStyle = '#9a7b58';
       ctx.fillRect(0, 0, s, s);
       blotches(ctx, rng, s, 24, ['#aa8a62', '#806346', '#b89567'], 16, 44, 0.22);
@@ -183,14 +206,15 @@ export function createRockTexture(style: TerrainTextureStyle = 'temperate'): Can
       blotches(ctx, rng, s, 24, ['#9eabb4', '#697681', '#c8d3d8'], 16, 44, 0.2);
       speckle(ctx, rng, s, 19000, ['#bfcbd1', '#5f6b75', '#e1e8eb', '#7a8790']);
     } else {
-      ctx.fillStyle = '#c4bba4';
+      // Golan basalt.
+      ctx.fillStyle = '#6a655d';
       ctx.fillRect(0, 0, s, s);
-      blotches(ctx, rng, s, 22, ['#d4cbb4', '#a89d86', '#e0d6c0', '#8f8674'], 16, 48, 0.22);
-      speckle(ctx, rng, s, 19000, ['#d8d0ba', '#9a917c', '#ece6d4', '#7a7364', '#b7ad96']);
+      blotches(ctx, rng, s, 22, ['#7a746a', '#55514b', '#8a8377', '#4a4742'], 16, 48, 0.22);
+      speckle(ctx, rng, s, 19000, ['#7f786d', '#4e4a45', '#948c7f', '#3f3c38', '#6f695f']);
     }
     ctx.lineWidth = 1;
-    const veinDark = style === 'desert' ? '#5a4030' : style === 'snow' ? '#5a5d60' : '#6a6356';
-    const veinLight = style === 'desert' ? '#c2a16d' : style === 'snow' ? '#c8d3d8' : '#e8dfcc';
+    const veinDark = style === 'plateau' ? '#4f4941' : style === 'desert' ? '#5a4030' : style === 'snow' ? '#5a5d60' : '#3a3734';
+    const veinLight = style === 'plateau' ? '#c9bfae' : style === 'desert' ? '#c2a16d' : style === 'snow' ? '#c8d3d8' : '#9a9286';
     for (let i = 0; i < 90; i++) {
       ctx.strokeStyle = rng() > 0.5 ? veinDark : veinLight;
       ctx.globalAlpha = 0.05 + rng() * 0.07;
@@ -208,7 +232,7 @@ export function createRockTexture(style: TerrainTextureStyle = 'temperate'): Can
 }
 
 function styleSeed(style: TerrainTextureStyle): number {
-  return style === 'desert' ? 1000 : style === 'snow' ? 2000 : 0;
+  return style === 'desert' ? 1000 : style === 'snow' ? 2000 : style === 'plateau' ? 3000 : 0;
 }
 
 /** A seeded, map-scale colour field. Neutral is encoded at 128; the shader
@@ -220,7 +244,7 @@ export function createMacroTintMap(hf: Heightfield, seed: number): MacroTintMap 
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2d canvas context unavailable');
   const image = ctx.createImageData(size, size);
-  const style: TerrainTextureStyle = hf.kind === 'crater-oasis' ? 'desert' : hf.kind === 'frostbite-pass' ? 'snow' : 'temperate';
+  const style: TerrainTextureStyle = hf.kind === 'natanz' ? 'plateau' : isDesertKind(hf.kind) ? 'desert' : hf.kind === 'frostbite-pass' ? 'snow' : 'temperate';
   for (let py = 0; py < size; py++) {
     const v = py / (size - 1);
     const z = (v - 0.5) * hf.size;
@@ -265,6 +289,7 @@ export function macroTintFactors(
 ): readonly [number, number, number] {
   const n = (broad - 0.5) * 0.44 + (variation - 0.5) * 0.13;
   if (style === 'desert') return [1 + n * 1.08, 1 + n * 0.68, 1 + n * 0.2 - moisture * 0.065];
+  if (style === 'plateau') return [1 + n * 0.82, 1 + n * 0.74, 1 + n * 0.58];
   if (style === 'snow') return [1 + n * 0.38, 1 + n * 0.66, 1 + n * 1.02 + moisture * 0.04];
   const damp = moisture * 0.14;
   return [1 + n * 0.62 - damp * 0.55, 1 + n * 0.48 - damp * 0.42, 1 + n * 0.22 - damp * 0.38];
