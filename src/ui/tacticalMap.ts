@@ -96,9 +96,9 @@ type Palette = {
 
 const PALETTES: Record<MapId, Palette> = {
   highlands: {
-    base: [118, 124, 78],
-    loose: [168, 138, 92],
-    rock: [196, 186, 164],
+    base: [150, 138, 86],
+    loose: [176, 150, 98],
+    rock: [104, 98, 90],
     ore: [176, 132, 52],
     peak: [214, 206, 188],
     basin: [92, 78, 58],
@@ -110,6 +110,16 @@ const PALETTES: Record<MapId, Palette> = {
     base: [163, 114, 69],
     loose: [201, 154, 90],
     rock: [118, 86, 63],
+    ore: [194, 146, 53],
+    peak: [224, 190, 142],
+    basin: [124, 82, 52],
+    waterDeep: [4, 46, 61],
+    waterShallow: [38, 158, 158],
+    surf: [168, 224, 214],
+  },  natanz: {
+    base: [184, 156, 112],
+    loose: [208, 182, 136],
+    rock: [130, 112, 92],
     ore: [194, 146, 53],
     peak: [224, 190, 142],
     basin: [124, 82, 52],

@@ -24,7 +24,7 @@ describe('How to Play platform instructions', () => {
 describe('current-game field guide', () => {
   it('explains both doctrines, route behavior, and paid building repairs', () => {
     const guide = guideMarkup(false);
-    for (const text of ['Aegis Coalition', 'Vesper Republic', 'no strategic missile program', 'no Helipads or aircraft production', 'Attack as you move', '10 credits per second', '20 paid seconds', 'Flashing red dots']) expect(guide).toContain(text);
+    for (const text of ['Israel', 'Iran', 'Hezbollah', 'no strategic missile program', 'no Air Bases or aircraft production', 'Attack as you move', '10 credits per second', '20 paid seconds', 'Flashing red dots']) expect(guide).toContain(text);
     expect((guide.match(/TACTICAL ILLUSTRATION/g) ?? []).length).toBe(5);
     expect(guide).toContain('Formation variation');
   });

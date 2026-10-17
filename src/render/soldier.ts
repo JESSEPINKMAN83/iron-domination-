@@ -1,3 +1,5 @@
+import { legacyModelPreview } from './codeRedPreview';
+import type { ArmyDoctrineId } from '../content/armyDoctrines';
 // Procedural low-poly infantry rig. It stays render-only and keeps the
 // turretPivot contract, but now reads as a small soldier: human proportions,
 // helmet/goggles, camo uniform, kit silhouettes, held weapons, and cached refs
@@ -283,6 +285,7 @@ function applyKit(root: Group, torso: Group, rifle: Group, m: SoldierMaterials, 
   return {};
 }
 
+const woodlandUniform = new MeshStandardMaterial({ color: 0x4d5840, roughness: 1 });
 const kitUniforms = {
   rifle: new MeshStandardMaterial({ color: 0x59664a, roughness: 0.95 }),
   grenadier: new MeshStandardMaterial({ color: 0x887452, roughness: 0.95 }),
@@ -290,8 +293,8 @@ const kitUniforms = {
   rocket: new MeshStandardMaterial({ color: 0x555b60, roughness: 0.95 }),
 };
 
-export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): SoldierRig {
-  m = { ...m, uniform: kitUniforms[kit] };
+export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle', doctrine: ArmyDoctrineId = 'iron-legion'): SoldierRig {
+  m = { ...m, uniform: !legacyModelPreview && doctrine === 'missile-command' ? woodlandUniform : kitUniforms[kit] };
   const root = new Group();
   const combatBike = buildCombatBike(m);
   root.add(combatBike.root);
@@ -313,6 +316,23 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle'): So
   torso.add(rightArm.shoulder, leftArm.shoulder);
   const weapon = buildRifle(m);
   const kitRefs = applyKit(root, torso, weapon.rifle, m, kit);
+  if (!legacyModelPreview && kit === 'rifle') {
+    const east = doctrine === 'missile-command';
+    // Rifle identity without changing the firing origin or animation rig.
+    weapon.rifle.name = east ? 'ak-pattern-rifle' : 'tavor-bullpup';
+    weapon.rifle.children.slice(0,4).forEach(child => { child.visible = false; });
+    weapon.rifle.add(box(.07,.12,east?.57:.43,m.gunmetal,0,0,east?.05:-.06));
+    weapon.rifle.add(box(.06,.1,east?.24:.23,m.canvas,0,-.01,east?-.31:-.22));
+    const magazine=box(.05,.18,.075,m.gunmetal,0,-.12,east?.12:-.19);
+    magazine.rotation.x=east?-.3:0; weapon.rifle.add(magazine);
+    weapon.rifle.add(box(.05,.08,.2,m.gear,0,.08,-.02));
+  }
+  if(!legacyModelPreview && doctrine === 'missile-command') {
+    for(const x of [-.16,.12]) {
+      torso.add(box(.12,.09,.015,m.canvas,x,.55,.14));
+      torso.add(box(.09,.11,.015,m.gear,-x,.28,.145));
+    }
+  }
   torso.add(weapon.rifle);
   root.add(torso);
 

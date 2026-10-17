@@ -55,8 +55,8 @@ export class Hud {
     this.help = document.createElement('div');
     this.help.style.cssText = PANEL_CSS + 'bottom:12px;left:12px;display:none;';
     this.help.textContent = [
-      'IRON DOMINION — Phase 6',
-      'Default: Command Yard + small escort · ?start=test all tech · ?start=battle-test staged battle',
+      'CODE RED — debug',
+      'Default: Command HQ + small escort · ?start=test all tech · ?start=battle-test staged battle',
       'AI opts   ?ai=easy|normal|hard  ?ai-style=turtle|rusher|balanced',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  hold Space + drag mouse button',
@@ -75,11 +75,11 @@ export class Hud {
       'V camera  wheel zoom, Cmd + left-drag orbit',
       'Sniper V  right-click scope toggle, wheel zoom, left-click fire',
       'Squad V   select group, V controls one, Tab swaps leader',
-      'Vulture   W/S thrust, Shift boost, A/D yaw, Q/E hard turn, Space up, C down',
+      'Apache    W/S thrust, Shift boost, A/D yaw, Q/E hard turn, Space up, C down',
       'Fire      left-click primary, right-click secondary',
       'Audio     M mute/unmute',
       'Counters  Rifles infantry · Grenades buildings · Rockets armor/air',
-      'Air       Wasp intercepts · Vulture suppresses · Hammerhead hunts air/ground',
+      'Air       Cobra intercepts · Apache suppresses · Yasur hunts air/ground',
       'Exit      V again or Escape',
       'Overlay   F3 walkability · F4 fog debug',
       'Help      F1 show/hide',

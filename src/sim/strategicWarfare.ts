@@ -1,3 +1,4 @@
+import { armyName } from '../content/nations';
 import { WEAPONS } from '../content/phase4';
 import { buildings, hasStructure, spendCredits, type EconomyState } from './economy';
 import { sampleHeight, type Heightfield } from './heightfield';
@@ -135,8 +136,8 @@ export function strategicLaunchReadiness(
   economy: EconomyState,
 ): { ready: boolean; reason: string; cooldown: number } {
   const launchCost = strategicMissileLaunchCost(economy);
-  if (economy.doctrine !== 'missile-command') return { ready: false, reason: 'Vesper Republic only', cooldown: 0 };
-  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ready: false, reason: 'Build a Missile Silo', cooldown: 0 };
+  if (economy.doctrine !== 'missile-command') return { ready: false, reason: 'Iran only', cooldown: 0 };
+  if (!hasStructure(sim, 'strategic-silo', economy.team)) return { ready: false, reason: 'Build Missile City', cooldown: 0 };
   if (economy.powerProduced < economy.powerUsed) return { ready: false, reason: 'Insufficient power', cooldown: economy.strategicMissileCooldown };
   if (economy.strategicMissileCooldown > 0) {
     return { ready: false, reason: `Reloading ${Math.ceil(economy.strategicMissileCooldown)}s`, cooldown: economy.strategicMissileCooldown };
@@ -154,8 +155,8 @@ export function emberLaunchReadiness(
   ).length;
   const salvoSize = emberDroneSalvoSize(economy);
   const launchCost = emberDroneLaunchCost(economy);
-  if (economy.doctrine !== 'missile-command') return { ready: false, reason: 'Vesper Republic only', cooldown: 0, inFlight };
-  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ready: false, reason: 'Build an Intelligence Center', cooldown: 0, inFlight };
+  if (economy.doctrine !== 'missile-command') return { ready: false, reason: 'Iran only', cooldown: 0, inFlight };
+  if (!hasStructure(sim, 'intelligence-center', economy.team)) return { ready: false, reason: 'Build the IRGC Aerospace HQ', cooldown: 0, inFlight };
   if (economy.powerProduced < economy.powerUsed) return { ready: false, reason: 'Insufficient power', cooldown: economy.emberDroneCooldown, inFlight };
   if (economy.emberDroneCooldown > 0) {
     return { ready: false, reason: `Rearming ${Math.ceil(economy.emberDroneCooldown)}s`, cooldown: economy.emberDroneCooldown, inFlight };
@@ -187,7 +188,7 @@ export function launchEmberDroneAt(
   if (!center) return { ok: false, reason: 'No operational Intelligence Center' };
   const salvoSize = emberDroneSalvoSize(economy);
   const launchCost = emberDroneLaunchCost(economy);
-  if (!spendCredits(economy, sim.tick, `Ember salvo ×${salvoSize}`, launchCost)) {
+  if (!spendCredits(economy, sim.tick, `Shahed salvo ×${salvoSize}`, launchCost)) {
     return { ok: false, reason: 'Insufficient credits' };
   }
 
@@ -272,7 +273,7 @@ export function launchEmberDroneAt(
       toX,
       toY,
       toZ,
-      targetLabel: `Army ${enemyTeam} marked drone impact area`,
+      targetLabel: `${armyName(enemyTeam)} marked drone impact area`,
       targetType: 'ground',
       sourceTeamId: economy.team,
       targetTeamId: enemyTeam,
@@ -292,7 +293,7 @@ export function launchEmberDroneAt(
       sim.events.push({
         ...event,
         kind: 'ember-drone-warning',
-        targetLabel: `Incoming Ember salvo ×${salvoSize} from Army ${economy.team}`,
+        targetLabel: `Incoming Shahed salvo ×${salvoSize} from ${armyName(economy.team)}`,
       });
     }
     sim.events.push(event);
@@ -411,7 +412,7 @@ function launchAtArea(
     toX,
     toY,
     toZ,
-    targetLabel: `Army ${enemyTeam} marked impact area`,
+    targetLabel: `${armyName(enemyTeam)} marked impact area`,
     targetType: 'ground',
     sourceTeamId: economy.team,
     targetTeamId: enemyTeam,
@@ -428,7 +429,7 @@ function launchAtArea(
   sim.events.push({
     ...event,
     kind: 'strategic-missile-warning',
-    targetLabel: `Incoming missile from Army ${economy.team}`,
+    targetLabel: `Incoming Fattah missile from ${armyName(economy.team)}`,
   });
   sim.events.push(event);
   return { ok: true, reason: '', event };

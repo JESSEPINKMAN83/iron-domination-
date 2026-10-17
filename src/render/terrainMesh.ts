@@ -26,7 +26,7 @@ import {
   Vector3,
 } from 'three';
 import type { CSM } from 'three/addons/csm/CSM.js';
-import { sampleHeight, type Heightfield } from '../sim/heightfield';
+import { isDesertKind, sampleHeight, type Heightfield } from '../sim/heightfield';
 import {
   createDetailNormalTexture,
   createDirtTexture,
@@ -697,13 +697,14 @@ function createSplatMaterial(
 }
 
 function terrainTextureStyle(hf: Heightfield): TerrainTextureStyle {
-  if (hf.kind === 'crater-oasis') return 'desert';
+  if (hf.kind === 'natanz') return 'plateau';
+  if (isDesertKind(hf.kind)) return 'desert';
   if (hf.kind === 'frostbite-pass') return 'snow';
   return 'temperate';
 }
 
 function terrainSkirtColor(hf: Heightfield): number {
-  if (hf.kind === 'crater-oasis') return 0x3b3027;
+  if (isDesertKind(hf.kind)) return 0x3b3027;
   if (hf.kind === 'frostbite-pass') return 0x30383d;
   return 0x4a453a;
 }

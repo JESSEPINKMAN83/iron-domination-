@@ -12,7 +12,7 @@ import {
   Vector3,
 } from 'three';
 import type { Entity } from '../sim/components';
-import { sampleHeight, type Heightfield } from '../sim/heightfield';
+import { isDesertKind, sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { VisualQualityTier } from './renderer';
 
 const MAX_TRAIL_SEGMENTS = 1400;
@@ -76,7 +76,7 @@ function makeTreadTexture(): CanvasTexture {
 
 function trailColor(kind: Heightfield['kind']): Color {
   if (kind === 'frostbite-pass') return new Color('#6e7f84');
-  if (kind === 'crater-oasis') return new Color('#58301d');
+  if (isDesertKind(kind)) return new Color('#58301d');
   return new Color('#332a1d');
 }
 

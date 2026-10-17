@@ -35,27 +35,25 @@ describe('crushed vegetation lifecycle', () => {
 });
 
 describe('map vegetation profiles', () => {
-  it('reduces Highlands tree density while expanding silhouette variety', () => {
+  it('gives the Golan a Mediterranean mix: cypress, Aleppo pine, oak and olive', () => {
     expect(VEGETATION_COUNTS.highlands).toEqual({
-      spruce: 720,
-      pine: 420,
-      broadleaf: 500,
-      birch: 320,
-      snag: 110,
-      shrub: 460,
-      fallenLog: 90,
+      cypress: 260,
+      pine: 220,
+      oak: 520,
+      olive: 620,
+      snag: 60,
+      shrub: 620,
+      fallenLog: 30,
     });
-    expect(treeTotal('highlands')).toBe(2070);
+    expect(treeTotal('highlands')).toBe(1680);
     expect(treeTotal('highlands')).toBeLessThan(2300);
-    expect(Object.keys(VEGETATION_COUNTS.highlands)).toEqual(
-      expect.arrayContaining(['spruce', 'pine', 'broadleaf', 'birch', 'snag', 'shrub', 'fallenLog']),
-    );
   });
 
   it('uses lighter map-specific vegetation totals for arid and frozen maps', () => {
     expect(treeTotal('crater-oasis')).toBeLessThan(600);
     expect(treeTotal('frostbite-pass')).toBeLessThan(1200);
     expect(VEGETATION_COUNTS['crater-oasis'].acacia).toBeGreaterThan(0);
+    expect(VEGETATION_COUNTS['crater-oasis'].palm).toBeGreaterThan(0);
     expect(VEGETATION_COUNTS['frostbite-pass'].spruce).toBeGreaterThan(0);
   });
 });

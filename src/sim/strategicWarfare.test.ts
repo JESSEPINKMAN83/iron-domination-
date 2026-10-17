@@ -116,7 +116,7 @@ describe('Missile Command strategic warfare', () => {
     addStructure(sim, 'power-plant', 1, -20, 0);
     expect(canBuildStructure(sim, standard, 'intelligence-center')).toEqual({
       ok: false,
-      reason: 'Vesper Republic only',
+      reason: 'Iran only',
     });
 
     const specialist = createEconomy(2, 5000, 'missile-command');
@@ -125,7 +125,7 @@ describe('Missile Command strategic warfare', () => {
     expect(canBuildStructure(sim, specialist, 'intelligence-center').ok).toBe(true);
     expect(canBuildStructure(sim, specialist, 'skylance-ciws')).toEqual({
       ok: false,
-      reason: 'Aegis Coalition only',
+      reason: 'Israel only',
     });
     expect(canBuildStructure(sim, standard, 'skylance-ciws').ok).toBe(true);
   });
@@ -256,7 +256,7 @@ describe('Missile Command strategic warfare', () => {
     const bursts = sim.events.filter((event) => event.kind === 'skylanceGun' && event.strategicId !== undefined);
     expect(bursts).toHaveLength(4);
     expect(bursts.at(-1)).toMatchObject({ killed: true, targetHealth: 0, targetMaxHealth: EMBER_DRONE_HEALTH });
-    expect(sim.events.some((event) => event.kind === 'aaMissile-impact' && event.targetLabel === 'Ember drone')).toBe(false);
+    expect(sim.events.some((event) => event.kind === 'aaMissile-impact' && event.targetLabel === 'Shahed drone')).toBe(false);
     expect(target.health?.current).toBe(healthBefore);
   });
 
@@ -279,7 +279,7 @@ describe('Missile Command strategic warfare', () => {
     )).toBe(true);
     expect(sim.events.some((event) =>
       event.kind === 'aaMissile-impact'
-      && event.targetLabel === 'Ember drone'
+      && event.targetLabel === 'Shahed drone'
       && event.killed
     )).toBe(true);
     expect(sim.events.some((event) => event.kind === 'strategic-missile-intercepted')).toBe(true);

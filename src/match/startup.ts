@@ -19,7 +19,11 @@ export function ensureOpposingSides(armyCount: number, armySides: readonly numbe
   return sides;
 }
 
-export function formatArmyMatchup(armyCount: number, armySides: readonly number[]): string {
+export function formatArmyMatchup(
+  armyCount: number,
+  armySides: readonly number[],
+  armyLabel: (army: number) => string = (army) => `ARMY ${army}`,
+): string {
   const count = Math.max(2, Math.min(4, Math.floor(armyCount) || 2));
   const groups = new Map<number, number[]>();
   for (let army = 1; army <= count; army++) {
@@ -29,7 +33,7 @@ export function formatArmyMatchup(armyCount: number, armySides: readonly number[
     groups.set(side, members);
   }
   return Array.from(groups.entries())
-    .map(([side, armies]) => `SIDE ${side}: ${armies.map((army) => `ARMY ${army}`).join(' + ')}`)
+    .map(([side, armies]) => `SIDE ${side}: ${armies.map((army) => armyLabel(army)).join(' + ')}`)
     .join('  VS  ');
 }
 

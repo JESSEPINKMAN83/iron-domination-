@@ -61,7 +61,7 @@ export function strategicSeedScore(options: StrategicSeedOptions, seed: number):
   const reliefRange = Math.min(1, (p90 - p10) / Math.max(8, hf.maxHeight - hf.waterLevel));
   const walkability = dryCells > 0 ? walkableDryCells / dryCells : 0;
   const waterCoverage = 1 - dryCells / (hf.cells * hf.cells);
-  const waterTarget = options.mapId === 'crater-oasis' ? 0.055 : options.mapId === 'frostbite-pass' ? 0.12 : 0.1;
+  const waterTarget = options.mapId === 'natanz' ? 0 : options.mapId === 'crater-oasis' ? 0.055 : options.mapId === 'frostbite-pass' ? 0.12 : 0.1;
   const waterInterest = 1 - Math.min(1, Math.abs(waterCoverage - waterTarget) / 0.2);
 
   const oreCount = Math.max(1, hf.oreFields.length);

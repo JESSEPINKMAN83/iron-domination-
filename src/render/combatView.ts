@@ -56,6 +56,7 @@ interface BombProjectile {
   direction?: Vector3;
   trailCapacity: number;
   healthBar?: StrategicHealthBar;
+  terminalGlow?: Mesh<SphereGeometry, MeshBasicMaterial>;
 }
 
 interface StrategicWreck {
@@ -521,7 +522,10 @@ export class CombatView {
     const strategic = event.strategicId !== undefined;
     const ember = event.weaponKind === 'emberDrone';
     const strategicLift = event.strategicLift;
-    const controlY = drop
+    const arrowInterceptor = event.strategicId !== undefined && event.sourceBuildingKind === 'missile-defense';
+    const controlY = arrowInterceptor
+      ? Math.max(fromY,toY) + Math.min(42,distance*.2)
+      : drop
       ? Math.max(toY + 2, (fromY + toY) * 0.46 - Math.min(16, distance * 0.04))
       : ember
         ? (fromY + toY) * 0.5 + 2 * (strategicLift ?? 5)
@@ -562,6 +566,7 @@ export class CombatView {
       smokeTimer: 0,
       direction: homing ? to.clone().sub(from).normalize() : undefined,
       trailCapacity,
+      terminalGlow: group.getObjectByName('fattah-terminal-glow') as Mesh<SphereGeometry, MeshBasicMaterial> | undefined,
       healthBar: strategic && event.strategicId !== undefined
         ? this.makeStrategicHealthBar(event.targetHealth ?? 100, event.targetMaxHealth ?? 100)
         : undefined,
@@ -628,6 +633,10 @@ export class CombatView {
         continue;
       }
       const t = Math.min(1, projectile.elapsed / projectile.duration);
+      if (projectile.terminalGlow) {
+        projectile.terminalGlow.visible=t>.64;
+        projectile.terminalGlow.material.opacity=Math.min(.72,Math.max(0,(t-.64)*2));
+      }
       const position = bezier(projectile.from, projectile.control, projectile.to, t);
       const tangent = bezierTangent(projectile.from, projectile.control, projectile.to, t).normalize();
       projectile.group.position.copy(position);
@@ -1178,8 +1187,8 @@ export class CombatView {
     // swept planform makes Ember read as an aircraft even at RTS distance.
     const wingGeometry = new BufferGeometry();
     wingGeometry.setAttribute('position', new Float32BufferAttribute([
-      -0.12, 0.58, 0, -0.2, -0.82, 0, -2.28, -0.5, 0,
-      0.12, 0.58, 0, 2.28, -0.5, 0, 0.2, -0.82, 0,
+      -0.12, 0.98, 0, -0.2, -1.0, 0, -2.28, -0.9, 0,
+      0.12, 0.98, 0, 2.28, -0.9, 0, 0.2, -1.0, 0,
     ], 3));
     const wings = new Mesh(wingGeometry, wingMaterial);
     group.add(wings);
@@ -1209,7 +1218,12 @@ export class CombatView {
     tailPlane.position.y = -0.94;
     const tailFin = new Mesh(new BoxGeometry(0.09, 0.5, 0.5), darkMaterial.clone());
     tailFin.position.set(0, -0.92, 0.25);
-    group.add(tailPlane, tailFin);
+    // Shahed has wingtip fins, not a conventional central tailplane.
+    tailPlane.geometry.dispose(); tailFin.geometry.dispose();
+    for(const side of [-1,1]) {
+      const fin=new Mesh(new BoxGeometry(.07,.42,.55),darkMaterial.clone());
+      fin.position.set(side*2.15,-.82,.2);group.add(fin);
+    }
 
     // Ember is propeller-driven. The compact pusher assembly and restrained
     // engine glow replace the large rocket flame used by missile meshes.
@@ -1279,9 +1293,11 @@ export class CombatView {
     coreFlame.rotation.x = Math.PI;
     coreFlame.position.y = -4.52;
     group.add(outerFlame, coreFlame);
+    const terminalGlow=new Mesh(new SphereGeometry(.46,10,6),new MeshBasicMaterial({color:0xffca86,transparent:true,opacity:0,depthWrite:false}));
+    terminalGlow.name='fattah-terminal-glow';terminalGlow.position.y=4.5;terminalGlow.scale.y=1.8;terminalGlow.visible=false;group.add(terminalGlow);
 
     const upgradeScale = 1.25 * (1 + Math.max(0, (event.impactScale ?? 1) - 1) * 0.28);
-    group.scale.setScalar(upgradeScale);
+    group.scale.set(upgradeScale*.78,upgradeScale,upgradeScale*.78);
     return group;
   }
 

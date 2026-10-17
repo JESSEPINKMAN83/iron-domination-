@@ -1,3 +1,4 @@
+import { armyName } from '../content/nations';
 import './missionComms.css';
 import type { Entity } from '../sim/components';
 
@@ -118,8 +119,8 @@ export class MissionComms {
   announceIncomingMissile(attackerTeam: number): void {
     this.announce({
       eyebrow: 'MISSILE WARNING',
-      title: 'INCOMING STRATEGIC MISSILE',
-      message: `Army ${attackerTeam} has launched a long-range missile toward your territory. Impact is imminent.`,
+      title: 'INCOMING BALLISTIC MISSILE',
+      message: `${armyName(attackerTeam)} has launched a Fattah missile toward your territory. Interceptors are tracking.`,
       alert: true,
     });
   }

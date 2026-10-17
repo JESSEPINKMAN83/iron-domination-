@@ -38,7 +38,7 @@ export function showMissionBriefing(options: MissionBriefingOptions): MissionBri
   const speakerName = options.speakerName ?? 'COMMANDER RHEA VOSS';
   const title = options.title ?? 'Opening briefing';
   const alertLabel = options.alertLabel ?? `${enemyForceLabel(options.enemyCount ?? 1)} DETECTED`;
-  const message = options.message ?? 'Find every hostile base. Destroy each Command Yard. Protect your own.';
+  const message = options.message ?? 'Find every hostile base. Destroy each Command HQ. Protect your own.';
   const channelLabel = options.channelLabel ?? 'LIVE COMMS';
   const channelSource = options.channelSource ?? 'FIELD COMMAND';
 

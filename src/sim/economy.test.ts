@@ -32,11 +32,11 @@ describe('phase 3 economy and production', () => {
     createInitialBase(sim, hf, vesper, -120, 0);
     createInitialBase(sim, hf, aegis, 120, 0);
 
-    expect(canBuildStructure(sim, vesper, 'helipad')).toEqual({ ok: false, reason: 'Aegis Coalition only' });
-    expect(canBuildStructure(sim, vesper, 'missile-defense')).toEqual({ ok: false, reason: 'Aegis Coalition only' });
-    expect(canBuildStructure(sim, vesper, 'skylance-ciws')).toEqual({ ok: false, reason: 'Aegis Coalition only' });
-    expect(canQueueUnit(sim, vesper, 'wasp')).toMatchObject({ ok: false, reason: 'Aegis Coalition only' });
-    expect(canBuildStructure(sim, aegis, 'intelligence-center')).toEqual({ ok: false, reason: 'Vesper Republic only' });
+    expect(canBuildStructure(sim, vesper, 'helipad')).toEqual({ ok: false, reason: 'Israel only' });
+    expect(canBuildStructure(sim, vesper, 'missile-defense')).toEqual({ ok: false, reason: 'Israel only' });
+    expect(canBuildStructure(sim, vesper, 'skylance-ciws')).toEqual({ ok: false, reason: 'Israel only' });
+    expect(canQueueUnit(sim, vesper, 'wasp')).toMatchObject({ ok: false, reason: 'Israel only' });
+    expect(canBuildStructure(sim, aegis, 'intelligence-center')).toEqual({ ok: false, reason: 'Iran only' });
     expect(canBuildStructure(sim, aegis, 'skylance-ciws')).toEqual({ ok: false, reason: 'Requires Power Plant' });
   });
 

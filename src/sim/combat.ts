@@ -1,3 +1,4 @@
+import { armyName } from '../content/nations';
 import { WEAPONS, type ArmorClass, type WeaponKind } from '../content/phase4';
 import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { angleDelta, slewAngle } from './angles';
@@ -990,7 +991,7 @@ function resumeEmberFallback(sim: GameSim, projectile: Projectile): void {
     toZ: seeker.fallbackZ,
     sourceTeamId: projectile.teamId,
     targetTeamId: seeker.fallbackTargetTeamId,
-    targetLabel: `Army ${seeker.fallbackTargetTeamId} marked drone impact area`,
+    targetLabel: `${armyName(seeker.fallbackTargetTeamId)} marked drone impact area`,
     targetType: 'ground',
     targetHealth: projectile.strategicHealth,
     targetMaxHealth: projectile.strategicMaxHealth,
@@ -1342,7 +1343,7 @@ function fireStrategicAirDefenseBurst(
   const x = strategic.x ?? strategic.toX;
   const y = strategic.y ?? strategic.toY;
   const z = strategic.z ?? strategic.toZ;
-  const targetLabel = strategic.strategicProfile === 'drone' ? 'Ember drone' : 'Strategic missile';
+  const targetLabel = strategic.strategicProfile === 'drone' ? 'Shahed drone' : 'Fattah missile';
   sim.events.push({
     kind: weaponKind,
     weaponKind,
@@ -1376,6 +1377,7 @@ function fireStrategicAirDefenseBurst(
     toZ: z,
     sourceTeamId: defense.team.id,
     targetTeamId: strategic.teamId,
+    interceptorId: defense.id,
     targetLabel: `${targetLabel} intercepted`,
     targetType: 'aircraft',
     targetHealth: 0,
@@ -1469,6 +1471,7 @@ function launchStrategicInterceptor(
     toZ: destination.z,
     sourceTeamId: defender.team.id,
     sourceClass: sourceKind === 'tower' ? 'tower' : 'aircraft',
+    sourceBuildingKind: defender.building?.kind,
     targetTeamId: strategic.teamId,
     targetLabel: sourceKind === 'tower' ? 'Missile defense interceptor' : 'Aircraft interceptor',
     targetType: 'aircraft',
@@ -1498,7 +1501,7 @@ function stepStrategicInterceptor(sim: GameSim, interceptor: GameSim['projectile
   const health = Math.max(0, (strategic.strategicHealth ?? 0) - defense.damage);
   strategic.strategicHealth = health;
   const maxHealth = strategic.strategicMaxHealth ?? health;
-  const targetLabel = strategic.strategicProfile === 'drone' ? 'Ember drone' : 'Strategic missile';
+  const targetLabel = strategic.strategicProfile === 'drone' ? 'Shahed drone' : 'Fattah missile';
   const weaponKind = (interceptor.weaponKind ?? 'aaMissile') as WeaponKind;
   const x = strategic.x ?? interceptor.toX;
   const y = strategic.y ?? interceptor.toY;
@@ -1536,6 +1539,7 @@ function stepStrategicInterceptor(sim: GameSim, interceptor: GameSim['projectile
     toZ: z,
     sourceTeamId: interceptor.teamId,
     targetTeamId: strategic.teamId,
+    interceptorId: interceptor.attackerId,
     targetLabel: `${targetLabel} intercepted`,
     targetType: 'aircraft',
     targetHealth: 0,

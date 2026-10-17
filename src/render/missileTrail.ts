@@ -4,7 +4,7 @@ import { AdditiveBlending, BufferGeometry, DoubleSide, Float32BufferAttribute, M
 export function missileTrailProfile(kind: string): { color: number; width: number; samples: number } {
   if (kind === 'strategicMissile') return { color: 0xff6d38, width: 0.8, samples: 48 };
   if (kind === 'siegeMissile') return { color: 0xff8844, width: 0.52, samples: 28 };
-  if (kind === 'aaMissile') return { color: 0x70d8ff, width: 0.28, samples: 22 };
+  if (kind === 'aaMissile') return { color: 0xf0f2e9, width: 0.28, samples: 22 };
   if (kind === 'agMissile') return { color: 0xffdf80, width: 0.4, samples: 26 };
   if (kind === 'scoutMissile') return { color: 0x9de2a9, width: 0.23, samples: 18 };
   if (kind === 'rocketPod' || kind === 'atRocket' || kind === 'rocketLauncher') return { color: 0xffa154, width: 0.26, samples: 14 };

@@ -1,4 +1,5 @@
 import type { ArmyDoctrineId } from '../content/armyDoctrines';
+import { nationsForDoctrines, type NationId } from '../content/nations';
 
 export interface FactionPalette {
   accent: number;
@@ -19,6 +20,15 @@ export const ARMY_COLOR_FAMILIES = {
     hullDark: 0x203d61,
     canvas: 0x315977,
     lightBar: 0x8fd8ff,
+  },
+  israelBlue: {
+    // Sinai-grey armor carrying IDF flag-blue markings and white light bars.
+    accent: 0x2f7dff,
+    accentEmissive: 0x001b4f,
+    hull: 0x6f7c88,
+    hullDark: 0x38434f,
+    canvas: 0x5e6b76,
+    lightBar: 0xdcecff,
   },
   vesperRed: {
     accent: 0xe0443e,
@@ -55,10 +65,10 @@ export const ARMY_COLOR_FAMILIES = {
 } as const satisfies Record<string, FactionPalette>;
 
 const DEFAULT_TEAM_PALETTES: Record<FactionId, FactionPalette> = {
-  1: ARMY_COLOR_FAMILIES.aegisBlue,
+  1: ARMY_COLOR_FAMILIES.israelBlue,
   2: ARMY_COLOR_FAMILIES.vesperRed,
-  3: ARMY_COLOR_FAMILIES.coalitionGreen,
-  4: ARMY_COLOR_FAMILIES.coalitionViolet,
+  3: ARMY_COLOR_FAMILIES.coalitionAmber,
+  4: ARMY_COLOR_FAMILIES.coalitionGreen,
 };
 
 export const FACTION: Record<FactionId, FactionPalette> = Object.fromEntries(
@@ -72,10 +82,21 @@ const PLAYER_COLORS = {
   amber: { accent: 0xe8b854, accentEmissive: 0x382405, lightBar: 0xffe7a4 },
 } as const;
 
+const NATION_COLORS: Record<NationId, FactionPalette> = {
+  israel: ARMY_COLOR_FAMILIES.israelBlue,
+  usa: ARMY_COLOR_FAMILIES.coalitionViolet,
+  uk: ARMY_COLOR_FAMILIES.coalitionGreen,
+  france: ARMY_COLOR_FAMILIES.coalitionAmber,
+  iran: ARMY_COLOR_FAMILIES.vesperRed,
+  hezbollah: ARMY_COLOR_FAMILIES.coalitionAmber,
+  houthis: ARMY_COLOR_FAMILIES.coalitionGreen,
+  'iraqi-militias': ARMY_COLOR_FAMILIES.coalitionViolet,
+};
+
 /**
- * Assigns one visual identity per alliance side. The first Aegis side receives
- * blue, the first Vesper side red, and additional hostile sides receive stable
- * green/violet identities. Armies sharing a side always share their colors.
+ * Assigns one visual identity per alliance side from its first army's nation:
+ * Israel blue, Iran red, Hezbollah yellow, Houthis green. Armies sharing a
+ * side always share their colors; a clash falls back to an unused family.
  */
 export function armyFactionPalettes(
   doctrines: readonly ArmyDoctrineId[],
@@ -92,27 +113,15 @@ export function armyFactionPalettes(
     groups.set(side, members);
   }
 
+  const nations = nationsForDoctrines(doctrines.slice(0, count));
   const assigned: FactionPalette[] = [];
-  let blueUsed = false;
-  let redUsed = false;
-  const extras = [
-    ARMY_COLOR_FAMILIES.coalitionGreen,
-    ARMY_COLOR_FAMILIES.coalitionViolet,
-    ARMY_COLOR_FAMILIES.coalitionAmber,
-  ];
-  let extraIndex = 0;
+  const used = new Set<FactionPalette>();
+  const fallbacks = Object.values(ARMY_COLOR_FAMILIES) as FactionPalette[];
   for (const members of groups.values()) {
-    const groupDoctrines = members.map((index) => doctrines[index]);
-    let palette: FactionPalette;
-    if (!blueUsed && groupDoctrines.includes('iron-legion')) {
-      palette = ARMY_COLOR_FAMILIES.aegisBlue;
-      blueUsed = true;
-    } else if (!redUsed && groupDoctrines.includes('missile-command')) {
-      palette = ARMY_COLOR_FAMILIES.vesperRed;
-      redUsed = true;
-    } else {
-      palette = extras[Math.min(extraIndex++, extras.length - 1)];
-    }
+    // Allies share the colors of the side's first nation.
+    const preferred = NATION_COLORS[nations[members[0]] ?? 'israel'];
+    const palette = used.has(preferred) ? fallbacks.find((family) => !used.has(family)) ?? preferred : preferred;
+    used.add(palette);
     for (const member of members) assigned[member] = { ...palette };
   }
   return assigned;

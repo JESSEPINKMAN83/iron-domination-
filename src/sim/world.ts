@@ -51,6 +51,8 @@ export interface CombatEvent {
   sourceTeamId?: number;
   /** Broad launcher class used only for local sound selection. */
   sourceClass?: 'infantry' | 'vehicle' | 'aircraft' | 'tower';
+  /** Render-only launcher identity; does not affect interception or damage. */
+  sourceBuildingKind?: string;
   /** Defending army for warnings or effects that are aimed at a team rather than one entity. */
   targetTeamId?: number;
   targetId?: number;
@@ -59,6 +61,8 @@ export interface CombatEvent {
   targetBuildingKind?: string;
   targetHealth?: number;
   targetMaxHealth?: number;
+  /** Defense entity that destroyed a strategic threat (strategic-missile-intercepted). */
+  interceptorId?: number;
   /** Stable id used to keep strategic-missile flight FX and defense UI in sync. */
   strategicId?: number;
   /** Terrain-aware peak lift above the straight launch-to-impact line. */

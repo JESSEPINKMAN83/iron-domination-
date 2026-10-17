@@ -184,6 +184,8 @@
 
 .iron-landing__hero h1 span + span {
   margin-top: .02em;
+  color: #e5382c;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, .7), 0 0 34px rgba(229, 56, 44, .35);
 }
 
 .iron-landing__copy {
