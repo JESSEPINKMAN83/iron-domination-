@@ -119,15 +119,15 @@ export function createGrassTexture(style: TerrainTextureStyle = 'temperate'): Ca
       ctx.globalAlpha = 1;
       return;
     }
-    // Golan summer grassland: dry straw over basalt soil, olive-green patches.
-    ctx.fillStyle = '#8f8452';
+    // Golan green: spring grass over basalt soil.
+    ctx.fillStyle = '#5f7340';
     ctx.fillRect(0, 0, s, s);
-    blotches(ctx, rng, s, 22, ['#a39561', '#7b7a4c', '#b3a26a', '#8a8a56'], 18, 58, 0.22);
-    blotches(ctx, rng, s, 14, ['#c9b47e', '#6f7346', '#5e5a44'], 10, 32, 0.14);
-    speckle(ctx, rng, s, 24000, ['#a5975f', '#7d7a4b', '#bba86f', '#5f5c45', '#cdb985']);
+    blotches(ctx, rng, s, 22, ['#6d8049', '#4f6436', '#7b8a50', '#58693c'], 18, 58, 0.22);
+    blotches(ctx, rng, s, 14, ['#8f915e', '#4a5236', '#3f4634'], 10, 32, 0.12);
+    speckle(ctx, rng, s, 24000, ['#6c7f47', '#4e6236', '#82904f', '#435230', '#9a9a62']);
     ctx.lineWidth = 1;
     for (let i = 0; i < 900; i++) {
-      ctx.strokeStyle = rng() > 0.55 ? '#bba76c' : '#6d6c45';
+      ctx.strokeStyle = rng() > 0.55 ? '#7f9450' : '#44552f';
       ctx.globalAlpha = 0.08 + rng() * 0.12;
       const x = rng() * s;
       const y = rng() * s;
@@ -165,15 +165,16 @@ export function createDirtTexture(style: TerrainTextureStyle = 'temperate'): Can
       speckle(ctx, rng, s, 220, ['#f3f8fb', '#5f6f7b'], 1, 3);
       return;
     }
-    ctx.fillStyle = '#9a7d56';
+    // Golan: dark basalt soil with green showing through, not desert dust.
+    ctx.fillStyle = '#5e5a42';
     ctx.fillRect(0, 0, s, s);
-    blotches(ctx, rng, s, 28, ['#b39468', '#7e6244', '#c2a57a', '#6a5040'], 14, 42, 0.24);
-    blotches(ctx, rng, s, 10, ['#5a4638', '#4a3a30'], 8, 22, 0.16);
-    speckle(ctx, rng, s, 21000, ['#b0895c', '#7a5e42', '#c4a878', '#5e4a38', '#d2c09a']);
-    speckle(ctx, rng, s, 260, ['#cfc3a8', '#6a5a48'], 1, 3);
+    blotches(ctx, rng, s, 28, ['#6a6548', '#4f4a38', '#6f7148', '#45412f'], 14, 42, 0.24);
+    blotches(ctx, rng, s, 10, ['#3f3a2f', '#353129'], 8, 22, 0.16);
+    speckle(ctx, rng, s, 21000, ['#696448', '#4c4836', '#7a7a50', '#3e3a2e', '#86825e']);
+    speckle(ctx, rng, s, 260, ['#8f8a70', '#2f2c26'], 1, 3);
     ctx.lineWidth = 1;
     for (let i = 0; i < 70; i++) {
-      ctx.strokeStyle = rng() > 0.5 ? '#6a5644' : '#c2ae88';
+      ctx.strokeStyle = rng() > 0.5 ? '#3f3a2f' : '#7d7a58';
       ctx.globalAlpha = 0.06 + rng() * 0.08;
       const x = rng() * s;
       const y = rng() * s;

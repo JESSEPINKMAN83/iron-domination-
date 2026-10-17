@@ -32,7 +32,7 @@ describe('heightfield generation', () => {
     expect(sanitizeTerrainRelief(31)).toBe(50);
     expect(sanitizeTerrainRelief(117)).toBe(125);
     expect(sanitizeTerrainRelief(999)).toBe(150);
-    expect(mapConfig('highlands').terrainRelief).toBe(75);
+    expect(mapConfig('highlands').terrainRelief).toBe(125);
     expect(mapConfig('crater-oasis').terrainRelief).toBe(125);
   });
 

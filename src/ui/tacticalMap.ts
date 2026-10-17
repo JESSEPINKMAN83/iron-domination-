@@ -96,8 +96,8 @@ type Palette = {
 
 const PALETTES: Record<MapId, Palette> = {
   highlands: {
-    base: [150, 138, 86],
-    loose: [176, 150, 98],
+    base: [96, 120, 68],
+    loose: [150, 132, 90],
     rock: [104, 98, 90],
     ore: [176, 132, 52],
     peak: [214, 206, 188],
