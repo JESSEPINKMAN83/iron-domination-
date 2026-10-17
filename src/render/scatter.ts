@@ -303,14 +303,14 @@ interface ScatterDef {
 }
 
 export const VEGETATION_COUNTS = {
-  // Golan / Galilee: green oak woodland, olive groves, cypress and Aleppo pine.
+  // Golan: Tabor-oak woodland on basalt pasture, planted pine, orchards, a few cypress.
   highlands: {
-    cypress: 300,
-    pine: 420,
-    oak: 760,
-    olive: 520,
+    cypress: 110,
+    pine: 340,
+    oak: 980,
+    olive: 380,
     snag: 50,
-    shrub: 640,
+    shrub: 720,
     fallenLog: 40,
   },
   // Negev: acacia washes and date palms around the spring.
@@ -342,7 +342,8 @@ export const VEGETATION_COUNTS = {
 function scatterDefs(kind: Heightfield['kind'], rng: () => number): ScatterDef[] {
   // Natanz reuses the arid geometry palette with its own, sparser counts.
   const look: Heightfield['kind'] = isDesertKind(kind) ? 'crater-oasis' : kind;
-  const rocks = isDesertKind(kind) ? 1.45 : kind === 'frostbite-pass' ? 1.25 : 1;
+  // The Golan is famous for its basalt boulder fields.
+  const rocks = isDesertKind(kind) ? 1.45 : kind === 'frostbite-pass' ? 1.25 : 1.6;
   const commonRocks: ScatterDef[] = [
     { name: 'rock-a', geometry: rockGeometry(rng, 0.72, kind === 'natanz' ? kind : look), count: Math.round(800 * rocks), scaleMin: 0.5, scaleMax: 1.9, maxSlope: 0.9, isTree: false, isVegetation: false },
     { name: 'rock-b', geometry: rockGeometry(rng, 0.45, kind === 'natanz' ? kind : look), count: Math.round(700 * rocks), scaleMin: 0.4, scaleMax: 1.5, maxSlope: 0.9, isTree: false, isVegetation: false },

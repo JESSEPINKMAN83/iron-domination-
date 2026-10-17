@@ -3139,6 +3139,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
 
   const rig = new RtsCameraRig(ctx.camera, input, hf);
+  if (import.meta.env.DEV) Object.assign(window, { __ironRig: rig });
   const openingThreat = armies
     .filter((army) => areTeamsHostile(sim, localTeam, army.team) && !army.base.destroyed)
     .sort((a, b) => {

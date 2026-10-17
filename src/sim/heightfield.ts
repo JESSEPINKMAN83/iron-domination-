@@ -108,6 +108,9 @@ export function hasTerrainLineOfSight(
 export function generateHeightfield(cfg: MapConfig): Heightfield {
   const { seed, cells, cellSize, waterLevel } = cfg;
   const kind = cfg.kind ?? 'highlands';
+  // Configs without an explicit kind (tests, the MAP01 fixture) keep the original
+  // generic terrain; only the Golan Heights preset gets its landmarks.
+  const golanTerrain = cfg.kind === 'highlands';
   const samples = cells + 1;
   const size = cells * cellSize;
   const half = size / 2;
@@ -163,6 +166,7 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
         basin * 18.0 -
         lakePocket * 9.0;
       h = waterLevel + (h - waterLevel) * reliefScale;
+      if (golanTerrain) h = golanHeight(wx / size, wz / size, continent, plate, rolling, waterLevel, reliefScale);
       if (kind === 'crater-oasis') {
         const r = Math.hypot(wx, wz);
         const angle = Math.atan2(wz, wx);
@@ -332,6 +336,13 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
         const passIce = smoothstep(size * 0.15, size * 0.035, Math.abs(wz + Math.sin(wx * 0.006) * 38));
         adjustedRockW = Math.max(adjustedRockW, ridgeIce * 0.72);
         dirtW = Math.max(dirtW, windScrape * 0.34, passIce * 0.58);
+      } else if (golanTerrain) {
+        // Basalt boulder fields and exposed rock on the cones and canyon walls.
+        const boulders = smoothstep(0.6, 0.78, fbm2(wx * 0.014 - 7.7, wz * 0.014 + 3.3, seed ^ 0x601a, 3));
+        // Grassy cone flanks; only the steepest scarps and canyon walls show rock.
+        adjustedRockW = Math.min(adjustedRockW, smoothstep(0.62, 1.05, slope) * 0.7);
+        adjustedRockW = Math.max(adjustedRockW, boulders * 0.4);
+        dirtW *= 0.4;
       } else if (kind === 'natanz') {
         const r = Math.hypot(wx, wz);
         const mesaRim = smoothstep(size * 0.11, size * 0.17, r) * smoothstep(size * 0.25, size * 0.19, r);
@@ -408,6 +419,54 @@ function flattenDeploymentShelves(heights: Float32Array, samples: number, cellSi
       }
     }
   }
+}
+
+// Golan Heights (north = −z). A basalt plateau tilting up toward Mount Hermon,
+// dotted with volcanic cones (Bental, Avital, Hermonit…), cut by the Zavitan
+// and Yehudiya canyons, and dropping in a steep escarpment to the Sea of
+// Galilee along the west edge. Bases sit in the four corners, clear of all of it.
+const GOLAN_CONES = [
+  { x: 0.1, z: -0.17, r: 0.085, h: 48 }, // Har Bental
+  { x: 0.27, z: -0.02, r: 0.08, h: 42 }, // Har Avital
+  { x: 0.04, z: 0.12, r: 0.07, h: 34 },
+  { x: -0.13, z: -0.05, r: 0.065, h: 30 },
+  { x: 0.17, z: 0.21, r: 0.065, h: 28 },
+] as const;
+const GOLAN_CANYONS = [
+  { z: -0.02, amp: 0.035, freq: 9.5, phase: 0.4, x0: -0.46, x1: 0.06, width: 0.03, depth: 11 },
+  { z: 0.22, amp: 0.03, freq: 8.0, phase: 1.9, x0: -0.46, x1: 0.0, width: 0.026, depth: 9 },
+] as const;
+
+function golanHeight(
+  nx: number,
+  nz: number,
+  continent: number,
+  plate: number,
+  rolling: number,
+  waterLevel: number,
+  reliefScale: number,
+): number {
+  let g = 11 + (continent - 0.5) * 8 + (plate - 0.5) * 6 + rolling * 1.3;
+  g += -nz * 14; // the plateau climbs toward Hermon
+  const hermon = smoothstep(0.4, 0, Math.hypot(nx * 0.8, nz + 0.6));
+  g += hermon * hermon * 105;
+  for (const cone of GOLAN_CONES) {
+    const d = Math.hypot(nx - cone.x, nz - cone.z);
+    const body = smoothstep(cone.r, 0, d);
+    const crater = smoothstep(cone.r * 0.24, cone.r * 0.06, d);
+    g += cone.h * Math.pow(body, 1.35) - crater * cone.h * 0.18;
+  }
+  for (const canyon of GOLAN_CANYONS) {
+    const along = smoothstep(canyon.x1, canyon.x1 - 0.08, nx) * smoothstep(canyon.x0 - 0.04, canyon.x0 + 0.04, nx);
+    const center = canyon.z + Math.sin(nx * canyon.freq + canyon.phase) * canyon.amp;
+    const cut = smoothstep(canyon.width, canyon.width * 0.3, Math.abs(nz - center));
+    g -= cut * along * canyon.depth;
+  }
+  let h = waterLevel + g * reliefScale;
+  // Sea of Galilee: an elongated north–south lake under the western escarpment.
+  const lake = smoothstep(0.27, 0.215, Math.hypot(nx + 0.63, (nz - 0.05) * 0.72));
+  h = h * (1 - lake) + (waterLevel - 6) * lake;
+  return h;
 }
 
 function oreRadius(kind: MapConfig['kind'], rng: () => number): number {

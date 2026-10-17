@@ -77,7 +77,7 @@ export const MAP_PRESETS = {
     id: 'highlands',
     label: 'Golan Heights',
     shortLabel: 'GOLAN',
-    description: 'Green basalt mountains above the Sea of Galilee: oak woodland, olive groves, steep ridges and balanced oil fields. The classic Code Red front.',
+    description: 'A green basalt plateau climbing to snow-capped Mount Hermon: volcanic cones, oak woodland, deep canyons and a steep drop to the Sea of Galilee.',
     biome: 'temperate',
     atmosphere: {
       sky: '#8fb3d6',
@@ -120,8 +120,8 @@ export const MAP_PRESETS = {
         thicknessMax: 11,
         opacity: 0.32,
       },
-      waterDeep: '#0b3442',
-      waterShallow: '#347c78',
+      waterDeep: '#14506a',
+      waterShallow: '#3f93a3',
     },
     config: {
       kind: 'highlands',
@@ -342,7 +342,9 @@ export const MAP_SIZE_PRESETS = {
 } as const satisfies Record<MapSize, MapSizePreset>;
 export const MAP_SIZE_IDS = Object.keys(MAP_SIZE_PRESETS) as MapSize[];
 export const DEFAULT_MAP_SIZE: MapSize = 'medium';
-export const MAP01: MapConfig = MAP_PRESETS.highlands.config;
+// Stable generic terrain used by simulation tests and the AI acceptance spec.
+const { kind: _golanKind, ...genericHighlands } = MAP_PRESETS.highlands.config;
+export const MAP01: MapConfig = { ...genericHighlands, terrainRelief: 75 };
 
 export function sanitizeMapId(value: unknown): MapId | undefined {
   return typeof value === 'string' && value in MAP_PRESETS ? (value as MapId) : undefined;

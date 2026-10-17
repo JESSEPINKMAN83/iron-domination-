@@ -37,15 +37,15 @@ describe('crushed vegetation lifecycle', () => {
 describe('map vegetation profiles', () => {
   it('gives the Golan green Mediterranean woodland: cypress, Aleppo pine, oak and olive', () => {
     expect(VEGETATION_COUNTS.highlands).toEqual({
-      cypress: 300,
-      pine: 420,
-      oak: 760,
-      olive: 520,
+      cypress: 110,
+      pine: 340,
+      oak: 980,
+      olive: 380,
       snag: 50,
-      shrub: 640,
+      shrub: 720,
       fallenLog: 40,
     });
-    expect(treeTotal('highlands')).toBe(2050);
+    expect(treeTotal('highlands')).toBe(1860);
     expect(treeTotal('highlands')).toBeLessThan(2300);
   });
 
