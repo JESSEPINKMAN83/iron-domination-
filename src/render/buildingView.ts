@@ -460,6 +460,17 @@ export class BuildingView {
     return wallHit && (!detailedHit || wallHit.distance < detailedHit.distance) ? wallHit.entity : hit ? roots.get(hit) : undefined;
   }
 
+  /** Authoring only: the intact in-game model, without health/name overlays. */
+  createThumbnailModel(entity: Entity): Group {
+    const model = this.createBuildingObject(entity);
+    for (const block of model.blocks) block.mesh.visible = false;
+    model.intactHull.visible = true;
+    model.accents[1].visible = false;
+    const shadow = model.root.getObjectByName('building-shadow-envelope');
+    if (shadow) shadow.visible = false;
+    return model.root;
+  }
+
   private createBuildingObject(entity: Entity): BuildingObject {
     const root = new Group();
     const damage = structureDamageFor(entity);

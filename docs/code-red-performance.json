@@ -1,0 +1,36 @@
+{
+  "scenario": "seed=7; armies=4; stress-bases=26; stress-infantry=60; combat=manual; time=day; weather=clear; quality=full",
+  "method": "Sequential 20-second warm-up and 20-second sampling windows. No tests or builds running during either measurement. Same viewport, quality and render scale. Single local machine; not a universal performance guarantee.",
+  "baseline": {
+    "models": "baseline",
+    "averageMs": 10.24,
+    "p95Ms": 16.8,
+    "frames": 1954,
+    "averageDrawCalls": 555,
+    "averageTriangles": 2867538,
+    "geometries": 276,
+    "textures": 47,
+    "quality": [
+      "FULL @ 1.25x"
+    ],
+    "viewport": "1600 \u00d7 900",
+    "buildings": 149,
+    "units": 632
+  },
+  "redesign": {
+    "models": "code-red",
+    "averageMs": 10.17,
+    "p95Ms": 16.9,
+    "frames": 1967,
+    "averageDrawCalls": 537,
+    "averageTriangles": 2755610,
+    "geometries": 262,
+    "textures": 47,
+    "quality": [
+      "FULL @ 1.25x"
+    ],
+    "viewport": "1600 \u00d7 900",
+    "buildings": 149,
+    "units": 632
+  }
+}

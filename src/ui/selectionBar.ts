@@ -1002,9 +1002,6 @@ function initials(label: string): string {
     .toUpperCase();
 }
 
-function commandIconPath(kind: string): string {
-  return `/assets/ui/command-icons/${kind}.png`;
-}
 
 function factionAccent(team: number): string {
   return `#${FACTION[factionId(team)].accent.toString(16).padStart(6, '0')}`;

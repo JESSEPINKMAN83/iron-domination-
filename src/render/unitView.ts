@@ -709,6 +709,12 @@ export class UnitView {
     for (const entity of entities) this.addEntity(entity);
   }
 
+  /** Authoring only: uses the same factory and visual scale as live units. */
+  createThumbnailModel(entity: Entity): Object3D {
+    this.addEntity(entity);
+    return this.objects.get(entity)!;
+  }
+
   addEntity(entity: Entity): void {
     if (this.objects.has(entity)) return;
     this.entities.push(entity);
@@ -3084,6 +3090,12 @@ export function createAircraftObject(kind: UnitVisualKind, materials: TeamMateri
     if(apache) {
       for(const side of [-1,1]) group.add(box(.6,.55,1.8,materials.dark,side*.96,.7,-.85));
       const radar=new Mesh(sharedCylinderGeometry(.6,.6,.3,12),materials.dark);radar.position.y=2;group.add(radar);
+    }
+  }
+  if (!legacyModelPreview) {
+    const excluded = new Set(missileRack);
+    for (const [role, material] of [...Object.entries(materials), ['rotor-metal', rotorMaterial]] as Array<[string, Material]>) {
+      mergeDirectMeshesByMaterial(group, material, `code-red-${kind}-airframe-${role}`, excluded);
     }
   }
   return { root: group, refs: { mainRotors, tailRotors, missileRack } };

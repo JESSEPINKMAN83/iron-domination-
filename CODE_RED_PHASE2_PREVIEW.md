@@ -46,3 +46,31 @@ Local review only; no merge or deployment.
 The handoff explicitly places the landing film re-render after the models land. The existing film remains for this model-review checkpoint; re-render it once silhouettes are approved. No flight model, AI, costs, damage, range, nation labels, or gameplay balance was changed. Hammerhead remains a helicopter.
 
 Phase 1 is not merged. Keep this branch based on Phase 1; do not merge this preview directly into main or deploy it before Dani's play-test.
+
+
+## Thumbnail refresh and clean performance check
+
+Review: http://127.0.0.1:5183/?code-red-thumbnails=1
+
+- Replaced the initial 30 loosely framed captures with 54 consistently lit, model-derived portraits, covering every unit/building for both doctrines and all eight HQ flags.
+- Actual game factories now supply building bodies, dimensions, unit visual scales and materials; no proxy building boxes.
+- All portraits are 256 × 192 WebP (same decoded dimensions as legacy PNGs), totaling 198,316 bytes versus the legacy PNG set's 1,151,275 bytes.
+- Sidebar and selection cards preserve complete silhouettes and faction colors; removed the old crop and luminosity blend. Card size is unchanged.
+- The normal gallery and in-game UI use static images. Offline rendering and performance diagnostics are excluded from the production JS.
+- Static helicopter panels are merged per material, retaining independent rotors and reloadable missiles. Three added regression tests cover those contracts.
+- Full suite: 727 tests across 95 files pass. Production build passes.
+
+Clean stress comparison, after all builds/tests completed: 149 buildings, 632 units, fixed FULL quality at 1.25× render scale and 1600 × 900 output. Each run used 20 seconds warm-up and 20 seconds sampling.
+
+| Metric | Before models | Current redesign |
+| --- | ---: | ---: |
+| Average frame time | 10.24 ms | 10.17 ms |
+| p95 frame time | 16.80 ms | 16.90 ms |
+| Average draw calls | 555 | 537 |
+| Average triangles | 2,867,538 | 2,755,610 |
+| Resident geometries | 276 | 262 |
+| GPU textures | 47 | 47 |
+
+No measurable frame-time regression in this test. The 0.1 ms p95 difference is within ordinary browser timing noise; this is one local paired sample, not a guarantee for every GPU or gameplay state. Graphics quality was not reduced. See `docs/code-red-performance.json` for raw counters.
+
+Local browser verification: all 54 final WebPs load at 256 pixels wide; build and selected-force cards use the new paths with `object-fit: contain` and normal color blending. Aircraft tab shows all three matching silhouettes. No browser console errors observed.

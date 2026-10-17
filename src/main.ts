@@ -2988,6 +2988,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (groundTrails) ctx.scene.add(groundTrails.mesh);
   const buildingView = new BuildingView(sim, hf, ctx, isVisibleToPlayer);
   ctx.scene.add(buildingView.group);
+  if (import.meta.env.DEV && params.get('model-timing') === '1') {
+    const { showModelPerformance } = await import('./dev/modelPerformance');
+    showModelPerformance(ctx, sim);
+  }
   scatter.syncBuildingContacts(sim.world.entities, hf);
   unitView.setAccentEmissiveMul(liveAtmosphereSnapshot.accentEmissiveMul);
   buildingView.setAccentEmissiveMul(liveAtmosphereSnapshot.accentEmissiveMul);
@@ -6171,14 +6175,15 @@ function findValidTestPlacement(
 
 async function start(): Promise<void> {
   const params = new URLSearchParams(location.search);
+  if (import.meta.env.DEV && params.get('code-red-thumbnails') === '1') {
+    const { showCodeRedThumbnails } = await import('./dev/codeRedThumbnails');
+    await showCodeRedThumbnails();
+    return;
+  }
   if (import.meta.env.DEV && params.get('code-red-models') === '1') {
     const { showCodeRedStudio } = await import('./dev/codeRedStudio');
     await showCodeRedStudio();
     return;
-  }
-  if (import.meta.env.DEV && params.get('model-timing') === '1') {
-    const { showModelPerformance } = await import('./dev/modelPerformance');
-    showModelPerformance();
   }
   const sfxPreview = params.get('sfx-preview');
   if (!isPublicHost(location.hostname) && (sfxPreview === 'all' || sfxPreview === 'strategic')) {
