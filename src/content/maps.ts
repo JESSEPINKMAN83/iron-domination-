@@ -77,21 +77,21 @@ export const MAP_PRESETS = {
     id: 'highlands',
     label: 'Golan Heights',
     shortLabel: 'GOLAN',
-    description: 'Basalt uplands above the Sea of Galilee: limestone ridges, olive groves and balanced oil fields. The classic Code Red front.',
+    description: 'A green basalt plateau climbing to snow-capped Mount Hermon: volcanic cones, oak woodland, deep canyons and a steep drop to the Sea of Galilee.',
     biome: 'temperate',
     atmosphere: {
-      sky: '#a9c2d4',
-      skyZenith: '#5a93c4',
-      skyHorizon: '#eee3c9',
-      sunGlow: '#ffe9b0',
-      sunStrength: 0.9,
+      sky: '#8fb3d6',
+      skyZenith: '#4f91cc',
+      skyHorizon: '#d7e9f4',
+      sunGlow: '#fff1bd',
+      sunStrength: 0.82,
       sunColor: '#fff3d2',
       sunDirection: [-0.5, -0.85, -0.32],
       exposure: 1.08,
       fogNear: 650,
       fogFar: 1900,
       hemisphereSky: 0xcfe0f2,
-      hemisphereGround: 0x9a8560,
+      hemisphereGround: 0x7d7a58,
       hemisphereIntensity: 0.75,
       cloudLight: '#fffdf4',
       cloudShade: '#d8e4eb',
@@ -120,8 +120,8 @@ export const MAP_PRESETS = {
         thicknessMax: 11,
         opacity: 0.32,
       },
-      waterDeep: '#0b3442',
-      waterShallow: '#347c78',
+      waterDeep: '#14506a',
+      waterShallow: '#3f93a3',
     },
     config: {
       kind: 'highlands',
@@ -130,7 +130,7 @@ export const MAP_PRESETS = {
       cellSize: 2,
       waterLevel: 2.0,
       oreFieldCount: 5,
-      terrainRelief: 75,
+      terrainRelief: 125,
     },
   },
   'crater-oasis': {
@@ -342,7 +342,9 @@ export const MAP_SIZE_PRESETS = {
 } as const satisfies Record<MapSize, MapSizePreset>;
 export const MAP_SIZE_IDS = Object.keys(MAP_SIZE_PRESETS) as MapSize[];
 export const DEFAULT_MAP_SIZE: MapSize = 'medium';
-export const MAP01: MapConfig = MAP_PRESETS.highlands.config;
+// Stable generic terrain used by simulation tests and the AI acceptance spec.
+const { kind: _golanKind, ...genericHighlands } = MAP_PRESETS.highlands.config;
+export const MAP01: MapConfig = { ...genericHighlands, terrainRelief: 75 };
 
 export function sanitizeMapId(value: unknown): MapId | undefined {
   return typeof value === 'string' && value in MAP_PRESETS ? (value as MapId) : undefined;

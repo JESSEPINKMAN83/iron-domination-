@@ -1379,6 +1379,15 @@ interface FlightCommand {
   aimYaw?: number;
 }
 
+/**
+ * The authored ceiling is absolute, which is fine over the plateau but would
+ * bury aircraft inside a mountain taller than it. Always leave cruise room
+ * above the ground directly below.
+ */
+export function flightCeiling(flight: { maxAltitude: number; cruiseAltitude: number }, ground: number): number {
+  return Math.max(flight.maxAltitude, ground + flight.cruiseAltitude);
+}
+
 export function aircraftTurnRateAtSpeed(hoverRate: number, cruiseRate: number, speed: number, cruiseSpeed: number): number {
   const fraction = clamp(speed / Math.max(1, cruiseSpeed), 0, 1);
   const base = lerp(hoverRate, cruiseRate, fraction);
@@ -1419,10 +1428,10 @@ function stepAttackThroughFlight(sim: GameSim, hf: Heightfield, entity: MovingEn
     flight.rollAttitude *= 1 - settle;
     flight.bank = flight.rollAttitude;
     const ground = sampleHeight(hf, transform.x, transform.z);
-    const desiredY = Math.min(flight.maxAltitude, ground + flight.cruiseAltitude);
+    const desiredY = Math.min(flightCeiling(flight, ground), ground + flight.cruiseAltitude);
     const currentY = transform.y ?? desiredY;
     flight.verticalVelocity = clamp((desiredY - currentY) * 1.6, -model.climbRate, model.climbRate);
-    transform.y = clamp(currentY + flight.verticalVelocity * dt, ground + flight.minAGL, flight.maxAltitude);
+    transform.y = clamp(currentY + flight.verticalVelocity * dt, ground + flight.minAGL, flightCeiling(flight, ground));
     return;
   }
   const heading = Math.atan2(dx, dz);
@@ -1471,10 +1480,10 @@ function stepAttackThroughFlight(sim: GameSim, hf: Heightfield, entity: MovingEn
   flight.rollAttitude += (clamp(-turn / Math.max(dt, 0.001) * travelSpeed * 0.012, -model.maxTiltRoll, model.maxTiltRoll) - flight.rollAttitude) * attitudeT;
   flight.bank = flight.rollAttitude;
   const ground = sampleHeight(hf, transform.x, transform.z);
-  const desiredY = Math.min(flight.maxAltitude, ground + flight.cruiseAltitude);
+  const desiredY = Math.min(flightCeiling(flight, ground), ground + flight.cruiseAltitude);
   const currentY = transform.y ?? desiredY;
   flight.verticalVelocity = clamp((desiredY - currentY) * 1.6, -model.climbRate, model.climbRate);
-  transform.y = clamp(currentY + flight.verticalVelocity * dt, ground + flight.minAGL, flight.maxAltitude);
+  transform.y = clamp(currentY + flight.verticalVelocity * dt, ground + flight.minAGL, flightCeiling(flight, ground));
 }
 
 function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, maxMoverRadius: number, dt: number): void {
@@ -1628,7 +1637,7 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
   const climbAccel = model.climbAccel * boost;
   let targetVy = command.climb * climbRate;
   if (!entity.playerControlled) {
-    const desiredY = Math.min(flight.maxAltitude, Math.max(ground + flight.cruiseAltitude, ahead + flight.minAGL));
+    const desiredY = Math.min(flightCeiling(flight, Math.max(ground, ahead)), Math.max(ground + flight.cruiseAltitude, ahead + flight.minAGL));
     targetVy = clamp((desiredY - currentY) * 1.6, -climbRate, climbRate);
   } else if (currentY < ahead + flight.minAGL + 0.5) {
     targetVy = Math.max(targetVy, climbRate * 0.7);
@@ -1666,7 +1675,7 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
     if (entity.health) entity.health.current = Math.max(1, entity.health.current - 10);
     sim.events.push({ kind: 'hard-bounce', fromX: transform.x, fromZ: transform.z, toX: transform.x, toZ: transform.z, damage: 10, killed: false });
   }
-  transform.y = Math.min(transform.y, flight.maxAltitude);
+  transform.y = Math.min(transform.y, flightCeiling(flight, ground));
 }
 
 function possessedFlightCommand(entity: MovingEntity): FlightCommand {

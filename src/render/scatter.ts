@@ -303,15 +303,15 @@ interface ScatterDef {
 }
 
 export const VEGETATION_COUNTS = {
-  // Golan / Galilee: oak scrub, olive groves, cypress and planted Aleppo pine.
+  // Golan: Tabor-oak woodland on basalt pasture, planted pine, orchards, a few cypress.
   highlands: {
-    cypress: 260,
-    pine: 220,
-    oak: 520,
-    olive: 620,
-    snag: 60,
-    shrub: 620,
-    fallenLog: 30,
+    cypress: 110,
+    pine: 340,
+    oak: 980,
+    olive: 380,
+    snag: 50,
+    shrub: 720,
+    fallenLog: 40,
   },
   // Negev: acacia washes and date palms around the spring.
   'crater-oasis': {
@@ -342,7 +342,8 @@ export const VEGETATION_COUNTS = {
 function scatterDefs(kind: Heightfield['kind'], rng: () => number): ScatterDef[] {
   // Natanz reuses the arid geometry palette with its own, sparser counts.
   const look: Heightfield['kind'] = isDesertKind(kind) ? 'crater-oasis' : kind;
-  const rocks = isDesertKind(kind) ? 1.45 : kind === 'frostbite-pass' ? 1.25 : 1;
+  // The Golan is famous for its basalt boulder fields.
+  const rocks = isDesertKind(kind) ? 1.45 : kind === 'frostbite-pass' ? 1.25 : 1.6;
   const commonRocks: ScatterDef[] = [
     { name: 'rock-a', geometry: rockGeometry(rng, 0.72, kind === 'natanz' ? kind : look), count: Math.round(800 * rocks), scaleMin: 0.5, scaleMax: 1.9, maxSlope: 0.9, isTree: false, isVegetation: false },
     { name: 'rock-b', geometry: rockGeometry(rng, 0.45, kind === 'natanz' ? kind : look), count: Math.round(700 * rocks), scaleMin: 0.4, scaleMax: 1.5, maxSlope: 0.9, isTree: false, isVegetation: false },
@@ -738,7 +739,7 @@ function createGroundTufts(hf: Heightfield, seed: number, macro?: MacroTintMap):
     ) / 1.8;
     if (slope > 0.55) continue;
     const macroColor = sampleMacroTint(macro, x, z);
-    const base = hf.kind === 'natanz' ? new Color('#b9ad8c') : isDesertKind(hf.kind) ? new Color('#c0a465') : hf.kind === 'frostbite-pass' ? new Color('#d2dfdc') : new Color('#a89a5e');
+    const base = hf.kind === 'natanz' ? new Color('#b9ad8c') : isDesertKind(hf.kind) ? new Color('#c0a465') : hf.kind === 'frostbite-pass' ? new Color('#d2dfdc') : new Color('#7f9a5c');
     base.multiply(macroColor).multiplyScalar(0.86 + rng() * 0.24);
     result.push({ x, y: h + 0.02, z, rotY: rng() * Math.PI * 2, scale: 0.82 + rng() * 0.72, tint: base });
   }

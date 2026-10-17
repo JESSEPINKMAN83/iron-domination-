@@ -1337,10 +1337,9 @@ export class Sidebar {
         const rock = this.hf.splat[splat + 2] / 255;
         const dirt = this.hf.splat[splat + 1] / 255;
         const height = this.hf.heights[sample];
-        // Golan: dry golden grass over dark basalt.
-        let r = 92 + dirt * 30 + ore * 44 + rock * -18;
-        let g = 86 + dirt * 10 + ore * 26 + rock * -14;
-        let b = 46 + dirt * 4 + ore * 10 + rock * 6;
+        let r = 38 + dirt * 36 + ore * 48 + rock * 14;
+        let g = 72 + dirt * 8 + ore * 28 + rock * -4;
+        let b = 38 + dirt * 4 + ore * 12 + rock * 14;
         if (this.hf.kind === 'natanz') {
           r = 150 + dirt * 18 + ore * 44 + rock * -10;
           g = 138 + dirt * 14 + ore * 26 + rock * -8;

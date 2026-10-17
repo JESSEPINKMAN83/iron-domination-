@@ -789,7 +789,7 @@ function normalizeOreAmount(value) {
 
 function normalizeTerrainRelief(value, mapId = 'highlands') {
   const relief = Number(value);
-  const fallback = mapId === 'crater-oasis' ? 125 : mapId === 'frostbite-pass' ? 100 : 75;
+  const fallback = mapId === 'crater-oasis' || mapId === 'highlands' ? 125 : 100;
   if (!Number.isFinite(relief)) return fallback;
   return Math.max(50, Math.min(150, Math.round(relief / 25) * 25));
 }

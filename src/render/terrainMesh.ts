@@ -23,6 +23,7 @@ import {
   Quaternion,
   RGBAFormat,
   TetrahedronGeometry,
+  Vector2,
   Vector3,
 } from 'three';
 import type { CSM } from 'three/addons/csm/CSM.js';
@@ -662,6 +663,12 @@ function createSplatMaterial(
     shader.uniforms.uOre = { value: ore };
     shader.uniforms.uMacroTint = { value: macroTint.texture };
     shader.uniforms.uTiling = { value: tiling };
+    // Golan only: Mount Hermon's summit carries snow above a relative height.
+    const snowStart = hf.kind === 'highlands' ? Math.max(hf.waterLevel + 40, hf.maxHeight * 0.66) : 1e6;
+    shader.uniforms.uSnowLine = { value: new Vector2(snowStart, snowStart + Math.max(8, hf.maxHeight * 0.14)) };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n        varying float vTerrainY;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n        vTerrainY = (modelMatrix * vec4(transformed, 1.0)).y;');
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <map_pars_fragment>',
@@ -672,7 +679,9 @@ function createSplatMaterial(
         uniform sampler2D uRock;
         uniform sampler2D uOre;
         uniform sampler2D uMacroTint;
-        uniform float uTiling;`,
+        uniform float uTiling;
+        uniform vec2 uSnowLine;
+        varying float vTerrainY;`,
       )
       .replace(
         '#include <map_fragment>',
@@ -690,6 +699,8 @@ function createSplatMaterial(
           macroTint = clamp(vec3(1.0) + (macroTint - vec3(1.0)) * 2.35, vec3(0.58), vec3(1.42));
           splatCol *= ${groundRealism ? 'macroTint' : 'vec3(1.0)'};
           diffuseColor.rgb *= splatCol;
+          float snow = smoothstep(uSnowLine.x, uSnowLine.y, vTerrainY) * (1.0 - splatW.a);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.93, 0.96), snow * 0.9);
         }`,
       );
   };
