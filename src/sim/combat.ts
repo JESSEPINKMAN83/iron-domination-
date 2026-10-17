@@ -1471,6 +1471,7 @@ function launchStrategicInterceptor(
     toZ: destination.z,
     sourceTeamId: defender.team.id,
     sourceClass: sourceKind === 'tower' ? 'tower' : 'aircraft',
+    sourceBuildingKind: defender.building?.kind,
     targetTeamId: strategic.teamId,
     targetLabel: sourceKind === 'tower' ? 'Missile defense interceptor' : 'Aircraft interceptor',
     targetType: 'aircraft',

@@ -51,6 +51,8 @@ export interface CombatEvent {
   sourceTeamId?: number;
   /** Broad launcher class used only for local sound selection. */
   sourceClass?: 'infantry' | 'vehicle' | 'aircraft' | 'tower';
+  /** Render-only launcher identity; does not affect interception or damage. */
+  sourceBuildingKind?: string;
   /** Defending army for warnings or effects that are aimed at a team rather than one entity. */
   targetTeamId?: number;
   targetId?: number;

@@ -1,3 +1,6 @@
+import { legacyModelPreview } from './codeRedPreview';
+import { nationForTeam } from '../content/nations';
+import { createCodeRedVehicle } from './codeRedModels';
 import { UnitBatchLod } from './unitBatchLod';
 import { BattlefieldCulling, setEntityRenderActive } from './battlefieldCulling';
 import {
@@ -714,7 +717,7 @@ export class UnitView {
     const materials = this.teamMaterials[factionId(entity.team?.id)];
     let built: BuiltUnit;
     if (kind === 'rifle' || kind === 'grenadier' || kind === 'rocket' || kind === 'sniper') {
-      const rig = buildSoldier(this.soldierMaterials(materials), kind);
+      const rig = buildSoldier(this.soldierMaterials(materials), kind, nationForTeam(entity.team?.id)?.doctrine);
       this.soldierRigs.set(entity, rig);
       this.anims.set(entity, {
         phase: 0,
@@ -752,12 +755,12 @@ export class UnitView {
     } else if (kind === 'harvester') {
       built = createHarvesterObject(materials, this.gunmetalMaterial);
     } else {
-      built = createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial);
+      built = legacyModelPreview ? createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial) : createCodeRedVehicle(kind, nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion', materials, this.gunmetalMaterial, this.muzzleMaterial);
     }
     const unit = built.root;
     if (!entity.flight) {
       // Bake before upgrades, overlays and scale are attached to the root.
-      const batchKey = `${kind}:${factionId(entity.team?.id)}`;
+      const batchKey = `${kind}:${factionId(entity.team?.id)}:${nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion'}`;
       const rig = this.soldierRigs.get(entity);
       this.batchLod.bake(batchKey, unit, built.refs.turretPivot, rig ? [rig.combatBike, rig.muzzleFlash] : []);
       if (this.batchLod.has(batchKey)) this.batchKeys.set(entity, batchKey);
@@ -2640,7 +2643,7 @@ function compactHarvesterMeshes(
   }
 }
 
-function createVehicleObject(
+export function createVehicleObject(
   kind: UnitVisualKind,
   materials: TeamMaterials,
   gunmetal: Material,
@@ -3018,7 +3021,7 @@ function createHarvesterObject(materials: TeamMaterials, gunmetal: Material): Bu
   };
 }
 
-function createAircraftObject(kind: UnitVisualKind, materials: TeamMaterials, rotorMaterial: Material): BuiltUnit {
+export function createAircraftObject(kind: UnitVisualKind, materials: TeamMaterials, rotorMaterial: Material): BuiltUnit {
   const group = new Group();
   const mainRotors: Object3D[] = [];
   const tailRotors: Object3D[] = [];
@@ -3067,6 +3070,21 @@ function createAircraftObject(kind: UnitVisualKind, materials: TeamMaterials, ro
     }
     group.add(box(0.24, 0.82, 0.72, materials.accent, 0, 0.82, -5.25));
     group.add(box(0.42, 0.38, 0.42, materials.lightBar, 0, 0.65, -6.05));
+  }
+  if (!legacyModelPreview && (kind === 'wasp' || kind === 'vulture')) {
+    const apache = kind === 'vulture';
+    for (const [y,z] of [[.65,apache?1.75:1.05],[.9,apache?.55:.15]]) {
+      group.add(angledBox(apache?.92:.65,.48,.95,rotorMaterial,0,y,z,-.2));
+      group.add(box(.08,.08,.98,materials.accent,0,y+.25,z));
+    }
+    group.add(box(apache?4.4:2.6,.12,.62,materials.hull,0,.08,.3));
+    const chin = new Mesh(sharedCylinderGeometry(.25,.32,.35,10),rotorMaterial);
+    chin.position.set(0,-.4,apache?2.5:1.5); group.add(chin);
+    group.add(box(.12,.12,1.1,rotorMaterial,0,-.48,apache?3:2));
+    if(apache) {
+      for(const side of [-1,1]) group.add(box(.6,.55,1.8,materials.dark,side*.96,.7,-.85));
+      const radar=new Mesh(sharedCylinderGeometry(.6,.6,.3,12),materials.dark);radar.position.y=2;group.add(radar);
+    }
   }
   return { root: group, refs: { mainRotors, tailRotors, missileRack } };
 }

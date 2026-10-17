@@ -1,3 +1,4 @@
+import { codeRedIconPath } from './codeRedIcons';
 import { armyTag } from '../content/nations';
 import { groupOrderFeedback } from './orderFeedback';
 import type { FormationPreset } from '../sim/formations';
@@ -682,7 +683,7 @@ export class SelectionBar {
       'position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#252b2d,#0d1112);color:#9de5c4;font-size:15px;z-index:1;';
     fallback.textContent = initials(group.label);
     const img = document.createElement('img');
-    img.src = commandIconPath(group.kind);
+    img.src = codeRedIconPath(group.kind, group.entities[0]?.team?.id);
     img.alt = '';
     img.style.cssText = 'position:relative;z-index:2;width:100%;height:100%;object-fit:cover;display:block;';
     img.onerror = () => img.remove();

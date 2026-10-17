@@ -1,3 +1,5 @@
+import { legacyModelPreview } from './codeRedPreview';
+import { codeRedStructure } from './codeRedStructures';
 import { createIntactHull, canBatchIntactHull } from './buildingHullBatch';
 import { WallBatch, canBatchWall } from './wallBatch';
 import { BattlefieldCulling, setEntityRenderActive } from './battlefieldCulling';
@@ -740,6 +742,7 @@ export class BuildingView {
   // canvas texture, glow/dock/health geometries and their materials) is per-building.
   private isSharedMaterial(m: Material): boolean {
     return (
+      m.userData.codeRedSharedMaterial === true ||
       Object.values(this.accentMaterials).includes(m) ||
       m === this.healthBackMaterial ||
       m === this.healthFrameMaterial ||
@@ -1357,11 +1360,12 @@ function facadeOutward(block: DamageBlock, damage: StructureDamage): { x: number
   return { x: edgeX / len, z: edgeZ / len };
 }
 
-function heightForStructure(kind?: string): number {
+export function heightForStructure(kind?: string): number {
   if (kind === 'wall') return WALL_HEIGHT;
-  if (kind === 'guard-tower' || kind === 'aa-tower') return 10.5;
-  if (kind === 'missile-defense') return 8.4;
-  if (kind === 'skylance-ciws') return 5.6;
+  if (kind === 'guard-tower') return 10.5;
+  if (kind === 'aa-tower') return legacyModelPreview ? 10.5 : 2.4;
+  if (kind === 'missile-defense') return legacyModelPreview ? 8.4 : 2.4;
+  if (kind === 'skylance-ciws') return legacyModelPreview ? 5.6 : 2.4;
   if (kind === 'intelligence-center') return 6.6;
   if (kind === 'strategic-silo') return 4.4;
   if (kind === 'helipad') return 4.8;
@@ -1398,7 +1402,7 @@ interface BuildingActivityPart {
   baseRz: number;
 }
 
-function createBuildingDetails(entity: Entity, width: number, depth: number, height: number, accentMaterial: Material): Group {
+export function createBuildingDetails(entity: Entity, width: number, depth: number, height: number, accentMaterial: Material): Group {
   const root = new Group();
   const kind = entity.building?.kind ?? 'command-yard';
   const concrete = detailMaterial(0x69706f, 0.84, 0.06);
@@ -1531,7 +1535,11 @@ function createBuildingDetails(entity: Entity, width: number, depth: number, hei
     for (const x of [-width * 0.38, width * 0.38]) perimeterLight('faction-status-light', x, height * 0.72, depth * 0.532);
   }
 
-  if (kind === 'command-yard') {
+  const codeRed = legacyModelPreview ? { handled: false, turret: undefined } : codeRedStructure(entity, width, depth, height, accentMaterial, { add, box });
+  if (codeRed.turret) root.userData.turretPivot = codeRed.turret;
+  if (codeRed.handled) {
+    // Assemblies are already registered as destructible details.
+  } else if (kind === 'command-yard') {
     box('hq-operations-wing', width * 0.64, height * 0.34, depth * 0.6, -width * 0.12, height * 1.17, 0, concrete, 7);
     box('hq-roof-overhang', width * 0.72, 0.24, depth * 0.68, -width * 0.12, height * 1.36, 0, roof, 6);
     box('hq-observation-window', width * 0.54, height * 0.13, 0.12, -width * 0.12, height * 1.19, depth * 0.305, glass, 4);

@@ -1,3 +1,4 @@
+import { codeRedIconPath } from './codeRedIcons';
 import { isDesertKind } from '../sim/heightfield';
 import { armyTag } from '../content/nations';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
@@ -837,7 +838,7 @@ export class Sidebar {
       `color:${state.enabled || state.ready ? '#9de5c4' : '#6f7772'};font-size:18px;z-index:1;`;
     fallback.textContent = initials(label);
     const img = document.createElement('img');
-    img.src = commandIconPath(kind);
+    img.src = codeRedIconPath(kind, this.economy.team);
     img.alt = '';
     img.style.cssText = 'position:relative;z-index:2;width:100%;height:100%;object-fit:cover;display:block;';
     img.onerror = () => img.remove();
@@ -924,7 +925,7 @@ export class Sidebar {
     icon.className = 'game-thumbnail';
     icon.style.cssText = commandIconCss(true) + 'min-height:42px;';
     const img = document.createElement('img');
-    img.src = commandIconPath(entity.building?.kind ?? 'command-yard');
+    img.src = codeRedIconPath(entity.building?.kind ?? 'command-yard', entity.team?.id);
     img.alt = '';
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
     img.onerror = () => img.remove();

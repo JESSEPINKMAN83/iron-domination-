@@ -6171,6 +6171,15 @@ function findValidTestPlacement(
 
 async function start(): Promise<void> {
   const params = new URLSearchParams(location.search);
+  if (import.meta.env.DEV && params.get('code-red-models') === '1') {
+    const { showCodeRedStudio } = await import('./dev/codeRedStudio');
+    await showCodeRedStudio();
+    return;
+  }
+  if (import.meta.env.DEV && params.get('model-timing') === '1') {
+    const { showModelPerformance } = await import('./dev/modelPerformance');
+    showModelPerformance();
+  }
   const sfxPreview = params.get('sfx-preview');
   if (!isPublicHost(location.hostname) && (sfxPreview === 'all' || sfxPreview === 'strategic')) {
     showSfxPreview();
