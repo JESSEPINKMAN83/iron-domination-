@@ -6185,6 +6185,11 @@ async function start(): Promise<void> {
     await showCodeRedStudio();
     return;
   }
+  if (import.meta.env.DEV && params.get('thumbnail-studio') === '1') {
+    const { showThumbnailStudio } = await import('./dev/thumbnailStudio');
+    await showThumbnailStudio();
+    return;
+  }
   const sfxPreview = params.get('sfx-preview');
   if (!isPublicHost(location.hostname) && (sfxPreview === 'all' || sfxPreview === 'strategic')) {
     showSfxPreview();

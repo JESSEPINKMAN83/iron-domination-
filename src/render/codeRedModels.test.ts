@@ -1,5 +1,5 @@
 import { describe,it,expect } from 'vitest';
-import { Box3, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3 } from 'three';
+import { Box3, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial } from 'three';
 import { createCodeRedVehicle } from './codeRedModels';
 import { UnitBatchLod } from './unitBatchLod';
 import { createBuildingDetails } from './buildingView';

@@ -12,7 +12,6 @@ import {
   canQueueUnit,
   canUpgradeStrategicAccuracy,
   canUpgradeStrategicMissile,
-  hasStructure,
   isStructureReady,
   readyStructureInLane,
   structureLineInLane,
