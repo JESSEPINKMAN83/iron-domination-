@@ -160,9 +160,14 @@
 }
 
 .iron-landing__hero h1 {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: .18em;
+  white-space: nowrap;
   margin: 0;
   font-family: 'Teko', 'Arial Narrow', Impact, sans-serif;
-  font-size: clamp(90px, 11.34vw, 171px);
+  font-size: clamp(90px, 16vw, 220px);
   font-weight: 700;
   line-height: .76;
   letter-spacing: .025em;
@@ -172,10 +177,10 @@
 }
 
 .iron-landing__hero h1 span {
-  display: block;
+  display: inline-block;
   width: max-content;
   max-width: 100%;
-  margin-inline: auto;
+  margin: 0;
   color: #eef2e9;
   -webkit-text-fill-color: currentColor;
   -webkit-text-stroke: 0;
@@ -183,7 +188,7 @@
 }
 
 .iron-landing__hero h1 span + span {
-  margin-top: .02em;
+  margin-top: 0;
   color: #e5382c;
   text-shadow: 0 2px 0 rgba(0, 0, 0, .7), 0 0 34px rgba(229, 56, 44, .35);
 }
@@ -511,7 +516,7 @@
 @media (max-width: 560px) {
   .iron-landing__music-toggle { right: 10px; bottom: 10px; min-height: 30px; padding: 6px 9px; font-size: 9px; }
   .iron-landing__hero { padding: clamp(54px, 12vh, 90px) 10px 24px; }
-  .iron-landing__hero h1 { font-size: clamp(48.6px, 13.95vw, 68.4px); letter-spacing: -.025em; }
+  .iron-landing__hero h1 { font-size: clamp(48px, 20vw, 112px); letter-spacing: .01em; }
   .iron-landing__copy { font-size: clamp(18px, 5.5vw, 25px); letter-spacing: .025em; white-space: normal; }
   .iron-landing__fields { grid-template-columns: 1fr; }
   .iron-landing__cta { width: min(100%, 320px); min-width: 0; min-height: 62px; padding: 12px 24px; font-size: 28px; }
