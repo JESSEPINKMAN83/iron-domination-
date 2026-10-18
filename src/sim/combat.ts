@@ -1205,7 +1205,7 @@ function stepProjectiles(sim: GameSim, dt: number): void {
     } else if (projectile.trajectory === 'arc') {
       const fromY = projectile.fromY ?? 1.8;
       const toY = projectile.toY ?? 1.2;
-      const lift = Math.min(28, Math.hypot(projectile.toX - projectile.fromX, projectile.toZ - projectile.fromZ) * 0.32);
+      const lift = projectile.strategicLift ?? Math.min(28, Math.hypot(projectile.toX - projectile.fromX, projectile.toZ - projectile.fromZ) * 0.32);
       projectile.y = fromY + (toY - fromY) * t + Math.sin(t * Math.PI) * lift;
     } else if (projectile.trajectory === 'drop') {
       const fromY = projectile.fromY ?? 20;
@@ -1242,6 +1242,8 @@ function stepProjectiles(sim: GameSim, dt: number): void {
 const MISSILE_DEFENSE_RADIUS = 190;
 const MISSILE_DEFENSE_FIRE_INTERVAL_TICKS = 18;
 const DEFENSE_INTERCEPTOR_SPEED = 132;
+export const EARLY_INTERCEPT_RADIUS = 420;
+const EARLY_INTERCEPT_SPEED = 190;
 const MISSILE_DEFENSE_DAMAGE = 20;
 const AIRCRAFT_INTERCEPT_DAMAGE = 10;
 const SKYLANCE_DAMAGE = 8;
@@ -1252,6 +1254,22 @@ function launchStrategicDefenses(sim: GameSim, projectile: GameSim['projectiles'
   const pz = projectile.z ?? projectile.fromZ;
   engageStrategicProjectileWithAirDefenses(sim, projectile);
   if ((projectile.strategicHealth ?? 0) <= 0) return;
+
+  // A battery launches an actual round in the outer layer. Ordinary guns and
+  // vehicle missiles still use their authored, short air engagement ranges.
+  for (const defense of sim.buildingsQuery) {
+    if (defense.destroyed || defense.health && defense.health.current <= 0 || !defense.building?.complete
+      || defense.building.kind !== 'aa-tower' || defense.team?.id !== projectile.strategicTargetTeamId) continue;
+    const weapon = defense.weapons?.primary ?? defense.weapon;
+    if (!weapon || weapon.cooldown > 0 || Math.hypot(defense.transform.x-px,defense.transform.z-pz)>EARLY_INTERCEPT_RADIUS) continue;
+    let active = 0, assignedDamage = 0;
+    for (const round of sim.projectiles) if (round.strategicInterceptor && round.attackerId === defense.id) {
+      active++;
+      if (round.strategicId === projectile.strategicId) assignedDamage += round.strategicInterceptor.damage;
+    }
+    if (active >= 3 || assignedDamage >= (projectile.strategicHealth ?? 100)) continue;
+    if (launchStrategicInterceptor(sim, projectile, defense, 'tower', 42, 'aaMissile', EARLY_INTERCEPT_SPEED)) weapon.cooldown = 1.1;
+  }
 
   if (projectile.strategicProfile !== 'drone') {
     for (const defense of sim.buildingsQuery) {
@@ -1285,6 +1303,7 @@ function engageStrategicProjectileWithAirDefenses(
       || !defense.health
       || defense.health.current <= 0
       || !areTeamsHostile(sim, strategic.teamId, defense.team.id)
+      || defense.building?.kind === 'aa-tower'
       || (defense.building && !defense.building.complete)
     ) continue;
     for (const weapon of weaponSlots(defense)) {
@@ -1418,23 +1437,32 @@ function launchStrategicInterceptor(
   sourceKind: 'tower' | 'aircraft',
   damage: number,
   weaponKind?: WeaponKind,
-): void {
-  if (!defender.team || strategic.strategicId === undefined) return;
+  speedOverride?: number,
+): boolean {
+  if (!defender.team || strategic.strategicId === undefined) return false;
   const resolvedWeaponKind = weaponKind ?? 'aaMissile';
   const weaponDef = WEAPONS[resolvedWeaponKind];
   const projectileKind = weaponDef.projectile?.kind ?? 'aaMissile';
-  const interceptorSpeed = weaponKind === undefined
+  const interceptorSpeed = speedOverride ?? (weaponKind === undefined
     ? DEFENSE_INTERCEPTOR_SPEED
-    : weaponDef.projectile?.speed ?? DEFENSE_INTERCEPTOR_SPEED;
+    : weaponDef.projectile?.speed ?? DEFENSE_INTERCEPTOR_SPEED);
   const fromX = defender.transform.x;
   const fromZ = defender.transform.z;
   const fromY = defender.flight
     ? defender.transform.y ?? sampleHeight(sim.nav.heightfield, fromX, fromZ) + 9
     : (defender.transform.y ?? sampleHeight(sim.nav.heightfield, fromX, fromZ)) + 4.8;
-  let destination = strategicPositionAt(strategic, strategic.elapsed);
-  let duration = Math.max(0.2, Math.hypot(destination.x - fromX, destination.y - fromY, destination.z - fromZ) / interceptorSpeed);
-  destination = strategicPositionAt(strategic, Math.min(strategic.duration, strategic.elapsed + duration));
-  duration = Math.max(0.2, Math.hypot(destination.x - fromX, destination.y - fromY, destination.z - fromZ) / interceptorSpeed);
+  // Solve a reachable meeting point on the threat's trajectory, not a rough
+  // two-step guess. Never claim a kill after the threat already landed.
+  const remaining = Math.max(0, strategic.duration - strategic.elapsed);
+  const gap = (time: number): number => {
+    const p = strategicPositionAt(strategic, strategic.elapsed + time);
+    return Math.hypot(p.x-fromX,p.y-fromY,p.z-fromZ) - interceptorSpeed*time;
+  };
+  if (remaining <= 0 || gap(remaining) > 0) return false;
+  let lo = 0, hi = remaining;
+  for (let i=0;i<16;i++) { const mid=(lo+hi)/2; if(gap(mid)>0) lo=mid; else hi=mid; }
+  const duration = Math.max(1/30, hi);
+  const destination = strategicPositionAt(strategic, strategic.elapsed + duration);
   sim.projectiles.push({
     kind: projectileKind,
     weaponKind: resolvedWeaponKind,
@@ -1472,6 +1500,7 @@ function launchStrategicInterceptor(
     sourceTeamId: defender.team.id,
     sourceClass: sourceKind === 'tower' ? 'tower' : 'aircraft',
     sourceBuildingKind: defender.building?.kind,
+    strategicInterceptor: true,
     targetTeamId: strategic.teamId,
     targetLabel: sourceKind === 'tower' ? 'Missile defense interceptor' : 'Aircraft interceptor',
     targetType: 'aircraft',
@@ -1482,22 +1511,24 @@ function launchStrategicInterceptor(
     impactScale: 0.68,
     strategicId: strategic.strategicId,
   });
+  return true;
 }
 
 function stepStrategicInterceptor(sim: GameSim, interceptor: GameSim['projectiles'][number], dt: number): boolean {
   const defense = interceptor.strategicInterceptor;
   if (!defense) return true;
-  interceptor.elapsed += dt;
-  const t = Math.min(1, interceptor.elapsed / interceptor.duration);
-  interceptor.x = interceptor.fromX + (interceptor.toX - interceptor.fromX) * t;
-  interceptor.y = (interceptor.fromY ?? 2) + ((interceptor.toY ?? 2) - (interceptor.fromY ?? 2)) * t;
-  interceptor.z = interceptor.fromZ + (interceptor.toZ - interceptor.fromZ) * t;
-  if (t < 1) return false;
-
-  const strategic = sim.projectiles.find(
-    (candidate) => candidate.strategic && candidate.strategicId === defense.targetStrategicId && (candidate.strategicHealth ?? 0) > 0,
-  );
+  const strategic = sim.projectiles.find(candidate => candidate.strategic && candidate.strategicId === defense.targetStrategicId && (candidate.strategicHealth ?? 0) > 0);
   if (!strategic) return true;
+  const left = Math.max(dt, interceptor.duration-interceptor.elapsed);
+  const destination = strategicPositionAt(strategic, strategic.elapsed + Math.max(0,left-dt));
+  const blend = Math.min(1, dt/left);
+  interceptor.x = (interceptor.x ?? interceptor.fromX) + (destination.x-(interceptor.x ?? interceptor.fromX))*blend;
+  interceptor.y = (interceptor.y ?? interceptor.fromY ?? 2) + (destination.y-(interceptor.y ?? interceptor.fromY ?? 2))*blend;
+  interceptor.z = (interceptor.z ?? interceptor.fromZ) + (destination.z-(interceptor.z ?? interceptor.fromZ))*blend;
+  interceptor.elapsed += dt;
+  if (interceptor.elapsed < interceptor.duration) return false;
+  const target = strategicPositionAt(strategic,strategic.elapsed);
+  if (Math.hypot(interceptor.x-target.x,interceptor.y-target.y,interceptor.z-target.z)>14) return true;
   const health = Math.max(0, (strategic.strategicHealth ?? 0) - defense.damage);
   strategic.strategicHealth = health;
   const maxHealth = strategic.strategicMaxHealth ?? health;

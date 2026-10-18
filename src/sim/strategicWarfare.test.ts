@@ -470,3 +470,41 @@ describe('Missile Command strategic warfare', () => {
     expect(wasp.health?.current).toBe(wasp.health?.max);
   });
 });
+
+describe('early battery interception', () => {
+  it.each([28, 180])('intercepts the actual threat position with %s terrain-clearance lift', (lift) => {
+    const {sim,economy,target}=missileFixture();
+    const battery=addStructure(sim,'aa-tower',2,180,10);
+    addStructure(sim,'skylance-ciws',2,175,-10);
+    expect(launchStrategicMissileAt(sim,economy,2,target.transform.x,target.transform.z).ok).toBe(true);
+    sim.projectiles.find(p=>p.strategic)!.strategicLift=lift;
+    sim.tick++;stepCombat(sim,1/30,{autoFire:false});
+    const launch=sim.events.find(e=>e.strategicInterceptor && e.sourceBuildingKind==='aa-tower');
+    expect(launch).toBeDefined();
+    const threat=sim.projectiles.find(p=>p.strategic)!;
+    expect(Math.hypot(threat.fromX-battery.transform.x,threat.fromZ-battery.transform.z)).toBeGreaterThan(190);
+    expect(threat.strategicHealth).toBe(threat.strategicMaxHealth);
+    expect(sim.events.some(e=>e.kind==='skylanceGun' && e.strategicId!==undefined)).toBe(false);
+    let meeting=false;
+    for(let i=0;i<300;i++){
+      const rounds=sim.projectiles.filter(p=>p.strategicInterceptor && p.attackerId===battery.id);
+      expect(rounds.length).toBeLessThanOrEqual(3);
+      sim.tick++;stepCombat(sim,1/30,{autoFire:false});
+      const progress=Math.min(1,threat.elapsed/threat.duration);
+      expect(threat.y).toBeCloseTo((threat.fromY??1.8)+((threat.toY??1.2)-(threat.fromY??1.8))*progress+Math.sin(Math.PI*progress)*lift,5);
+      const hit=sim.events.find(e=>e.kind==='aaMissile-impact' && e.strategicId!==undefined);
+      if(hit){
+        expect(rounds.some(p=>Math.hypot((p.x??0)-hit.toX,(p.y??0)-(hit.toY??0),(p.z??0)-hit.toZ)<14)).toBe(true);
+        meeting=true;break;
+      }
+    }
+    expect(meeting).toBe(true);
+  });
+  it('does not let destroyed or incomplete batteries launch',()=>{
+    const {sim,economy,target}=missileFixture();
+    const battery=addStructure(sim,'aa-tower',2,180,10);battery.building!.complete=false;
+    launchStrategicMissileAt(sim,economy,2,target.transform.x,target.transform.z);
+    sim.tick++;stepCombat(sim,1/30,{autoFire:false});
+    expect(sim.projectiles.some(p=>p.strategicInterceptor)).toBe(false);
+  });
+});

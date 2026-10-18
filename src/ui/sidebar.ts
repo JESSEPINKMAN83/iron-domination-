@@ -118,6 +118,7 @@ export class Sidebar {
   private fogImage?: ImageData;
   private lastSelectedBuildingId?: number;
   private radarFocus?: { x: number; z: number; ttl: number; kind: 'focus' | 'move' | 'attack-ground' };
+  private threatReport?: { x:number; z:number; bearing:string; expiresAt:number };
   private radarAlert?: { x: number; z: number; expiresAt: number };
   private readonly fogCanvas: HTMLCanvasElement;
   private readonly tacticalButtons = new Map<TacticalPingKind, HTMLButtonElement>();
@@ -466,7 +467,8 @@ export class Sidebar {
     this.renderBody();
   }
 
-  signalIncomingMissile(attackerTeam: number, threat = 'STRATEGIC MISSILE'): void {
+  signalIncomingMissile(attackerTeam: number, threat = 'STRATEGIC MISSILE', report?: {x:number;z:number;bearing:string}): void {
+    if (report) this.threatReport = { ...report, expiresAt: performance.now()+6500 };
     this.radarWrap.style.borderColor = '#ff3f2f';
     this.radarWrap.style.boxShadow = 'inset 0 0 0 2px rgba(255,63,47,.72),0 0 28px rgba(255,35,20,.62)';
     window.setTimeout(() => {
@@ -477,7 +479,7 @@ export class Sidebar {
       this.radarWrap.style.borderBottomColor = '#151817';
       this.radarWrap.style.boxShadow = 'inset 0 0 0 1px rgba(157,229,196,.28),inset 0 0 18px rgba(0,0,0,.75)';
     }, 3200);
-    this.flash(`⚠ INCOMING ${threat} · ${armyTag(attackerTeam)}`, 120);
+    this.flash(`⚠ ${threat}${report ? ` FROM THE ${report.bearing}` : ""} · ${armyTag(attackerTeam)}`, 120);
   }
 
   producerHighlightIds(): number[] {
@@ -1441,6 +1443,7 @@ export class Sidebar {
     }
     this.drawRadarFog();
     this.drawIncomingMissiles(now);
+    this.drawThreatReport(now);
     this.drawRadarBoundary();
     this.drawRadarViewport();
     this.drawTacticalPings(now);
@@ -1482,6 +1485,17 @@ export class Sidebar {
       ctx.stroke();
     }
     ctx.restore();
+  }
+
+  private drawThreatReport(now:number):void {
+    const report=this.threatReport;
+    if(!report)return;
+    if(now>=report.expiresAt){this.threatReport=undefined;return;}
+    const p=this.worldToRadar(report.x,report.z),ctx=this.radarCtx;
+    const pulse=.5+.5*Math.sin(now*.012);
+    ctx.save();ctx.strokeStyle='#ffad78';ctx.fillStyle='#ffe4d0';ctx.globalAlpha=.5+pulse*.5;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(p.x,p.y,8+pulse*7,0,Math.PI*2);ctx.stroke();
+    ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillText(report.bearing,p.x,Math.max(12,p.y-20));ctx.restore();
   }
 
   private drawUnderAttackAlert(now: number): void {

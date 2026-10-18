@@ -70,6 +70,7 @@ interface TeamMaterials {
 }
 
 interface UnitRefs {
+  launchAge?:number;
   turretPivot?: Object3D;
   barrelPivot?: Object3D;
   barrelHomeZ?: number;
@@ -1520,10 +1521,12 @@ export class UnitView {
       obj.rotation.x = pitch;
       obj.rotation.z = -roll;
       const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
+      if (refs) refs.launchAge=entity.flight.launch ? (refs.launchAge??0)+dt : 0;
+      const launchBlend=entity.flight.launch ? Math.min(1,.06+(refs?.launchAge??0)*.94) : 1;
       for (const mainRotor of refs?.mainRotors ?? []) {
         mainRotor.rotation.x = -pitch * 0.42;
         mainRotor.rotation.z = roll * 0.42;
-        mainRotor.rotation.y += dt * (18 + speed * 1.7 + Math.abs(entity.flight.verticalVelocity) * 0.45);
+        mainRotor.rotation.y += dt * launchBlend * (18 + speed * 1.7 + Math.abs(entity.flight.verticalVelocity) * 0.45);
       }
       for (const tailRotor of refs?.tailRotors ?? []) tailRotor.rotation.x += dt * (24 + speed * 2.2);
       updateMissileRack(refs?.missileRack, entity);
