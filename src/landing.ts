@@ -291,7 +291,7 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
         </button>
       ` : ''}
       <section class="iron-landing__hero">
-        <p class="iron-landing__eyebrow">${inviteRoom ? `Multiplayer invitation · Room ${inviteRoom}` : 'Beta access · Play free'}</p>
+        <p class="iron-landing__eyebrow">${inviteRoom ? `Multiplayer invitation · Room ${inviteRoom}` : 'Middle East Warfare'}</p>
         <h1 aria-label="Code Red">
           <span data-text="Code">Code</span>
           <span data-text="Red">Red</span>
