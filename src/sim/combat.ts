@@ -1205,7 +1205,7 @@ function stepProjectiles(sim: GameSim, dt: number): void {
     } else if (projectile.trajectory === 'arc') {
       const fromY = projectile.fromY ?? 1.8;
       const toY = projectile.toY ?? 1.2;
-      const lift = Math.min(28, Math.hypot(projectile.toX - projectile.fromX, projectile.toZ - projectile.fromZ) * 0.32);
+      const lift = projectile.strategicLift ?? Math.min(28, Math.hypot(projectile.toX - projectile.fromX, projectile.toZ - projectile.fromZ) * 0.32);
       projectile.y = fromY + (toY - fromY) * t + Math.sin(t * Math.PI) * lift;
     } else if (projectile.trajectory === 'drop') {
       const fromY = projectile.fromY ?? 20;

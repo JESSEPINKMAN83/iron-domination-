@@ -650,9 +650,12 @@ export class CombatView {
         const threat = this.bombProjectiles.find(p => p !== projectile && !p.event.strategicInterceptor && p.event.strategicId === event.strategicId && (p.event.weaponKind === 'strategicMissile' || p.event.weaponKind === 'emberDrone'));
         if (threat) {
           const left = Math.max(dt,projectile.duration-projectile.elapsed+dt);
-          const future = Math.min(1,(threat.elapsed+left)/threat.duration);
+          const future = Math.min(1,(threat.elapsed+Math.max(0,left-dt))/threat.duration);
           const dest = threat.from.clone().lerp(threat.to,future);
           dest.y += Math.sin(Math.PI*future)*(threat.event.strategicLift ?? (threat.event.weaponKind === 'emberDrone' ? 5 : 28));
+          if (threat.event.trajectory === 'homing' && threat.direction && threat.event.homingSpeed) {
+            dest.copy(threat.group.position).addScaledVector(threat.direction,threat.event.homingSpeed*Math.max(0,left-dt));
+          }
           position = projectile.group.position.clone().lerp(dest,Math.min(1,dt/left));
           tangent = dest.sub(projectile.group.position).normalize();
         }

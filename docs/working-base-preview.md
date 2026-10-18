@@ -24,7 +24,7 @@ The local-only panel provides a powered base, an opposing missile program and co
 ## Verification
 
 - Production build passed (existing bundle-size warning).
-- 732 tests passed across 96 files.
+- 733 tests passed across 96 files, including raised-terrain interceptor meetings.
 - Regression coverage includes early launch before point defenses, no launch damage, physical meeting before damage, bounded rounds, incomplete batteries, departure timing and retained orders, compass bearings, and bounded/fogged repair effects.
 - Local browser confirmed directional reports, radar pulses, production queueing, repair visuals, and Iron Dome's intercepted outcome. No observed console errors.
-- Preview controls are excluded from the production JS. No deployment requested for this new branch yet.
+- Preview controls are excluded from the production JS. Local preview approved for release.
