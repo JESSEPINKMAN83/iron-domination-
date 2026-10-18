@@ -73,7 +73,7 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
     illustration.className = 'landing-guide__commander';
     illustration.alt = faction === 'israel' ? 'Israeli female field instructor in olive uniform' : 'Iranian male field instructor in camouflage uniform';
     illustration.decoding = 'async';
-    illustration.src = `${import.meta.env.BASE_URL}assets/landing/commander/factions/${faction}.webp`;
+    illustration.src = `${import.meta.env.BASE_URL}assets/landing/commander/factions/${faction}-${lesson.name.toLowerCase()}.webp`;
     illustration.onload = () => {
       if (!reducedMotion && !opening && illustration.isConnected) illustration.animate(
         [{ opacity: 0, transform: 'translateX(-12px)' }, { opacity: 1, transform: 'translateX(0)' }],

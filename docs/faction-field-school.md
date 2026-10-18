@@ -5,8 +5,8 @@ Preview: http://127.0.0.1:5183/ — open Build, Deploy, Fight or Adapt.
 
 - Flag-only, labelled toggle above the instructor; selection stays when changing chapters and reopening a card during the current visit.
 - Eight faction-specific lessons use the game's actual doctrines: Israeli aircraft and layered interception; Iranian missiles, drones and ground forces without aircraft production.
-- New full-body instructors share an illustration style. The Israeli female wears matching olive field clothing; the Iranian male wears camouflage. These are illustrated game characters, not certified uniform references.
-- Transparent WebP assets load only when a guide opens: `public/assets/landing/commander/factions/israel.webp` (203 KB) and `iran.webp` (247 KB). No simulation or game renderer changes.
+- Full-body instructors share an illustration style, with four distinct chapter poses each: tablet briefing, directing a squad, rifle at low ready, and binoculars/radio assessment. The Israeli female wears matching olive field clothing; the Iranian male wears camouflage and has a more weathered, ordinary middle-aged appearance. These are illustrated game characters, not certified uniform references.
+- Transparent WebP assets load only for the selected guide: `public/assets/landing/commander/factions/{israel,iran}-{build,deploy,fight,adapt}.webp`. No simulation or game renderer changes. Additional prompts are recorded in `faction-guide-pose-prompts.md`.
 - Verified all eight chapters, portrait loading, close/reopen selection, and 390px mobile layout without horizontal overflow. Browser console clear. Production build passed; existing bundle-size warning remains.
 - Local review only; no PR, merge or deployment.
 
