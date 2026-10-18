@@ -89,7 +89,20 @@
 
 .landing-guide__portrait { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 20px 12px; }
 .landing-guide__commander { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; object-position: center; }
+.landing-guide__portrait { flex-direction: column; gap: 12px; }
+.landing-guide__figure { flex: 1; width: 100%; min-height: 0; }
+.landing-guide__factions { display: flex; flex-shrink: 0; gap: 6px; padding: 5px; border: 1px solid #3c594b; border-radius: 10px; background: #0a1512cc; }
+.landing-guide__factions button { display: grid; place-items: center; width: 62px; height: 44px; padding: 8px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; opacity: .5; transition: background .18s, opacity .18s, border-color .18s; }
+.landing-guide__factions svg { display: block; width: 36px; height: 24px; border-radius: 2px; }
+.landing-guide__factions button:hover { opacity: 1; background: #25382e; }
+.landing-guide__factions button[aria-pressed="true"] { opacity: 1; background: #263e32; border-color: #9de5c4; box-shadow: 0 0 14px #9de5c416; }
+.landing-guide__identity { flex-shrink: 0; margin: 0; text-align: center; color: #9bb9a8; font: 500 9px/1.5 ui-monospace, monospace; letter-spacing: .13em; }
+.landing-guide[data-faction="iran"] .landing-guide__portrait { background: radial-gradient(ellipse at 50% 55%, #373021 0%, #201e16 45%, #10130f 85%); }
+.landing-guide[data-faction="iran"] .landing-guide__factions button[aria-pressed="true"] { border-color: #ddbf83; background: #3b3424; }
+.landing-guide[data-faction="iran"] .landing-guide__identity { color: #c5b58f; }
 @media (max-width: 560px) {
-  .landing-guide__layout { grid-template-rows: minmax(130px, 24vh) minmax(0, 1fr); }
-  .landing-guide__portrait { display: flex; padding: 8px; border-right: 0; border-bottom: 1px solid #2b4037; }
+  .landing-guide__layout { grid-template-rows: minmax(180px, 30vh) minmax(0, 1fr); }
+  .landing-guide__portrait { display: flex; padding: 8px; gap: 4px; border-right: 0; border-bottom: 1px solid #2b4037; }
+  .landing-guide__factions { padding: 2px; }
+  .landing-guide__identity { display: none; }
 }
