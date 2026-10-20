@@ -198,6 +198,7 @@ import { TacticPlanner } from './ui/tacticPlanner';
 import { maybeAskTacticFeedback, hideTacticFeedbackPrompt } from './ui/tacticFeedbackPrompt';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
 import { unitDisplayName } from './ui/unitDisplayName';
+import { UnitLossFeed, installUnitLossTest } from './ui/unitLossFeed';
 
 const nextFrame = (): Promise<number> => new Promise((resolve) => requestAnimationFrame(resolve));
 const SKIRMISH_STORAGE_KEY = 'iron-dominion.skirmish.v1';
@@ -3087,6 +3088,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastFogTextureTick = -2;
   let lastResourceVisualTick = -1;
   const hud = new Hud(document.body);
+  const unitLossFeed = new UnitLossFeed(sim, localTeam, document.body);
+  if (import.meta.env.DEV && params.get('loss-feed-test') === '1') installUnitLossTest(sim, localTeam);
   const codeRedAlert = new CodeRedAlert(document.body);
   activeMatchExitGuard?.dispose();
   activeMatchExitGuard = installActiveMatchExitGuard();
@@ -3992,6 +3995,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         fogView.refresh();
       }
       const events = tickResult.events;
+      unitLossFeed.update();
       destructionPanel?.simTick(sim.tick);
       debriefTracker.recordEvents(events);
       if (impactDemoScene) {
