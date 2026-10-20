@@ -1963,6 +1963,11 @@ export function hashSim(sim: GameSim): number {
       mix(Math.round(entity.weapon.cooldown * 1000));
       mix(entity.weapon.targetId ?? 0);
     }
+    if (entity.building) {
+      mix(entity.building.defenseLevel ?? 0);
+      mix(Math.round((entity.building.airDefenseWeapon?.cooldown ?? 0) * 1000));
+      mix(entity.building.airDefenseWeapon?.targetId ?? 0);
+    }
     if (entity.weapons?.secondary) {
       mix(Math.round(entity.weapons.secondary.cooldown * 1000));
       mix(entity.weapons.secondary.targetId ?? 0);
@@ -2084,6 +2089,7 @@ export function hashCriticalSimState(sim: GameSim): number {
     mix(entity.team?.id ?? 0);
     mix(entity.health ? Math.round(entity.health.current * 100) : -1);
     mix(entity.destroyed ? 1 : 0);
+    mix(entity.building?.defenseLevel ?? 0);
   }
   return h >>> 0;
 }

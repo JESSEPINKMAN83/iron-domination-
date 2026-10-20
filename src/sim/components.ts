@@ -212,6 +212,8 @@ export interface Destroyed {
 }
 
 export interface Building {
+  defenseLevel?: number;
+  airDefenseWeapon?: Weapon;
   repair?: { elapsed: number };
   kind: string;
   label: string;

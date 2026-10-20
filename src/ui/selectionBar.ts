@@ -1,4 +1,5 @@
 import { codeRedIconPath } from './codeRedIcons';
+import { defenseLevel, defenseUpgradeCost, DEFENSE_TIER_DESCRIPTIONS, isUpgradeableDefense } from '../sim/defenseUpgrades';
 import { armyTag } from '../content/nations';
 import { groupOrderFeedback } from './orderFeedback';
 import type { FormationPreset } from '../sim/formations';
@@ -71,6 +72,7 @@ export class SelectionBar {
       selectEntities: (entities: Entity[]) => void;
       credits: () => number;
       purchaseUpgrade: (ids: number[], upgradeId: UnitUpgradeId) => UpgradePurchaseResult;
+      upgradeDefense?: (entity: Entity) => { ok: boolean; reason: string };
       setFormation?: (entities: Entity[], preset: FormationPreset) => void;
       setAggressive?: (entities: Entity[], enabled: boolean) => void;
       openTacticPlanner?: (entities: Entity[]) => void;
@@ -142,7 +144,7 @@ export class SelectionBar {
     this.syncWorldUpgradeButtons(selected);
     const groups = selectionGroups(selected);
     const siloSelected = selected.length === 1 && selected[0].building?.kind === 'strategic-silo' && this.actions.strategic;
-    const key = selectionGroupsKey(groups) + selected.map((unit) => `|a:${unit.id}:${Boolean(unit.mover?.aggressive)}:${unit.mover?.formationPreset}`).join('') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
+    const key = selectionGroupsKey(groups) + selected.map((unit) => `|a:${unit.id}:${Boolean(unit.mover?.aggressive)}:${unit.mover?.formationPreset}|d:${defenseLevel(unit)}:${this.actions.credits() >= defenseUpgradeCost(unit)}:${unit.building?.complete}`).join('') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
     if (key !== this.lastKey) {
       this.lastKey = key;
       if (siloSelected) this.renderStrategicSilo(groups[0], selected[0]);
@@ -217,6 +219,22 @@ export class SelectionBar {
       headerActions.appendChild(toggle);
     }
     headerActions.appendChild(count);
+    const defense = selectedCount === 1 ? groups[0]?.entities[0] : undefined;
+    if (isUpgradeableDefense(defense) && defense && this.actions.upgradeDefense) {
+      const level = defenseLevel(defense), cost = defenseUpgradeCost(defense);
+      const upgrade = document.createElement('button');
+      upgrade.type = 'button';
+      upgrade.textContent = level === 3 ? 'Defense III · MAX' : `Defense ${['0', 'I', 'II'][level]} → ${['I', 'II', 'III'][level]} · $${cost}`;
+      upgrade.title = level === 3 ? 'Maximum defense level' : DEFENSE_TIER_DESCRIPTIONS[level];
+      upgrade.setAttribute('aria-label', level === 3 ? 'Defense level 3, fully upgraded' : `Upgrade defense to level ${level + 1} for ${cost} credits`);
+      upgrade.disabled = level === 3 || !defense.building?.complete || this.actions.credits() < cost;
+      upgrade.style.cssText = 'padding:6px 9px;border:1px solid #6d9b86;border-radius:6px;background:#1b352a;color:#c1efd8;font:600 11px system-ui;cursor:pointer;';
+      if (upgrade.disabled) upgrade.style.opacity = '.55';
+      upgrade.onclick = () => { const result = this.actions.upgradeDefense!(defense); upgrade.title = result.reason; this.lastKey = ''; };
+      headerActions.style.flexWrap = 'wrap';
+      headerActions.style.justifyContent = 'flex-end';
+      headerActions.append(upgrade);
+    }
     header.append(title, headerActions);
 
     const grid = document.createElement('div');

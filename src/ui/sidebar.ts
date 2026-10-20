@@ -1266,7 +1266,7 @@ export class Sidebar {
     const selected = selectedEntities(this.sim, this.economy.team)
       .map(
         (entity) =>
-          `${entity.id}:${healthBucket(entity)}:${entity.building?.kind ?? entity.selectable?.type}:${entity.selectable?.selected}:${entity.harvester?.state ?? ''}`,
+          `${entity.id}:${healthBucket(entity)}:${entity.building?.defenseLevel ?? 0}:${entity.health?.max ?? 0}:${entity.building?.kind ?? entity.selectable?.type}:${entity.selectable?.selected}:${entity.harvester?.state ?? ''}`,
       )
       .join('|');
     const completedBuildings = buildings(this.sim, this.economy.team)

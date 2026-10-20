@@ -23,6 +23,7 @@ import {
 import type { Heightfield } from '../sim/heightfield';
 import { issueAttackOrder, issueGroundAttack, manualFireAt } from '../sim/combat';
 import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
+import { purchaseDefenseUpgrade } from '../sim/defenseUpgrades';
 import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, setFormationPreset, setAggressiveMode, stopEntities, type GameSim } from '../sim/world';
 import { issueTacticOrder } from '../sim/tactics';
 import { launchEmberDroneAt, launchStrategicMissileAt } from '../sim/strategicWarfare';
@@ -57,6 +58,7 @@ export type NetCommand =
   | { type: 'repair-building'; id: number }
   | { type: 'rally'; producerId: number; x: number; z: number }
   | { type: 'upgrade-units'; ids: number[]; upgradeId: UnitUpgradeId }
+  | { type: 'upgrade-defense'; id: number; expectedLevel: number }
   | { type: 'upgrade-strategic'; upgrade: 'accuracy' | 'warhead' | 'ember-quantity' | 'ember-warhead' }
   | { type: 'launch-strategic'; weapon: 'missile' | 'ember'; enemyTeam: number; x: number; z: number }
   | {
@@ -524,6 +526,8 @@ export class LockstepRuntime {
     } else if (command.type === 'rally') {
       const producer = entityById(this.options.sim, command.producerId);
       if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
+    } else if (command.type === 'upgrade-defense') {
+      purchaseDefenseUpgrade(this.options.sim, economy, command.id, command.expectedLevel);
     } else if (command.type === 'upgrade-units') {
       purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, team);
     } else if (command.type === 'upgrade-strategic') {
@@ -761,6 +765,7 @@ function isEconomyCommand(command: NetCommand): boolean {
     command.type === 'cancel-unit' ||
     command.type === 'primary-producer' ||
     command.type === 'upgrade-units' ||
+    command.type === 'upgrade-defense' ||
     command.type === 'upgrade-strategic' ||
     command.type === 'launch-strategic';
 }

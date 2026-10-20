@@ -198,6 +198,7 @@ import { TacticPlanner } from './ui/tacticPlanner';
 import { maybeAskTacticFeedback, hideTacticFeedbackPrompt } from './ui/tacticFeedbackPrompt';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
 import { unitDisplayName } from './ui/unitDisplayName';
+import { defenseLevel, purchaseDefenseUpgrade } from './sim/defenseUpgrades';
 import { UnitLossFeed, installUnitLossTest } from './ui/unitLossFeed';
 
 const nextFrame = (): Promise<number> => new Promise((resolve) => requestAnimationFrame(resolve));
@@ -3064,10 +3065,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     const panel=document.createElement('div');
     panel.style.cssText='position:fixed;left:12px;top:60px;z-index:30;max-width:280px;padding:12px;background:#0c1d25ee;color:#dff3e8;border:1px solid #729d91;border-radius:8px;font:12px/1.5 system-ui';
     panel.innerHTML='<strong>WORKING BASE · LOCAL TEST</strong><p>Iron Dome intercepts early. Guns defend up close. Watch production doors and helicopter spool-up.</p>';
+    if (params.get('defense-upgrade-test') === '1') {
+      panel.style.top = '105px';
+      panel.innerHTML = '<strong>DEFENSE UPGRADES · LOCAL TEST</strong><p>Select a defense below, then use its upgrade button in Selected force. Three tiers: $100 / $250 / $500.</p>';
+    }
     const button=(label:string,action:()=>void)=>{const b=document.createElement('button');b.textContent=label;b.style.cssText='display:block;margin:6px 0;padding:7px;width:100%;cursor:pointer';b.onclick=action;panel.append(b);};
     const focusProducer=(kind:string)=>{
       const e=Array.from(sim.buildingsQuery).find(e=>e.team?.id===localTeam&&e.building?.kind===kind);
-      if(e)rig.focusOn(e.transform.x,e.transform.z,{x:e.transform.x-70,z:e.transform.z+90},115,-2);
+      if(e) {
+        rig.focusOn(e.transform.x,e.transform.z,{x:e.transform.x-70,z:e.transform.z+90},115,-2);
+        if (params.get('defense-upgrade-test') === '1') setSelected(sim, [e], false, localTeam);
+      }
     };
     const incoming=(drone:boolean)=>{
       const attacker=armies.find(a=>a.economy.doctrine==='missile-command'&&areTeamsHostile(sim,localTeam,a.team));if(!attacker)return;
@@ -3076,6 +3084,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       else launchStrategicMissileAt(sim,attacker.economy,localTeam,localBase.transform.x,localBase.transform.z);
     };
     button('View Iron Dome',()=>focusProducer('aa-tower'));
+    if (params.get('defense-upgrade-test') === '1') {
+      button('Select guard tower', () => focusProducer('guard-tower'));
+      button('Select Arrow 3', () => focusProducer('missile-defense'));
+      button('Select Phalanx', () => focusProducer('skylance-ciws'));
+    }
     button('Send incoming missile',()=>incoming(false));button('Send incoming drone',()=>incoming(true));
     button('Produce Apache',()=>{economy.credits=50000;queueUnit(sim,economy,'vulture');focusProducer('helipad');});
     button('Produce tank + infantry',()=>{economy.credits=50000;queueUnit(sim,economy,'tank');queueUnit(sim,economy,'infantry');focusProducer('factory');});
@@ -3506,6 +3519,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       unitVoices.acknowledge(available, 'selected');
     },
     credits: () => economy.credits,
+    upgradeDefense: (entity) => {
+      if (!canManageArmy) { commanderOnly(); return { ok: false, reason: 'Commander manages shared upgrades' }; }
+      if (lockstep) {
+        const ok = lockstep.issue({ type: 'upgrade-defense', id: entity.id, expectedLevel: defenseLevel(entity) });
+        return { ok, reason: ok ? 'Defense upgrade queued' : 'Upgrade unavailable' };
+      }
+      const result = purchaseDefenseUpgrade(sim, economy, entity.id, defenseLevel(entity));
+      sidebar.notify(result.reason);
+      return result;
+    },
     purchaseUpgrade: (ids, upgradeId) => {
       if (!canManageArmy) {
         commanderOnly();
@@ -6336,7 +6359,7 @@ function seedWorkingBasePreview(sim:ReturnType<typeof createGameSim>,hf:ReturnTy
   for(const army of armies) {
     army.economy.credits=50000;
     const local=army.team===localTeam;
-    const kinds:StructureKind[]=local?['power-plant','power-plant','power-plant','barracks','factory','helipad','aa-tower','skylance-ciws']:['power-plant','power-plant','intelligence-center','strategic-silo'];
+    const kinds:StructureKind[]=local?['power-plant','power-plant','power-plant','barracks','factory','helipad','aa-tower','skylance-ciws','guard-tower','missile-defense']:['power-plant','power-plant','intelligence-center','strategic-silo'];
     kinds.forEach((kind,i)=>placePreviewStructure(sim,hf,army.economy,army.base,kind,[
       {x:(i%3-1)*50,z:40+Math.floor(i/3)*44},
       {x:(i%3-1)*55,z:-40-Math.floor(i/3)*44},
