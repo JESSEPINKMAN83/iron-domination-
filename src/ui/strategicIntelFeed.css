@@ -1,0 +1,11 @@
+.strategic-intel { position:fixed; top:100px; left:12px; z-index:13; color:#cfdfd6; font:12px/1.4 'Avenir Next',system-ui,sans-serif; }
+.strategic-intel[hidden],.strategic-intel section[hidden] { display:none; }
+.strategic-intel button { font:inherit; color:inherit; cursor:pointer; }
+.strategic-intel > button { max-width:min(300px,calc(100vw - 24px)); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-height:30px; padding:6px 10px; border:1px solid #43564d; border-radius:8px; background:#101c20ed; }
+.strategic-intel section { width:min(330px,calc(100vw - 24px)); margin-top:6px; max-height:min(420px,calc(100dvh - 155px)); overflow:auto; overscroll-behavior:contain; background:#111c20fa; border:1px solid #4c6256; border-radius:10px; box-shadow:0 12px 30px #0008; }
+.strategic-intel header { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border-bottom:1px solid #304138; }
+.strategic-intel header button { width:30px; height:30px; background:transparent; border:0; font-size:22px; }
+.strategic-intel ol { margin:0; padding:0 12px; list-style:none; }
+.strategic-intel li { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid #ffffff0a; }
+.strategic-intel time { font-variant-numeric:tabular-nums; color:#94b2a2; }
+.strategic-intel button:focus-visible { outline:2px solid #9de5c4; outline-offset:2px; }

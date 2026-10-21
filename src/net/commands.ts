@@ -24,7 +24,7 @@ import type { Heightfield } from '../sim/heightfield';
 import { issueAttackOrder, issueGroundAttack, manualFireAt } from '../sim/combat';
 import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
 import { purchaseDefenseUpgrade } from '../sim/defenseUpgrades';
-import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, setFormationPreset, setAggressiveMode, stopEntities, type GameSim } from '../sim/world';
+import { adjustAircraftAltitude, areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, setFormationPreset, setAggressiveMode, stopEntities, type GameSim } from '../sim/world';
 import { issueTacticOrder } from '../sim/tactics';
 import { launchEmberDroneAt, launchStrategicMissileAt } from '../sim/strategicWarfare';
 import type { TacticEndAction } from '../sim/components';
@@ -47,6 +47,7 @@ export type NetCommand =
   | { type: 'harvest'; ids: number[]; x: number; z: number }
   | { type: 'return-harvesters'; ids: number[]; x: number; z: number }
   | { type: 'set-formation'; ids: number[]; preset: import('../sim/formations').FormationPreset; facing?: number }
+  | { type: 'aircraft-altitude'; ids: number[]; delta: number }
   | { type: 'set-aggressive'; ids: number[]; enabled: boolean }
   | { type: 'stop'; ids: number[] }
   | { type: 'start-structure'; kind: StructureKind }
@@ -500,6 +501,8 @@ export class LockstepRuntime {
       issueHarvesterReturnOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.x, command.z);
     } else if (command.type === 'set-formation') {
       setFormationPreset(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.preset, command.facing);
+    } else if (command.type === 'aircraft-altitude') {
+      adjustAircraftAltitude(ownedEntities(this.options.sim, command.ids, team), command.delta);
     } else if (command.type === 'set-aggressive') {
       setAggressiveMode(ownedEntities(this.options.sim, command.ids, team), command.enabled === true);
     } else if (command.type === 'stop') {

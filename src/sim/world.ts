@@ -1390,6 +1390,17 @@ export function flightCeiling(flight: { maxAltitude: number; cruiseAltitude: num
   return Math.max(flight.maxAltitude, ground + flight.cruiseAltitude);
 }
 
+/** Adjust terrain-relative cruise height without replacing a route, formation or target. */
+export function adjustAircraftAltitude(entities: readonly Entity[], delta: number): void {
+  if (!Number.isFinite(delta)) return;
+  const step = clamp(delta, -2, 2);
+  for (const entity of entities) {
+    const flight = entity.flight;
+    if (!flight || entity.destroyed || entity.playerControlled) continue;
+    flight.cruiseAltitude = clamp(flight.cruiseAltitude + step, flight.minAGL + 2, Math.max(flight.minAGL + 2, flight.maxAltitude));
+  }
+}
+
 export function aircraftTurnRateAtSpeed(hoverRate: number, cruiseRate: number, speed: number, cruiseSpeed: number): number {
   const fraction = clamp(speed / Math.max(1, cruiseSpeed), 0, 1);
   const base = lerp(hoverRate, cruiseRate, fraction);
@@ -1518,7 +1529,11 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
     transform.x = mover.holdPosition.x;
     transform.z = mover.holdPosition.z;
     velocity.x = velocity.z = 0;
-    flight.verticalVelocity = 0;
+    const ground = sampleHeight(hf, transform.x, transform.z);
+    const desiredY = Math.min(flightCeiling(flight, ground), ground + flight.cruiseAltitude);
+    const currentY = transform.y ?? desiredY;
+    flight.verticalVelocity = clamp((desiredY - currentY) * 1.6, -flight.climbRate, flight.climbRate);
+    transform.y = clamp(currentY + flight.verticalVelocity * dt, ground + flight.minAGL, flightCeiling(flight, ground));
     const settle = damp(6, dt);
     flight.pitchAttitude *= 1 - settle;
     flight.rollAttitude *= 1 - settle;
@@ -1664,30 +1679,10 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
 
   const minFlightY = ground + flight.minAGL;
   if (transform.y < minFlightY) {
-    const hardImpact = flight.verticalVelocity < -9 || Math.hypot(velocity.x, velocity.z) > 18;
-    if (hardImpact && transform.y < ground + 1.2) {
-      if (entity.health) entity.health.current = 0;
-      entity.destroyed = {
-        remaining: 20,
-        aircraftCrash: {
-          velocityX: 0,
-          velocityZ: 0,
-          verticalVelocity: 0,
-          yawRate: 0,
-          rollRate: 0,
-          pitchRate: 0,
-          impacted: true,
-        },
-      };
-      sim.events.push({ kind: 'crash', fromX: transform.x, fromZ: transform.z, toX: transform.x, toZ: transform.z, damage: 999, killed: true });
-      return;
-    }
-    transform.y = minFlightY + 0.5;
-    flight.verticalVelocity = Math.max(1.5, -flight.verticalVelocity * 0.18);
-    velocity.x *= 0.55;
-    velocity.z *= 0.55;
-    if (entity.health) entity.health.current = Math.max(1, entity.health.current - 10);
-    sim.events.push({ kind: 'hard-bounce', fromX: transform.x, fromZ: transform.z, toX: transform.x, toZ: transform.z, damage: 10, killed: false });
+    // Flight controls have a safety floor, including over rising terrain. A
+    // descent order is never a crash or a source of damage to a living aircraft.
+    transform.y = minFlightY;
+    flight.verticalVelocity = Math.max(0, flight.verticalVelocity);
   }
   transform.y = Math.min(transform.y, flightCeiling(flight, ground));
 }
@@ -1985,6 +1980,7 @@ export function hashSim(sim: GameSim): number {
       }
     }
     if (entity.flight) {
+      mix(Math.round(entity.flight.cruiseAltitude * 1000));
       mix(entity.flight.launch?.startedTick ?? -1);
       mix(Math.round((entity.flight.launch?.fromY ?? 0)*1000));
       mix(Math.round((entity.flight.agility ?? 1) * 1000));
@@ -2090,6 +2086,7 @@ export function hashCriticalSimState(sim: GameSim): number {
     mix(entity.health ? Math.round(entity.health.current * 100) : -1);
     mix(entity.destroyed ? 1 : 0);
     mix(entity.building?.defenseLevel ?? 0);
+    mix(Math.round((entity.flight?.cruiseAltitude ?? 0) * 1000));
   }
   return h >>> 0;
 }
