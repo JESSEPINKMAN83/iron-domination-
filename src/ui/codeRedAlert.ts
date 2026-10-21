@@ -7,6 +7,7 @@ const LINGER_AFTER_IMPACT_MS = 2200;
 
 interface ActiveThreat {
   impactAt: number;
+  strategicId?: number;
 }
 
 function installStyle(): void {
@@ -21,6 +22,7 @@ function installStyle(): void {
   background:linear-gradient(180deg,rgba(74,10,10,.94),rgba(30,6,7,.92));
   border:1px solid rgba(255,96,82,.85);border-radius:4px;
   box-shadow:0 10px 26px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.05);}
+.code-red-alert[hidden]{display:none;}
 .code-red-alert.is-visible{opacity:1;transform:translate(-50%,0);}
 .code-red-alert__title{display:flex;align-items:center;justify-content:center;gap:10px;
   font-size:15px;font-weight:900;letter-spacing:.14em;color:#ff6b5c;}
@@ -57,6 +59,7 @@ export class CodeRedAlert {
     installStyle();
     this.root = document.createElement('div');
     this.root.className = 'code-red-alert';
+    this.root.hidden = true;
     this.root.setAttribute('role', 'alert');
     const title = document.createElement('div');
     title.className = 'code-red-alert__title';
@@ -70,7 +73,7 @@ export class CodeRedAlert {
   }
 
   /** Returns true when this starts a new alert (the caller plays the chime once). */
-  warn(threat: 'missile' | 'drone', origin: string, count: number, etaSeconds: number, nowMs: number, bearing?: string): boolean {
+  warn(threat: 'missile' | 'drone', origin: string, count: number, etaSeconds: number, nowMs: number, bearing?: string, strategicId?: number): boolean {
     const fresh = this.threats.length === 0;
     if (fresh) {
       this.intercepted = 0;
@@ -87,20 +90,24 @@ export class CodeRedAlert {
     if (bearing) this.bearings.add(bearing);
     this.launched += Math.max(1, count);
     const impactAt = nowMs + Math.max(0, etaSeconds) * 1000;
-    for (let i = 0; i < Math.max(1, count); i++) this.threats.push({ impactAt });
+    for (let i = 0; i < Math.max(1, count); i++) this.threats.push({ impactAt, strategicId: strategicId === undefined ? undefined : strategicId + (threat === 'drone' ? i : 0) });
+    this.root.hidden = false;
     this.root.classList.add('is-visible');
     this.render(nowMs);
     return fresh;
   }
 
-  intercept(interceptorLabel: string | undefined, nowMs: number): void {
-    if (this.threats.length === 0) return;
+  intercept(interceptorLabel: string | undefined, nowMs: number, strategicId?: number): boolean {
+    if (this.threats.length === 0) return false;
+    const index = strategicId === undefined ? 0 : this.threats.findIndex(threat => threat.strategicId === strategicId);
+    if (index < 0) return false;
     this.intercepted = Math.min(this.launched, this.intercepted + 1);
     if (interceptorLabel) this.lastInterceptor = interceptorLabel;
-    // Drop the soonest pending impact; it will not land.
-    this.threats.sort((a, b) => a.impactAt - b.impactAt).shift();
+    // Remove this incoming threat; it will not land.
+    this.threats.splice(index, 1);
     if (this.threats.length === 0) this.hideAt = nowMs + LINGER_AFTER_IMPACT_MS;
     this.render(nowMs);
+    return true;
   }
 
   update(nowMs: number): void {
@@ -111,6 +118,7 @@ export class CodeRedAlert {
     }
     if (this.threats.length === 0 && nowMs >= this.hideAt) {
       this.root.classList.remove('is-visible');
+      this.root.hidden = true;
       return;
     }
     this.render(nowMs);

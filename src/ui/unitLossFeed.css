@@ -1,0 +1,22 @@
+.unit-loss-feed { position: fixed; top: 58px; left: 12px; z-index: 12; font: 12px/1.4 'Avenir Next', system-ui, sans-serif; color: #e8eee9; }
+.unit-loss-feed button { font: inherit; cursor: pointer; color: inherit; }
+.unit-loss-feed__trigger { display: flex; align-items: center; gap: 9px; max-width: min(330px, calc(100vw - 24px)); min-height: 34px; padding: 7px 11px; border: 1px solid #43564d; border-radius: 8px; background: #101c20ed; box-shadow: 0 3px 12px #0003; }
+.unit-loss-feed__trigger strong { flex-shrink: 0; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.unit-loss-feed__trigger:hover { border-color: #a3b7ac; }
+.unit-loss-feed button:focus-visible { outline: 2px solid #9de5c4; outline-offset: 3px; }
+.unit-loss-feed__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d5dbd6; }
+.unit-loss-feed.has-recent-loss .unit-loss-feed__trigger { border-color: #b77566; }
+.unit-loss-feed.has-recent-loss .unit-loss-feed__trigger strong { color: #ffb19d; }
+.unit-loss-feed__history { margin-top: 7px; width: min(330px, calc(100vw - 24px)); max-height: min(450px, calc(100dvh - 155px)); overflow: auto; border: 1px solid #4c6256; border-radius: 10px; background: #111c20fa; box-shadow: 0 12px 30px #0008; overscroll-behavior: contain; }
+.unit-loss-feed__history[hidden] { display: none; }
+.unit-loss-feed__history header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid #304138; }
+.unit-loss-feed__history header button { width: 30px; height: 30px; border: 0; background: transparent; font-size: 20px; }
+.unit-loss-feed__totals { margin: 0; padding: 12px; color: #adbbb2; font-size: 11px; border-bottom: 1px solid #304138; }
+.unit-loss-feed__history ol { margin: 0; padding: 0 12px; list-style: none; }
+.unit-loss-feed__history li { display: flex; gap: 12px; padding: 11px 0; border-bottom: 1px solid #ffffff0a; }
+.unit-loss-feed__history time { flex-shrink: 0; font-variant-numeric: tabular-nums; color: #a5b7ab; }
+.unit-loss-feed__more { width: 100%; padding: 12px; border: 0; background: #20372c; }
+.unit-loss-feed__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.unit-loss-test { position: fixed; top: 160px; left: 12px; z-index: 11; width: 220px; padding: 12px; background: #0c1d25ed; border: 1px solid #728d80; color: white; font: 11px system-ui; }
+.unit-loss-test button { display: block; margin-top: 10px; padding: 9px; width: 100%; cursor: pointer; }
+@media (max-width: 600px) { .unit-loss-feed { top: 55px; left: 8px; } .unit-loss-feed__trigger { max-width: min(250px, calc(100vw - 16px)); } }

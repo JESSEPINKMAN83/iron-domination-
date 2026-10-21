@@ -3,7 +3,7 @@ import { MAP01 } from '../content/map01';
 import { FlowField } from './flowfield';
 import { generateHeightfield, sampleHeight, type Heightfield } from './heightfield';
 import { createEconomy, createInitialBase, spawnInfantryAt } from './economy';
-import { attackStandoffPoint, createGameSim, hashSim, issueMoveOrder, selectedEntities, setSelected, spawnDebugTanks, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
+import { adjustAircraftAltitude, attackStandoffPoint, createGameSim, hashSim, issueMoveOrder, selectedEntities, setSelected, spawnDebugTanks, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
 
 describe('phase 2 movement simulation', () => {
   it('builds a flow field between distant walkable cells', () => {
@@ -509,6 +509,51 @@ describe('phase 2 movement simulation', () => {
     expect(Math.hypot(vulture.transform.x - start.x, vulture.transform.z - start.z)).toBeGreaterThan(120);
     expect(vulture.mover?.flow).toBeUndefined();
     expect((vulture.transform.y ?? 0) - sampleHeight(hf, vulture.transform.x, vulture.transform.z)).toBeGreaterThanOrEqual(vulture.flight!.minAGL - 0.1);
+  });
+
+  it('changes group altitude while parked and retains altitude without losing horizontal slots', () => {
+    const hf = generateHeightfield(MAP01), sim = createGameSim(hf);
+    const aircraft = [spawnVultureAt(sim, hf, -20, -20, 'A'), spawnHammerheadAt(sim, hf, 20, -20, 'B')];
+    const starts = aircraft.map(e => ({ ...e.transform }));
+    for (let i = 0; i < 20; i++) adjustAircraftAltitude(aircraft, 1.2);
+    for (let i = 0; i < 180; i++) stepSim(sim, hf, 1 / 30);
+    aircraft.forEach((e, i) => {
+      expect(e.transform.y! - starts[i].y!).toBeGreaterThan(20);
+      expect(e.transform.x).toBe(starts[i].x);
+      expect(e.transform.z).toBe(starts[i].z);
+    });
+    const heights = aircraft.map(e => e.transform.y!);
+    for (let i = 0; i < 90; i++) stepSim(sim, hf, 1 / 30);
+    aircraft.forEach((e, i) => expect(e.transform.y!).toBeCloseTo(heights[i], 1));
+  });
+
+  it('retains movement orders and clamps repeated descent and climb orders safely', () => {
+    const hf = generateHeightfield(MAP01), sim = createGameSim(hf);
+    const unit = spawnVultureAt(sim, hf, -20, -20, 'A');
+    issueMoveOrder(sim, [unit], 160, 160);
+    const target = { ...unit.mover!.target! };
+    for (let i = 0; i < 150; i++) adjustAircraftAltitude([unit], -2);
+    expect(unit.mover!.target).toEqual(target);
+    for (let i = 0; i < 120; i++) {
+      stepSim(sim, hf, 1 / 30);
+      expect(unit.transform.y!).toBeGreaterThanOrEqual(sampleHeight(hf, unit.transform.x, unit.transform.z) + unit.flight!.minAGL);
+    }
+    expect(unit.health!.current).toBe(unit.health!.max);
+    expect(unit.destroyed).toBeUndefined();
+    for (let i = 0; i < 150; i++) adjustAircraftAltitude([unit], 2);
+    expect(unit.flight!.cruiseAltitude).toBe(unit.flight!.maxAltitude);
+  });
+
+  it('prevents ground-impact damage even during a fast possessed descent', () => {
+    const hf = generateHeightfield(MAP01), sim = createGameSim(hf);
+    const unit = spawnVultureAt(sim, hf, 0, 0, 'A');
+    unit.transform.y = sampleHeight(hf, 0, 0) + 1;
+    unit.flight!.verticalVelocity = -40;
+    unit.playerControlled = { throttle: 1, turn: 0, climb: -1, aimYaw: 0 };
+    for (let i = 0; i < 150; i++) stepSim(sim, hf, 1 / 30);
+    expect(unit.health!.current).toBe(unit.health!.max);
+    expect(unit.destroyed).toBeUndefined();
+    expect(sim.events.some(e => e.kind === 'hard-bounce' || e.kind === 'crash')).toBe(false);
   });
 
   it('lets a player-controlled flyer steer forward and climb in the sim', () => {

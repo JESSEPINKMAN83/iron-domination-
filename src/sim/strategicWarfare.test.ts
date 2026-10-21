@@ -3,6 +3,7 @@ import { MAP01 } from '../content/map01';
 import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity } from './components';
 import { stepCombat } from './combat';
+import { purchaseDefenseUpgrade } from './defenseUpgrades';
 import {
   canBuildStructure,
   createEconomy,
@@ -472,6 +473,16 @@ describe('Missile Command strategic warfare', () => {
 });
 
 describe('early battery interception', () => {
+  it.each(['missile', 'drone'])('lets an upgraded guard tower physically engage an incoming %s', kind => {
+    const { sim, economy, target } = missileFixture();
+    const tower = addStructure(sim, 'guard-tower', 2, 135, 10);
+    expect(purchaseDefenseUpgrade(sim, createEconomy(2, 1000), tower.id, 0).ok).toBe(true);
+    const launch = kind === 'missile' ? launchStrategicMissileAt : launchEmberDroneAt;
+    expect(launch(sim, economy, 2, target.transform.x, target.transform.z).ok).toBe(true);
+    for (let i = 0; i < 600 && !sim.events.some(e => e.strategicInterceptor && e.sourceBuildingKind === 'guard-tower'); i++) { sim.tick++; stepCombat(sim, 1 / 30, { autoFire: false }); }
+    expect(sim.events.some(e => e.strategicInterceptor && e.sourceBuildingKind === 'guard-tower')).toBe(true);
+    expect(sim.projectiles.some(p => p.strategicInterceptor && p.attackerId === tower.id)).toBe(true);
+  });
   it.each([28, 180])('intercepts the actual threat position with %s terrain-clearance lift', (lift) => {
     const {sim,economy,target}=missileFixture();
     const battery=addStructure(sim,'aa-tower',2,180,10);

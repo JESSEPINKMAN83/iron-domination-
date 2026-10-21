@@ -1,3 +1,6 @@
+import { StrategicIntelFeed } from './ui/strategicIntelFeed';
+import { strategicWarningAudience } from './ui/strategicReports';
+import { createStructureDamage } from './sim/structureDamage';
 import { threatBearing } from './ui/threatBearing';
 import { applyArmyNations, armyTag, NATIONS, nationsForDoctrines } from './content/nations';
 import { applyLocalSideLabels, structureLabel } from './content/sideLabels';
@@ -198,6 +201,8 @@ import { TacticPlanner } from './ui/tacticPlanner';
 import { maybeAskTacticFeedback, hideTacticFeedbackPrompt } from './ui/tacticFeedbackPrompt';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
 import { unitDisplayName } from './ui/unitDisplayName';
+import { defenseLevel, purchaseDefenseUpgrade } from './sim/defenseUpgrades';
+import { UnitLossFeed, installUnitLossTest } from './ui/unitLossFeed';
 
 const nextFrame = (): Promise<number> => new Promise((resolve) => requestAnimationFrame(resolve));
 const SKIRMISH_STORAGE_KEY = 'iron-dominion.skirmish.v1';
@@ -2838,7 +2843,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (wallPerformancePreview || durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
-      .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z }));
+      .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z, team: candidate.team }));
     const strategicDefenseNeeded = armies.some(
       (candidate) => areTeamsHostile(sim, army.team, candidate.team) && candidate.economy.doctrine === 'missile-command',
     );
@@ -3059,14 +3064,21 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       launchEmberDroneAt(sim, attacker.economy, localTeam, target.x - 10, target.z - 8);
     }, 25_000);
   }
-  if(workingBasePreview) {
+  if(workingBasePreview && !(import.meta.env.DEV && params.get('notification-test') === '1')) {
     const panel=document.createElement('div');
     panel.style.cssText='position:fixed;left:12px;top:60px;z-index:30;max-width:280px;padding:12px;background:#0c1d25ee;color:#dff3e8;border:1px solid #729d91;border-radius:8px;font:12px/1.5 system-ui';
     panel.innerHTML='<strong>WORKING BASE · LOCAL TEST</strong><p>Iron Dome intercepts early. Guns defend up close. Watch production doors and helicopter spool-up.</p>';
+    if (params.get('defense-upgrade-test') === '1') {
+      panel.style.top = '105px';
+      panel.innerHTML = '<strong>DEFENSE UPGRADES · LOCAL TEST</strong><p>Select a defense below, then use its upgrade button in Selected force. Three tiers: $100 / $250 / $500.</p>';
+    }
     const button=(label:string,action:()=>void)=>{const b=document.createElement('button');b.textContent=label;b.style.cssText='display:block;margin:6px 0;padding:7px;width:100%;cursor:pointer';b.onclick=action;panel.append(b);};
     const focusProducer=(kind:string)=>{
       const e=Array.from(sim.buildingsQuery).find(e=>e.team?.id===localTeam&&e.building?.kind===kind);
-      if(e)rig.focusOn(e.transform.x,e.transform.z,{x:e.transform.x-70,z:e.transform.z+90},115,-2);
+      if(e) {
+        rig.focusOn(e.transform.x,e.transform.z,{x:e.transform.x-70,z:e.transform.z+90},115,-2);
+        if (params.get('defense-upgrade-test') === '1') setSelected(sim, [e], false, localTeam);
+      }
     };
     const incoming=(drone:boolean)=>{
       const attacker=armies.find(a=>a.economy.doctrine==='missile-command'&&areTeamsHostile(sim,localTeam,a.team));if(!attacker)return;
@@ -3075,9 +3087,30 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       else launchStrategicMissileAt(sim,attacker.economy,localTeam,localBase.transform.x,localBase.transform.z);
     };
     button('View Iron Dome',()=>focusProducer('aa-tower'));
+    if (params.get('defense-upgrade-test') === '1') {
+      button('Select guard tower', () => focusProducer('guard-tower'));
+      button('Select Arrow 3', () => focusProducer('missile-defense'));
+      button('Select Phalanx', () => focusProducer('skylance-ciws'));
+    }
     button('Send incoming missile',()=>incoming(false));button('Send incoming drone',()=>incoming(true));
     button('Produce Apache',()=>{economy.credits=50000;queueUnit(sim,economy,'vulture');focusProducer('helipad');});
     button('Produce tank + infantry',()=>{economy.credits=50000;queueUnit(sim,economy,'tank');queueUnit(sim,economy,'infantry');focusProducer('factory');});
+    if (import.meta.env.DEV && params.get('building-damage-test') === '1') {
+      const stages = [0.95, 0.75, 0.5, 0.25, 0.1, 0.05, 1];
+      let stage = 0;
+      button('Cycle building damage: 95 / 75 / 50 / 25 / 10 / 5 / 100%', () => {
+        const hp = stages[stage++ % stages.length];
+        for (const e of sim.buildingsQuery) {
+          if (e.team?.id !== localTeam || !e.health || !e.building || e.destroyed) continue;
+          e.health.current = e.health.max * hp;
+          e.building.repair = undefined;
+          e.structureDamage ??= createStructureDamage(e);
+          e.structureDamage.cells.fill(hp === 1 ? 0 : 255);
+          e.structureDamage.version++;
+        }
+        focusProducer('factory');
+      });
+    }
     button('Repair damaged facilities',()=>{for(const e of sim.buildingsQuery)if(e.team?.id===localTeam&&e.health&&e.building&&e.building.kind!=='command-yard'){e.health.current=e.health.max*.65;e.building.repair={elapsed:0};}});
     document.body.append(panel);
   }
@@ -3087,6 +3120,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let lastFogTextureTick = -2;
   let lastResourceVisualTick = -1;
   const hud = new Hud(document.body);
+  const unitLossFeed = new UnitLossFeed(sim, localTeam, document.body);
+  const strategicIntelFeed = new StrategicIntelFeed(localTeam, armyTag, document.body);
+  if (import.meta.env.DEV && params.get('loss-feed-test') === '1') installUnitLossTest(sim, localTeam);
   const codeRedAlert = new CodeRedAlert(document.body);
   activeMatchExitGuard?.dispose();
   activeMatchExitGuard = installActiveMatchExitGuard();
@@ -3399,6 +3435,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
             );
             return refinery ? lockstep.issue({ type: 'return-harvesters', ids, x, z }) : false;
           },
+          altitude: (ids, delta) => lockstep.issue({ type: 'aircraft-altitude', ids, delta }),
           stop: (ids) => lockstep.issue({ type: 'stop', ids }),
           rally: (producerId, x, z) => {
             orderMarkers.push(x, z, 'rally');
@@ -3503,6 +3540,16 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       unitVoices.acknowledge(available, 'selected');
     },
     credits: () => economy.credits,
+    upgradeDefense: (entity) => {
+      if (!canManageArmy) { commanderOnly(); return { ok: false, reason: 'Commander manages shared upgrades' }; }
+      if (lockstep) {
+        const ok = lockstep.issue({ type: 'upgrade-defense', id: entity.id, expectedLevel: defenseLevel(entity) });
+        return { ok, reason: ok ? 'Defense upgrade queued' : 'Upgrade unavailable' };
+      }
+      const result = purchaseDefenseUpgrade(sim, economy, entity.id, defenseLevel(entity));
+      sidebar.notify(result.reason);
+      return result;
+    },
     purchaseUpgrade: (ids, upgradeId) => {
       if (!canManageArmy) {
         commanderOnly();
@@ -3919,6 +3966,24 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const firstContactGate = new FirstContactGate();
   const baseUnderAttackGate = new BaseUnderAttackGate();
   const missionComms = new MissionComms();
+  if (import.meta.env.DEV && params.get('notification-test') === '1') {
+    const panel = document.createElement('div');
+    panel.style.cssText = 'position:fixed;bottom:12px;left:12px;z-index:80;padding:10px;background:#10232bee;border:1px solid #729d91;border-radius:8px;color:white;font:12px system-ui';
+    const add = (text:string, action:()=>void) => { const b=document.createElement('button'); b.textContent=text; b.style.cssText='display:block;padding:7px;margin:5px;cursor:pointer'; b.onclick=action; panel.append(b); };
+    const launch = (targetTeam:number) => {
+      const attacker = armies.find(a=>a.team!==localTeam&&a.economy.doctrine==='missile-command');
+      const target = armies.find(a=>a.team===targetTeam);
+      if (!attacker || !target) return;
+      attacker.economy.credits=100000; attacker.economy.strategicMissileCooldown=0;
+      launchStrategicMissileAt(sim,attacker.economy,target.team,target.base.transform.x,target.base.transform.z);
+    };
+    add('Launch between other armies',()=>launch(armies.find(a=>a.team!==localTeam&&a.economy.doctrine!=='missile-command')?.team ?? 3));
+    add('Launch toward my base',()=>launch(localTeam));
+    add('Show commander notification',()=>missionComms.announceBaseUnderAttack('Command HQ'));
+    for (const name of ['pointerdown','pointerup','click']) panel.addEventListener(name,e=>e.stopPropagation());
+    document.body.append(panel);
+  }
+
 
   const showEnemyFirstContact = (): void => {
     if (!NARRATIVE_CHARACTERS_ENABLED) return;
@@ -3964,6 +4029,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     simTick: () => {
       if (uiPaused || networkPaused) return;
       if (collectorPreview) return;
+      if (!firstPerson.active) controller.updateAircraftAltitude(1 / SIM_HZ);
       firstPerson.simTick();
       const tickResult = advanceTick({
         sim,
@@ -3992,6 +4058,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         fogView.refresh();
       }
       const events = tickResult.events;
+      unitLossFeed.update();
       destructionPanel?.simTick(sim.tick);
       debriefTracker.recordEvents(events);
       if (impactDemoScene) {
@@ -4075,9 +4142,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       firstPerson.handleCombatEvents(events);
       audio.handleCombatEvents(events, firstPerson.possessedEntity?.id);
       for (const event of events) {
+        strategicIntelFeed.record(event, sim.tick);
         if (
-          (event.kind === 'strategic-missile-warning' || event.kind === 'ember-drone-warning')
-          && event.targetTeamId === localTeam
+          strategicWarningAudience(event, localTeam) === 'incoming'
         ) {
           const attackerTeam = event.sourceTeamId ?? 0;
           const drone = event.kind === 'ember-drone-warning';
@@ -4085,7 +4152,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           sidebar.signalIncomingMissile(attackerTeam, drone ? 'SHAHED DRONE' : 'FATTAH MISSILE', { x:event.toX, z:event.toZ, bearing });
           const salvo = drone ? Number(/×(\d+)/.exec(event.targetLabel ?? '')?.[1] ?? 1) : 1;
           const eta = (event.duration ?? 8) + (event.launchDelay ?? 0);
-          if (codeRedAlert.warn(drone ? 'drone' : 'missile', armyTag(attackerTeam), salvo, eta, performance.now(), bearing)) {
+          if (codeRedAlert.warn(drone ? 'drone' : 'missile', armyTag(attackerTeam), salvo, eta, performance.now(), bearing, event.strategicId)) {
             audio.playCodeRedChime();
           }
         }
@@ -4095,9 +4162,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
             ? structureLabel(interceptor.building.kind as StructureKind, interceptor.team?.id)
             : interceptor ? unitDisplayName(interceptor) : undefined;
           const defendedHere = event.sourceTeamId !== undefined && !areTeamsHostile(sim, localTeam, event.sourceTeamId);
-          if (defendedHere) codeRedAlert.intercept(layer, performance.now());
+          const localIntercept = defendedHere && codeRedAlert.intercept(layer, performance.now(), event.strategicId);
           const intercepted = event.targetLabel?.toUpperCase() ?? 'STRATEGIC THREAT INTERCEPTED';
-          sidebar.notify(layer ? `${intercepted} · ${layer.toUpperCase()}` : intercepted);
+          if (localIntercept) sidebar.notify(layer ? `${intercepted} · ${layer.toUpperCase()}` : intercepted);
         }
         if (event.kind === 'rank-up' && event.sourceTeamId === localTeam) {
           audio.playUi('build');
@@ -6332,7 +6399,7 @@ function seedWorkingBasePreview(sim:ReturnType<typeof createGameSim>,hf:ReturnTy
   for(const army of armies) {
     army.economy.credits=50000;
     const local=army.team===localTeam;
-    const kinds:StructureKind[]=local?['power-plant','power-plant','power-plant','barracks','factory','helipad','aa-tower','skylance-ciws']:['power-plant','power-plant','intelligence-center','strategic-silo'];
+    const kinds:StructureKind[]=local?['power-plant','power-plant','power-plant','barracks','factory','helipad','aa-tower','skylance-ciws','guard-tower','missile-defense']:['power-plant','power-plant','intelligence-center','strategic-silo'];
     kinds.forEach((kind,i)=>placePreviewStructure(sim,hf,army.economy,army.base,kind,[
       {x:(i%3-1)*50,z:40+Math.floor(i/3)*44},
       {x:(i%3-1)*55,z:-40-Math.floor(i/3)*44},

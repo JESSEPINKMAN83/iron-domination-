@@ -149,6 +149,7 @@ export function specialUpgradeForEntity(entity: Entity | undefined): UnitUpgrade
 }
 
 export function unitKindForUpgrade(entity: Entity): UnitKind | undefined {
+  if (entity.building) return undefined;
   const name = (entity.name ?? '').toLowerCase();
   const weapon = entity.weapon?.kind;
   if (weapon === 'sniperRifle') return 'sniper';

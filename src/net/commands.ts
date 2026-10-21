@@ -23,7 +23,8 @@ import {
 import type { Heightfield } from '../sim/heightfield';
 import { issueAttackOrder, issueGroundAttack, manualFireAt } from '../sim/combat';
 import { purchaseUnitUpgrade, type UnitUpgradeId } from '../sim/upgrades';
-import { areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, setFormationPreset, setAggressiveMode, stopEntities, type GameSim } from '../sim/world';
+import { purchaseDefenseUpgrade } from '../sim/defenseUpgrades';
+import { adjustAircraftAltitude, areTeamsHostile, entityById, hashCriticalSimState, hashSim, issueMoveOrder, setFormationPreset, setAggressiveMode, stopEntities, type GameSim } from '../sim/world';
 import { issueTacticOrder } from '../sim/tactics';
 import { launchEmberDroneAt, launchStrategicMissileAt } from '../sim/strategicWarfare';
 import type { TacticEndAction } from '../sim/components';
@@ -46,6 +47,7 @@ export type NetCommand =
   | { type: 'harvest'; ids: number[]; x: number; z: number }
   | { type: 'return-harvesters'; ids: number[]; x: number; z: number }
   | { type: 'set-formation'; ids: number[]; preset: import('../sim/formations').FormationPreset; facing?: number }
+  | { type: 'aircraft-altitude'; ids: number[]; delta: number }
   | { type: 'set-aggressive'; ids: number[]; enabled: boolean }
   | { type: 'stop'; ids: number[] }
   | { type: 'start-structure'; kind: StructureKind }
@@ -57,6 +59,7 @@ export type NetCommand =
   | { type: 'repair-building'; id: number }
   | { type: 'rally'; producerId: number; x: number; z: number }
   | { type: 'upgrade-units'; ids: number[]; upgradeId: UnitUpgradeId }
+  | { type: 'upgrade-defense'; id: number; expectedLevel: number }
   | { type: 'upgrade-strategic'; upgrade: 'accuracy' | 'warhead' | 'ember-quantity' | 'ember-warhead' }
   | { type: 'launch-strategic'; weapon: 'missile' | 'ember'; enemyTeam: number; x: number; z: number }
   | {
@@ -498,6 +501,8 @@ export class LockstepRuntime {
       issueHarvesterReturnOrder(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.x, command.z);
     } else if (command.type === 'set-formation') {
       setFormationPreset(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.preset, command.facing);
+    } else if (command.type === 'aircraft-altitude') {
+      adjustAircraftAltitude(ownedEntities(this.options.sim, command.ids, team), command.delta);
     } else if (command.type === 'set-aggressive') {
       setAggressiveMode(ownedEntities(this.options.sim, command.ids, team), command.enabled === true);
     } else if (command.type === 'stop') {
@@ -524,6 +529,8 @@ export class LockstepRuntime {
     } else if (command.type === 'rally') {
       const producer = entityById(this.options.sim, command.producerId);
       if (producer) setProducerRally(this.options.sim, economy, producer, command.x, command.z);
+    } else if (command.type === 'upgrade-defense') {
+      purchaseDefenseUpgrade(this.options.sim, economy, command.id, command.expectedLevel);
     } else if (command.type === 'upgrade-units') {
       purchaseUnitUpgrade(this.options.sim, economy, command.ids, command.upgradeId, team);
     } else if (command.type === 'upgrade-strategic') {
@@ -761,6 +768,7 @@ function isEconomyCommand(command: NetCommand): boolean {
     command.type === 'cancel-unit' ||
     command.type === 'primary-producer' ||
     command.type === 'upgrade-units' ||
+    command.type === 'upgrade-defense' ||
     command.type === 'upgrade-strategic' ||
     command.type === 'launch-strategic';
 }

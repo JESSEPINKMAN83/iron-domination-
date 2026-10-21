@@ -76,7 +76,7 @@ export class EnemyCommander {
     personality: Personality = 'balanced',
     difficulty: Difficulty = 'normal',
     /** map-geography scouting hints (e.g. known start locations) — not unit intel */
-    private readonly scoutHints: { x: number; z: number }[] = [],
+    private readonly scoutHints: { x: number; z: number; team?: number }[] = [],
     /** Faction intel is known at deployment, so Aegis can prepare for a Vesper opponent. */
     strategicDefenseNeeded = false,
   ) {
@@ -296,10 +296,14 @@ export class EnemyCommander {
       .sort((a, b) => a.x - b.x || a.z - b.z);
     if (possible.length === 0) return;
     const mark = possible[this.strategicTargetIndex++ % possible.length];
+    // Deployment hints carry their army; never label every blind strike as
+    // targeting the first hostile army (usually the human player).
+    const targetTeam = strategicScoutTargetTeam(mark, hostileTeams, this.sim.world.entities);
+    if (targetTeam === undefined) return;
     const result = this.economy.strategicMissileCooldown <= 0
-      ? launchStrategicMissileAt(this.sim, this.economy, hostileTeams[0], mark.x, mark.z)
+      ? launchStrategicMissileAt(this.sim, this.economy, targetTeam, mark.x, mark.z)
       : emberLaunchReadiness(this.sim, this.economy).ready
-        ? launchEmberDroneAt(this.sim, this.economy, hostileTeams[0], mark.x, mark.z)
+        ? launchEmberDroneAt(this.sim, this.economy, targetTeam, mark.x, mark.z)
         : undefined;
     if (result?.ok) this.log('blind strategic launch toward a known deployment sector');
   }
@@ -723,4 +727,19 @@ export class EnemyCommander {
   private log(message: string): void {
     console.info(`[ai] ${message}`);
   }
+}
+
+/** Resolve older unlabelled hints from deployment structures without assuming army 1. */
+export function strategicScoutTargetTeam(
+  mark: { x: number; z: number; team?: number }, hostileTeams: readonly number[], entities: Iterable<Entity>,
+): number | undefined {
+  if (mark.team !== undefined) return hostileTeams.includes(mark.team) ? mark.team : undefined;
+  let nearest: number | undefined;
+  let distance = Infinity;
+  for (const entity of entities) {
+    if (!entity.building || entity.destroyed || !entity.team || !hostileTeams.includes(entity.team.id)) continue;
+    const d = Math.hypot(entity.transform.x - mark.x, entity.transform.z - mark.z);
+    if (d < distance) { distance = d; nearest = entity.team.id; }
+  }
+  return nearest ?? (hostileTeams.length === 1 ? hostileTeams[0] : undefined);
 }

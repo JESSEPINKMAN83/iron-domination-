@@ -1,6 +1,6 @@
 .mission-comms {
   position: fixed;
-  top: 18px;
+  top: 142px;
   left: 18px;
   z-index: 54;
   display: grid;
@@ -24,6 +24,7 @@
 
 .mission-comms--visible {
   opacity: 1;
+  pointer-events: auto;
   transform: translate(0, 0);
 }
 
@@ -43,7 +44,7 @@
 .mission-comms__copy {
   align-self: center;
   min-width: 0;
-  padding: 10px 14px 11px;
+  padding: 10px 38px 11px 14px;
 }
 
 .mission-comms__eyebrow {
@@ -71,7 +72,7 @@
 
 @media (max-width: 620px) {
   .mission-comms {
-    top: 10px;
+    top: 142px;
     left: 10px;
     grid-template-columns: 68px minmax(0, 1fr);
     width: calc(100vw - 20px);
@@ -79,8 +80,12 @@
   }
 
   .mission-comms__portrait { width: 68px; height: 68px; }
-  .mission-comms__copy { padding: 7px 9px 8px; }
+  .mission-comms__copy { padding: 7px 34px 8px 9px; }
   .mission-comms__eyebrow { font-size: 7px; }
   .mission-comms__title { font-size: 12px; }
   .mission-comms__message { margin-top: 3px; font-size: 9px; line-height: 1.35; }
 }
+
+.mission-comms__close { position:absolute; right:5px; top:5px; width:30px; height:30px; border:0; border-radius:4px; background:transparent; color:#d7e0e7; font:24px/1 system-ui; cursor:pointer; }
+.mission-comms__close:hover { background:#ffffff18; }
+.mission-comms__close:focus-visible { outline:2px solid #9de5c4; }

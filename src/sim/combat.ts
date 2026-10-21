@@ -1,4 +1,5 @@
 import { armyName } from '../content/nations';
+import { defensePower, defenseReload, defenseMissileSpeed } from './defenseUpgrades';
 import { WEAPONS, type ArmorClass, type WeaponKind } from '../content/phase4';
 import { FORTRESS_TOWER, isFortressTower } from '../content/fortress';
 import { angleDelta, slewAngle } from './angles';
@@ -754,7 +755,7 @@ function launchWeaponProjectile(
   const isLocked = target?.id !== undefined && (
     forceHoming || (!attacker.playerControlled && projectileDef.trajectory === 'homing')
   );
-  const speed = projectileDef.speed * (isLocked ? LOCKED_MISSILE_SPEED_SCALE : speedScale);
+  const speed = projectileDef.speed * (isLocked ? LOCKED_MISSILE_SPEED_SCALE : speedScale) * defenseMissileSpeed(attacker);
   const aimDy = resolvedTargetY - fromY;
   const aimDistance = Math.max(0.001, Math.hypot(dx, aimDy, dz));
   const duration = isLocked
@@ -1268,7 +1269,7 @@ function launchStrategicDefenses(sim: GameSim, projectile: GameSim['projectiles'
       if (round.strategicId === projectile.strategicId) assignedDamage += round.strategicInterceptor.damage;
     }
     if (active >= 3 || assignedDamage >= (projectile.strategicHealth ?? 100)) continue;
-    if (launchStrategicInterceptor(sim, projectile, defense, 'tower', 42, 'aaMissile', EARLY_INTERCEPT_SPEED)) weapon.cooldown = 1.1;
+    if (launchStrategicInterceptor(sim, projectile, defense, 'tower', 42 * defensePower(defense), 'aaMissile', EARLY_INTERCEPT_SPEED * defenseMissileSpeed(defense))) weapon.cooldown = 1.1 * defenseReload(defense);
   }
 
   if (projectile.strategicProfile !== 'drone') {
@@ -1279,10 +1280,11 @@ function launchStrategicDefenses(sim: GameSim, projectile: GameSim['projectiles'
         defense.building.kind !== 'missile-defense' ||
         defense.team?.id !== projectile.strategicTargetTeamId
       ) continue;
-      if ((sim.tick + defense.id * 7) % MISSILE_DEFENSE_FIRE_INTERVAL_TICKS !== 0) continue;
+      const interval = Math.max(6, Math.round(MISSILE_DEFENSE_FIRE_INTERVAL_TICKS * defenseReload(defense)));
+      if ((sim.tick + defense.id * 7) % interval !== 0) continue;
       if (Math.hypot(defense.transform.x - px, defense.transform.z - pz) > MISSILE_DEFENSE_RADIUS) continue;
       if (!isPreferredStrategicTarget(sim, projectile, defense.transform.x, defense.transform.z, MISSILE_DEFENSE_RADIUS)) continue;
-      launchStrategicInterceptor(sim, projectile, defense, 'tower', MISSILE_DEFENSE_DAMAGE);
+      launchStrategicInterceptor(sim, projectile, defense, 'tower', MISSILE_DEFENSE_DAMAGE * defensePower(defense), undefined, DEFENSE_INTERCEPTOR_SPEED * defenseMissileSpeed(defense));
     }
   }
 }
@@ -1328,7 +1330,7 @@ function engageStrategicProjectileWithAirDefenses(
         0.2,
       )) continue;
       if (!isPreferredStrategicTarget(sim, strategic, defense.transform.x, defense.transform.z, range)) continue;
-      const damage = damageForArmor(weaponKind, 'air');
+      const damage = damageForArmor(weaponKind, 'air') * defensePower(defense);
       weapon.cooldown = weaponCooldown(def.cooldown, defense);
       if (def.projectile) {
         launchStrategicInterceptor(
@@ -1443,9 +1445,9 @@ function launchStrategicInterceptor(
   const resolvedWeaponKind = weaponKind ?? 'aaMissile';
   const weaponDef = WEAPONS[resolvedWeaponKind];
   const projectileKind = weaponDef.projectile?.kind ?? 'aaMissile';
-  const interceptorSpeed = speedOverride ?? (weaponKind === undefined
+  const interceptorSpeed = speedOverride ?? ((weaponKind === undefined
     ? DEFENSE_INTERCEPTOR_SPEED
-    : weaponDef.projectile?.speed ?? DEFENSE_INTERCEPTOR_SPEED);
+    : weaponDef.projectile?.speed ?? DEFENSE_INTERCEPTOR_SPEED) * defenseMissileSpeed(defender));
   const fromX = defender.transform.x;
   const fromZ = defender.transform.z;
   const fromY = defender.flight
@@ -1711,7 +1713,7 @@ function fireHitscanAtEntity(sim: GameSim, attacker: Entity, weapon: Weapon, tar
 }
 
 function weaponCooldown(baseCooldown: number, attacker: Entity): number {
-  return baseCooldown * (attacker.aiCombat?.cooldownMultiplier ?? 1) * combatRankCooldownMultiplier(attacker);
+  return baseCooldown * (attacker.aiCombat?.cooldownMultiplier ?? 1) * combatRankCooldownMultiplier(attacker) * defenseReload(attacker);
 }
 
 function autoAimPoint(
@@ -1928,7 +1930,7 @@ interface DamageImpact {
 
 function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: DamageImpact, source?: Entity): number {
   if (!target.health || amount <= 0) return 0;
-  const scaled = amount * (source ? combatRankDamageMultiplier(source) : 1);
+  const scaled = amount * (source ? combatRankDamageMultiplier(source) * defensePower(source) : 1);
   const before = target.health.current;
   target.health.current = Math.max(0, target.health.current - scaled);
   const dealt = before - target.health.current;
@@ -2178,8 +2180,9 @@ function distance(a: Entity, b: Entity): number {
 }
 
 function weaponSlots(entity: Entity): Weapon[] {
-  if (entity.weapons) return [entity.weapons.primary, entity.weapons.secondary].filter((weapon): weapon is Weapon => weapon !== undefined);
-  return entity.weapon ? [entity.weapon] : [];
+  const weapons = entity.weapons ? [entity.weapons.primary, entity.weapons.secondary].filter((weapon): weapon is Weapon => weapon !== undefined) : entity.weapon ? [entity.weapon] : [];
+  if (entity.building?.airDefenseWeapon) weapons.push(entity.building.airDefenseWeapon);
+  return weapons;
 }
 
 function cooldownWeapons(entity: Entity): Weapon[] {

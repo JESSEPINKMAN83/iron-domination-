@@ -4,6 +4,9 @@ import type { StructureDamage } from '../sim/components';
 import {
   BUILDING_HEALTH_REVEAL_TICKS,
   blockDressKind,
+  buildingDamageLevel,
+  buildingVisualWound,
+  buildingDetailDeformation,
   buildingHealthBarVisible,
   buildingSelectionFootprint,
   detailWoundFromGrid,
@@ -52,10 +55,30 @@ describe('building damage dressing ladder', () => {
     expect(blockDressKind(0, 0)).toBe('intact');
     expect(blockDressKind(8, 1)).toBe('scorched');
     expect(blockDressKind(24, 2)).toBe('cracked');
-    expect(blockDressKind(70, 4)).toBe('shrunk');
-    expect(blockDressKind(140, 6)).toBe('rubble');
-    expect(blockDressKind(200, 8)).toBe('removed');
-    expect(blockDressKind(90, 8, true)).toBe('rubble');
+    expect(blockDressKind(70, 5)).toBe('shrunk');
+    expect(blockDressKind(140, 9)).toBe('rubble');
+    expect(blockDressKind(200, 9)).toBe('removed');
+    expect(blockDressKind(90, 9, true)).toBe('rubble');
+  });
+
+  it('keeps even saturated impact cells recognizable until five percent health', () => {
+    for (const hp of [0.99, 0.9, 0.75, 0.6, 0.45, 0.35, 0.25, 0.15, 0.06, 0.0501]) {
+      const level = buildingDamageLevel(hp);
+      expect(['removed', 'rubble']).not.toContain(blockDressKind(255, level, true));
+      expect(buildingDetailDeformation(1, 1, level)).toBeLessThanOrEqual(0.45);
+    }
+    expect(blockDressKind(255, buildingDamageLevel(0.99))).toBe('scorched');
+    expect(buildingDetailDeformation(1, 1, buildingDamageLevel(0.99))).toBeLessThan(0.02);
+    expect(blockDressKind(255, buildingDamageLevel(0.05))).toBe('removed');
+    expect(buildingDetailDeformation(1, 1, buildingDamageLevel(0.05))).toBe(1);
+  });
+
+  it('restores the silhouette with repairs even if local scars remain saturated', () => {
+    const severe = buildingDamageLevel(0.04);
+    const repaired = buildingDamageLevel(0.95);
+    expect(buildingVisualWound(255, repaired)).toBeLessThan(buildingVisualWound(255, severe));
+    expect(blockDressKind(255, repaired)).toBe('scorched');
+    expect(blockDressKind(255, buildingDamageLevel(1))).toBe('intact');
   });
 
   it('wounds details on the struck facade harder than the opposite face', () => {

@@ -38,10 +38,13 @@ export class MissionComms {
   private readonly audio: HTMLAudioElement;
   private hideTimer?: number;
   private pendingPlayback = false;
+  private revealFrame?: number;
+  private playbackVersion = 0;
 
   constructor(parent: HTMLElement = document.body) {
     this.root = document.createElement('div');
     this.root.className = 'mission-comms';
+    this.root.inert = true;
     this.root.setAttribute('role', 'status');
     this.root.setAttribute('aria-live', 'polite');
 
@@ -60,7 +63,14 @@ export class MissionComms {
     this.message = document.createElement('div');
     this.message.className = 'mission-comms__message';
     copy.append(this.eyebrow, this.title, this.message);
-    this.root.append(this.portrait, copy);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'mission-comms__close';
+    close.textContent = '×';
+    close.setAttribute('aria-label', 'Dismiss commander notification');
+    close.onclick = () => this.dismiss();
+    for (const name of ['pointerdown', 'pointerup', 'click', 'dblclick', 'wheel']) this.root.addEventListener(name, event => event.stopPropagation());
+    this.root.append(this.portrait, copy, close);
     parent.appendChild(this.root);
 
     this.audio = document.createElement('audio');
@@ -126,13 +136,15 @@ export class MissionComms {
   }
 
   private announce(transmission: Transmission): void {
+    const version = ++this.playbackVersion;
     if (this.hideTimer !== undefined) window.clearTimeout(this.hideTimer);
     this.eyebrow.textContent = transmission.eyebrow;
     this.title.textContent = transmission.title;
     this.message.textContent = transmission.message;
     this.root.classList.toggle('mission-comms--alert', transmission.alert === true);
     this.root.classList.remove('mission-comms--visible');
-    requestAnimationFrame(() => this.root.classList.add('mission-comms--visible'));
+    if (this.revealFrame !== undefined) cancelAnimationFrame(this.revealFrame);
+    this.revealFrame = requestAnimationFrame(() => { this.revealFrame = undefined; this.root.inert = false; this.root.classList.add('mission-comms--visible'); });
 
     this.audio.pause();
     this.pendingPlayback = false;
@@ -146,19 +158,31 @@ export class MissionComms {
     this.pendingPlayback = true;
     this.scheduleHide(45_000);
     void this.audio.play().catch(() => {
-      this.pendingPlayback = true;
+      if (version === this.playbackVersion) this.pendingPlayback = true;
     });
+  }
+
+  dismiss(): void {
+    this.playbackVersion++;
+    if (this.hideTimer !== undefined) window.clearTimeout(this.hideTimer);
+    if (this.revealFrame !== undefined) cancelAnimationFrame(this.revealFrame);
+    this.revealFrame = undefined;
+    this.pendingPlayback = false;
+    this.audio.pause();
+    this.root.classList.remove('mission-comms--visible');
+    this.root.inert = true;
   }
 
   private scheduleHide(delay: number): void {
     if (this.hideTimer !== undefined) window.clearTimeout(this.hideTimer);
-    this.hideTimer = window.setTimeout(() => this.root.classList.remove('mission-comms--visible'), delay);
+    this.hideTimer = window.setTimeout(() => this.dismiss(), delay);
   }
 
   private retryPendingPlayback(): void {
     if (!this.pendingPlayback || !this.audio.paused) return;
+    const version = this.playbackVersion;
     void this.audio.play().catch(() => {
-      this.pendingPlayback = true;
+      if (version === this.playbackVersion) this.pendingPlayback = true;
     });
   }
 }

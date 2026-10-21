@@ -2,6 +2,7 @@ import { Raycaster, Vector2, Vector3, type PerspectiveCamera } from 'three';
 import type { GameSim } from '../sim/world';
 import {
   areTeamsHostile,
+  adjustAircraftAltitude,
   attackStandoffPoint,
   formationBaseSpacingForEntities,
   formationSpreadForEntities,
@@ -57,6 +58,7 @@ export interface RtsCommandSink {
   attackGround?(entityIds: number[], x: number, z: number): boolean;
   harvest?(entityIds: number[], x: number, z: number): boolean;
   returnHarvesters?(entityIds: number[], x: number, z: number): boolean;
+  altitude?(entityIds: number[], delta: number): boolean;
   stop?(entityIds: number[]): boolean;
   rally?(producerId: number, x: number, z: number): boolean;
 }
@@ -196,6 +198,30 @@ export class RtsController {
       if (document.hidden) this.resetTouchGesture();
     });
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
+  }
+
+  private altitudeInputElapsed = 0;
+  private altitudeInputDirection = 0;
+
+  updateAircraftAltitude(dt: number): void {
+    const direction = this.enabled && !isTextEntryTarget(document.activeElement)
+      && !this.input.isButton(0) && !this.input.isButton(2) && !this.placement?.isPlacing()
+      ? (this.input.isDown('Space') ? 1 : 0) - (this.input.isDown('KeyC') ? 1 : 0) : 0;
+    if (!direction) {
+      this.altitudeInputElapsed = 0;
+      this.altitudeInputDirection = 0;
+      return;
+    }
+    const aircraft = selectedEntities(this.sim, this.localTeam).filter(e => e.flight && !e.destroyed && !e.playerControlled);
+    if (!aircraft.length) return;
+    const changed = direction !== this.altitudeInputDirection;
+    this.altitudeInputDirection = direction;
+    this.altitudeInputElapsed += dt;
+    if (!changed && this.altitudeInputElapsed < 0.1) return;
+    this.altitudeInputElapsed = 0;
+    const delta = direction * 1.2;
+    if (!(this.commandSink?.altitude?.(aircraft.map(e => e.id), delta) ?? false)) adjustAircraftAltitude(aircraft, delta);
+    if (changed) this.showFeedback(direction > 0 ? 'AIRCRAFT CLIMB · SPACE ↑ / C ↓' : 'AIRCRAFT DESCEND · SAFE HEIGHT LIMIT');
   }
 
   selectedCount(): number {

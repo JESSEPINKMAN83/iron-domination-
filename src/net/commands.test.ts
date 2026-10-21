@@ -4,11 +4,37 @@ import { advanceTick } from '../match/advanceTick';
 import { buildings, createEconomy, createInitialBase, placeStructure, updatePlacement } from '../sim/economy';
 import { generateHeightfield } from '../sim/heightfield';
 import { serializeMatchState } from '../sim/serialize';
-import { createGameSim, hashCriticalSimState, hashSim, spawnTankAt, type GameSim } from '../sim/world';
+import { createGameSim, hashCriticalSimState, hashSim, spawnVultureAt, spawnTankAt, type GameSim } from '../sim/world';
 import { hashMultiplayerState, LockstepRuntime } from './commands';
 import type { MultiplayerClient, MultiplayerSession } from './multiplayer';
 
 describe('multiplayer lockstep commands', () => {
+  it('applies altitude orders only to owned aircraft through lockstep', () => {
+    const hf = generateHeightfield(MAP01), sim = createGameSim(hf);
+    const own = spawnVultureAt(sim, hf, 0, 0, 'Own', 1);
+    const enemy = spawnVultureAt(sim, hf, 40, 40, 'Enemy', 2);
+    const tank = spawnTankAt(sim, 60, 60, 'Tank', 1);
+    const original = own.flight!.cruiseAltitude;
+    const client = { connect: () => undefined, disconnect: () => undefined, sendCommand: async () => undefined } as unknown as MultiplayerClient;
+    const runtime = new LockstepRuntime({ sim, hf, economies: { 1: createEconomy(1) }, client, session: sessionFor(1) });
+    runtime.issue({ type: 'aircraft-altitude', ids: [own.id, enemy.id, tank.id], delta: 1.2 });
+    for (let i = 0; i < 8; i++) { sim.tick++; runtime.tick(); }
+    expect(own.flight!.cruiseAltitude).toBeCloseTo(original + 1.2);
+    expect(enemy.flight!.cruiseAltitude).toBe(original);
+    expect(tank.flight).toBeUndefined();
+  });
+  it('applies defense spending once for the issuing army and rejects stale duplicate orders', () => {
+    const hf = generateHeightfield(MAP01), sim = createGameSim(hf);
+    const economy = createEconomy(1, 2000);
+    const tower = sim.world.add({ id: sim.nextEntityId++, team: { id: 1 }, transform: { x: 20, z: 20 }, health: { current: 500, max: 500 }, building: { kind: 'guard-tower', label: 'Guard', complete: true } } as import('../sim/components').Entity);
+    const client = { connect: () => undefined, disconnect: () => undefined, sendCommand: async () => undefined } as unknown as MultiplayerClient;
+    const runtime = new LockstepRuntime({ sim, hf, economies: { 1: economy }, client, session: sessionFor(1) });
+    runtime.issue({ type: 'upgrade-defense', id: tower.id, expectedLevel: 0 });
+    runtime.issue({ type: 'upgrade-defense', id: tower.id, expectedLevel: 0 });
+    for (let i = 0; i < 8; i++) { sim.tick++; runtime.tick(); }
+    expect(tower.building!.defenseLevel).toBe(1);
+    expect(economy.credits).toBe(1900);
+  });
   it('lets a Field Officer command shared army units but blocks shared-economy spending', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
@@ -39,6 +65,7 @@ describe('multiplayer lockstep commands', () => {
     expect(lockstep.issue({ type: 'set-formation', ids: [sharedTank.id, enemyTank.id], preset: 'spread' })).toBe(true);
     expect(lockstep.issue({ type: 'move', ids: [sharedTank.id], x: 72, z: 64, attackMove: false })).toBe(true);
     expect(lockstep.issue({ type: 'start-structure', kind: 'power-plant' })).toBe(false);
+    expect(lockstep.issue({ type: 'upgrade-defense', id: sharedTank.id, expectedLevel: 0 })).toBe(false);
     for (let i = 0; i < 8; i++) {
       sim.tick++;
       lockstep.tick();

@@ -601,27 +601,27 @@ export class BuildingView {
 
     const worst = worstBlocks(object.blocks, damage, 8);
     const lean = damageVector(damage);
-    if (level >= 8) {
+    if (level >= 9) {
       object.leanX = lean.z * 0.035;
       object.leanZ = -lean.x * 0.035;
     }
 
-    let debrisBudget = 8;
+    let debrisBudget = level >= 7 ? 8 : level >= 5 ? 3 : 0;
     for (const block of object.blocks) {
-      const value = damage.cells[block.index] ?? 0;
+      const value = buildingVisualWound(damage.cells[block.index] ?? 0, level);
       resetBlock(block);
       if (entity.destroyed) {
         dressCollapsedBlock(entity, block, this.rubbleMaterial, destroyedRemaining ?? 0);
         continue;
       }
-      const kind = blockDressKind(value, level, level >= 8 && isCornerCell(damage, block));
+      const kind = blockDressKind(value, level, level >= 9 && isCornerCell(damage, block));
       if (level >= 9 && block.tier === damage.tiers - 1 && value > 62) dressRemovedBlock(block, this.interiorMaterial);
       else if (kind === 'removed') dressRemovedBlock(block, this.interiorMaterial);
       else if (kind === 'rubble') dressRubbleBlock(entity, block, this.rubbleMaterial);
       else if (kind === 'shrunk') dressShrunkBlock(entity, block, this.crackMaterial);
       else if (kind === 'cracked') dressCrackedBlock(entity, block, this.crackMaterial);
       else if (kind === 'scorched') dressScorchedBlock(entity, block, this.scorchMaterial);
-      if (level >= 7 && block.tier > 0 && supportCellBroken(damage, block)) {
+      if (level >= 9 && block.tier > 0 && supportCellBroken(damage, block)) {
         block.mesh.position.y -= block.baseScale.y * 0.18;
         block.mesh.rotation.x += deterministicSigned(block.index, entity.id, 0x57) * 0.1;
         block.mesh.rotation.z += deterministicSigned(block.index, entity.id, 0x58) * 0.1;
@@ -641,14 +641,14 @@ export class BuildingView {
       } else if (block.mesh.parent !== object.root) object.root.add(block.mesh);
     }
 
-    for (const accent of object.accents) accent.visible = level < 4 && !entity.destroyed;
+    for (const accent of object.accents) accent.visible = level < 9 && !entity.destroyed;
     updateBuildingDetails(object.details, damage, level, Boolean(entity.destroyed));
 
     const hasLocalizedDamage = worst.some((cell) => cell.value > 0);
-    const scarCount = Math.min(worst.length, level >= 7 ? 6 : level >= 3 ? 5 : 4);
-    const smokeCount = !hasLocalizedDamage ? 0 : level >= 9 ? 5 : level >= 7 ? 4 : level >= 4 ? 3 : 2;
-    const fireCount = level >= 9 ? 4 : level >= 7 ? 3 : level >= 5 ? 2 : worst.some((cell) => cell.value >= 128) ? 1 : 0;
-    const emberCount = level >= 8 ? 4 : level >= 5 ? 3 : level >= 2 ? 2 : hasLocalizedDamage ? 1 : 0;
+    const scarCount = !hasLocalizedDamage ? 0 : Math.min(worst.length, level >= 7 ? 6 : level >= 3 ? 3 : 1);
+    const smokeCount = !hasLocalizedDamage || level < 3 ? 0 : level >= 9 ? 5 : level >= 7 ? 3 : 1;
+    const fireCount = !hasLocalizedDamage ? 0 : level >= 9 ? 4 : level >= 7 ? 2 : level >= 5 ? 1 : 0;
+    const emberCount = !hasLocalizedDamage ? 0 : level >= 9 ? 4 : level >= 7 ? 2 : level >= 5 ? 1 : 0;
     for (let i = 0; i < scarCount; i++) this.addEffect(entity, object, worst[i], 'scar', level, damage);
     for (let i = 0; i < Math.min(smokeCount, worst.length); i++) this.addEffect(entity, object, worst[i], 'smoke', level, damage);
     for (let i = 0; i < Math.min(fireCount, worst.length); i++) this.addEffect(entity, object, worst[i], 'fire', level, damage);
@@ -701,7 +701,7 @@ export class BuildingView {
               ? this.emberSpotMaterial.clone()
               : this.scarMaterial.clone();
     const mesh = new Mesh(sharedPlaneGeometry, material);
-    const severity = Math.max(0.2, Math.min(1, cell.value / 180));
+    const severity = Math.max(0.2, Math.min(1, buildingVisualWound(cell.value, level) / 180));
     const size =
       kind === 'smoke'
         ? 2.1 + level * 0.28
@@ -1182,8 +1182,9 @@ function normalizeBodyProfile(profile: BodyTierProfile[] | undefined, tiers: num
 export type BlockDressKind = 'intact' | 'scorched' | 'cracked' | 'shrunk' | 'rubble' | 'removed';
 
 export function blockDressKind(value: number, level: number, cornerCollapse = false): BlockDressKind {
-  if (value >= 182) return 'removed';
-  if (value >= 128 || (cornerCollapse && value >= 86)) return 'rubble';
+  value = buildingVisualWound(value, level);
+  if (level >= 9 && value >= 182) return 'removed';
+  if (level >= 9 && (value >= 128 || (cornerCollapse && value >= 86))) return 'rubble';
   if (value >= 58) return 'shrunk';
   if (value >= 18 || (level >= 2 && value >= 8)) return 'cracked';
   if (value > 0) return 'scorched';
@@ -1228,10 +1229,35 @@ export function detailWoundFromGrid(
   return max;
 }
 
+// Local damage records impact locations; overall health limits how destroyed they look.
+const VISUAL_WOUND_CAPS = [0, 12, 24, 40, 56, 78, 105, 127, 170, 255, 255];
+const DETAIL_DEFORMATION_CAPS = [0, 0.015, 0.04, 0.07, 0.1, 0.15, 0.22, 0.32, 0.45, 1, 1];
+
+export function buildingVisualWound(value: number, level: number): number {
+  return Math.min(value, VISUAL_WOUND_CAPS[Math.max(0, Math.min(10, level))]);
+}
+
+export function buildingDetailDeformation(local: number, global: number, level: number): number {
+  return Math.min(Math.max(local, global), DETAIL_DEFORMATION_CAPS[Math.max(0, Math.min(10, level))]);
+}
+
+export function buildingDamageLevel(healthFraction: number): number {
+  if (healthFraction >= 1) return 0;
+  if (healthFraction > 0.85) return 1;
+  if (healthFraction > 0.7) return 2;
+  if (healthFraction > 0.55) return 3;
+  if (healthFraction > 0.4) return 4;
+  if (healthFraction > 0.3) return 5;
+  if (healthFraction > 0.2) return 6;
+  if (healthFraction > 0.12) return 7;
+  if (healthFraction > 0.05) return 8;
+  return 9;
+}
+
 function damageLevel(entity: Entity): number {
   if (entity.destroyed) return 10;
   if (!entity.health) return 0;
-  return Math.max(0, Math.min(10, Math.ceil(10 * (1 - entity.health.current / entity.health.max))));
+  return buildingDamageLevel(entity.health.current / Math.max(1, entity.health.max));
 }
 
 function resetBlock(block: DamageBlock): void {
@@ -2041,7 +2067,7 @@ function updateBuildingDetails(root: Group, damage: StructureDamage, level: numb
       : 0;
     const globalT = destroyed ? 1 : Math.max(0, Math.min(1, (level - part.fragility) / 5));
     const localT = Math.max(0, Math.min(1, (local - 14 - part.fragility * 4) / 140));
-    const t = Math.max(localT, globalT * 0.42);
+    const t = destroyed ? 1 : buildingDetailDeformation(localT, globalT * 0.42, level);
     part.object.visible = !destroyed || part.fragility >= 7 || t < 0.96;
     part.object.position.y = part.y - t * (0.7 + part.y * 0.38);
     part.object.scale.set(part.sx * (1 - t * 0.28), part.sy * (1 - t * 0.52), part.sz * (1 - t * 0.28));
