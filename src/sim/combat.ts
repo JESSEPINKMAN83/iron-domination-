@@ -1,3 +1,4 @@
+import { matchesTargetPriorities } from './targetPriorities';
 import { armyName } from '../content/nations';
 import { defensePower, defenseReload, defenseMissileSpeed } from './defenseUpgrades';
 import { WEAPONS, type ArmorClass, type WeaponKind } from '../content/phase4';
@@ -133,6 +134,13 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
         if (!target) continue;
       } else {
         target = validTarget(sim, attacker, weapon, range);
+      }
+      // An existing incidental target must yield when a mission target comes
+      // into view. Stagger scans at 5 Hz; movement and route state stay untouched.
+      const priorities = attacker.mover?.tactic?.targetPriorities;
+      if (!orderedTarget && target && priorities?.length && (sim.tick + attacker.id) % 6 === 0 && !matchesTargetPriorities(target, priorities)) {
+        const preferred = acquireTarget(sim, attacker, weapon, range);
+        if (preferred && matchesTargetPriorities(preferred, priorities)) target = preferred;
       }
       if (!target) {
         if (commandDrivenCombat && !attacker.mover?.attackMove && !attacker.mover?.attackThrough && !attacker.mover?.aggressive) {
@@ -1767,6 +1775,8 @@ function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: numb
 function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
   let best: Entity | undefined;
   let bestScore = Number.POSITIVE_INFINITY;
+  let bestPriority = Number.POSITIVE_INFINITY;
+  const priorities = attacker.mover?.tactic?.targetPriorities;
   const visionCap = attacker.vision?.radius ?? range;
   const searchRadius = Math.max(range, visionCap);
   sim.spatial.visitNearby(attacker.transform.x, attacker.transform.z, searchRadius, (candidate) => {
@@ -1777,7 +1787,9 @@ function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: nu
     if (!hasWeaponTerrainLineOfSight(sim, attacker, weapon, candidate)) return;
     // the player's possessed unit reads as high-value — AI applies pressure to it
     const score = candidate.playerControlled ? d * (attacker.aiCombat?.possessedTargetPriority ?? 0.55) : d;
-    if (score < bestScore || (score === bestScore && candidate.id < (best?.id ?? Number.POSITIVE_INFINITY))) {
+    const priority = priorities?.length && matchesTargetPriorities(candidate, priorities) ? 0 : 1;
+    if (priority < bestPriority || (priority === bestPriority && (score < bestScore || (score === bestScore && candidate.id < (best?.id ?? Number.POSITIVE_INFINITY))))) {
+      bestPriority = priority;
       bestScore = score;
       best = candidate;
     }

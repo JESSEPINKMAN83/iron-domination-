@@ -49,6 +49,7 @@ export interface OrderFeedback {
   inspectHover?(target?: Entity): void;
   tryRally?(x: number, z: number): boolean;
   selectionChanged?(entities: Entity[]): void;
+  inspectObjectiveAtScreen?(x: number, y: number): boolean;
   focusGroup?(x: number, z: number): void;
 }
 
@@ -629,6 +630,8 @@ export class RtsController {
   private selectClick(e: PointerEvent): void {
     const hit = this.entityAt(e.clientX, e.clientY);
     if (!hit) {
+      // Inspect landmarks only after normal picking, so nearby troops stay selectable.
+      if (!e.shiftKey && this.orderFeedback?.inspectObjectiveAtScreen?.(e.clientX,e.clientY)) return;
       if (!e.shiftKey) this.updateSelection([], false);
       return;
     }

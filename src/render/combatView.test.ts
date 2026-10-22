@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CircleGeometry, Mesh, MeshBasicMaterial, PlaneGeometry, RingGeometry, Sprite } from 'three';
 import { MAP01 } from '../content/map01';
 import { generateHeightfield, type Heightfield } from '../sim/heightfield';
 import type { CombatEvent } from '../sim/world';
 import { CombatView, isWaterSurfaceHit, selectCombatVisualEvents, shouldPaintGroundScorch } from './combatView';
+
+beforeEach(() => {
+  const context = new Proxy({}, { get: () => () => undefined });
+  vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => context }) });
+});
+afterEach(() => vi.unstubAllGlobals());
 
 function event(index: number, sourceTeamId: number, overrides: Partial<CombatEvent> = {}): CombatEvent {
   return {

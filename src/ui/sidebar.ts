@@ -1442,6 +1442,17 @@ export class Sidebar {
       this.radarCtx.fillRect(Math.round(p.x) - (isBuilding ? 2 : 1), Math.round(p.y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
     this.drawRadarFog();
+    for (const site of this.sim.objectivesQuery) {
+      const p = this.worldToRadar(site.transform.x,site.transform.z);
+      const team = site.objective.ownerTeam;
+      this.radarCtx.fillStyle = team === undefined ? '#d7d7ba' : !areTeamsHostile(this.sim,team,this.economy.team) ? '#9de5c4' : '#ed8674';
+      this.radarCtx.strokeStyle = '#0a1511';
+      this.radarCtx.lineWidth = 3;
+      this.radarCtx.font = 'bold 11px system-ui';
+      const symbol = site.objective.kind[0].toUpperCase();
+      this.radarCtx.strokeText(symbol,p.x-4,p.y+4);
+      this.radarCtx.fillText(symbol,p.x-4,p.y+4);
+    }
     this.drawIncomingMissiles(now);
     this.drawThreatReport(now);
     this.drawRadarBoundary();

@@ -1,0 +1,19 @@
+.battle-objectives{position:fixed;top:12px;left:220px;right:350px;justify-content:center;flex-wrap:wrap;display:flex;gap:5px;z-index:15;max-width:none}
+.battle-objectives button{position:relative;overflow:hidden;border:1px solid #354b41;background:#0c1715e8;color:var(--site-color);border-radius:5px;padding:8px 10px;font:600 10px/1.2 system-ui;white-space:nowrap;cursor:pointer}
+.battle-objectives button:hover,.battle-objectives button:focus-visible{background:#253d33;outline:1px solid var(--site-color)}
+.battle-objectives i{position:absolute;bottom:0;left:0;width:100%;height:2px;background:var(--site-color);transform-origin:left;transition:transform .1s linear}
+@media(max-width:1000px){.battle-objectives{top:55px;left:12px;transform:none;max-width:calc(100vw - 350px);flex-wrap:wrap}.battle-objectives button{padding:6px;font-size:9px}}
+.game-selection-bar.is-objective{font-family:system-ui,sans-serif!important;gap:9px!important}
+.objective-info__header{display:flex;gap:12px;align-items:center}
+.objective-info__header strong{font-size:15px;color:#eff5eb}
+.objective-info__header span{margin-left:auto;color:#9de5c4;font-size:11px}
+.objective-info__header button{border:0;background:none;color:#c6d4cb;font-size:22px;cursor:pointer;padding:0 5px;line-height:1}
+.objective-info__columns{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:16px}
+.objective-info__columns b{font-size:9px;letter-spacing:.08em;color:#9de5c4}
+.objective-info__columns p{font-size:12px;line-height:1.45;margin:4px 0 0;color:#c5d0c8}
+.game-selection-bar.is-objective progress{width:100%;height:3px;accent-color:#9de5c4;border:0}
+@media(max-width:650px){.objective-info__columns{grid-template-columns:1fr 1fr;gap:8px}.objective-info__columns>div:last-child{grid-column:1/-1}.objective-info__columns p{font-size:11px}}
+.objective-info__columns>div{min-width:0}
+.objective-info__columns>div:last-child p{min-height:70px}
+.mobile-touch-device .game-selection-bar.is-objective>.objective-info__header{display:flex!important}
+.mobile-touch-device .game-selection-bar.is-objective>.objective-info__columns{display:grid!important}

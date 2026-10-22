@@ -147,6 +147,7 @@ describe('multiplayer lockstep commands', () => {
         ],
         endAction,
         sprint: true,
+        targetPriorities: ['missile-sites', 'economy'],
       }),
     ).toBe(true);
 
@@ -160,6 +161,7 @@ describe('multiplayer lockstep commands', () => {
     expect(guestTank.mover?.sprint).toBe(true);
     expect(guestTank.mover?.tactic?.sprint).toBe(true);
     expect(guestTank.mover?.attackThrough).toBe(endAction === 'attack-through' ? true : undefined);
+    expect(guestTank.mover?.tactic?.targetPriorities).toEqual(['economy','missile-sites']);
     expect(hostTank.mover?.tactic).toBeUndefined();
   });
 

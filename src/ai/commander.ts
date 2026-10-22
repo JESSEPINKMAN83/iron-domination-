@@ -1,3 +1,4 @@
+import { canCapture } from '../sim/objectives';
 // Phase 6 — utility-based enemy commander. Runs inside the deterministic sim
 // tick (no randomness beyond sim state, stable iteration orders). Honesty rule:
 // target *selection* only uses what the AI's own visibility grid has seen.
@@ -104,6 +105,7 @@ export class EnemyCommander {
     this.maintainBase();
     this.maintainProduction();
     this.commandStrategicStrike();
+    this.commandObjectives();
     this.commandSquads();
   }
 
@@ -349,6 +351,25 @@ export class EnemyCommander {
     }
   }
 
+  private commandObjectives(): void {
+    if (this.elapsed < 35 || !this.sim.objectivesQuery.size) return;
+    const own = this.economy.team;
+    const mine = this.myUnits();
+    const assigned = new Set(this.squads.flatMap(squad => squad.units));
+    const sites = [...this.sim.objectivesQuery].filter(site => site.objective.ownerTeam === undefined || areTeamsHostile(this.sim, own, site.objective.ownerTeam));
+    for (const unit of mine) {
+      if (unit.mover?.objectiveDuty && !sites.some(site => site.id === unit.mover!.objectiveDuty)) unit.mover.objectiveDuty = undefined;
+    }
+    if (mine.filter(canCapture).length < 5 || !sites.length) return;
+    const detachment = mine.filter(unit => canCapture(unit) && !unit.playerControlled && !assigned.has(unit) && unit.health!.current / unit.health!.max >= 0.6).slice(0, 2);
+    for (const unit of detachment) {
+      const site = sites.slice().sort((a,b) => Math.hypot(a.transform.x-unit.transform.x,a.transform.z-unit.transform.z)-Math.hypot(b.transform.x-unit.transform.x,b.transform.z-unit.transform.z) || a.id-b.id)[0];
+      if (unit.mover!.objectiveDuty === site.id) continue;
+      unit.mover!.objectiveDuty = site.id;
+      issueMoveOrder(this.sim, [unit], site.transform.x, site.transform.z);
+    }
+  }
+
   private commandSquads(): void {
     const base = this.base();
     for (const squad of this.squads) {
@@ -360,7 +381,7 @@ export class EnemyCommander {
 
     const inSquads = new Set(this.squads.flatMap((squad) => squad.units));
     // Wounded reserves defend at home; they are not recycled into suicide waves.
-    const idle = this.myUnits().filter((unit) => !inSquads.has(unit) && (unit.health?.current ?? 0) / (unit.health?.max ?? 1) >= 0.55).sort((a, b) => a.id - b.id);
+    const idle = this.myUnits().filter((unit) => !unit.mover?.objectiveDuty && !inSquads.has(unit) && (unit.health?.current ?? 0) / (unit.health?.max ?? 1) >= 0.55).sort((a, b) => a.id - b.id);
     const ground = idle.filter((unit) => !unit.flight);
     const air = idle.filter((unit) => !!unit.flight);
     this.reinforceRegroupingSquads(ground, air, base);
