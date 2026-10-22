@@ -1,3 +1,4 @@
+import { normalizeTargetPriorities, type TargetPriority } from './targetPriorities';
 import { presetFormationOffsets, rotateFormationOffset } from './formations';
 import { hash2i } from './noise';
 import type { Entity, TacticEndAction, TacticPlan } from './components';
@@ -12,6 +13,7 @@ export function cloneTacticEndAction(endAction: TacticEndAction): TacticEndActio
 
 export function cloneTacticPlan(plan: TacticPlan): TacticPlan {
   return {
+    targetPriorities: normalizeTargetPriorities(plan.targetPriorities),
     remaining: plan.remaining.map((point) => ({ x: point.x, z: point.z })),
     endAction: cloneTacticEndAction(plan.endAction),
     sprint: plan.sprint,
@@ -60,6 +62,7 @@ export function issueTacticOrder(
   endAction: TacticEndAction,
   sprint = false,
   variation = 0,
+  targetPriorities?: readonly TargetPriority[],
 ): boolean {
   if (!validateTacticWaypoints(waypoints) || !validateTacticEndAction(endAction)) return false;
   const movers = tacticEligibleEntities(entities);
@@ -74,6 +77,7 @@ export function issueTacticOrder(
   const first = waypoints[0];
   const remaining = waypoints.slice(1).map((point) => ({ x: point.x, z: point.z }));
   const planSeed: TacticPlan = {
+    targetPriorities: normalizeTargetPriorities(targetPriorities),
     remaining,
     endAction: cloneTacticEndAction(endAction),
     sprint: sprint || undefined,

@@ -1,3 +1,4 @@
+import { registerObjectiveBlocker } from './objectives';
 import { FlowField, type DynamicBlockerSnapshot } from './flowfield';
 import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity, StructureDamage } from './components';
@@ -89,6 +90,8 @@ export function restoreSerializedSim(sim: GameSim, hf: Heightfield, state: Seria
   sim.nextEntityId = state.nextEntityId;
   sim.rules = clonePlain(state.rules);
   for (const entity of state.entities) sim.world.add(restoreEntity(sim, hf, entity));
+  // Upgrade older objective saves that allowed troops to stand inside the prop.
+  sim.nav.batchBlockers(() => { for (const site of sim.objectivesQuery) registerObjectiveBlocker(sim,site); });
 }
 
 export function serializeEconomy(economy: EconomyState): SerializedEconomyState {

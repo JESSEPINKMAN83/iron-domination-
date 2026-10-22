@@ -1,3 +1,4 @@
+import { combatFeedback, FEEDBACK_COLORS } from './combatFeedback';
 import { createMissileTrail, missileTrailProfile, updateMissileTrail } from './missileTrail';
 import {
   BoxGeometry,
@@ -280,8 +281,8 @@ export class CombatView {
       if (!sourceVisible && !impactVisible && !playerHiddenHit) continue;
       if (event.kind === 'strategic-missile-intercepted') {
         this.crashStrategicProjectile(event.strategicId);
-        this.spawnBombBlast(event.toX, event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.2, event.toZ, true, 1.45);
-        this.spawnHitFragments(event, event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 1.2);
+        this.spawnInterceptionPulse(event);
+        this.spawnHitIndicator(event);
         continue;
       }
       const muzzleHeight = isBombKind(event.kind) ? 3.1 : event.kind === 'sniperRifle' ? 1.72 : event.kind === 'rifle' ? 1.35 : event.kind === 'microLaser' ? 2.75 : 2.2;
@@ -322,10 +323,8 @@ export class CombatView {
         } else if (!waterHit) {
           this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, (event.impactScale ?? 1) * smallImpactScale(event.weaponKind ?? event.kind));
         }
-        if (event.damage > 0 || event.killed) {
-          this.spawnHitIndicator(event);
-          if (!waterHit) this.spawnHitFragments(event, toY);
-        }
+        this.spawnHitIndicator(event);
+        if (!waterHit && (event.damage > 0 || event.killed)) this.spawnHitFragments(event, toY);
         if (!waterHit) this.spawnImpactAftermathSmoke(event, impactY);
         continue;
       }
@@ -367,10 +366,8 @@ export class CombatView {
       if (!waterHit && event.killed && event.targetType === 'tank') {
         this.spawnImpactAftermathSmoke(event, sampleHeight(this.hf, event.toX, event.toZ) + 0.55);
       }
-      if (event.kind !== 'microLaser' && (event.damage > 0 || event.killed)) {
-        this.spawnHitIndicator(event);
-        if (!waterHit) this.spawnHitFragments(event, toY);
-      }
+      this.spawnHitIndicator(event);
+      if (!waterHit && (event.damage > 0 || event.killed)) this.spawnHitFragments(event, toY);
     }
     this.enforceEffectBudget();
   }
@@ -1604,7 +1601,28 @@ export class CombatView {
     while (this.smokePuffs.length > maxSmoke) this.disposeSmokePuff(this.smokePuffs.shift());
   }
 
+  private spawnInterceptionPulse(event: CombatEvent): void {
+    const material = new MeshBasicMaterial({ color: 0x73e6ff, transparent: true, opacity: 0.8, side: DoubleSide, depthWrite: false });
+    material.userData.baseOpacity = 0.8;
+    const group = new Group();
+    const ring = new Mesh(sharedWaterRippleGeometry(), material);
+    ring.rotation.x = -Math.PI / 2;
+    group.add(ring);
+    group.position.set(event.toX, event.toY ?? sampleHeight(this.hf,event.toX,event.toZ)+5, event.toZ);
+    group.scale.setScalar(1.8);
+    this.group.add(group);
+    this.bursts.push({ group, ttl: 0.5, total: 0.5, kind: 'ripple', materials: [material], baseScale: 1.8 });
+    this.trimBursts();
+  }
+
+  private lastMissAt = -Infinity;
   private spawnHitIndicator(event: CombatEvent): void {
+    const feedback = combatFeedback(event);
+    if (!feedback) return;
+    if (feedback === 'miss') {
+      if (event.sourceTeamId !== this.localTeam || !this.isVisible(event.toX,event.toZ) || performance.now()-this.lastMissAt < 280) return;
+      this.lastMissAt = performance.now();
+    }
     const localOrCritical = event.sourceTeamId === this.localTeam || event.killed;
     if (!localOrCritical && this.visualQuality >= 2) return;
     if (
@@ -1630,7 +1648,7 @@ export class CombatView {
     sprite.scale.set(width, height, 1);
     sprite.renderOrder = 95;
     this.group.add(sprite);
-    const ttl = event.sourceTeamId === this.localTeam && !this.isVisible(event.toX, event.toZ) ? 3.1 : 1.65;
+    const ttl = feedback === 'miss' ? 0.65 : event.sourceTeamId === this.localTeam && !this.isVisible(event.toX, event.toZ) ? 3.1 : 1.65;
     this.hitIndicators.push({ sprite, material, texture, ttl, total: ttl, rise: 0.45, width, height, targetId: event.targetId });
     const maxIndicators = this.visualQuality === 0 ? 28 : this.visualQuality === 1 ? 20 : 14;
     while (this.hitIndicators.length > maxIndicators) {
@@ -1654,29 +1672,33 @@ function makeHitTexture(event: CombatEvent): CanvasTexture {
   const healthPct = maxHealth > 0 ? Math.max(0, Math.min(1, health / maxHealth)) : 0;
   const damagePct = maxHealth > 0 ? Math.max(1, Math.round((event.damage / maxHealth) * 100)) : Math.max(1, Math.round(event.damage));
   const loss = maxHealth > 0 ? `${damagePct}%` : `${Math.max(1, Math.round(event.damage))} HP`;
-  const title = event.killed ? 'DESTROYED' : `${maxHealth > 0 && damagePct >= 20 ? 'HEAVY HIT' : 'HIT'} -${loss}`;
+  const feedback = combatFeedback(event) ?? 'hit';
+  const color = FEEDBACK_COLORS[feedback];
+  const title = feedback === 'destroyed' ? '× DESTROYED' : feedback === 'intercept' ? '◇ INTERCEPTED' : feedback === 'miss' ? '○ MISS' : `${feedback === 'armor' ? '◇ ARMOR' : 'HIT'} -${loss}`;
   const label = (event.targetLabel ?? 'target').slice(0, 18).toUpperCase();
   const healthText = maxHealth > 0 ? `${Math.round(healthPct * 100)}%` : '';
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = 'rgba(5, 8, 7, 0.78)';
   roundRect(ctx, 8, 8, 240, 80, 8);
   ctx.fill();
-  ctx.strokeStyle = event.killed ? 'rgba(255, 94, 67, 0.95)' : 'rgba(157, 229, 196, 0.92)';
+  ctx.strokeStyle = color;
   ctx.lineWidth = 3;
   roundRect(ctx, 8, 8, 240, 80, 8);
   ctx.stroke();
   ctx.font = '700 22px ui-monospace, Menlo, monospace';
-  ctx.fillStyle = event.killed ? '#ff6a54' : '#9de5c4';
+  ctx.fillStyle = color;
   ctx.fillText(title, 22, 34);
   ctx.font = '12px ui-monospace, Menlo, monospace';
   ctx.fillStyle = '#dce8df';
-  ctx.fillText(`${label}${healthText ? `  ${healthText}` : ''}`, 22, 53);
+  ctx.fillText(feedback === 'intercept' ? 'THREAT NEUTRALIZED' : feedback === 'miss' ? 'NO CONFIRMED DAMAGE' : `${label}${healthText ? `  ${healthText}` : ''}`, 22, 53);
+  if (feedback !== 'intercept' && feedback !== 'miss') {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
   roundRect(ctx, 22, 64, 212, 10, 4);
   ctx.fill();
   ctx.fillStyle = healthPct < 0.3 ? '#ff5142' : healthPct < 0.62 ? '#9de5c4' : '#79f06f';
   roundRect(ctx, 22, 64, Math.max(4, 212 * healthPct), 10, 4);
   ctx.fill();
+  }
   const texture = new CanvasTexture(canvas);
   texture.needsUpdate = true;
   return texture;

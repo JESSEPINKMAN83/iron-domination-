@@ -1,3 +1,4 @@
+import { stepObjectives } from '../sim/objectives';
 import type { EnemyCommander } from '../ai/commander';
 import { SIM_DT } from '../engine/loop';
 import type { LockstepRuntime } from '../net/commands';
@@ -40,6 +41,7 @@ export function advanceTick(match: MatchTickRuntime): MatchTickResult {
   const spawned = match.economies.flatMap((economy) => stepEconomy(match.sim, match.hf, economy, SIM_DT));
   stepSim(match.sim, match.hf, SIM_DT);
   stepCombat(match.sim, SIM_DT, { autoFire: match.autoFire });
+  stepObjectives(match.sim, match.economies);
   if (match.sim.tick % VISIBILITY_UPDATE_INTERVAL_TICKS === 0) {
     for (const vision of match.visions) vision.update(match.sim);
   }

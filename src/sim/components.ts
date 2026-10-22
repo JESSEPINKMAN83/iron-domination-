@@ -49,6 +49,8 @@ export type TacticEndAction =
 
 /** Multi-waypoint path plan; `remaining` are waypoints after the current `target`. */
 export interface TacticPlan {
+  /** Prefer these visible, reachable target classes without changing the route. */
+  targetPriorities?: import('./targetPriorities').TargetPriority[];
   startAtTick?: number;
   remaining: Array<{ x: number; z: number }>;
   endAction: TacticEndAction;
@@ -57,6 +59,8 @@ export interface TacticPlan {
 }
 
 export interface Mover {
+  /** Ground detachment assigned to a public capture site by its commander. */
+  objectiveDuty?: number;
   speed: number;
   radius: number;
   /** tracked-vehicle body yaw velocity; persisted so turns accelerate and settle instead of snapping */
@@ -279,6 +283,7 @@ export interface Entity {
   building?: Building;
   structureDamage?: StructureDamage;
   producer?: Producer;
+  objective?: { kind: 'radar' | 'supply' | 'oil'; ownerTeam?: number; capturingTeam?: number; captureTicks: number; contested: boolean; rewardTicks: number };
 }
 
 export function copyTransform(t: Transform): Transform {

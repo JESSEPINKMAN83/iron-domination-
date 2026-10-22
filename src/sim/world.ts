@@ -178,6 +178,7 @@ export interface GameSim {
   selectables: Query<With<Entity, 'transform' | 'selectable'>>;
   /** incrementally-maintained query of all buildings — avoids full-world rescans per tick */
   buildingsQuery: Query<With<Entity, 'building'>>;
+  objectivesQuery: Query<With<Entity, 'objective'>>;
   events: CombatEvent[];
   projectiles: Projectile[];
   resourceNodes: ResourceNode[];
@@ -222,6 +223,7 @@ export function createGameSim(hf: Heightfield, footprints: BlockedFootprint[] = 
     movers: world.with('transform', 'previousTransform', 'velocity', 'mover'),
     selectables: world.with('transform', 'selectable'),
     buildingsQuery: world.with('building'),
+    objectivesQuery: world.with('objective'),
     events: [],
     projectiles: [],
     resourceNodes,
@@ -1866,6 +1868,13 @@ export function hashSim(sim: GameSim): number {
   const entities = Array.from(sim.world.entities).sort((a, b) => a.id - b.id);
   for (const entity of entities) {
     mix(entity.id);
+    mix(entity.mover?.objectiveDuty ?? 0);
+    if (entity.objective) {
+      const o = entity.objective;
+      mix(o.kind === 'radar' ? 1 : o.kind === 'oil' ? 2 : 3);
+      mix(o.ownerTeam ?? 0); mix(o.capturingTeam ?? 0);
+      mix(o.captureTicks); mix(o.contested ? 1 : 0); mix(o.rewardTicks);
+    }
     mix(entity.team?.id ?? 0);
     mix(Math.round(entity.transform.x * 100));
     mix(Math.round((entity.transform.y ?? 0) * 100));
@@ -1928,6 +1937,9 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.defenseAlert ? Math.round(entity.mover.defenseAlert.ttl * 1000) : 0);
       mix(entity.mover.sprint ? 1 : 0);
       if (entity.mover.tactic) {
+        const priorities = entity.mover.tactic.targetPriorities ?? [];
+        mix(priorities.length);
+        for (const priority of priorities) for (let i = 0; i < priority.length; i++) mix(priority.charCodeAt(i));
         mix(entity.mover.tactic.startAtTick ?? 0);
         mix(entity.mover.tactic.remaining.length);
         for (const point of entity.mover.tactic.remaining) {
@@ -2082,6 +2094,13 @@ export function hashCriticalSimState(sim: GameSim): number {
   const entities = Array.from(sim.world.entities).sort((a, b) => a.id - b.id);
   for (const entity of entities) {
     mix(entity.id);
+    mix(entity.mover?.objectiveDuty ?? 0);
+    if (entity.objective) {
+      const o = entity.objective;
+      mix(o.kind === 'radar' ? 1 : o.kind === 'oil' ? 2 : 3);
+      mix(o.ownerTeam ?? 0); mix(o.capturingTeam ?? 0);
+      mix(o.captureTicks); mix(o.contested ? 1 : 0); mix(o.rewardTicks);
+    }
     mix(entity.team?.id ?? 0);
     mix(entity.health ? Math.round(entity.health.current * 100) : -1);
     mix(entity.destroyed ? 1 : 0);

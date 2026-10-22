@@ -164,7 +164,7 @@
 
 .iron-tactic__side {
   display: grid;
-  grid-template-rows: auto minmax(120px, 1fr) auto auto auto;
+  align-content: start;
   gap: 8px;
   min-height: 0;
 }
@@ -174,33 +174,6 @@
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-}
-
-.iron-tactic__units {
-  overflow: auto;
-  border: 1px solid #3d4743;
-  background: #0b1110;
-  padding: 6px;
-  display: grid;
-  gap: 4px;
-  align-content: start;
-}
-
-.iron-tactic__unit {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 7px;
-  border: 1px solid #2c3532;
-  background: #151c1b;
-  color: #eef3e9;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.iron-tactic__unit input {
-  accent-color: #9de5c4;
 }
 
 .iron-tactic__speed-option {
@@ -318,3 +291,27 @@
 .iron-tactic__variation input { accent-color: #a6cfb0; }
 .iron-tactic__variation small { color: #8fa69b; line-height: 1.5; }
 .iron-tactic__variation output { font-variant-numeric: tabular-nums; }
+
+.iron-tactic__priorities { border:1px solid #43574d; border-radius:6px; padding:9px; background:#0a1412; }
+.iron-tactic__priorities summary { cursor:pointer; font-size:12px; font-weight:700; color:#dce9df; }
+.iron-tactic__priorities summary span { float:right; font-size:10px; color:#9de5c4; }
+.iron-tactic__priorities p,.iron-tactic__priorities small { font-size:10px; line-height:1.5; color:#aebbb3; }
+.iron-tactic__priority-options { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px; }
+.iron-tactic__priority-options label { display:flex; align-items:center; gap:6px; padding:7px 5px; background:#172420; border:1px solid #35483d; border-radius:4px; font-size:10px; cursor:pointer; }
+.iron-tactic__priority-options label:has(input:checked) { border-color:#9de5c4; background:#224335; color:#c9f6df; }
+.iron-tactic__priority-options input { accent-color:#9de5c4; margin:0; flex-shrink:0; }
+.iron-tactic__priorities > button { margin-top:7px; padding:4px 0; border:0; background:none; color:#a9c8b9; text-decoration:underline; cursor:pointer; font:inherit; font-size:10px; }
+
+/* Keep execution available while optional priority controls are expanded. */
+.iron-tactic__dialog { display:flex; flex-direction:column; overflow:hidden; }
+.iron-tactic__header,.iron-tactic__intro,.iron-tactic__footer { flex-shrink:0; }
+.iron-tactic__body { min-height:0; overflow:auto; }
+.iron-tactic__footer { width:min(100%,320px); align-self:flex-end; margin-top:12px; }
+
+@media (min-width:761px) {
+  .iron-tactic__body { overflow:hidden; align-items:start; }
+  .iron-tactic__side { height:min(57vh,560px); overflow-y:auto; padding-right:5px; grid-template-rows:none; align-content:start; }
+  .iron-tactic__map-wrap { width:min(100%,calc(57vh - 50px)); margin-inline:auto; }
+}
+
+.iron-tactic__legend i.is-priority { background:transparent; border-color:#f1c66d; }

@@ -67,8 +67,8 @@ describe('combat readability', () => {
     view.completeFrame();
     view.push([{ ...hit, killed: true, targetHealth: 0 }]);
     expect(labels()).toHaveLength(1);
-    expect(text.mock.calls.some(([label]) => label === 'HEAVY HIT -30%')).toBe(true);
-    expect(text.mock.calls.some(([label]) => label === 'DESTROYED')).toBe(true);
+    expect(text.mock.calls.some(([label]) => label === 'HIT -30%')).toBe(true);
+    expect(text.mock.calls.some(([label]) => label === '× DESTROYED')).toBe(true);
   });
 
   it('uses the heavy blast silhouette for a heavy cannon instead of a rifle flash', () => {
@@ -100,4 +100,20 @@ describe('combat readability', () => {
     expect(actual).toBe(view.effectStats().drawables);
     expect(disposed).toBeGreaterThan(0);
   });
+  it('distinguishes armor and interception labels and bounds mixed terminal feedback', () => {
+    const text = canvasStub();
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event({kind:'kineticShell-impact',damage:25,targetType:'tank',targetId:9}), event({kind:'strategic-missile-intercepted',killed:true,toX:90})]);
+    expect(text.mock.calls.some(([label]) => String(label).includes('ARMOR'))).toBe(true);
+    expect(text.mock.calls.some(([label]) => String(label).includes('INTERCEPTED'))).toBe(true);
+    for(let frame=0;frame<20;frame++) {
+      view.completeFrame();
+      view.push(Array.from({length:100},(_,i)=>event({kind:i%2?'kineticShell-impact':'strategic-missile-intercepted',damage:i%2?15:0,killed:i%2===0,targetId:frame*100+i,toX:i,targetType:'tank'})));
+      view.update(0.03);
+      expect(view.effectStats().drawables).toBeLessThanOrEqual(view.effectStats().budget);
+    }
+    view.setVisualQuality(2);
+    expect(view.effectStats().drawables).toBeLessThanOrEqual(220);
+  });
+
 });

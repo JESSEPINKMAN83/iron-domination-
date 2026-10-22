@@ -1,3 +1,4 @@
+import { matchesTargetPriorities, TARGET_PRIORITY_OPTIONS, type TargetPriority } from '../sim/targetPriorities';
 import type { TerrainLayout } from '../sim/heightfield';
 import './tacticPlanner.css';
 import type { MapId, MapSize } from '../content/maps';
@@ -5,7 +6,6 @@ import type { Entity, TacticEndAction } from '../sim/components';
 import { areTeamsHostile, type GameSim } from '../sim/world';
 import { MAX_TACTIC_WAYPOINTS, tacticEligibleEntities } from '../sim/tactics';
 import { createTacticalMapRaster, mapPercentToWorld, worldToMapPercent } from './tacticalMap';
-import { unitDisplayName } from './unitDisplayName';
 
 export type TacticPlannerMapContext = {
   mapId: MapId;
@@ -28,18 +28,17 @@ export type TacticExecutePayload = {
   plannerDurationMs: number;
   highSpeed: boolean;
   variation: number;
+  targetPriorities?: TargetPriority[];
 };
 
 type EndMode = 'hold' | 'attack-move' | 'attack-through' | 'attack';
 
 const ENEMY_PICK_RADIUS = 28;
-const HIGH_SPEED_STORAGE_KEY = 'iron-dominion.tactic-high-speed.v1';
 
 export class TacticPlanner {
   private overlay?: HTMLDivElement;
   private mapCanvas?: HTMLCanvasElement;
   private overlayCanvas?: HTMLCanvasElement;
-  private unitList?: HTMLDivElement;
   private statusEl?: HTMLDivElement;
   private executeBtn?: HTMLButtonElement;
   private worldSize = 1;
@@ -48,14 +47,15 @@ export class TacticPlanner {
   private openedAt = 0;
   private candidates: Entity[] = [];
   private selectedIds = new Set<number>();
-  private drawMode = false;
+  private drawMode = true;
   private drawingPointer?: number;
   private lastDrawPoint?: { x: number; y: number };
   private waypoints: Array<{ x: number; z: number }> = [];
-  private endMode: EndMode = 'hold';
+  private targetPriorities = new Set<TargetPriority>();
+  private endMode: EndMode = 'attack-through';
   private attackTargetId?: number;
   private variation = 0.5;
-  private highSpeed = false;
+  private highSpeed = true;
   private onKeyDown?: (event: KeyboardEvent) => void;
   private lastDynamicRefreshAt = 0;
 
@@ -82,12 +82,14 @@ export class TacticPlanner {
     this.candidates = eligible;
     this.selectedIds = new Set(eligible.map((entity) => entity.id));
     this.waypoints = [];
-    this.drawMode = false;
+    this.drawMode = true;
     this.drawingPointer = undefined;
     this.lastDrawPoint = undefined;
-    this.endMode = 'hold';
+    this.endMode = 'attack-through';
+    this.targetPriorities.clear();
     this.attackTargetId = undefined;
-    this.highSpeed = loadHighSpeedPreference();
+    this.highSpeed = true;
+    this.variation = 0.5;
     this.openedAt = performance.now();
     this.lastDynamicRefreshAt = 0;
     this.callbacks.onOpen?.();
@@ -121,7 +123,7 @@ export class TacticPlanner {
           </div>
           <button type="button" class="iron-tactic__close" aria-label="Close">×</button>
         </header>
-        <p class="iron-tactic__intro">Select units, click to place up to ${MAX_TACTIC_WAYPOINTS} points, or choose Draw path and drag across the map, choose their combat and arrival behavior, then execute. The match keeps running. Map is oriented with your army at the bottom.</p>
+        <p class="iron-tactic__intro">Plan a route for your selected group: draw on the map or place up to ${MAX_TACTIC_WAYPOINTS} points, choose optional target priorities and combat behavior, then execute. The match keeps running. Map is oriented with your army at the bottom.</p>
         <div class="iron-tactic__body">
           <div class="iron-tactic__map-pane">
             <div class="iron-tactic__map-wrap">
@@ -134,13 +136,12 @@ export class TacticPlanner {
               <span><i class="is-you"></i>YOU / IN PLAN</span>
               <span><i class="is-friendly"></i>FRIENDLY</span>
               <span><i class="is-enemy"></i>ENEMY</span>
+              <span><i class="is-priority"></i>PRIORITY</span>
               <span><i class="is-hq"></i>YOUR HQ</span>
             </div>
             <div class="iron-tactic__map-hint" data-tactic-status></div>
           </div>
           <aside class="iron-tactic__side">
-            <div class="iron-tactic__section-title">Units in plan</div>
-            <div class="iron-tactic__units" data-tactic-units></div>
             <label class="iron-tactic__speed-option">
               <input type="checkbox" data-tactic-high-speed ${this.highSpeed ? 'checked' : ''}>
               <span><strong>High speed</strong><small>Use rapid transit for the entire path</small></span>
@@ -149,28 +150,37 @@ export class TacticPlanner {
               <input type="range" min="0" max="100" step="5" value="${Math.round(this.variation * 100)}" title="Follow every route leg. Increase for departure gaps, wider route offsets and spaced arrivals." data-tactic-variation>
               <small>Stagger departures and vary routes. Final positions always stay spread out.</small>
             </label>
+            <details class="iron-tactic__priorities">
+              <summary>Target priorities <span data-priority-summary>Any enemy</span></summary>
+              <p>Prefer these groups in sight and range. Other enemies remain fallback targets.</p>
+              <div class="iron-tactic__priority-options" role="group" aria-label="Priority target groups">
+                ${TARGET_PRIORITY_OPTIONS.map(option => `<label title="${option.detail}"><input type="checkbox" value="${option.id}" data-target-priority><span>${option.label}</span></label>`).join('')}
+              </div>
+              <small>Multiple selected groups have equal priority. Your route stays unchanged.</small>
+              <button type="button" data-clear-priorities>Clear priorities</button>
+            </details>
             <div class="iron-tactic__section-title">Combat & arrival</div>
             <div class="iron-tactic__end-actions" role="group" aria-label="Combat and arrival behavior">
-              <button type="button" data-end="hold" class="is-active">Hold</button>
+              <button type="button" data-end="hold">Hold</button>
               <button type="button" data-end="attack-move">Attack-move</button>
-              <button type="button" data-end="attack-through">Attack as you move</button>
+              <button type="button" data-end="attack-through" class="is-active">Attack as you move</button>
               <button type="button" data-end="attack">Attack unit</button>
             </div>
             <p class="iron-tactic__behavior-hint" data-behavior-hint></p>
             <div class="iron-tactic__end-actions" role="group" aria-label="Path input method">
-              <button type="button" data-path-mode="points" aria-pressed="true" class="is-active">Place points</button>
-              <button type="button" data-path-mode="draw" aria-pressed="false">Draw path</button>
+              <button type="button" data-path-mode="points" aria-pressed="false">Place points</button>
+              <button type="button" data-path-mode="draw" aria-pressed="true" class="is-active">Draw path</button>
             </div>
             <small>Draw with the mouse or finger. Release to finish; drag again to extend. Up to 64 points.</small>
             <div class="iron-tactic__path-actions">
               <button type="button" data-action="undo">Undo point</button>
               <button type="button" data-action="clear">Clear path</button>
             </div>
-            <div class="iron-tactic__footer">
-              <button type="button" class="iron-tactic__cancel" data-action="cancel">Cancel</button>
-              <button type="button" class="iron-tactic__execute" data-action="execute" disabled>Execute tactic</button>
-            </div>
           </aside>
+        </div>
+        <div class="iron-tactic__footer">
+          <button type="button" class="iron-tactic__cancel" data-action="cancel">Cancel</button>
+          <button type="button" class="iron-tactic__execute" data-action="execute" disabled>Execute tactic</button>
         </div>
       </div>
     `;
@@ -181,7 +191,6 @@ export class TacticPlanner {
 
     this.mapCanvas = terrain;
     this.overlayCanvas = overlay.querySelector('.iron-tactic__overlay-canvas')!;
-    this.unitList = overlay.querySelector('[data-tactic-units]')!;
     this.statusEl = overlay.querySelector('[data-tactic-status]')!;
     this.executeBtn = overlay.querySelector('[data-action="execute"]')!;
     this.overlay = overlay;
@@ -206,7 +215,6 @@ export class TacticPlanner {
     const highSpeedInput = overlay.querySelector<HTMLInputElement>('[data-tactic-high-speed]')!;
     highSpeedInput.addEventListener('change', () => {
       this.highSpeed = highSpeedInput.checked;
-      saveHighSpeedPreference(this.highSpeed);
       this.syncChrome();
     });
 
@@ -217,6 +225,20 @@ export class TacticPlanner {
         this.syncChrome();
       });
     }
+
+    const syncPriorities = () => {
+      for (const input of Array.from(overlay.querySelectorAll<HTMLInputElement>('[data-target-priority]'))) input.checked = this.targetPriorities.has(input.value as TargetPriority);
+      overlay.querySelector('[data-priority-summary]')!.textContent = this.targetPriorities.size ? `${this.targetPriorities.size} selected` : 'Any enemy';
+      this.redrawOverlay();
+    };
+    for (const input of Array.from(overlay.querySelectorAll<HTMLInputElement>('[data-target-priority]'))) {
+      input.onchange = () => {
+        if (input.checked) this.targetPriorities.add(input.value as TargetPriority);
+        else this.targetPriorities.delete(input.value as TargetPriority);
+        syncPriorities();
+      };
+    }
+    overlay.querySelector('[data-clear-priorities]')!.addEventListener('click', () => { this.targetPriorities.clear(); syncPriorities(); });
 
     for (const button of Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-path-mode]'))) {
       button.addEventListener('click', () => {
@@ -271,7 +293,6 @@ export class TacticPlanner {
 
     document.body.appendChild(overlay);
     document.body.classList.add('iron-tactic-open');
-    this.renderUnitList();
     this.syncChrome();
     this.redrawOverlay();
   }
@@ -300,7 +321,6 @@ export class TacticPlanner {
       }
     }
     if (chromeChanged) {
-      this.renderUnitList();
       this.syncChrome();
     }
     this.redrawOverlay();
@@ -314,7 +334,6 @@ export class TacticPlanner {
     this.overlay = undefined;
     this.mapCanvas = undefined;
     this.overlayCanvas = undefined;
-    this.unitList = undefined;
     this.statusEl = undefined;
     this.executeBtn = undefined;
     document.body.classList.remove('iron-tactic-open');
@@ -339,6 +358,7 @@ export class TacticPlanner {
       plannerDurationMs: Math.round(performance.now() - this.openedAt),
       highSpeed: this.highSpeed,
       variation: this.variation,
+      targetPriorities: this.targetPriorities.size ? [...this.targetPriorities] : undefined,
     };
     this.close({ silent: true });
     this.callbacks.onExecute(payload);
@@ -396,25 +416,6 @@ export class TacticPlanner {
       }
     }
     return best;
-  }
-
-  private renderUnitList(): void {
-    if (!this.unitList) return;
-    this.unitList.replaceChildren();
-    for (const entity of this.candidates) {
-      const row = document.createElement('label');
-      row.className = 'iron-tactic__unit';
-      const checked = this.selectedIds.has(entity.id);
-      row.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''}/><span>${escapeHtml(unitDisplayName(entity))}</span>`;
-      const input = row.querySelector('input')!;
-      input.onchange = () => {
-        if (input.checked) this.selectedIds.add(entity.id);
-        else this.selectedIds.delete(entity.id);
-        this.syncChrome();
-        this.redrawOverlay();
-      };
-      this.unitList.appendChild(row);
-    }
   }
 
   private syncChrome(): void {
@@ -482,6 +483,7 @@ export class TacticPlanner {
     const hq = toView(this.map.localAnchor.x, this.map.localAnchor.z);
     drawHqMarker(ctx, hq.x, hq.y);
 
+    const priorities = [...this.targetPriorities];
     for (const entity of this.sim.world.entities) {
       if (entity.destroyed || !entity.team) continue;
       const point = toView(entity.transform.x, entity.transform.z);
@@ -492,6 +494,11 @@ export class TacticPlanner {
       const isTarget = entity.id === this.attackTargetId;
       const isBuilding = !!entity.building;
 
+      if (hostile && priorities.length && matchesTargetPriorities(entity, priorities)) {
+        ctx.strokeStyle = '#f1c66d';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(point.x - 5, point.y - 5, 10, 10);
+      }
       if (selected) {
         ctx.strokeStyle = 'rgba(157,229,196,.95)';
         ctx.lineWidth = 1.5;
@@ -567,22 +574,6 @@ export class TacticPlanner {
   private isEntityVisible(entity: Entity): boolean {
     return entity.team?.id === this.localTeam ||
       (this.map.isVisible?.(entity.transform.x, entity.transform.z) ?? true);
-  }
-}
-
-function loadHighSpeedPreference(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(HIGH_SPEED_STORAGE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function saveHighSpeedPreference(enabled: boolean): void {
-  try {
-    globalThis.localStorage?.setItem(HIGH_SPEED_STORAGE_KEY, enabled ? '1' : '0');
-  } catch {
-    // Storage can be unavailable in private or restricted browser contexts.
   }
 }
 
@@ -680,12 +671,4 @@ function drawHqMarker(ctx: CanvasRenderingContext2D, x: number, y: number): void
   ctx.textBaseline = 'top';
   ctx.fillText('YOUR HQ', 0, 10);
   ctx.restore();
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
 }

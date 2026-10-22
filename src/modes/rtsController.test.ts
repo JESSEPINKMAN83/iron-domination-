@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  RtsController,
   isModifiedCameraPointer,
   isStopCommandKey,
   shouldUseFastMoveDoubleClick,
@@ -7,6 +8,48 @@ import {
   shouldGroundAttackFromPointer,
   shouldUseTouchCommand,
 } from './rtsController';
+import type { Entity } from '../sim/components';
+
+describe('objective and entity click selection', () => {
+  function controller(hit?: Entity) {
+    const inspect = vi.fn(() => true);
+    const select = vi.fn();
+    const instance = Object.create(RtsController.prototype) as {
+      entityAt: ReturnType<typeof vi.fn>;
+      updateSelection: typeof select;
+      orderFeedback: { inspectObjectiveAtScreen: typeof inspect };
+      lastClick: { time: number; entity?: Entity };
+      selectClick(event: PointerEvent): void;
+    };
+    instance.entityAt = vi.fn(() => hit);
+    instance.updateSelection = select;
+    instance.orderFeedback = { inspectObjectiveAtScreen: inspect };
+    instance.lastClick = { time: -Infinity };
+    return { instance, inspect, select };
+  }
+
+  it('selects a picked unit or building instead of inspecting the objective behind it', () => {
+    const entity = { id: 1, transform: { x: 0, z: 0, rot: 0 } } as Entity;
+    const { instance, inspect, select } = controller(entity);
+    instance.selectClick({ clientX: 100, clientY: 150, shiftKey: false } as PointerEvent);
+    expect(select).toHaveBeenCalledWith([entity], false);
+    expect(inspect).not.toHaveBeenCalled();
+  });
+
+  it('inspects a standalone objective without clearing the existing selection', () => {
+    const { instance, inspect, select } = controller();
+    instance.selectClick({ clientX: 100, clientY: 150, shiftKey: false } as PointerEvent);
+    expect(inspect).toHaveBeenCalledWith(100, 150);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('keeps shift selection additive instead of opening objective information', () => {
+    const { instance, inspect, select } = controller();
+    instance.selectClick({ clientX: 100, clientY: 150, shiftKey: true } as PointerEvent);
+    expect(inspect).not.toHaveBeenCalled();
+    expect(select).not.toHaveBeenCalled();
+  });
+});
 
 describe('mobile RTS gesture intent', () => {
   it('lassos with no selection or from a friendly unit, and commands ground or enemies after selection', () => {

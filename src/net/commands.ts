@@ -40,6 +40,7 @@ export type NetCommand =
       ids: number[];
       waypoints: Array<{ x: number; z: number }>;
       variation?: number;
+      targetPriorities?: import('../sim/targetPriorities').TargetPriority[];
       endAction: 'hold' | 'attack-move' | 'attack-through' | 'attack';
       endTargetId?: number;
       sprint?: boolean;
@@ -488,6 +489,7 @@ export class LockstepRuntime {
           endAction,
           command.sprint,
           command.variation,
+          command.targetPriorities,
         );
       }
     } else if (command.type === 'attack') {

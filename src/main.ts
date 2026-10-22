@@ -1,3 +1,6 @@
+import { seedObjectives } from './sim/objectives';
+import { ObjectiveView } from './render/objectiveView';
+import './ui/objectives.css';
 import { StrategicIntelFeed } from './ui/strategicIntelFeed';
 import { strategicWarningAudience } from './ui/strategicReports';
 import { createStructureDamage } from './sim/structureDamage';
@@ -2955,6 +2958,28 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       }
     }
   }
+  if (import.meta.env.DEV && aircraftRouteTest && params.get('target-priority-test') === '1' && !loadedFromSave) {
+    const enemy = armies.find(army => areTeamsHostile(sim, localTeam, army.team));
+    if (enemy) {
+      const sites: Array<{kind:StructureKind;x:number;z:number}> = [
+        {kind:'refinery',x:5,z:0}, {kind:'power-plant',x:55,z:0},
+        {kind:'strategic-silo',x:105,z:0}, {kind:'intelligence-center',x:155,z:0},
+        {kind:'guard-tower',x:45,z:95}, {kind:'aa-tower',x:105,z:95},
+      ];
+      for (const site of sites) {
+        const cell = sim.nav.nearestWalkableCellGlobal(routeStage.x+site.x,routeStage.z+site.z);
+        if (!cell) continue;
+        const point = sim.nav.cellCenter(cell.x,cell.y);
+        enemy.economy.readyStructure = site.kind;
+        const building = placeStructure(sim,hf,enemy.economy,{kind:site.kind,...point,valid:true,reason:''});
+        if (building?.building) building.building.buildProgress=1;
+        if (building?.health) building.health.current=building.health.max=3000;
+      }
+      const artillery = spawnSiegeTankAt(sim,routeStage.x+160,routeStage.z+90,'Priority drill artillery',enemy.team);
+      artillery.health!.current=artillery.health!.max=3000;
+      for(const entity of aircraftRouteUnits) if(entity.team?.id===localTeam&&entity.health) entity.health.current=entity.health.max=3000;
+    }
+  }
   const wallPerformanceStage = wallPerformancePreview && !loadedFromSave
     ? stageWallPerformancePreview(sim, hf, economy)
     : undefined;
@@ -2989,6 +3014,33 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     for (const commander of commanders) { commander.step(180); commander.step(5); }
   }
 
+  const objectiveRaidUnits: Entity[] = [];
+  const objectivePreview = import.meta.env.DEV && params.get('objective-test') === '1';
+  if (!loadedFromSave && (objectivePreview || (!testStart && !lineupStart && !buildingShowcase && !largeBattleScenario && !performanceTest))) {
+    seedObjectives(sim, hf, objectivePreview ? routeStage : { x: 0, z: 0 }, objectivePreview ? 95 : undefined);
+  }
+  if (objectivePreview) {
+    const site = [...sim.objectivesQuery][0];
+    if (site) {
+      for (let i=0;i<4;i++) {
+        const cell=sim.nav.nearestWalkableCellGlobal(site.transform.x-40+i*10,site.transform.z+35);
+        if (!cell) continue;
+        const p=sim.nav.cellCenter(cell.x,cell.y);
+        startingUnits.push(spawnTankAt(sim,p.x,p.z,`Capture squad ${i+1}`,localTeam));
+      }
+    }
+  }
+  if (objectivePreview) {
+    const site = [...sim.objectivesQuery][0];
+    const enemy = armies.find(army => areTeamsHostile(sim, localTeam, army.team));
+    if (site && enemy) for (let i=0;i<2;i++) {
+      const cell=sim.nav.nearestWalkableCellGlobal(site.transform.x+145+i*9,site.transform.z-60);
+      if (!cell) continue;
+      const pos=sim.nav.cellCenter(cell.x,cell.y);
+      const unit=spawnTankAt(sim,pos.x,pos.z,`Objective raider ${i+1}`,enemy.team);
+      objectiveRaidUnits.push(unit);startingUnits.push(unit);
+    }
+  }
   const workingBasePreview=import.meta.env.DEV && params.get('base-activity-test')==='1';
   if(workingBasePreview) seedWorkingBasePreview(sim,hf,armies,localTeam);
   const unitView = new UnitView([...lineupUnits, ...startingUnits, ...performanceUnits], hf, ctx, isVisibleToPlayer, localTeam);
@@ -2997,6 +3049,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (groundTrails) ctx.scene.add(groundTrails.mesh);
   const buildingView = new BuildingView(sim, hf, ctx, isVisibleToPlayer);
   ctx.scene.add(buildingView.group);
+  const objectiveView = new ObjectiveView(sim, localTeam, (x,z) => rig.focusOn(x,z,{x:x-100,z:z-140},180,-6), isVisibleToPlayer);
+  ctx.scene.add(objectiveView.group);
+  if (objectivePreview) {
+    const { showObjectiveExercise } = await import('./dev/objectiveExercise');
+    showObjectiveExercise(sim, objectiveRaidUnits, localTeam);
+  }
   if (import.meta.env.DEV && params.get('model-timing') === '1') {
     const { showModelPerformance } = await import('./dev/modelPerformance');
     showModelPerformance(ctx, sim);
@@ -3395,7 +3453,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         if (kind === 'attack' || kind === 'attack-move') unitVoices.acknowledge(selectedEntities(sim, localTeam), 'attack');
         else if (kind === 'move' || kind === 'fast-move') unitVoices.acknowledge(selectedEntities(sim, localTeam), 'move');
       },
-      selectionChanged: (entities) => unitVoices.acknowledge(entities, 'selected'),
+      inspectObjectiveAtScreen: (x,y) => objectiveView.inspectAtScreen(ctx.camera,x,y,window.innerWidth,window.innerHeight),
+      selectionChanged: (entities) => { selectionBar?.inspectObjective(); unitVoices.acknowledge(entities, 'selected'); },
       focusGroup: (x, z) => rig.jumpTo(x, z),
       showFacingOrder: (x, z, yaw, kind, length, count, baseSpacing) => orderMarkers.pushFacing(x, z, yaw, kind, length, count, baseSpacing),
       showFacingPreview: (fromX, fromZ, toX, toZ, kind, count, baseSpacing) =>
@@ -3532,8 +3591,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       ctx.renderer.domElement.style.cursor = '';
     },
   });
+  objectiveView.onInspect = site => selectionBar?.inspectObjective(site, () => isVisibleToPlayer(site.transform.x,site.transform.z) || (site.team !== undefined && !areTeamsHostile(sim,localTeam,site.team.id)));
   selectionBar = new SelectionBar(sim, {
     selectEntities: (entities) => {
+      selectionBar?.inspectObjective();
       audio.playUi('select');
       const available = entities.filter((entity) => !entity.destroyed && sim.world.has(entity));
       setSelected(sim, available, false, localTeam);
@@ -3706,8 +3767,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
               endTargetId: payload.endAction.kind === 'attack' ? payload.endAction.targetId : undefined,
               sprint: payload.highSpeed,
               variation: payload.variation,
+              targetPriorities: payload.targetPriorities,
             })
-          : issueTacticOrder(sim, units, payload.waypoints, payload.endAction, payload.highSpeed, payload.variation);
+          : issueTacticOrder(sim, units, payload.waypoints, payload.endAction, payload.highSpeed, payload.variation, payload.targetPriorities);
         if (!issued) {
           audio.playUi('error');
           return;
@@ -4219,6 +4281,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.update();
         orderMarkers.showSelectedDestinations(firstPerson.active ? [] : selectedEntities(sim, localTeam));
         sidebar.update();
+        objectiveView.update();
         durabilityPanel?.update();
         destructionPanel?.update();
       }

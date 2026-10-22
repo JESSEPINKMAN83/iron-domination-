@@ -1,3 +1,6 @@
+import { objectiveStatus } from './objectiveStatus';
+import { CAPTURE_TICKS, OBJECTIVE_INFO } from '../sim/objectives';
+import { armyName } from '../content/nations';
 import { codeRedIconPath } from './codeRedIcons';
 import { defenseLevel, defenseUpgradeCost, DEFENSE_TIER_DESCRIPTIONS, isUpgradeableDefense } from '../sim/defenseUpgrades';
 import { armyTag } from '../content/nations';
@@ -60,6 +63,8 @@ export class SelectionBar {
   private worldPopover?: HTMLDivElement;
   private worldPopoverEntityId?: number;
   private lastKey = '';
+  private inspectedObjectiveId?: number;
+  private objectiveVisible: () => boolean = () => true;
   private formationMenuOpen = false;
   private formationMenuDismissed = false;
   private formationSelectionKey = '';
@@ -126,8 +131,64 @@ export class SelectionBar {
     else this.lastKey = '';
   }
 
+  inspectObjective(entity?: Entity, visible: () => boolean = () => true): void {
+    this.inspectedObjectiveId = entity?.objective ? entity.id : undefined;
+    this.objectiveVisible = visible;
+    this.lastKey = '';
+    this.closeWorldPopover();
+    this.update();
+  }
+
+  private renderObjective(entity: Entity, known: boolean): void {
+    const o = entity.objective!;
+    const status = objectiveStatus(o,known,this.localTeam);
+    const owner=o.ownerTeam===undefined?'Neutral (white flag)':armyName(o.ownerTeam);
+    const capture=known&&o.contested?'Contested — clear opposing troops inside the ring to resume.':known&&o.capturingTeam!==undefined?`${armyName(o.capturingTeam)} capturing · ${Math.floor(o.captureTicks/CAPTURE_TICKS*100)}%`:'No active capture. The owner keeps control after troops leave.';
+    const controlText = `Owner: ${owner}. ${capture}`;
+    const key = `objective:${entity.id}`;
+    if (this.lastKey === key) {
+      const state = this.root.querySelector<HTMLElement>('[data-objective-state]');
+      const control = this.root.querySelector<HTMLElement>('[data-objective-control]');
+      const progress = this.root.querySelector('progress');
+      if (state) state.textContent = status.label.replace(`${o.kind.toUpperCase()} · `,'');
+      if (control) control.textContent = controlText;
+      if (progress) progress.value = known ? o.captureTicks : 0;
+      return;
+    }
+    this.lastKey = key;
+    this.root.classList.remove('is-strategic');
+    this.root.classList.add('is-objective');
+    this.root.replaceChildren();
+    this.root.style.display = 'grid';
+    this.root.style.left = '50%'; this.root.style.transform = 'translateX(-50%)';
+    this.root.style.width = 'min(720px,calc(100vw - 36px))';
+    this.root.setAttribute('aria-label',`${OBJECTIVE_INFO[o.kind].label} information`);
+    const header = document.createElement('div');header.className='objective-info__header';
+    const title = document.createElement('strong');title.textContent=OBJECTIVE_INFO[o.kind].label;
+    const state = document.createElement('span');state.dataset.objectiveState='';state.textContent=status.label.replace(`${o.kind.toUpperCase()} · `,'');
+    const close = document.createElement('button');close.textContent='×';close.type='button';close.setAttribute('aria-label','Close objective information');close.onclick=()=>this.inspectObjective();
+    header.append(title,state,close);
+    const content=document.createElement('div');content.className='objective-info__columns';
+    const block=(label:string,text:string)=>{const item=document.createElement('div');const heading=document.createElement('b');heading.textContent=label;const copy=document.createElement('p');copy.textContent=text;item.append(heading,copy);content.append(item);};
+    const benefits={radar:'Reveals terrain and enemies within 180 m. Vision is shared with allies.',supply:'Repairs parked ground combat units nearby by 2% health per second. It does not produce credits or extra units.',oil:'Earn 100 credits every 10 seconds while you control the field.'};
+    block('WHAT YOU GET',benefits[o.kind]);
+    block('HOW TO CAPTURE','Stand tanks or infantry beside the structure, inside the 25 m ring. Hold for 8 seconds. Aircraft cannot capture. Leaving before completion resets progress.');
+    block('CONTROL',controlText);
+    content.lastElementChild!.querySelector('p')!.dataset.objectiveControl='';
+    const progress=document.createElement('progress');progress.max=CAPTURE_TICKS;progress.value=known?o.captureTicks:0;progress.setAttribute('aria-label','Objective capture progress');
+    this.root.append(header,content,progress);
+  }
+
   update(): void {
     if (!this.visible) return;
+    const objective = this.inspectedObjectiveId === undefined ? undefined : this.sim.byId.get(this.inspectedObjectiveId);
+    if (objective?.objective) {
+      this.syncWorldUpgradeButtons([]);
+      this.renderObjective(objective,this.objectiveVisible());
+      return;
+    }
+    this.root.classList.remove('is-objective');
+    this.root.removeAttribute('aria-label');
     const selected = selectedEntities(this.sim, this.localTeam).filter((entity) => !entity.destroyed);
     if (selected.length === 0) {
       this.lastKey = '';
