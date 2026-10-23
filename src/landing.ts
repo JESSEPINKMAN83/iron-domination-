@@ -236,8 +236,7 @@ export function betaPlayerName(): string | undefined {
 
 export function showLandingScreen(options: LandingOptions = {}): Promise<LandingIntent> {
   return new Promise((resolve) => {
-    const splitPaths = identityEnabled();
-    const returningPlayer = hasBetaAccess();
+    const memberIdentityEnabled = identityEnabled();
     const inviteRoom = options.inviteRoom;
     const fullscreenHint = isMobileTouchDevice() && !isStandaloneMobileExperience()
       ? '<p class="iron-landing__fullscreen-hint">For true fullscreen on iPhone: tap Share → Add to Home Screen, then launch the game from its icon.</p>'
@@ -247,7 +246,7 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
     const knownEmail = escapeAttribute(commanderEmail() ?? '');
     const signupFields = `
           <div class="iron-landing__signup-panel" hidden>
-            <p class="iron-landing__signup-title">${splitPaths ? 'Enlist for multiplayer' : 'Request beta clearance'}</p>
+            <p class="iron-landing__signup-title">${memberIdentityEnabled ? 'Enlist for multiplayer' : 'Multiplayer access'}</p>
             <div class="iron-landing__fields">
               <label>
                 <span>Name</span>
@@ -258,14 +257,14 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
                 <input name="email" type="email" autocomplete="email" placeholder="you@example.com" value="${knownEmail}" required>
               </label>
             </div>
-            ${splitPaths ? `
+            ${memberIdentityEnabled ? `
             <p class="iron-landing__consent-note">This creates your free commander account — your call sign on the battlefield and on the ladder. Nothing to remember, nothing to sign in to.</p>` : ''}
             <label class="iron-landing__consent">
               <input name="release-updates" type="checkbox" value="yes">
               <span>Email me occasional development updates and news about the official release.</span>
             </label>
             <p class="iron-landing__error" role="alert" hidden></p>
-            <button class="iron-landing__cta iron-landing__cta--submit" data-action="submit-signup" type="submit">${inviteRoom ? 'Enlist & join room' : splitPaths ? 'Enlist & deploy' : 'Enter battlefield'}</button>
+            <button class="iron-landing__cta iron-landing__cta--submit" data-action="submit-signup" type="submit">${inviteRoom ? 'Enlist & join room' : memberIdentityEnabled ? 'Enlist & deploy' : 'Enter battlefield'}</button>
           </div>`;
     const splitActions = `
         <div class="iron-landing__actions">
@@ -304,34 +303,7 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
             ? 'Enter your details once. You will join the room automatically as soon as signup is complete.'
             : 'Lead Israel’s air force behind Iron Dome and Arrow 3, or Iran’s Fattah missiles and Shahed swarms. Build your base, deploy armies, and switch into first-person to fight alongside your troops.'}
         </p>
-        ${splitPaths ? splitActions : returningPlayer ? `
-          <div class="iron-landing__returning">
-            <button class="iron-landing__cta" data-action="start-game" type="button">${inviteRoom ? 'Join room' : 'Play game'}</button>
-          </div>
-        ` : `
-        <form class="iron-landing__form" name="${FORM_NAME}" method="POST" action="${BETA_SIGNUP_ENDPOINT}" novalidate>
-          <button class="iron-landing__cta" data-action="open-signup" type="button" aria-expanded="false">Play game</button>
-          <div class="iron-landing__signup-panel" hidden>
-            <p class="iron-landing__signup-title">Request beta clearance</p>
-            <div class="iron-landing__fields">
-              <label>
-                <span>Name</span>
-                <input name="name" type="text" autocomplete="name" placeholder="Your name" required>
-              </label>
-              <label>
-                <span>Email</span>
-                <input name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
-              </label>
-            </div>
-            <label class="iron-landing__consent">
-              <input name="release-updates" type="checkbox" value="yes">
-              <span>Email me occasional development updates and news about the official release.</span>
-            </label>
-            <p class="iron-landing__error" role="alert" hidden></p>
-            <button class="iron-landing__cta iron-landing__cta--submit" data-action="submit-signup" type="submit">${inviteRoom ? 'Sign up & join room' : 'Enter battlefield'}</button>
-          </div>
-        </form>
-        `}
+        ${splitActions}
         ${fullscreenHint}
         <ul class="iron-landing__doctrine" aria-label="Core game features">
           <li><button type="button" data-guide="build" aria-haspopup="dialog" aria-label="Build: open field guide">${DOCTRINE_ICONS.build}<strong>Build</strong><span>Your base</span></button></li>
@@ -358,65 +330,41 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
       holder.append(createCommanderChip(identity));
       root.append(holder);
     };
-    if (splitPaths) showCommanderChip();
+    if (memberIdentityEnabled) showCommanderChip();
     const completeLanding = (intent: LandingIntent): void => {
       root.classList.add('is-setup-open');
       resolve(intent);
     };
 
-    if (splitPaths) {
-      const primary = root.querySelector<HTMLButtonElement>('[data-action="choose-primary"]')!;
-      const secondary = root.querySelector<HTMLButtonElement>('[data-action="choose-secondary"]')!;
-      const openEnlistForm = (): void => {
-        const panel = root.querySelector<HTMLElement>('.iron-landing__signup-panel')!;
-        panel.hidden = false;
-        root.querySelector<HTMLFormElement>('.iron-landing__form')?.classList.add('is-open');
-        const name = root.querySelector<HTMLInputElement>('input[name="name"]');
-        const email = root.querySelector<HTMLInputElement>('input[name="email"]');
-        (name?.value ? email ?? name : name)?.focus();
-      };
-      const choose = (intent: LandingIntent): void => {
-        // Single player is never gated. Multiplayer needs a member account.
-        if (intent === 'single' || enlistedCommander()) {
-          primary.disabled = true;
-          secondary.disabled = true;
-          completeLanding(intent);
-          return;
-        }
-        openEnlistForm();
-      };
-      primary.onclick = () => choose(primaryIntent);
-      secondary.onclick = () => choose(primaryIntent === 'single' ? 'multiplayer' : 'single');
-      bindSignupForm(root, 'multiplayer', inviteRoom, completeLanding);
-      return;
-    }
-
-    if (returningPlayer) {
-      const cta = root.querySelector<HTMLButtonElement>('[data-action="start-game"]')!;
-      cta.onclick = () => {
-        cta.disabled = true;
-        completeLanding('single');
-      };
-      return;
-    }
-
-    const form = root.querySelector<HTMLFormElement>('.iron-landing__form')!;
-    const openSignup = root.querySelector<HTMLButtonElement>('[data-action="open-signup"]')!;
-    const signupPanel = root.querySelector<HTMLElement>('.iron-landing__signup-panel')!;
-    openSignup.onclick = () => {
-      openSignup.hidden = true;
-      openSignup.setAttribute('aria-expanded', 'true');
-      signupPanel.hidden = false;
-      form.classList.add('is-open');
-      root.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
+    const primary = root.querySelector<HTMLButtonElement>('[data-action="choose-primary"]')!;
+    const secondary = root.querySelector<HTMLButtonElement>('[data-action="choose-secondary"]')!;
+    const openEnlistForm = (): void => {
+      const panel = root.querySelector<HTMLElement>('.iron-landing__signup-panel')!;
+      panel.hidden = false;
+      root.querySelector<HTMLFormElement>('.iron-landing__form')?.classList.add('is-open');
+      const name = root.querySelector<HTMLInputElement>('input[name="name"]');
+      const email = root.querySelector<HTMLInputElement>('input[name="email"]');
+      (name?.value ? email ?? name : name)?.focus();
     };
-    bindSignupForm(root, 'single', inviteRoom, completeLanding);
+    const choose = (intent: LandingIntent): void => {
+      // The account-system fallback changes access checks, never the mode choices.
+      if (intent === 'single' || (memberIdentityEnabled ? enlistedCommander() : hasBetaAccess())) {
+        primary.disabled = true;
+        secondary.disabled = true;
+        completeLanding(intent);
+        return;
+      }
+      openEnlistForm();
+    };
+    primary.onclick = () => choose(primaryIntent);
+    secondary.onclick = () => choose(primaryIntent === 'single' ? 'multiplayer' : 'single');
+    bindSignupForm(root, 'multiplayer', inviteRoom, completeLanding);
   });
 }
 
 /**
- * The one form on the page. In the split-path layout it enlists the player as a Wix
- * member for multiplayer; with identity switched off it falls back to the original
+ * The multiplayer access form enlists the player as a Wix member when enabled;
+ * with identity switched off it falls back to the original
  * beta-clearance signup. Either way it collects a name and an email and nothing else.
  */
 function bindSignupForm(
@@ -428,7 +376,7 @@ function bindSignupForm(
   const form = root.querySelector<HTMLFormElement>('.iron-landing__form')!;
   const submitSignup = root.querySelector<HTMLButtonElement>('[data-action="submit-signup"]')!;
   const error = root.querySelector<HTMLElement>('.iron-landing__error')!;
-  const enlisting = intent === 'multiplayer';
+  const enlisting = intent === 'multiplayer' && identityEnabled();
   form.onsubmit = async (event) => {
       event.preventDefault();
       if (!form.reportValidity()) return;
