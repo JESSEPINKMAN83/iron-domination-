@@ -14,10 +14,9 @@ import { applyLocalSideLabels, structureLabel } from './content/sideLabels';
 import { CodeRedAlert } from './ui/codeRedAlert';
 import { sanitizeTerrainLayout, type TerrainLayout } from './sim/heightfield';
 import { Color, Fog, MeshStandardMaterial } from 'three';
-import { betaPlayerName, fadeOutLandingMusic, hasBetaAccess, showLandingScreen, startLandingMusic, type LandingIntent } from './landing';
+import { betaPlayerName, fadeOutLandingMusic, showLandingScreen, startLandingMusic, type LandingIntent } from './landing';
 import { createCommanderChip, currentCommander, renderLobbyAvatar } from './identity/commander';
 import { enlistedCommander } from './identity/enlist';
-import { identityEnabled } from './identity/flag';
 import { setFeedbackMatchMetadataProvider, showFeedbackWidget } from './feedback';
 import type { FeedbackMatchMetadata } from './backoffice';
 import { sendTelemetryEvent, trackMatchTelemetry, approximatePathLength, summarizeUnitKinds, type MatchTelemetry } from './telemetry';
@@ -1999,7 +1998,7 @@ function createRoomLobbyView(
   invite.className = 'war-lobby__invite';
   const inviteHeading = document.createElement('div');
   inviteHeading.className = 'war-lobby__invite-heading';
-  inviteHeading.innerHTML = '<strong>INVITE PLAYERS</strong><span>Send this link. They will sign up if needed, then join this room automatically.</span>';
+  inviteHeading.innerHTML = '<strong>INVITE PLAYERS</strong><span>Send this link. Players join the room automatically — no signup needed.</span>';
   const inviteControls = document.createElement('div');
   inviteControls.className = 'war-lobby__invite-controls';
   const inviteLink = document.createElement('input');
@@ -6474,11 +6473,8 @@ async function start(): Promise<void> {
   let localSetupPreview = !isPublicHost(location.hostname) && params.get('setup-preview') === '1';
   startLandingMusic();
   let intent: LandingIntent = inviteRoom ? 'multiplayer' : 'single';
-  // An invited player who is already enlisted goes straight to the room; everyone
-  // else picks a path on the landing screen, where multiplayer asks them to enlist.
-  const invitedAndCleared = Boolean(inviteRoom)
-    && (identityEnabled() ? Boolean(enlistedCommander()) : hasBetaAccess());
-  if (!localSetupPreview && !invitedAndCleared) {
+  // Invitations go straight to the lobby, including for first-time guests.
+  if (!localSetupPreview && !inviteRoom) {
     intent = await showLandingScreen({ inviteRoom });
   }
   let setupDefaults=settings;

@@ -23,10 +23,8 @@ function storedOverride(): boolean | undefined {
 }
 
 /**
- * Runtime kill switch for the member-identity flow. `?identity=0` restores the
- * beta-clearance multiplayer access flow and sticks for the browser, so a bad
- * account rollout is undone without a deploy. Mode navigation stays available
- * in both states. `?identity=1` re-enables member identity.
+ * Legacy member-identity preference retained for existing browser settings.
+ * Multiplayer access is available to guests regardless of this preference.
  */
 export function identityEnabled(): boolean {
   if (resolved !== undefined) return resolved;
