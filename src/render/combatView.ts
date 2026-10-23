@@ -218,6 +218,8 @@ function addSpreadSelection(selected: Set<number>, candidates: IndexedCombatEven
 }
 
 export class CombatView {
+  private cinematicMode=false;
+  setCinematicMode(active:boolean):void {this.cinematicMode=active;}
   readonly group = new Group();
   private readonly cannonMaterial = new LineBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.92 });
   private readonly rifleMaterial = new LineBasicMaterial({ color: 0xff8f62, transparent: true, opacity: 0.8 });
@@ -569,7 +571,7 @@ export class CombatView {
         : undefined,
     });
     const spawned = this.bombProjectiles[this.bombProjectiles.length - 1];
-    if (spawned.healthBar) spawned.healthBar.group.visible = launchDelay <= 0;
+    if (spawned.healthBar) spawned.healthBar.group.visible = !this.cinematicMode && launchDelay <= 0;
     if (spawned.healthBar) this.syncStrategicHealthBar(spawned);
     const maxProjectiles = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 28;
     while (this.bombProjectiles.length > maxProjectiles) this.disposeBombProjectile(this.bombProjectiles.shift());
@@ -583,7 +585,7 @@ export class CombatView {
         if (projectile.launchDelay <= 0) {
           projectile.group.visible = true;
           projectile.trail.visible = true;
-          if (projectile.healthBar) projectile.healthBar.group.visible = true;
+          if (projectile.healthBar) projectile.healthBar.group.visible = !this.cinematicMode;
         }
         continue;
       }
@@ -1617,6 +1619,7 @@ export class CombatView {
 
   private lastMissAt = -Infinity;
   private spawnHitIndicator(event: CombatEvent): void {
+    if(this.cinematicMode)return;
     const feedback = combatFeedback(event);
     if (!feedback) return;
     if (feedback === 'miss') {

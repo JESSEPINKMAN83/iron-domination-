@@ -45,7 +45,7 @@
   height: 100%;
   background: #020403;
   object-fit: cover;
-  filter: saturate(.62) contrast(1.1) brightness(.72) sepia(.11);
+  filter: saturate(.82) contrast(1.04) brightness(.85);
 }
 
 .iron-landing__background::after {
@@ -555,6 +555,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .iron-landing__hero { animation: none; }
+  .iron-landing__background { background: #080b0a url('/assets/landing/current-gameplay-poster.jpg') center/cover no-repeat; }
+  .iron-landing__background video { display:none; }
   .iron-landing__cta { transition: none; }
   .iron-landing__cta:hover, .iron-landing__cta::before { animation: none; }
   .iron-landing__music-toggle.is-playing .iron-landing__music-meter i { animation: none; height: 9px; }

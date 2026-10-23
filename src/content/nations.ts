@@ -50,8 +50,8 @@ export function nationsForDoctrines(doctrines: readonly ArmyDoctrineId[]): Natio
 let activeNations: NationId[] = nationsForDoctrines(defaultArmyDoctrines());
 
 /** Called once per match before any UI reads army names. */
-export function applyArmyNations(doctrines: readonly ArmyDoctrineId[]): void {
-  activeNations = nationsForDoctrines(doctrines);
+export function applyArmyNations(doctrines: readonly ArmyDoctrineId[], overrides: Partial<Record<number,NationId>> = {}): void {
+  activeNations = nationsForDoctrines(doctrines).map((nation,index)=>overrides[index+1] ?? nation);
 }
 
 export function nationForTeam(team: number | undefined): NationDef | undefined {

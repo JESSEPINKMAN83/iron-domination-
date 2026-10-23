@@ -100,6 +100,8 @@ export class Sidebar {
   private readonly mobilePrimaryMetric: HTMLSpanElement;
   private readonly mobileSecondaryMetric: HTMLSpanElement;
   private activeTab: Tab = 'buildings';
+  private campaignDefensePrompt = false;
+  private campaignSearchTargets: readonly number[] = [];
   private creditsShown = -1;
   private creditsTarget = 0;
   private creditsPulse = 0;
@@ -789,6 +791,14 @@ export class Sidebar {
     return panel;
   }
 
+  setCampaignSearchTargets(ids: readonly number[]): void { this.campaignSearchTargets=ids; }
+
+  setCampaignDefensePrompt(active: boolean, open = false): void {
+    if(this.campaignDefensePrompt === active && !open)return;
+    if(active && (!this.campaignDefensePrompt || open))this.activeTab='defense';
+    this.campaignDefensePrompt=active;this.lastBodyKey='';this.renderTabs();this.renderBody();
+  }
+
   private card(
     kind: string,
     label: string,
@@ -800,6 +810,10 @@ export class Sidebar {
   ): HTMLButtonElement {
     const button = document.createElement('button');
     button.className = 'game-command-card';
+    if(this.campaignDefensePrompt && kind==='aa-tower'){
+      button.classList.add('campaign-highlight');
+      const prompt=document.createElement('span');prompt.className='campaign-build-label';prompt.textContent=state.ready?'READY · CLICK TO PLACE':'↓ BUILD IRON DOME';button.append(prompt);
+    }
     button.dataset.commandKind = kind;
     button.dataset.ready = String(!!state.ready);
     button.dataset.commandType = eyebrow;
@@ -1442,6 +1456,11 @@ export class Sidebar {
       this.radarCtx.fillRect(Math.round(p.x) - (isBuilding ? 2 : 1), Math.round(p.y) - (isBuilding ? 2 : 1), isBuilding ? 4 : 2, isBuilding ? 4 : 2);
     }
     this.drawRadarFog();
+    this.campaignSearchTargets.forEach((id,index)=>{
+      const target=this.sim.byId.get(id);if(!target||target.destroyed)return;
+      const p=this.worldToRadar(target.transform.x,target.transform.z),c=this.radarCtx;
+      c.save();c.strokeStyle='#ffd17a';c.fillStyle='#ffd17a';c.lineWidth=1.5;c.setLineDash([3,3]);c.beginPath();c.arc(p.x,p.y,12,0,Math.PI*2);c.stroke();c.setLineDash([]);c.font='bold 10px system-ui';c.fillText(index?'B':'A',p.x-3,p.y+3);c.restore();
+    });
     for (const site of this.sim.objectivesQuery) {
       const p = this.worldToRadar(site.transform.x,site.transform.z);
       const team = site.objective.ownerTeam;

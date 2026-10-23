@@ -280,8 +280,8 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
     root.className = 'iron-landing';
     root.innerHTML = `
       <div class="iron-landing__background" aria-hidden="true">
-        <video autoplay muted loop playsinline preload="auto" poster="/assets/landing/home-page-bg-38.jpg">
-          <source src="/assets/landing/home-page-bg-38.mp4" type="video/mp4">
+        <video autoplay muted loop playsinline preload="metadata" poster="/assets/landing/current-gameplay-poster.jpg">
+          <source src="/assets/landing/current-gameplay-loop.mp4" type="video/mp4">
         </video>
       </div>
       ${MUSIC_ENABLED ? `
@@ -341,6 +341,10 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
         </ul>
       </section>
     `;
+    const backgroundVideo=root.querySelector<HTMLVideoElement>('.iron-landing__background video');
+    if(backgroundVideo&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      backgroundVideo.autoplay=false;backgroundVideo.removeAttribute('autoplay');backgroundVideo.preload='none';
+    }
     document.body.appendChild(root);
     installLandingGuides(root);
     installStandaloneButtonSounds(root);

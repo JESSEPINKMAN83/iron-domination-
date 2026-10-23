@@ -624,6 +624,8 @@ export class UnitView {
   private priorityDetailedEntity?: Entity;
   private fortressOpticsActive = false;
   private selectionOverlayVisible = true;
+  private combatChromeVisible = true;
+  setCombatChromeVisible(visible:boolean):void {this.combatChromeVisible=visible;}
 
   constructor(
     entities: Entity[],
@@ -1964,7 +1966,7 @@ export class UnitView {
     const pct = Math.max(0, Math.min(1, entity.health.current / entity.health.max));
     const selected = entity.selectable?.selected ?? false;
     const nearCamera = !compact || camera.position.distanceToSquared(this.lowDetailTransform.position.set(x, y, z)) < 90_000;
-    healthBar.root.visible = !entity.destroyed && (compact
+    healthBar.root.visible = this.combatChromeVisible && !entity.destroyed && (compact
       ? (this.selectionOverlayVisible && selected) || (pct < 0.65 && nearCamera)
       : (this.selectionOverlayVisible && selected) || pct < 0.995);
     if (!healthBar.root.visible) return;
@@ -1981,6 +1983,7 @@ export class UnitView {
 
   private updateRankBadge(entity: Entity, x: number, y: number, z: number, camera: Camera, compact = false): void {
     const badge = this.rankBadges.get(entity);
+    if(badge&&!this.combatChromeVisible){badge.root.visible=false;return;}
     if (!badge) return;
     const rank = entity.combatRank?.rank ?? 0;
     if (rank <= 0 || entity.destroyed) {

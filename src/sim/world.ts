@@ -1868,6 +1868,10 @@ export function hashSim(sim: GameSim): number {
   const entities = Array.from(sim.world.entities).sort((a, b) => a.id - b.id);
   for (const entity of entities) {
     mix(entity.id);
+    if(entity.campaign){
+      mix(entity.campaign.phase==='quiet'?1:entity.campaign.phase==='attack'?2:entity.campaign.phase==='victory'?3:4);
+      mix(entity.campaign.strikeCount);entity.campaign.targetIds.forEach(mix);entity.campaign.nextStrikeTicks.forEach(mix);
+    }
     mix(entity.mover?.objectiveDuty ?? 0);
     if (entity.objective) {
       const o = entity.objective;
@@ -2094,6 +2098,10 @@ export function hashCriticalSimState(sim: GameSim): number {
   const entities = Array.from(sim.world.entities).sort((a, b) => a.id - b.id);
   for (const entity of entities) {
     mix(entity.id);
+    if(entity.campaign){
+      mix(entity.campaign.phase==='quiet'?1:entity.campaign.phase==='attack'?2:entity.campaign.phase==='victory'?3:4);
+      mix(entity.campaign.strikeCount);entity.campaign.targetIds.forEach(mix);entity.campaign.nextStrikeTicks.forEach(mix);
+    }
     mix(entity.mover?.objectiveDuty ?? 0);
     if (entity.objective) {
       const o = entity.objective;
