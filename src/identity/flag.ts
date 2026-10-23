@@ -23,9 +23,8 @@ function storedOverride(): boolean | undefined {
 }
 
 /**
- * Runtime kill switch for the member-identity flow. `?identity=0` restores the
- * pre-identity landing page (single gated "Play game" CTA) and sticks for the
- * browser, so a bad rollout is undone without a deploy. `?identity=1` re-enables it.
+ * Legacy member-identity preference retained for existing browser settings.
+ * Multiplayer access is available to guests regardless of this preference.
  */
 export function identityEnabled(): boolean {
   if (resolved !== undefined) return resolved;
