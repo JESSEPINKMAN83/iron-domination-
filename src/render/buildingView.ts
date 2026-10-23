@@ -79,6 +79,8 @@ export class BuildingView {
   private readonly selectedGlows = new Map<Entity, SelectionGlow>();
   private readonly producerGlows = new Map<Entity, SelectionGlow>();
   private readonly producerHighlightIds = new Set<number>();
+  private combatChromeVisible = true;
+  setCombatChromeVisible(visible:boolean):void {this.combatChromeVisible=visible;}
   private readonly healthBars = new Map<Entity, BuildingHealthBar>();
   private hoveredEntity?: Entity;
   private readonly ghosts: Mesh[] = [];
@@ -880,7 +882,7 @@ export class BuildingView {
     if (!healthBar || !entity.health || !entity.building) return;
     if (entity.health.current < object.lastHealth - 0.01) object.lastDamageTick = this.sim.tick;
     object.lastHealth = entity.health.current;
-    if (fogged) {
+    if (fogged||!this.combatChromeVisible) {
       healthBar.root.visible = false;
       return;
     }

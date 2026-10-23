@@ -1,3 +1,7 @@
+import { createLandingCapture } from './dev/landingCapture';
+import { showSinglePlayerModes } from './campaign/modeSelect';
+import { CampaignHud } from './campaign/campaignHud';
+import { seedFirstLight, campaignState, stepFirstLight } from './campaign/firstLight';
 import { seedObjectives } from './sim/objectives';
 import { ObjectiveView } from './render/objectiveView';
 import './ui/objectives.css';
@@ -219,6 +223,7 @@ const MATCH_HISTORY_STORAGE_KEY = 'iron-dominion.match-history.v1';
 let activeMatchExitGuard: ActiveMatchExitGuard | undefined;
 
 interface SkirmishSettings {
+  campaign?: 'first-light';
   mapId: MapId;
   mapSize: MapSize;
   seed: number;
@@ -508,6 +513,7 @@ function loadStoredSettings(): Partial<SkirmishSettings> {
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Partial<SkirmishSettings>;
     return {
+      campaign: parsed.campaign === 'first-light' ? 'first-light' : undefined,
       mapId: sanitizeMapId(parsed.mapId),
       mapSize: sanitizeMapSize(parsed.mapSize),
       seed: Number.isFinite(parsed.seed) ? Math.floor(Number(parsed.seed)) : undefined,
@@ -601,6 +607,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
   const mapId = fromUrl.mapId ?? stored.mapId ?? DEFAULT_MAP_ID;
   const spawnSlots = fromUrl.spawnSlots ?? stored.spawnSlots ?? defaultSpawnSlots();
   return {
+    campaign: params.get('campaign') === 'first-light' ? 'first-light' : stored.campaign,
     mapId,
     mapSize: fromUrl.mapSize ?? stored.mapSize ?? DEFAULT_MAP_SIZE,
     seed: fromUrl.seed ?? stored.seed ?? randomSeed(),
@@ -621,6 +628,13 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     // has never dragged a marker.
     spawnPoints: fromUrl.spawnPoints ?? stored.spawnPoints ?? spawnPointsFromSlots(spawnSlots),
   };
+}
+
+function firstLightSettings(settings: SkirmishSettings): SkirmishSettings {
+  const spawnSlots: ArmySpawnSlots = [4,1,2,3];
+  return { ...settings, campaign:'first-light', mapId:'highlands', mapSize:'medium', seed:41, terrainRelief:50, terrainLayout:'classic', oreAmount:150,
+    timeOfDay:'day', weather:'clear', ai:'normal', aiStyle:'balanced', debug:false, combatMode:'assisted',
+    armyCount:3, armyDoctrines:['iron-legion','missile-command','missile-command','iron-legion'], armySides:[1,2,2,4],spawnSlots,spawnPoints:spawnPointsFromSlots(spawnSlots) };
 }
 
 function reloadWithSettings(settings: SkirmishSettings, autostart: boolean): void {
@@ -711,7 +725,7 @@ function showLoadingOverlay(): HTMLDivElement {
   return el;
 }
 
-function showSetupScreen(defaults: SkirmishSettings, options: { intent?: LandingIntent } = {}): Promise<SkirmishSettings> {
+function showSetupScreen(defaults: SkirmishSettings, options: { intent?: LandingIntent } = {}): Promise<SkirmishSettings | undefined> {
   return new Promise((resolve) => {
     const root = document.createElement('div');
     root.id = 'iron-setup';
@@ -992,6 +1006,18 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
       root.remove();
       resolve(settings);
     };
+
+    if(!multiplayerIntent){
+      const back=document.createElement('button');back.type='button';back.className='story-back war-setup__back';back.textContent='← Single Player modes';
+      back.onclick=()=>{
+        if(multiplayerStarted)return;
+        saveSkirmishSettings(currentSettings());
+        multiplayerClient?.disconnect();pendingMultiplayer=undefined;
+        document.querySelectorAll('.war-lobby').forEach(lobby=>lobby.remove());
+        root.remove();resolve(undefined);
+      };
+      headerCopy.prepend(back);
+    }
 
     const controls = document.createElement('div');
     controls.className = 'war-controls';
@@ -2595,11 +2621,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   pendingMultiplayer = undefined;
   const multiplayerMode = multiplayer !== undefined;
   if (multiplayer) settings = settingsFromRoom(multiplayer.session.room);
+  const storyMode = !multiplayerMode && settings.campaign === 'first-light';
+  if (storyMode) settings = firstLightSettings(settings);
   applyArmyFactionColors(
     settings.armyDoctrines.slice(0, settings.armyCount),
     settings.armySides.slice(0, settings.armyCount),
   );
-  applyArmyNations(settings.armyDoctrines.slice(0, settings.armyCount));
+  applyArmyNations(settings.armyDoctrines.slice(0, settings.armyCount), storyMode ? {1:'israel',2:'iran',3:'iran'} : undefined);
   const localTeam = multiplayer?.session.player.armyId ?? multiplayer?.session.player.index ?? 1;
   applyLocalSideLabels(settings.armyDoctrines[localTeam - 1] ?? 'iron-legion');
   const humanTeams = multiplayer
@@ -2608,6 +2636,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const aiTeams = new Set(aiControlledTeams(settings.armyCount, humanTeams));
   const app = document.getElementById('app');
   if (!app) throw new Error('#app missing');
+  if(import.meta.env.DEV&&!isPublicHost(location.hostname)&&new URLSearchParams(location.search).get('start')==='cinematic'&&new URLSearchParams(location.search).get('landing-capture')==='1'&&!multiplayerMode){app.style.width='1280px';app.style.height='720px';app.style.position='fixed';app.style.inset='0 auto auto 0';}
   const overlay = showLoadingOverlay();
   await nextFrame();
   await nextFrame();
@@ -2824,6 +2853,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       console.warn('[save] failed to load saved match', err);
     }
   }
+  const campaignUnits = storyMode && !loadedFromSave ? seedFirstLight(sim,hf,armies) : [];
+  const storyState = storyMode ? campaignState(sim) : undefined;
+  if (storyMode && !storyState) throw new Error('Campaign mission state is missing');
   if (aiCoordinationPreview && !loadedFromSave) {
     for (const army of armies) seedCinematicBase(sim, hf, army.economy, army.base);
   } else if ((missileDoctrinePreview || soundBattlePreview) && !loadedFromSave) {
@@ -2839,11 +2871,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     seedTestStartBase(sim, hf, economy, localBase);
   }
   const smokePreviewStage = smokePreview ? createSmokePreviewStage(sim, armies, localTeam) : undefined;
-  const isVisibleToPlayer = lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest || performanceTest || aiCoordinationPreview || wallPerformancePreview
+  const isVisibleToPlayer = cinematicWar || lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest || performanceTest || aiCoordinationPreview || wallPerformancePreview
     ? () => true
     : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
-    if (wallPerformancePreview || durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
+    if (storyMode || wallPerformancePreview || durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z, team: candidate.team }));
@@ -2986,7 +3018,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const coordinationStage = aiCoordinationPreview && !loadedFromSave
     ? stageCoordinationPreview(sim, hf, armies, localTeam)
     : undefined;
-  const startingUnits = wallPerformanceStage
+  const startingUnits = storyMode ? (loadedFromSave ? loadedUnits : campaignUnits) : wallPerformanceStage
     ? wallPerformanceStage.units
     : coordinationStage
     ? coordinationStage.units
@@ -3016,7 +3048,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const objectiveRaidUnits: Entity[] = [];
   const objectivePreview = import.meta.env.DEV && params.get('objective-test') === '1';
-  if (!loadedFromSave && (objectivePreview || (!testStart && !lineupStart && !buildingShowcase && !largeBattleScenario && !performanceTest))) {
+  if (!storyMode && !loadedFromSave && (objectivePreview || (!testStart && !lineupStart && !buildingShowcase && !largeBattleScenario && !performanceTest))) {
     seedObjectives(sim, hf, objectivePreview ? routeStage : { x: 0, z: 0 }, objectivePreview ? 95 : undefined);
   }
   if (objectivePreview) {
@@ -3175,6 +3207,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   ctx.scene.add(orderMarkers.group);
   const fogView = new FogView(playerVision, terrain.chunkGeometries);
   ctx.scene.add(fogView.group);
+  if(cinematicWar)fogView.group.visible=false;
   let lastFogTextureTick = -2;
   let lastResourceVisualTick = -1;
   const hud = new Hud(document.body);
@@ -3260,13 +3293,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const rig = new RtsCameraRig(ctx.camera, input, hf);
   if (import.meta.env.DEV) Object.assign(window, { __ironRig: rig });
-  const openingThreat = armies
-    .filter((army) => areTeamsHostile(sim, localTeam, army.team) && !army.base.destroyed)
-    .sort((a, b) => {
-      const distanceA = Math.hypot(a.base.transform.x - localBase.transform.x, a.base.transform.z - localBase.transform.z);
-      const distanceB = Math.hypot(b.base.transform.x - localBase.transform.x, b.base.transform.z - localBase.transform.z);
-      return distanceA - distanceB;
-    })[0]?.base;
+  const openingEnemies=armies.filter(army=>areTeamsHostile(sim,localTeam,army.team)&&!army.base.destroyed);
+  // Face the hostile front as a whole so multiple enemy spawns lead the eye
+  // into the battlefield, rather than along the nearest edge of the map.
+  const openingThreat=openingEnemies.length?{
+    x:openingEnemies.reduce((sum,army)=>sum+army.base.transform.x,0)/openingEnemies.length,
+    z:openingEnemies.reduce((sum,army)=>sum+army.base.transform.z,0)/openingEnemies.length,
+  }:undefined;
   if (collectorPreviewEntity) {
     rig.focusOn(
       collectorPreviewEntity.transform.x,
@@ -3288,8 +3321,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       32,
       -10,
     );
-  } else if (cinematicScene && cinematicShot !== 'air') {
-    applyCinematicCamera(rig, cinematicScene, cinematicShot);
+  } else if (cinematicScene) {
+    applyCinematicCamera(rig, cinematicScene, cinematicShot === 'air' ? 'overview' : cinematicShot);
   } else if (durabilityScene) {
     rig.focusOn(
       durabilityScene.focus.x,
@@ -3324,7 +3357,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     rig.jumpToOpeningView(
       localBase.transform.x,
       localBase.transform.z,
-      openingThreat ? { x: openingThreat.transform.x, z: openingThreat.transform.z } : undefined,
+      openingThreat,
       localTeam,
     );
   }
@@ -3983,6 +4016,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   };
   const checkOutcome = (): void => {
     if (durabilityPreview || destructionPreview || debriefPreview || outcome || sim.tick < 60) return;
+    if (storyState) {
+      if (storyState.phase === 'victory' || storyState.phase === 'defeat') concludeMatch(storyState.phase);
+      return;
+    }
     const alive = (team: number) => buildings(sim, team).filter((entity) => !entity.destroyed).length;
     const hostileTeams = teams.filter((team) => areTeamsHostile(sim, localTeam, team));
     if (isVictoryFromHostileBuildingCounts(hostileTeams.map(alive))) concludeMatch('victory');
@@ -4028,6 +4065,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const firstContactGate = new FirstContactGate();
   const baseUnderAttackGate = new BaseUnderAttackGate();
   const missionComms = new MissionComms();
+  const campaignHud = storyState ? new CampaignHud(sim,storyState,economy,index=>{
+    const target=index<0?localBase:sim.byId.get(storyState.targetIds[index]);
+    if(target){rig.focusOn(target.transform.x,target.transform.z,{x:target.transform.x-100,z:target.transform.z-140},180,-6);if(index>=0)orderMarkers.push(target.transform.x,target.transform.z,'attack');}
+  },()=>sidebar.setCampaignDefensePrompt(true,true)) : undefined;
   if (import.meta.env.DEV && params.get('notification-test') === '1') {
     const panel = document.createElement('div');
     panel.style.cssText = 'position:fixed;bottom:12px;left:12px;z-index:80;padding:10px;background:#10232bee;border:1px solid #729d91;border-radius:8px;color:white;font:12px system-ui';
@@ -4067,7 +4108,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   };
 
   const checkFirstContact = (): void => {
-    if (lineupStart || largeBattleScenario || durabilityPreview || destructionPreview) return;
+    if (storyMode || lineupStart || largeBattleScenario || durabilityPreview || destructionPreview) return;
     const contact = firstContactGate.tryTrigger(() => findFirstVisibleHostileEntity(
       sim.world.entities,
       localTeam,
@@ -4083,16 +4124,19 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (!alert) return;
     sidebar.signalUnderAttack(alert.x, alert.z, alert.label);
     hud.showBaseUnderAttack(alert.label, alert.critical);
-    missionComms.announceBaseUnderAttack(alert.label, alert.critical);
+    if (!storyMode) missionComms.announceBaseUnderAttack(alert.label, alert.critical);
     audio.playUi('error');
   };
 
+  const landingCapture=import.meta.env.DEV&&cinematicWar&&params.get('landing-capture')==='1'
+    ?createLandingCapture(ctx.renderer.domElement,(params.get('capture-name')??'battlefield').replace(/[^a-z0-9-]/g,''),12):undefined;
   const loop = new GameLoop({
     simTick: () => {
-      if (uiPaused || networkPaused) return;
+      if (uiPaused || networkPaused || campaignHud?.awaitingBriefingStart || (landingCapture&&!landingCapture.recording)) return;
       if (collectorPreview) return;
       if (!firstPerson.active) controller.updateAircraftAltitude(1 / SIM_HZ);
       firstPerson.simTick();
+      if (storyState) stepFirstLight(sim,armies,storyState);
       const tickResult = advanceTick({
         sim,
         hf,
@@ -4264,6 +4308,14 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         if (impactDemoFollow && !impactDemoCameraReleased) {
           rig.jumpTo(impactDemoFollow.transform.x, impactDemoFollow.transform.z);
         }
+        if(landingCapture?.recording&&cinematicScene){
+          const t=landingCapture.elapsed;
+          const baseShot=cinematicShot==='base';
+          const focus=baseShot?cinematicScene.friendlyBase:cinematicScene.focus;
+          const angle=Math.atan2(-cinematicScene.forward.x,-cinematicScene.forward.z)+.48+t*.018;
+          const distance=baseShot?190:cinematicShot==='frontline'?132:205;
+          rig.focusOn(focus.x,focus.z,{x:focus.x+Math.sin(angle)*120,z:focus.z+Math.cos(angle)*120},distance,baseShot?-20:-14);
+        }
         rig.update(dt);
       }
       atmosphereTransition.update(dt, applyAtmosphereLook);
@@ -4272,6 +4324,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       audio.update(sim.world.entities);
       unitView.setFortressOpticsActive(firstPerson.fortress);
       unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
+      if(cinematicWar){unitView.setSelectionOverlayVisible(false);unitView.setCombatChromeVisible(false);buildingView.setCombatChromeVisible(false);combatView.setCinematicMode(true);}
       unitView.update(alpha, dt, ctx.camera);
       selectionBar.updateWorldAnchors();
       sidebar.animateResources(dt);
@@ -4281,6 +4334,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         selectionBar.update();
         orderMarkers.showSelectedDestinations(firstPerson.active ? [] : selectedEntities(sim, localTeam));
         sidebar.update();
+        if(storyState){
+          campaignHud?.update();
+          sidebar.setCampaignSearchTargets(storyState.phase==='quiet'?[]:storyState.targetIds);
+          const domeBuilt=buildings(sim,localTeam).some(e=>!e.destroyed&&e.building?.kind==='aa-tower'&&e.building.buildProgress>=1);
+          sidebar.setCampaignDefensePrompt(!!campaignHud?.defensePromptActive&&!domeBuilt&&storyState.phase!=='victory'&&storyState.phase!=='defeat');
+        }
         objectiveView.update();
         durabilityPanel?.update();
         destructionPanel?.update();
@@ -4317,6 +4376,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       }
       water.update(time, ctx.scene.fog as Fog);
       ctx.render(dt);
+      landingCapture?.frame();
       combatView.completeFrame();
 
       fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
@@ -4374,7 +4434,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   if (coordinationStage) setSelected(sim, coordinationStage.units.filter((unit) => unit.team?.id === localTeam), false, localTeam);
   if (aircraftRouteTest) setSelected(sim, aircraftRouteUnits.filter((unit) => unit.team?.id === localTeam), false, localTeam);
-  if (!lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview && !aircraftRouteTest) {
+  if (!storyMode && !lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview && !aircraftRouteTest) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     const memberId = enlistedCommander()?.memberId;
     if (NARRATIVE_CHARACTERS_ENABLED && shouldShowOpeningBriefing(window.localStorage, memberId)) {
@@ -4856,7 +4916,7 @@ function showOutcomeBanner(
     settings,
     snapshot,
     onPlayAgain: () => reloadWithSettings({ ...settings, seed: randomSeed() }, true),
-    onSetup: () => reloadWithSettings(settings, false),
+    onSetup: () => reloadWithSettings({...settings,campaign:undefined}, false),
     onRematch,
   });
 }
@@ -5907,9 +5967,9 @@ function spawnCinematicWar(
   const localAircraft: Entity[] = [];
 
   const spawnForce = (army: ArmyRuntime, toward: { x: number; z: number }): void => {
-    const teamForward = army.team === friendly.team
-      ? forward
-      : { x: -forward.x, z: -forward.z };
+    const toFront={x:focus.x-army.base.transform.x,z:focus.z-army.base.transform.z};
+    const toFrontLength=Math.hypot(toFront.x,toFront.z)||1;
+    const teamForward=army===friendly?forward:army===hostile?{x:-forward.x,z:-forward.z}:{x:toFront.x/toFrontLength,z:toFront.z/toFrontLength};
     const teamRight = { x: teamForward.z, z: -teamForward.x };
     const frontDistance = staged ? 112 : 54;
     const frontAnchor = {
@@ -6010,6 +6070,7 @@ function spawnCinematicWar(
   const hostileTarget = { x: focus.x - forward.x * 82, z: focus.z - forward.z * 82 };
   spawnForce(friendly, friendlyTarget);
   spawnForce(hostile, hostileTarget);
+  if(!staged)for(const army of armies.filter(a=>a!==friendly&&a!==hostile))spawnForce(army,focus);
 
   if (staged) {
     const openingCommand = units
@@ -6410,7 +6471,7 @@ async function start(): Promise<void> {
     await boot(settings);
     return;
   }
-  const localSetupPreview = !isPublicHost(location.hostname) && params.get('setup-preview') === '1';
+  let localSetupPreview = !isPublicHost(location.hostname) && params.get('setup-preview') === '1';
   startLandingMusic();
   let intent: LandingIntent = inviteRoom ? 'multiplayer' : 'single';
   // An invited player who is already enlisted goes straight to the room; everyone
@@ -6420,9 +6481,28 @@ async function start(): Promise<void> {
   if (!localSetupPreview && !invitedAndCleared) {
     intent = await showLandingScreen({ inviteRoom });
   }
-  const chosen = await showSetupScreen(settings, { intent });
-  document.getElementById('iron-landing')?.remove();
-  await boot(chosen);
+  let setupDefaults=settings;
+  while(true){
+    if(!localSetupPreview && intent==='single'){
+      const mode=await showSinglePlayerModes();
+      if(mode==='back'){
+        document.getElementById('iron-landing')?.remove();
+        intent=await showLandingScreen({inviteRoom});continue;
+      }
+      if(mode==='story'){
+        document.getElementById('iron-landing')?.remove();
+        const story=firstLightSettings(setupDefaults);saveSkirmishSettings(story);await boot(story);return;
+      }
+    }
+    const chosen=await showSetupScreen({...setupDefaults,campaign:undefined},{intent});
+    if(!chosen){
+      setupDefaults={...setupDefaults,...loadStoredSettings()};
+      localSetupPreview=false;intent='single';continue;
+    }
+    chosen.campaign=undefined;
+    document.getElementById('iron-landing')?.remove();
+    await boot(chosen);return;
+  }
 }
 
 // Surface boot failures on screen instead of hanging silently on the loading overlay.

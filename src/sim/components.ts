@@ -252,6 +252,7 @@ export interface ProductionJob {
 }
 
 export interface Entity {
+  campaign?: import('../campaign/firstLight').CampaignState;
   id: number;
   name?: string;
   transform: Transform;

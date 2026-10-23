@@ -888,3 +888,4 @@
 .war-layout-control select, .war-lobby__room-setting select[aria-label="Terrain layout"] { padding:8px 12px; border:1px solid #57635e; background:#17201d; color:#f2eee0; font:inherit; }
 .war-layout-control small { color:#9caaa3; font-size:10px; font-weight:400; }
 .tactical-map__legend { flex-wrap:wrap; max-width:calc(100% - 24px); }
+.war-setup__back{margin-bottom:16px}

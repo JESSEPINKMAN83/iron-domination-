@@ -234,15 +234,16 @@ export class RtsCameraRig {
     const forward = openingViewDirection(baseX, baseZ, threat, team);
     // Aim well beyond the Command Yard so the base anchors the foreground and
     // the hostile approach route fills the centre of the opening composition.
-    const focusX = baseX + forward.x * 60;
-    const focusZ = baseZ + forward.z * 60;
+    const focusX = baseX + forward.x * 40;
+    const focusZ = baseZ + forward.z * 40;
     this.yawGoal = Math.atan2(-forward.x, -forward.z);
     this.yaw = this.yawGoal;
-    this.distGoal = MathUtils.clamp(166, ZOOM_MIN, ZOOM_MAX);
+    this.distGoal = MathUtils.clamp(240, ZOOM_MIN, ZOOM_MAX);
     this.dist = this.distGoal;
-    // A ~25° view keeps the horizon and terrain layers visible, matching the
-    // low command-post composition rather than a near-vertical tactical view.
-    this.pitchOffsetGoal = MathUtils.degToRad(-30);
+    // A consistent low 22° view shows the base in the foreground and the
+    // battlefield ahead, regardless of a previous session's saved free look.
+    const zoomT=(this.dist-ZOOM_MIN)/(ZOOM_MAX-ZOOM_MIN);
+    this.pitchOffsetGoal = MathUtils.degToRad(22)-MathUtils.lerp(PITCH_NEAR,PITCH_FAR,zoomT);
     this.pitchOffset = this.pitchOffsetGoal;
     this.jumpTo(focusX, focusZ);
   }

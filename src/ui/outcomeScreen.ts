@@ -8,6 +8,7 @@ import type { ArmyDebriefStats, MatchSnapshot } from '../match/battleDebrief';
 import { FACTION, factionId } from '../render/palette';
 
 export interface OutcomeSettings {
+  campaign?: 'first-light';
   mapId: MapId;
   mapSize: MapSize;
   seed: number;
@@ -118,9 +119,9 @@ export function showOutcomeScreen(options: OutcomeScreenOptions): void {
   header.innerHTML = `
     <div class="battle-debrief__result-mark"><span>${win ? '✓' : '×'}</span></div>
     <div class="battle-debrief__result-copy">
-      <small>BATTLE DEBRIEF</small>
-      <h1>${win ? 'VICTORY' : 'DEFEAT'}</h1>
-      <p>${win ? 'Every hostile command yard has fallen. The battlefield is under your control.' : 'Your command network has collapsed. Review the battle data and return stronger.'}</p>
+      <small>${options.settings.campaign ? 'OPERATION FIRST LIGHT' : 'BATTLE DEBRIEF'}</small>
+      <h1>${options.settings.campaign ? win ? 'MISSION COMPLETE' : 'MISSION FAILED' : win ? 'VICTORY' : 'DEFEAT'}</h1>
+      <p>${options.settings.campaign ? win ? 'Both missile launchers are destroyed. Command HQ is secure. The base is safe.' : 'Command HQ has fallen. Rebuild your missile shield and try Operation First Light again.' : win ? 'Every hostile command yard has fallen. The battlefield is under your control.' : 'Your command network has collapsed. Review the battle data and return stronger.'}</p>
     </div>
     <div class="battle-debrief__operation">
       <span>AFTER ACTION REPORT</span>
