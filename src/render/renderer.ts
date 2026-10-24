@@ -1,3 +1,4 @@
+import { GRAPHICS_CHANGE, performanceGraphics, performanceRenderScale, readGraphicsPreference, type GraphicsPreference } from './graphicsPreference';
 import { QualityRecoveryGate } from './qualityRecovery';
 // Owns the WebGL renderer, scene, camera, day-lighting rig (hemisphere +
 // cascaded-shadow-map sun) and the postprocessing chain (SSAO, SMAA, bloom,
@@ -206,6 +207,7 @@ export class RenderContext {
   private readonly maxPixelRatio: number;
   private readonly multiplayerMode: boolean;
   private readonly mobileSafeMode: boolean;
+  private performanceProfile = false;
   private pixelRatio: number;
   private qualitySampleSeconds = 0;
   private qualityFrameCount = 0;
@@ -234,6 +236,15 @@ export class RenderContext {
     const browserNavigator = typeof navigator === 'undefined'
       ? undefined
       : navigator as Navigator & { deviceMemory?: number };
+    this.performanceProfile = !this.adaptiveQualityLocked && performanceGraphics(
+      readGraphicsPreference(), this.mobileSafeMode, browserNavigator?.hardwareConcurrency, browserNavigator?.deviceMemory,
+    );
+    window.addEventListener(GRAPHICS_CHANGE, ((event: CustomEvent<GraphicsPreference>) => {
+      if (this.adaptiveQualityLocked) return;
+      this.performanceProfile = performanceGraphics(event.detail, this.mobileSafeMode, browserNavigator?.hardwareConcurrency, browserNavigator?.deviceMemory);
+      this.appliedQualityTier = -1;
+      this.applyQualityTier();
+    }) as EventListener);
     this.adaptiveQualityTier = options.initialQualityTier ?? suggestedInitialVisualQuality(
       this.multiplayerMode,
       browserNavigator?.hardwareConcurrency,
@@ -253,12 +264,12 @@ export class RenderContext {
     // Multiplayer commonly runs beside voice chat and sometimes a second test
     // browser. Start slightly leaner there, then let adaptive quality recover.
     this.maxPixelRatio = Math.min(window.devicePixelRatio, this.mobileSafeMode ? 1.25 : this.multiplayerMode ? 0.9 : 1.25);
-    this.pixelRatio = this.targetPixelRatio(this.adaptiveQualityTier);
-    this.qualityCooldownSeconds = initialQualityCooldownSeconds(this.mobileSafeMode);
-    this.renderer.setPixelRatio(this.pixelRatio);
     const initialViewport = this.readViewportSize();
     this.viewportWidth = initialViewport.width;
     this.viewportHeight = initialViewport.height;
+    this.pixelRatio = this.targetPixelRatio(this.visualQuality);
+    this.qualityCooldownSeconds = initialQualityCooldownSeconds(this.mobileSafeMode);
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(this.viewportWidth, this.viewportHeight, false);
     this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
@@ -392,7 +403,7 @@ export class RenderContext {
   }
 
   get visualQuality(): VisualQualityTier {
-    return Math.max(this.adaptiveQualityTier, this.fastMotionMode ? 1 : 0) as VisualQualityTier;
+    return Math.max(this.adaptiveQualityTier, this.performanceProfile ? 2 : this.fastMotionMode ? 1 : 0) as VisualQualityTier;
   }
 
   get visualQualityLabel(): string {
@@ -432,8 +443,11 @@ export class RenderContext {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.csm?.updateFrustums();
-    this.renderer.setSize(w, h, false);
-    this.composer?.setSize(w, h);
+    if (this.performanceProfile) this.setPixelRatio(this.targetPixelRatio(this.visualQuality));
+    else {
+      this.renderer.setSize(w, h, false);
+      this.composer?.setSize(w, h);
+    }
   }
 
   private readViewportSize(): { width: number; height: number } {
@@ -530,6 +544,7 @@ export class RenderContext {
   }
 
   private targetPixelRatio(tier: VisualQualityTier): number {
+    if (this.performanceProfile) return performanceRenderScale(this.viewportWidth, this.viewportHeight, this.maxPixelRatio);
     if (this.mobileSafeMode) return mobileSafePixelRatio(tier, this.maxPixelRatio);
     return visualPixelRatioForTier(tier, this.maxPixelRatio, this.multiplayerMode);
   }

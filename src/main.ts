@@ -1,3 +1,4 @@
+import { applyGraphicsPreference, createGraphicsControl } from './render/graphicsPreference';
 import { createLandingCapture } from './dev/landingCapture';
 import { showSinglePlayerModes } from './campaign/modeSelect';
 import { CampaignHud } from './campaign/campaignHud';
@@ -749,7 +750,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     headerAside.className = 'war-setup__header-aside';
     const commanderIdentity = currentCommander();
     if (commanderIdentity) headerAside.append(createCommanderChip(commanderIdentity, { size: 44 }));
-    headerAside.append(betaBadge);
+    headerAside.append(createGraphicsControl(), betaBadge);
     header.append(headerCopy, headerAside);
 
     const params = new URLSearchParams(location.search);
@@ -4807,7 +4808,7 @@ function showMatchMenu(
   const setup = dialogButton('Back to setup', () => reloadWithSettings(settings, false));
   panel.append(title, status);
   if (snapshot) panel.append(details);
-  panel.append(atmosphereBlock);
+  panel.append(createGraphicsControl(), atmosphereBlock);
   panel.append(resume, help, copy);
   if (saveButton) panel.append(saveButton);
   if (loadButton) panel.append(loadButton);
@@ -6392,6 +6393,7 @@ function findValidTestPlacement(
 }
 
 async function start(): Promise<void> {
+  applyGraphicsPreference();
   const params = new URLSearchParams(location.search);
   if (import.meta.env.DEV && params.get('code-red-thumbnails') === '1') {
     const { showCodeRedThumbnails } = await import('./dev/codeRedThumbnails');

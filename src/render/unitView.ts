@@ -1188,10 +1188,8 @@ export class UnitView {
       const gone = entity === this.hiddenEntity;
       const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
       const inView = this.cameraCulling.contains(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z), entity.transform.z, Math.max(12, (entity.mover?.radius ?? 3) * 3));
-      setEntityRenderActive(obj, this.group, inView && !gone && !fogged);
-      // Attachment must not enable the detailed model alongside its proxy.
-      obj.visible = false;
       if (gone || fogged || !inView) {
+        setEntityRenderActive(obj, this.group, false);
         ring.visible = false;
         const healthBar = this.healthBars.get(entity);
         if (healthBar) healthBar.root.visible = false;
@@ -1232,6 +1230,9 @@ export class UnitView {
         crashingAircraft,
         destroyed: Boolean(entity.destroyed),
       });
+      // Baked batches use the local matrix; their source hierarchy need not
+      // remain attached and incur Three's matrix traversal each frame.
+      setEntityRenderActive(obj, this.group, keepDetailed);
       if (keepDetailed) {
         obj.visible = !(entity.playerControlled && entity.selectable?.type === 'infantry' && Math.hypot(entity.transform.x - camera.position.x, entity.transform.z - camera.position.z) < 0.9);
         this.updateUpgradeVisuals(entity);

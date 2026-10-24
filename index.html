@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Code Red" />
     <meta property="og:title" content="Code Red — Israel vs Iran" />
-    <meta property="og:description" content="Command a war from above. Then drop into the fight yourself. Sign up to play the beta." />
+    <meta property="og:description" content="Command a war from above. Then drop into the fight yourself. Play solo or online. No signup required." />
     <meta property="og:type" content="website" />
     <title>Code Red — Israel vs Iran</title>
     <style>
@@ -26,6 +26,14 @@
         overscroll-behavior: none;
         background: #0a0d10;
       }
+      /* Keep Windows native scrollbars inside their owning panels; hidden
+         screens must never retain a composited scrollbar over the game. */
+      html { color-scheme: dark; }
+      [hidden] { display: none !important; }
+      * { scrollbar-width: thin; scrollbar-color: #52685f #111a1c; }
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #111a1c; }
+      ::-webkit-scrollbar-thumb { background: #52685f; border: 2px solid #111a1c; border-radius: 8px; }
       #app {
         position: fixed;
         inset: 0;

@@ -1,0 +1,38 @@
+{
+  "scenario": "start=battle-test&performance-test=1&model-timing=1&armies=4&stress-bases=26&stress-infantry=60&seed=7&combat=manual&time=day&weather=clear",
+  "method": "Sequential local browser runs at 1280x720 CSS pixels. Existing sampler:20-second warmup,20-second measurement. No concurrent builds or tests during samples. Full is the unchanged explicit quality=full path; Performance is the new locally selected profile.",
+  "limits": "Measured on a powerful development computer, not the old laptop. Performance reduces GPU pixels/triangles/textures but is slower on this machine; no universal FPS gain is claimed. Hardware verification remains necessary. Native Windows scrollbar artifact was not reproduced; hidden screen/overflow/native scrollbar handling was hardened.",
+  "full": {
+    "models": "code-red",
+    "averageMs": 6.89,
+    "p95Ms": 11.4,
+    "frames": 2902,
+    "averageDrawCalls": 1202,
+    "averageTriangles": 3103440,
+    "geometries": 744,
+    "textures": 65,
+    "quality": [
+      "FULL @ 1.00x"
+    ],
+    "viewport": "1280 \u00d7 720",
+    "buildings": 150,
+    "units": 632
+  },
+  "performance": {
+    "models": "code-red",
+    "averageMs": 11.19,
+    "p95Ms": 16.8,
+    "frames": 1788,
+    "averageDrawCalls": 1508,
+    "averageTriangles": 1378138,
+    "geometries": 496,
+    "textures": 33,
+    "quality": [
+      "PERFORMANCE @ 0.75x"
+    ],
+    "viewport": "960 \u00d7 540",
+    "buildings": 150,
+    "units": 632
+  },
+  "multiplayer": "Two browser clients hosted/joined/started without accounts; live switch produced1280x720CSS canvas1152x648Auto vs960x540Performance and network synchronized at tick1304. Backgrounded test later reported interrupted connection; this does not establish long-duration/old-device network reliability."
+}
