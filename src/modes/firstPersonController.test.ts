@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from 'three';
+import { PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import type { Entity } from '../sim/components';
 import {
@@ -7,11 +7,70 @@ import {
   fortressTargetScanConeRatio,
   fortressTargetScanRingSize,
   keyboardAircraftClimb,
+  keyboardLookYaw,
+  FirstPersonController,
   MAX_DIRECT_CONTROL_SQUAD,
   resolveExitCameraPose,
   selectDirectControlSquad,
   type CameraPose,
 } from './firstPersonController';
+
+describe('V-mode keyboard look', () => {
+  it('turns Q left and E right without mouse input at the same rate across frame rates', () => {
+    const left = (code: string) => code === 'KeyQ';
+    const right = (code: string) => code === 'KeyE';
+    expect(keyboardLookYaw(left, 1 / 60) * 60).toBeCloseTo(Math.PI / 2);
+    expect(keyboardLookYaw(right, 1 / 30) * 30).toBeCloseTo(-Math.PI / 2);
+    expect(keyboardLookYaw(code => left(code) || right(code), 1 / 60)).toBe(0);
+    expect(keyboardLookYaw(() => false, 1 / 60)).toBe(0);
+  });
+
+  it('does not jump the heading after a stalled frame', () => {
+    expect(keyboardLookYaw(code => code === 'KeyQ', 2)).toBeCloseTo(Math.PI / 40);
+  });
+});
+
+describe('aircraft chase camera stability', () => {
+  function harness() {
+    // Exercise the real camera calculation without constructing unrelated DOM HUDs.
+    const controller = Object.assign(Object.create(FirstPersonController.prototype), {
+      tmpForward:new Vector3(), tmpHorizontal:new Vector3(), tmpVelocityDir:new Vector3(),
+      tmpFlightTarget:new Vector3(), tmpFlightPosition:new Vector3(), tmpAimTarget:new Vector3(),
+      tmpCameraTarget:new Vector3(), poseCamera:new PerspectiveCamera(),
+      hasFlightCameraMotion:false, smoothFlightSpeed:0, smoothFlightVelocityYaw:0,
+      orbitYaw:0, orbitPitch:0, renderChaseZoom:0,
+      interpolatedCenter:(entity:Entity, alpha:number)=>new Vector3().lerpVectors(
+        new Vector3(entity.previousTransform.x,20,entity.previousTransform.z),
+        new Vector3(entity.transform.x,20,entity.transform.z), alpha),
+    }) as { flightPoseFor:(e:Entity,yaw:number,pitch:number,fov:number,alpha:number,dt:number)=>CameraPose };
+    const entity = {
+      previousTransform:{x:0,z:0,rot:0},transform:{x:0,z:2,rot:0},velocity:{x:0,z:46},
+      flight:{model:'gunship',previousRollAttitude:0,rollAttitude:0},
+    } as Entity;
+    return {controller,entity};
+  }
+
+  it('tracks the same interpolated position as the visible aircraft without a second delayed anchor', () => {
+    const {controller,entity}=harness();
+    const first=controller.flightPoseFor(entity,0,0,64,0,1/60);
+    const half=controller.flightPoseFor(entity,0,0,64,0.5,1/60);
+    const end=controller.flightPoseFor(entity,0,0,64,1,1/60);
+    expect(half.position.z-first.position.z).toBeCloseTo(1);
+    expect(end.position.z-first.position.z).toBeCloseTo(2);
+    expect(first.quaternion.angleTo(end.quaternion)).toBeCloseTo(0);
+  });
+
+  it('eases tick-sized speed and velocity changes instead of snapping the chase view', () => {
+    const {controller,entity}=harness();
+    entity.velocity!.z=0;
+    const hover=controller.flightPoseFor(entity,0,0,64,0,1/60);
+    entity.velocity!.x=46;
+    const next=controller.flightPoseFor(entity,0,0,64,0,1/60);
+    expect(next.fov).toBeGreaterThan(hover.fov);
+    expect(next.fov-hover.fov).toBeLessThan(1);
+    expect(hover.quaternion.angleTo(next.quaternion)).toBeLessThan(0.12);
+  });
+});
 
 function pose(x: number, y: number, z: number, fov: number): CameraPose {
   return {

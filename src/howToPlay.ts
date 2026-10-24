@@ -130,12 +130,13 @@ export function controlGuideSections(mobile: boolean): GuideSection[] {
       items: [
         { control: 'V / Escape', action: 'Take over the selected unit or return to command view.' },
         { control: 'W/S · A/D · Shift', action: 'Drive, steer, and boost. Move the mouse to aim.' },
+        { control: 'Q / E', action: 'Turn your view and aim left or right in V-mode, with any unit. Hold a key to keep turning.' },
         { control: 'Left / right click', action: 'Vehicles fire primary and secondary weapons. F uses a special ability.' },
         { control: 'Infantry', action: 'WASD moves and strafes; hold left-click to fire, right-click to aim, and middle-click for the secondary weapon.' },
         { control: 'Infantry view & stance', action: 'Scroll between first and third person. Space jumps; hold C to crouch. Snipers toggle their scope with right-click.' },
         { control: 'Defense tower', action: 'In V-mode, use the wheel for optical zoom. Hold T to scan; release to lock.' },
         { control: 'Tab', action: 'Swap to the next unit in the currently selected squad.' },
-        { control: 'Aircraft', action: 'Q/E hard turn, Space climbs, and C descends.' },
+        { control: 'Aircraft', action: 'Space climbs, C descends. Q/E turns your view; the aircraft follows your heading.' },
       ],
     },
     {

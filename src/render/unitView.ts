@@ -1078,7 +1078,7 @@ export class UnitView {
       obj.position.set(x, y, z);
       obj.rotation.y = rot;
       if (updateDetails && !entity.destroyed) this.updateFriendlyGlow(entity, x, y, z, glowTime);
-      this.applyPose(entity, obj, dt);
+      this.applyPose(entity, obj, dt, alpha);
       this.applyHitReaction(entity, obj, dt);
       if (updateDetails) this.updateUnitDamage(entity);
       const turret = this.refs.get(entity)?.turretPivot;
@@ -1240,7 +1240,7 @@ export class UnitView {
       obj.position.set(x, y, z);
         if (terrainAttitude) obj.rotation.order = 'YXZ';
         obj.rotation.y = rot;
-        this.applyPose(entity, obj, dt);
+        this.applyPose(entity, obj, dt, alpha);
         this.applyHitReaction(entity, obj, dt);
         this.updateUnitDamage(entity);
         const turret = this.refs.get(entity)?.turretPivot;
@@ -1433,14 +1433,14 @@ export class UnitView {
   }
 
   /** Walk cycles, death poses, and wreck states — all driven by sim data. */
-  private applyPose(entity: Entity, obj: Object3D, dt: number): void {
+  private applyPose(entity: Entity, obj: Object3D, dt: number, alpha: number): void {
     const isInfantry = entity.selectable?.type === 'infantry';
     const refs = this.refs.get(entity);
     if (entity.destroyed) {
       if (entity.flight) {
         const crash = entity.destroyed.aircraftCrash;
-        const pitch = lerp(entity.flight.previousPitchAttitude, entity.flight.pitchAttitude, 0.65);
-        const roll = lerp(entity.flight.previousRollAttitude, entity.flight.rollAttitude, 0.65);
+        const pitch = lerp(entity.flight.previousPitchAttitude, entity.flight.pitchAttitude, alpha);
+        const roll = lerp(entity.flight.previousRollAttitude, entity.flight.rollAttitude, alpha);
         obj.rotation.x = pitch + (crash?.impacted ? 0.2 : 0);
         obj.rotation.z = -roll;
         const sinceDeath = Math.max(0, 20 - entity.destroyed.remaining);
@@ -1519,8 +1519,8 @@ export class UnitView {
     }
 
     if (entity.flight) {
-      const pitch = lerp(entity.flight.previousPitchAttitude, entity.flight.pitchAttitude, 0.65);
-      const roll = lerp(entity.flight.previousRollAttitude, entity.flight.rollAttitude, 0.65);
+      const pitch = lerp(entity.flight.previousPitchAttitude, entity.flight.pitchAttitude, alpha);
+      const roll = lerp(entity.flight.previousRollAttitude, entity.flight.rollAttitude, alpha);
       obj.rotation.x = pitch;
       obj.rotation.z = -roll;
       const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
@@ -1533,7 +1533,7 @@ export class UnitView {
       }
       for (const tailRotor of refs?.tailRotors ?? []) tailRotor.rotation.x += dt * (24 + speed * 2.2);
       updateMissileRack(refs?.missileRack, entity);
-      if (!entity.destroyed) obj.position.y += Math.sin(performance.now() * 0.004 + entity.id) * 0.035;
+      if (!entity.destroyed && !entity.playerControlled) obj.position.y += Math.sin(performance.now() * 0.004 + entity.id) * 0.035;
       return;
     }
 
