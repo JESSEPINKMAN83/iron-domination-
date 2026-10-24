@@ -57,6 +57,7 @@ export interface MultiplayerPlayer {
 export type MultiplayerColor = 'jade' | 'crimson' | 'azure' | 'amber';
 
 export interface MultiplayerWakeOptions {
+  signal?: AbortSignal;
   timeoutMs?: number;
   retryDelayMs?: number;
   attemptTimeoutMs?: number;
@@ -120,6 +121,13 @@ export class MultiplayerClient {
   private reconnectAttempt = 0;
   private reconnectTimer?: number;
   private reconnectStartedAt?: number;
+  private lastMessageAt = Date.now();
+  private watchdog?: number;
+  private readonly resumeConnection = (): void => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (this.reconnecting || this.reconnectTimer !== undefined || this.socket?.readyState === WebSocket.CONNECTING) return;
+    if (this.shouldReconnect && (this.socket?.readyState !== WebSocket.OPEN || Date.now() - this.lastMessageAt > 30_000)) this.retryConnection();
+  };
 
   constructor(readonly baseUrl: string) {}
 
@@ -155,6 +163,11 @@ export class MultiplayerClient {
       ...this.membership(),
       engine: browserEngine(),
     });
+  }
+
+  async resumeRoom(room: MultiplayerRoom, player: MultiplayerPlayer): Promise<MultiplayerSession> {
+    await this.ensureSocket();
+    return this.request({type:'resume-room',room,player,...this.membership(),engine:browserEngine()});
   }
 
   async sendCommand(roomCode: string, playerId: string, tick: number, command: unknown): Promise<void> {
@@ -194,12 +207,37 @@ export class MultiplayerClient {
     this.onError = onError;
     this.onOpen = onOpen;
     this.shouldReconnect = true;
+    if (this.watchdog === undefined) {
+      this.watchdog = window.setInterval(this.resumeConnection, 5_000);
+      window.addEventListener('online', this.resumeConnection);
+      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.resumeConnection);
+    }
     if (this.socket?.readyState === WebSocket.OPEN) this.onOpen?.();
     else void this.ensureSocket().then(() => this.onOpen?.()).catch(() => this.onError?.());
   }
 
+  /** Start a fresh transport while retaining this room and player identity. */
+  retryConnection(): void {
+    if (!this.lastSession || this.serverClosedRoom) return;
+    this.shouldReconnect = true;
+    this.reconnectStartedAt = Date.now();
+    this.reconnectAttempt = 0;
+    if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+    const oldSocket = this.socket;
+    this.socket = undefined;
+    this.rejectPending('reconnecting');
+    oldSocket?.close();
+    this.onError?.();
+    this.scheduleReconnect();
+  }
+
   disconnect(): void {
     this.shouldReconnect = false;
+    if (this.watchdog !== undefined) window.clearInterval(this.watchdog);
+    this.watchdog = undefined;
+    window.removeEventListener('online', this.resumeConnection);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.resumeConnection);
     this.reconnecting = false;
     this.reconnectStartedAt = undefined;
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
@@ -209,8 +247,9 @@ export class MultiplayerClient {
       request.reject(new Error('connection-closed'));
     }
     this.pending.clear();
-    this.socket?.close();
+    const socket = this.socket;
     this.socket = undefined;
+    socket?.close();
   }
 
   private async ensureSocket(): Promise<void> {
@@ -222,17 +261,25 @@ export class MultiplayerClient {
     const socket = new WebSocket(webSocketUrl(this.baseUrl));
     this.socket = socket;
     this.serverClosedRoom = false;
-    socket.onmessage = (event) => this.handleMessage(event.data);
+    this.lastMessageAt = Date.now();
+    socket.onmessage = (event) => {
+      if (this.socket !== socket) return;
+      this.lastMessageAt = Date.now();
+      this.handleMessage(event.data);
+    };
     socket.onclose = () => {
-      if (this.socket === socket) this.socket = undefined;
+      if (this.socket !== socket) return;
+      this.socket = undefined;
       if (!this.serverClosedRoom) this.onError?.();
       this.rejectPending('connection-closed');
       this.reconnectStartedAt ??= Date.now();
       this.scheduleReconnect();
     };
     socket.onerror = () => {
+      if (this.socket !== socket) return;
       this.onError?.();
       this.rejectPending('server-unreachable');
+      socket.close();
     };
     await this.waitForSocketOpen(socket);
   }
@@ -256,9 +303,11 @@ export class MultiplayerClient {
         window.clearTimeout(timeout);
         socket.removeEventListener('open', open);
         socket.removeEventListener('error', error);
+        socket.removeEventListener('close', error);
       };
       socket.addEventListener('open', open, { once: true });
       socket.addEventListener('error', error, { once: true });
+      socket.addEventListener('close', error, { once: true });
     });
   }
 
@@ -268,7 +317,8 @@ export class MultiplayerClient {
     this.reconnectAttempt++;
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
-      void this.reconnectSession();
+      if (this.reconnecting) this.scheduleReconnect();
+      else void this.reconnectSession();
     }, delay);
   }
 
@@ -310,7 +360,8 @@ export class MultiplayerClient {
           this.scheduleReconnect();
         }
       } else if (reason === 'room-full' || Date.now() - (this.reconnectStartedAt ?? Date.now()) >= 180_000) {
-        this.serverClosedRoom = true;
+        // A local retry timeout is not proof the server closed the room.
+        this.serverClosedRoom = reason === 'room-full';
         this.shouldReconnect = false;
         this.onEvent?.({ type: 'room-closed', reason: 'reconnect-expired' });
       } else {
@@ -330,7 +381,12 @@ export class MultiplayerClient {
         reject(new Error('request-timeout'));
       }, 10000);
       this.pending.set(requestId, { resolve, reject, timeout });
-      this.send(message);
+      try { this.send(message); }
+      catch (error) {
+        window.clearTimeout(timeout);
+        this.pending.delete(requestId);
+        reject(error instanceof Error ? error : new Error('server-unreachable'));
+      }
     });
   }
 
@@ -413,17 +469,23 @@ export async function waitForMultiplayerServer(value: string, options: Multiplay
   const healthUrl = new URL('/health', normalizedBaseUrl(value)).toString();
 
   while (Date.now() < deadline) {
+    if (options.signal?.aborted) throw new Error('connection-cancelled');
     const remaining = deadline - Date.now();
     const controller = new AbortController();
+    const cancel = (): void => controller.abort();
+    options.signal?.addEventListener('abort', cancel, { once: true });
     const attemptTimeout = globalThis.setTimeout(() => controller.abort(), Math.min(attemptTimeoutMs, remaining));
     try {
       const response = await fetch(healthUrl, { cache: 'no-store', mode: 'cors', signal: controller.signal });
+      if (options.signal?.aborted) throw new Error('connection-cancelled');
       if (response.ok) return;
     } catch {
       // A sleeping free relay can briefly reject requests while its container starts.
     } finally {
       globalThis.clearTimeout(attemptTimeout);
+      options.signal?.removeEventListener('abort', cancel);
     }
+    if (options.signal?.aborted) throw new Error('connection-cancelled');
     const delay = Math.min(retryDelayMs, Math.max(0, deadline - Date.now()));
     if (delay > 0) await new Promise((resolve) => globalThis.setTimeout(resolve, delay));
   }

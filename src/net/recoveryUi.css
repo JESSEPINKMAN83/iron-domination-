@@ -1,0 +1,12 @@
+.multiplayer-rejoin { box-sizing:border-box; width:min(480px,calc(100vw - 28px)); padding:24px; border:1px solid #739f88; border-radius:12px; background:#13201e; color:#e8f2ec; font:14px/1.5 system-ui,sans-serif; }
+.multiplayer-rejoin::backdrop { background:#040b0bd9; }
+.multiplayer-rejoin h2 { font-size:23px; margin:0 0 8px; }
+.multiplayer-rejoin p { color:#bdcec4; }
+.multiplayer-rejoin__status:empty { display:none; }
+.multiplayer-rejoin__actions { display:flex; flex-wrap:wrap; gap:8px; }
+.multiplayer-rejoin button, .multiplayer-recovery button { border:1px solid #638a75; border-radius:6px; padding:9px 12px; color:#e4f0e8; background:#233b31; font:600 12px system-ui,sans-serif; cursor:pointer; }
+.multiplayer-rejoin button:first-child { color:#0b2519; background:#a5e3c5; }
+.multiplayer-rejoin button:disabled { opacity:.6; cursor:wait; }
+.multiplayer-recovery { position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:200; width:min(420px,calc(100vw - 28px)); box-sizing:border-box; padding:14px; border:1px solid #b6a368; border-radius:10px; background:#17211cf5; color:#f1e7c9; font:12px/1.4 system-ui,sans-serif; box-shadow:0 8px 24px #0006; }
+.multiplayer-recovery p { margin:7px 0; }
+.multiplayer-recovery button { margin:4px 5px 0 0; }

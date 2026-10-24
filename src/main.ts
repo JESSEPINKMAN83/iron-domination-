@@ -1,3 +1,4 @@
+import { createConnectionRecovery, promptToRejoin } from './net/recoveryUi';
 import { applyGraphicsPreference, createGraphicsControl } from './render/graphicsPreference';
 import { createLandingCapture } from './dev/landingCapture';
 import { showSinglePlayerModes } from './campaign/modeSelect';
@@ -997,6 +998,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
           server: multiplayerClient.baseUrl,
           roomCode: multiplayerSession.room.code,
           playerId: multiplayerSession.player.id,
+          room: multiplayerSession.room,
         });
       } else {
         pendingMultiplayer = undefined;
@@ -3223,18 +3225,23 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   let tacticalPingKind: TacticalPingKind | undefined;
   let strategicMissileTargeting: { enemyTeam: number; radius: number; color: number; weapon: 'missile' | 'ember' } | undefined;
   let networkPaused = false;
+  const connectionRecovery = multiplayer ? createConnectionRecovery(
+    () => multiplayer.client.retryConnection(),
+    () => {
+      activeMatchExitGuard?.allowNextUnload();
+      window.location.assign(new URL(location.pathname, location.origin).toString());
+    },
+  ) : undefined;
   let lastNetworkStatus = '';
   const setNetworkStatus = (message: string, bad = false): void => {
     if (multiplayerMode) {
-      const shouldPause =
-        bad && (/interrupted/i.test(message) || /disconnected/i.test(message) || /closed/i.test(message) || /send failed/i.test(message));
-      const shouldResume = !bad && (/connected/i.test(message) || /online/i.test(message));
-      if (shouldPause) networkPaused = true;
-      if (shouldResume) networkPaused = false;
+      // Connection state comes from lockstep, never from display text.
+      networkPaused = lockstep?.pausedForConnection ?? false;
       const statusKey = `${bad ? 'warning' : 'online'}:${networkPaused ? 'paused' : 'running'}:${message}`;
       if (statusKey === lastNetworkStatus) return;
       lastNetworkStatus = statusKey;
       hud.setMultiplayerStatus(message, bad, networkPaused);
+      connectionRecovery?.update(message, networkPaused);
     }
     console[bad ? 'warn' : 'info'](`[mp] ${message}`);
   };
@@ -3265,7 +3272,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         onRematchStart: () => {
           if (multiplayer) restartMultiplayerMatch(multiplayer.client, multiplayer.session);
         },
-        onRoomClosed: () => clearActiveMultiplayerMatch(window.sessionStorage),
+        onRoomClosed: (reason) => { if (reason !== 'reconnect-expired') clearActiveMultiplayerMatch(window.sessionStorage); },
       })
     : undefined;
   const canManageArmy = !multiplayerMode || multiplayer.session.player.role !== 'field-officer';
@@ -4025,6 +4032,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     if (isVictoryFromHostileBuildingCounts(hostileTeams.map(alive))) concludeMatch('victory');
     else if (alive(localTeam) === 0) concludeMatch('defeat');
   };
+  if (multiplayer) rememberActiveMultiplayerMatch(window.sessionStorage, {
+    server:multiplayer.client.baseUrl, roomCode:multiplayer.session.room.code,
+    playerId:multiplayer.session.player.id, room:multiplayer.session.room,
+  });
   lockstep?.connect();
   window.addEventListener('beforeunload', () => lockstep?.disconnect(), { once: true });
 
@@ -4132,7 +4143,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     ?createLandingCapture(ctx.renderer.domElement,(params.get('capture-name')??'battlefield').replace(/[^a-z0-9-]/g,''),12):undefined;
   const loop = new GameLoop({
     simTick: () => {
-      if (uiPaused || networkPaused || campaignHud?.awaitingBriefingStart || (landingCapture&&!landingCapture.recording)) return;
+      if (uiPaused || campaignHud?.awaitingBriefingStart || (landingCapture&&!landingCapture.recording)) return;
       if (collectorPreview) return;
       if (!firstPerson.active) controller.updateAircraftAltitude(1 / SIM_HZ);
       firstPerson.simTick();
@@ -4405,7 +4416,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         mode: networkPaused ? 'NETWORK PAUSED' : uiPaused ? 'PAUSED' : firstPerson.inFirstPerson ? `CHASE ${firstPerson.possessedName ?? ''}` : firstPerson.active ? 'entering chase' : 'RTS',
       });
     },
-  }, lockstep ? new NetworkTickDriver(() => !uiPaused && !networkPaused && lockstep.canAdvance()) : undefined);
+  }, lockstep ? new NetworkTickDriver(() => !uiPaused && lockstep.canAdvance()) : undefined);
 
   overlay.remove();
   loop.start();
@@ -6422,7 +6433,7 @@ async function start(): Promise<void> {
     openHowToPlay();
     return;
   }
-  const inviteRoom = roomFromInvite(params);
+  let inviteRoom = roomFromInvite(params);
   const mobileLandscape = new MobileLandscapeGate();
   mobileLandscape.activate();
   const settings = initialSettings(params);
@@ -6443,31 +6454,57 @@ async function start(): Promise<void> {
       server: client.baseUrl,
       roomCode: session.room.code,
       playerId: session.player.id,
+      room: session.room,
     });
     pendingMultiplayer = { client, session };
     await boot(settingsFromRoom(session.room));
     return;
   }
+  let recoveryLanding: Promise<LandingIntent> | undefined;
   const activeMatch = readActiveMultiplayerMatch(window.sessionStorage);
-  if (activeMatch) {
-    try {
-      await waitForMultiplayerServer(activeMatch.server);
+  if (activeMatch && (!inviteRoom || inviteRoom === activeMatch.roomCode)) {
+    startLandingMusic();
+    recoveryLanding = showLandingScreen();
+    const session = await promptToRejoin(activeMatch.roomCode, async (signal) => {
       const client = new MultiplayerClient(activeMatch.server);
-      const session = await client.join(activeMatch.roomCode, undefined, activeMatch.playerId);
-      if (session.room.status !== 'in-game') throw new Error('match-not-running');
-      session.rejoinedAfterRefresh = true;
-      pendingMultiplayer = { client, session };
+      const cancel = (): void => client.disconnect();
+      signal.addEventListener('abort', cancel, { once: true });
+      try {
+        await waitForMultiplayerServer(activeMatch.server, { signal });
+        if (signal.aborted) throw new Error('connection-cancelled');
+        let session: MultiplayerSession;
+        try { session = await client.join(activeMatch.roomCode, undefined, activeMatch.playerId); }
+        catch (error) {
+          const room = activeMatch.room;
+          const player = room?.players.find(p => p.id === activeMatch.playerId);
+          const host = room?.hostPlayerId ?? room?.players.find(p => p.index === 1)?.id;
+          if ((error as Error).message !== 'room-not-found' || !room || !player || host !== player.id || signal.aborted) throw error;
+          session = await client.resumeRoom(room, player);
+        }
+        if (signal.aborted) throw new Error('connection-cancelled');
+        if (session.room.status !== 'in-game') throw new Error('match-not-running');
+        session.rejoinedAfterRefresh = true;
+        pendingMultiplayer = { client, session };
+        return session;
+      } catch (error) { client.disconnect(); throw error; }
+      finally { signal.removeEventListener('abort', cancel); }
+    }, () => clearActiveMultiplayerMatch(window.sessionStorage));
+    if (session) {
+      document.getElementById('iron-landing')?.remove();
       await boot(settingsFromRoom(session.room));
       return;
-    } catch {
-      clearActiveMultiplayerMatch(window.sessionStorage);
     }
+    // Dismissing recovery stays on the homepage, including an old invite URL.
+    inviteRoom = undefined;
+    const homepageUrl = new URL(location.href);
+    homepageUrl.searchParams.delete('room'); homepageUrl.searchParams.delete('invite');
+    window.history.replaceState(null, '', homepageUrl);
   }
   const hasAutostartParams = shouldAutostartFromUrl(params)
     || (!isPublicHost(location.hostname) && (params.has('building-showcase') || isDestructionPreviewQuery(params)));
   const autostart = window.sessionStorage.getItem(AUTOSTART_STORAGE_KEY) === '1';
   window.sessionStorage.removeItem(AUTOSTART_STORAGE_KEY);
-  if (hasAutostartParams || autostart) {
+  if (!recoveryLanding && (hasAutostartParams || autostart)) {
     saveSkirmishSettings(settings);
     await boot(settings);
     return;
@@ -6477,7 +6514,7 @@ async function start(): Promise<void> {
   let intent: LandingIntent = inviteRoom ? 'multiplayer' : 'single';
   // Invitations go straight to the lobby, including for first-time guests.
   if (!localSetupPreview && !inviteRoom) {
-    intent = await showLandingScreen({ inviteRoom });
+    intent = await (recoveryLanding ?? showLandingScreen({ inviteRoom }));
   }
   let setupDefaults=settings;
   while(true){

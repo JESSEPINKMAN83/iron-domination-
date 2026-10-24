@@ -63,3 +63,14 @@ describe('active multiplayer match recovery', () => {
     expect(readActiveMultiplayerMatch(storage)).toBeUndefined();
   });
 });
+
+it('retains room metadata needed for a refreshed host to recreate a restarted relay room', () => {
+  const storage = new MemoryStorage();
+  const room: import('./multiplayer').MultiplayerRoom = {
+    code:'ABC123',seed:42,ai:'normal',aiStyle:'balanced',armyCount:2,armySides:[1,2],status:'in-game',
+    hostPlayerId:'11111111-1111-4111-8111-111111111111',
+    players:[{id:'11111111-1111-4111-8111-111111111111',index:1,armyId:1,role:'commander',name:'Host',connected:true}],
+  };
+  rememberActiveMultiplayerMatch(storage,{server:'https://relay.example.com',roomCode:'ABC123',playerId:room.hostPlayerId!,room});
+  expect(readActiveMultiplayerMatch(storage)?.room).toEqual(room);
+});

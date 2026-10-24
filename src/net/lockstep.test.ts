@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MAP01 } from '../content/map01';
 import { advanceTick } from '../match/advanceTick';
 import { createEconomy, createInitialBase } from '../sim/economy';
@@ -53,7 +53,42 @@ describe('two-peer lockstep barrier', () => {
   });
 });
 
-function createPeer(room: MultiplayerRoom, player: MultiplayerPlayer, bus: DelayedCommandBus) {
+afterEach(() => vi.useRealTimers());
+
+it('restores a refreshed host from the live guest and continues synchronized orders', () => {
+  vi.useFakeTimers();
+  const players: MultiplayerPlayer[] = [
+    {id:'host',index:1,armyId:1,role:'commander',name:'Host',connected:true},
+    {id:'guest',index:2,armyId:2,role:'commander',name:'Guest',connected:true},
+  ];
+  const room: MultiplayerRoom = {code:'REFRESH',seed:42,ai:'normal',aiStyle:'balanced',armyCount:2,armySides:[1,2],status:'in-game',hostPlayerId:'host',players};
+  const bus = new DelayedCommandBus(players);
+  const host = createPeer(room, players[0], bus), guest = createPeer(room, players[1], bus);
+  host.runtime.connect(); guest.runtime.connect();
+  host.runtime.issue({type:'start-structure',kind:'power-plant'});
+  for(let frame=0;frame<4000&&(host.sim.tick<120||guest.sim.tick<120);frame++){
+    bus.pump(); if(host.sim.tick<120&&host.runtime.canAdvance())host.advance(); if(guest.sim.tick<120&&guest.runtime.canAdvance())guest.advance();
+  }
+  expect(host.sim.tick).toBe(120); expect(guest.sim.tick).toBe(120);
+  const credits = guest.economies[0].credits;
+  host.runtime.disconnect();
+  const refreshed = createPeer(room,players[0],bus,true); refreshed.runtime.connect();
+  for(let frame=0;frame<1000&&(!refreshed.runtime.canAdvance()||!guest.runtime.canAdvance());frame++){bus.pump();vi.advanceTimersByTime(1);}
+  // Recovery uses a short foreground timer to let the resume packet reach peers.
+  // The snapshot itself must already contain the ongoing battle, never tick zero.
+  expect(refreshed.sim.tick).toBe(120);
+  expect(refreshed.economies[0].credits).toBe(credits);
+  expect(hashMultiplayerState(refreshed.sim,refreshed.economies)).toBe(hashMultiplayerState(guest.sim,guest.economies));
+  expect(refreshed.runtime.issue({type:'move',ids:[refreshed.tankId],x:120,z:90,attackMove:false})).toBe(true);
+  for(let frame=0;frame<4000&&(refreshed.sim.tick<160||guest.sim.tick<160);frame++){
+    bus.pump(); vi.advanceTimersByTime(1); if(refreshed.sim.tick<160&&refreshed.runtime.canAdvance())refreshed.advance(); if(guest.sim.tick<160&&guest.runtime.canAdvance())guest.advance();
+  }
+  expect(refreshed.sim.tick).toBe(160); expect(guest.sim.tick).toBe(160);
+  expect(hashMultiplayerState(refreshed.sim,refreshed.economies)).toBe(hashMultiplayerState(guest.sim,guest.economies));
+  refreshed.runtime.disconnect(); guest.runtime.disconnect();
+});
+
+function createPeer(room: MultiplayerRoom, player: MultiplayerPlayer, bus: DelayedCommandBus, refreshed = false) {
   const hf = generateHeightfield(MAP01);
   const sim = createGameSim(hf);
   const economies = [createEconomy(1), createEconomy(2)];
@@ -63,6 +98,7 @@ function createPeer(room: MultiplayerRoom, player: MultiplayerPlayer, bus: Delay
   const guestTank = spawnTankAt(sim, 55, 55, 'Guest Tank', 2);
   const tank = player.index === 1 ? hostTank : guestTank;
   const session: MultiplayerSession = { room: structuredClone(room), player: structuredClone(player) };
+  session.rejoinedAfterRefresh = refreshed;
   const runtime = new LockstepRuntime({
     sim,
     hf,
@@ -99,8 +135,9 @@ class DelayedCommandBus {
 
   clientFor(sender: MultiplayerPlayer): MultiplayerClient {
     return {
-      connect: (_roomCode: string, playerId: string, onEvent: (event: MultiplayerEvent) => void) => {
+      connect: (_roomCode: string, playerId: string, onEvent: (event: MultiplayerEvent) => void, _onError:()=>void, onOpen?:()=>void) => {
         this.handlers.set(playerId, onEvent);
+        onOpen?.();
       },
       disconnect: () => {
         this.handlers.delete(sender.id);

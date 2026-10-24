@@ -712,6 +712,46 @@ describe('multiplayer lockstep commands', () => {
     vi.useRealTimers();
   });
 
+  it('a refreshed host restores the live peer battlefield before broadcasting a snapshot', () => {
+    const hf = generateHeightfield(MAP01), fresh = testMatch(hf), live = testMatch(hf);
+    live.sim.tick = 321; live.economy1.credits = 8765;
+    const session = sessionFor(1); session.rejoinedAfterRefresh = true;
+    session.room.players = [
+      {id:'host',index:1,armyId:1,role:'commander',name:'Host',connected:true},
+      {id:'guest',index:2,armyId:2,role:'commander',name:'Guest',connected:true},
+    ];
+    let receive: ((event: unknown) => void) | undefined;
+    const sent: any[] = [];
+    const client = {
+      connect: (_r:string,_p:string,handler:(event:unknown)=>void,_err:()=>void,open?:()=>void) => { receive=handler;open?.(); },
+      disconnect:()=>undefined,
+      sendCommand:async(_r:string,_p:string,_t:number,command:unknown)=>{sent.push(command);},
+    } as unknown as MultiplayerClient;
+    const runtime = new LockstepRuntime({sim:fresh.sim,hf,economies:{1:fresh.economy1,2:fresh.economy2},client,session});
+    runtime.connect();
+    const request = sent.find(c=>c.type==='peer-snapshot-request');
+    expect(request.donorIndex).toBe(2);
+    expect(sent.some(c=>c.type==='match-snapshot')).toBe(false);
+    expect(runtime.canAdvance()).toBe(false);
+    const state = serializeMatchState(live.sim,[live.economy1,live.economy2]);
+    const hash = hashMultiplayerState(live.sim,[live.economy1,live.economy2]);
+    receive?.({type:'command',playerId:'guest',playerIndex:2,tick:321,command:{type:'peer-snapshot',requestId:request.requestId,state,hash,tick:321}});
+    expect(fresh.sim.tick).toBe(321); expect(fresh.economy1.credits).toBe(8765);
+    const snapshot = sent.find(c=>c.type==='match-snapshot');
+    expect(snapshot.tick).toBe(321); expect(snapshot.hash).toBe(hash);
+    expect(runtime.canAdvance()).toBe(false);
+  });
+
+  it('does not enqueue gameplay orders while the transport is disconnected', () => {
+    const hf = generateHeightfield(MAP01), match = testMatch(hf);
+    let lost: (()=>void) | undefined; const sent = vi.fn(async()=>undefined);
+    const client = {connect:(_r:string,_p:string,_handler:unknown,error:()=>void)=>{lost=error;},disconnect:()=>undefined,sendCommand:sent} as unknown as MultiplayerClient;
+    const runtime = new LockstepRuntime({sim:match.sim,hf,economies:{1:match.economy1,2:match.economy2},client,session:sessionFor(1)});
+    runtime.connect(); sent.mockClear(); lost?.();
+    expect(runtime.issue({type:'start-structure',kind:'power-plant'})).toBe(false);
+    expect(sent).not.toHaveBeenCalled(); expect(runtime.canAdvance()).toBe(false);
+  });
+
   it('requests a host snapshot after reclaiming a match during page refresh', () => {
     const hf = generateHeightfield(MAP01);
     const match = testMatch(hf);
