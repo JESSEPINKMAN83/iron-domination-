@@ -3240,7 +3240,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       const statusKey = `${bad ? 'warning' : 'online'}:${networkPaused ? 'paused' : 'running'}:${message}`;
       if (statusKey === lastNetworkStatus) return;
       lastNetworkStatus = statusKey;
-      hud.setMultiplayerStatus(message, bad, networkPaused);
+      // The compact recovery widget owns paused connection feedback; avoid a
+      // second, centered warning covering the battlefield at the same time.
+      if (networkPaused) hud.hideMultiplayerStatus();
+      else hud.setMultiplayerStatus(message, bad, false);
       connectionRecovery?.update(message, networkPaused);
     }
     console[bad ? 'warn' : 'info'](`[mp] ${message}`);
