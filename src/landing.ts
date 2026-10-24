@@ -1,3 +1,4 @@
+import { performanceGraphics, readGraphicsPreference } from './render/graphicsPreference';
 import { installLandingGuides } from './landingGuide';
 import './landing.css';
 import { isMobileTouchDevice, isStandaloneMobileExperience } from './mobile/platform';
@@ -249,7 +250,8 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
       </section>
     `;
     const backgroundVideo=root.querySelector<HTMLVideoElement>('.iron-landing__background video');
-    if(backgroundVideo&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    const hardware = navigator as Navigator & { deviceMemory?: number };
+    if(backgroundVideo&&(window.matchMedia('(prefers-reduced-motion: reduce)').matches || performanceGraphics(readGraphicsPreference(), isMobileTouchDevice(), hardware.hardwareConcurrency, hardware.deviceMemory))){
       backgroundVideo.autoplay=false;backgroundVideo.removeAttribute('autoplay');backgroundVideo.preload='none';
     }
     document.body.appendChild(root);
@@ -267,6 +269,7 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
     };
     showCommanderChip();
     const completeLanding = (intent: LandingIntent): void => {
+      root.querySelector<HTMLVideoElement>('video')?.pause();
       root.classList.add('is-setup-open');
       resolve(intent);
     };

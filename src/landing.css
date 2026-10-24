@@ -597,3 +597,6 @@
 }
 
 .iron-landing__commander { display: flex; align-items: center; gap: 8px; }
+
+/* Remove the hidden homepage from layout and native scrollbar compositing. */
+.iron-landing.is-setup-open { display: none; }

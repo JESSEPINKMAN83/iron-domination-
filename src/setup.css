@@ -889,3 +889,10 @@
 .war-layout-control small { color:#9caaa3; font-size:10px; font-weight:400; }
 .tactical-map__legend { flex-wrap:wrap; max-width:calc(100% - 24px); }
 .war-setup__back{margin-bottom:16px}
+
+/* Local graphics preference is never shared with another player. */
+.graphics-preference { display:flex; align-items:center; gap:8px; flex-wrap:wrap; color:#b9c9bf; font:600 11px/1.4 system-ui,sans-serif; }
+.graphics-preference select { max-width:100%; min-width:100px; padding:7px 10px; border:1px solid #486157; border-radius:6px; color:#e5f0e9; background:#14211e; font:inherit; }
+.graphics-preference select:focus-visible { outline:2px solid #9de5c4; outline-offset:2px; }
+.performance-graphics .war-setup, .performance-graphics .war-lobby, .performance-graphics .iron-feedback__trigger { backdrop-filter:none; }
+.war-config, .war-operation__config { overflow-x:hidden; overscroll-behavior:contain; }
