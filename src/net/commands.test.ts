@@ -752,6 +752,53 @@ describe('multiplayer lockstep commands', () => {
     expect(sent).not.toHaveBeenCalled(); expect(runtime.canAdvance()).toBe(false);
   });
 
+  it('never donates an initial battlefield when both browsers have refreshed', () => {
+    const hf = generateHeightfield(MAP01), match = testMatch(hf);
+    const session = sessionFor(2); session.rejoinedAfterRefresh = true;
+    let receive: ((event: unknown) => void) | undefined;
+    const sent: any[] = [];
+    const client = {
+      connect: (_r:string,_p:string,handler:(event:unknown)=>void,_error:()=>void,open?:()=>void)=>{receive=handler;open?.();},
+      disconnect:()=>undefined,
+      sendCommand:async(_r:string,_p:string,_t:number,command:unknown)=>{sent.push(command);},
+    } as unknown as MultiplayerClient;
+    const runtime = new LockstepRuntime({sim:match.sim,hf,economies:{1:match.economy1,2:match.economy2},client,session});
+    runtime.connect();
+    receive?.({type:'command',playerId:'host',playerIndex:1,tick:0,command:{type:'peer-snapshot-request',donorIndex:2,requestId:'refresh-attempt'}});
+    expect(sent.some(c=>c.type==='peer-snapshot')).toBe(false);
+    expect(sent).toContainEqual({type:'peer-snapshot-unavailable',requestId:'refresh-attempt'});
+    expect(runtime.canAdvance()).toBe(false);
+  });
+
+  it('tries another connected player when the first recovery donor also refreshed', () => {
+    const hf = generateHeightfield(MAP01), match = testMatch(hf);
+    const session = sessionFor(1); session.rejoinedAfterRefresh = true;
+    session.room.players = [
+      {id:'host',index:1,armyId:1,role:'commander',name:'Host',connected:true},
+      {id:'guest',index:2,armyId:2,role:'commander',name:'Guest',connected:true},
+      {id:'third',index:3,armyId:2,role:'commander',name:'Third',connected:true},
+    ];
+    let receive: ((event: unknown) => void) | undefined;
+    const sent: any[] = [];
+    const client = {
+      connect: (_r:string,_p:string,handler:(event:unknown)=>void,_error:()=>void,open?:()=>void)=>{receive=handler;open?.();},
+      disconnect:()=>undefined,
+      sendCommand:async(_r:string,_p:string,_t:number,command:unknown)=>{sent.push(command);},
+    } as unknown as MultiplayerClient;
+    const runtime = new LockstepRuntime({sim:match.sim,hf,economies:{1:match.economy1,2:match.economy2},client,session});
+    runtime.connect();
+    const first = sent.find(c=>c.type==='peer-snapshot-request');
+    expect(first.donorIndex).toBe(2);
+    receive?.({type:'command',playerId:'guest',playerIndex:2,tick:0,command:{type:'peer-snapshot-unavailable',requestId:first.requestId}});
+    const next = sent.filter(c=>c.type==='peer-snapshot-request').at(-1);
+    expect(next.donorIndex).toBe(3);
+    match.sim.tick = 321;
+    const state = serializeMatchState(match.sim,[match.economy1,match.economy2]);
+    const hash = hashMultiplayerState(match.sim,[match.economy1,match.economy2]);
+    receive?.({type:'command',playerId:'third',playerIndex:3,tick:321,command:{type:'peer-snapshot',requestId:next.requestId,state,hash,tick:321}});
+    expect(sent.find(c=>c.type==='match-snapshot')?.tick).toBe(321);
+  });
+
   it('requests a host snapshot after reclaiming a match during page refresh', () => {
     const hf = generateHeightfield(MAP01);
     const match = testMatch(hf);

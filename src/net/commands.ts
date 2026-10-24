@@ -81,6 +81,7 @@ export type NetCommand =
   | { type: 'sim-hash'; hash: number }
   | { type: 'snapshot-request'; hash: number; expectedHash: number; tick: number }
   | { type: 'peer-snapshot-request'; donorIndex: number; requestId: string }
+  | { type: 'peer-snapshot-unavailable'; requestId: string }
   | { type: 'peer-snapshot'; requestId: string; state: SerializedMatchState; hash: number; tick: number }
   | { type: 'match-snapshot'; state: SerializedMatchState; hash: number; tick: number }
   | { type: 'snapshot-applied'; hash: number; tick: number }
@@ -129,7 +130,9 @@ export class LockstepRuntime {
   private readonly seen = new Set<string>();
   private connected = false;
   private awaitingPeerSnapshot = false;
+  private hasBattlefieldState = true;
   private refreshDonorIndex?: number;
+  private unavailableRefreshDonors = new Set<number>();
   private refreshRequestId?: string;
   private roomPaused = false;
   private lastHashSent = 0;
@@ -175,6 +178,7 @@ export class LockstepRuntime {
     const rejoinedAfterRefresh = this.options.session.rejoinedAfterRefresh === true;
     this.options.session.rejoinedAfterRefresh = false;
     this.awaitingPeerSnapshot = rejoinedAfterRefresh && this.isHost;
+    this.hasBattlefieldState = !rejoinedAfterRefresh;
     this.connected = true;
     this.barrierEnabled = this.options.session.room.players.filter((player) => player.connected).length > 1;
     this.primeTickBarrier(this.options.sim.tick);
@@ -422,6 +426,7 @@ export class LockstepRuntime {
     this.seen.add(key);
     if (
       command.type === 'peer-snapshot-request' ||
+      command.type === 'peer-snapshot-unavailable' ||
       command.type === 'peer-snapshot' ||
       command.type === 'snapshot-request' ||
       command.type === 'match-snapshot' ||
@@ -461,12 +466,22 @@ export class LockstepRuntime {
     const hostIndex = this.options.session.room.players.find(p => p.id === this.options.session.room.hostPlayerId)?.index ?? 1;
     if (command.type === 'peer-snapshot-request') {
       if (this.isHost || playerIndex !== hostIndex || command.donorIndex !== this.localPlayerIndex) return;
+      if (!this.hasBattlefieldState) {
+        void this.send({ type: 'peer-snapshot-unavailable', requestId: command.requestId }, this.options.sim.tick);
+        return;
+      }
       // A refreshed host has no authoritative world yet. Donate the paused
       // battlefield, then wait for the usual host snapshot/ack/resume handshake.
       this.roomPaused = true; this.recoveryPending = true;
       const state = serializeMatchState(this.options.sim, Object.values(this.options.economies));
       void this.send({ type: 'peer-snapshot', requestId: command.requestId, state, hash: this.currentHash(), tick: this.options.sim.tick }, this.options.sim.tick);
       this.options.onStatus?.('Restoring the host connection — synchronizing match state', true);
+      return;
+    }
+    if (command.type === 'peer-snapshot-unavailable') {
+      if (!this.isHost || !this.awaitingPeerSnapshot || playerIndex !== this.refreshDonorIndex || command.requestId !== this.refreshRequestId) return;
+      this.unavailableRefreshDonors.add(playerIndex);
+      this.requestPeerSnapshot();
       return;
     }
     if (command.type === 'peer-snapshot') {
@@ -699,6 +714,7 @@ export class LockstepRuntime {
     this.roomPaused = true;
     this.options.onSnapshotRestored?.();
     const localHash = this.currentHash();
+    this.hasBattlefieldState = localHash === expectedHash;
     if (acknowledge) void this.send({ type: 'snapshot-applied', hash: localHash, tick: this.options.sim.tick }, this.options.sim.tick);
     this.primeTickBarrier(this.options.sim.tick);
     this.options.onStatus?.(
@@ -709,7 +725,7 @@ export class LockstepRuntime {
 
   private requestPeerSnapshot(): void {
     this.roomPaused = true; this.recoveryPending = true;
-    const donor = this.options.session.room.players.filter(p => p.connected && p.index !== this.localPlayerIndex).sort((a,b) => a.index-b.index)[0];
+    const donor = this.options.session.room.players.filter(p => p.connected && p.index !== this.localPlayerIndex && !this.unavailableRefreshDonors.has(p.index)).sort((a,b) => a.index-b.index)[0];
     this.refreshDonorIndex = donor?.index;
     this.refreshRequestId = secureRandomUuid();
     if (donor) void this.send({ type: 'peer-snapshot-request', donorIndex: donor.index, requestId: this.refreshRequestId }, this.options.sim.tick);
