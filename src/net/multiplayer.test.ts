@@ -58,3 +58,22 @@ describe('host match mode selection', () => {
     ]), 'host')).toBe(true);
   });
 });
+
+describe('cancelled room recovery', () => {
+  it('does not keep trying a saved room after the user cancels', async () => {
+    const controller = new AbortController(); controller.abort();
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    await expect(waitForMultiplayerServer('https://relay.example.com', {signal:controller.signal})).rejects.toThrow('connection-cancelled');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+it('aborts an in-flight health check when a rejoin attempt is cancelled', async () => {
+  const controller = new AbortController();
+  vi.stubGlobal('fetch', vi.fn((_url: string, options: {signal:AbortSignal}) => new Promise((_resolve,reject) => {
+    options.signal.addEventListener('abort',()=>reject(new Error('aborted')),{once:true});
+  })));
+  const pending = waitForMultiplayerServer('https://relay.example.com',{signal:controller.signal});
+  controller.abort();
+  await expect(pending).rejects.toThrow('connection-cancelled');
+});

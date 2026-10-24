@@ -1,4 +1,4 @@
-import { normalizeRoomCode, normalizedBaseUrl } from './multiplayer';
+import { normalizeRoomCode, normalizedBaseUrl, type MultiplayerRoom } from './multiplayer';
 
 export const ACTIVE_MULTIPLAYER_MATCH_STORAGE_KEY = 'iron-dominion.multiplayer.active-match.v1';
 
@@ -7,6 +7,7 @@ export interface ActiveMultiplayerMatch {
   server: string;
   roomCode: string;
   playerId: string;
+  room?: MultiplayerRoom;
 }
 
 interface StorageLike {
@@ -24,6 +25,7 @@ export function rememberActiveMultiplayerMatch(
     server: normalizedBaseUrl(value.server),
     roomCode: normalizeRoomCode(value.roomCode),
     playerId: value.playerId,
+    ...(value.room ? { room: value.room } : {}),
   };
   try {
     storage.setItem(ACTIVE_MULTIPLAYER_MATCH_STORAGE_KEY, JSON.stringify(state));
@@ -46,6 +48,7 @@ export function readActiveMultiplayerMatch(storage: StorageLike): ActiveMultipla
       server: normalizedBaseUrl(typeof parsed.server === 'string' ? parsed.server : ''),
       roomCode,
       playerId,
+      ...(parsed.room && typeof parsed.room === 'object' && normalizeRoomCode(parsed.room.code ?? '') === roomCode && Array.isArray(parsed.room.players) ? {room:parsed.room} : {}),
     };
   } catch {
     return undefined;

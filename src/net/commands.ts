@@ -1,3 +1,4 @@
+import { secureRandomUuid } from '../crypto';
 import type { StructureKind, UnitKind } from '../content/phase3';
 import { isFortressTower } from '../content/fortress';
 import type { Entity } from '../sim/components';
@@ -79,6 +80,8 @@ export type NetCommand =
   | { type: 'tick-ready' }
   | { type: 'sim-hash'; hash: number }
   | { type: 'snapshot-request'; hash: number; expectedHash: number; tick: number }
+  | { type: 'peer-snapshot-request'; donorIndex: number; requestId: string }
+  | { type: 'peer-snapshot'; requestId: string; state: SerializedMatchState; hash: number; tick: number }
   | { type: 'match-snapshot'; state: SerializedMatchState; hash: number; tick: number }
   | { type: 'snapshot-applied'; hash: number; tick: number }
   | { type: 'snapshot-resume'; hash: number; tick: number };
@@ -99,7 +102,7 @@ export interface LockstepRuntimeOptions {
   onSnapshotRestored?: () => void;
   onTacticalPing?: (ping: TacticalPing) => void;
   onRematchStart?: () => void;
-  onRoomClosed?: () => void;
+  onRoomClosed?: (reason: string) => void;
   /** A forfeit ends the match without destroying anything, so the runtime reports it. */
   onMatchOutcome?: (outcome: 'victory' | 'defeat') => void;
 }
@@ -125,6 +128,9 @@ export class LockstepRuntime {
   private readonly queue: QueuedCommand[] = [];
   private readonly seen = new Set<string>();
   private connected = false;
+  private awaitingPeerSnapshot = false;
+  private refreshDonorIndex?: number;
+  private refreshRequestId?: string;
   private roomPaused = false;
   private lastHashSent = 0;
   private recoveryPending = false;
@@ -168,6 +174,7 @@ export class LockstepRuntime {
   connect(): void {
     const rejoinedAfterRefresh = this.options.session.rejoinedAfterRefresh === true;
     this.options.session.rejoinedAfterRefresh = false;
+    this.awaitingPeerSnapshot = rejoinedAfterRefresh && this.isHost;
     this.connected = true;
     this.barrierEnabled = this.options.session.room.players.filter((player) => player.connected).length > 1;
     this.primeTickBarrier(this.options.sim.tick);
@@ -186,7 +193,8 @@ export class LockstepRuntime {
         this.connected = true;
         if (this.connectionInterrupted || rejoinedAfterRefresh) {
           this.connectionInterrupted = false;
-          if (this.isHost) this.sendRecoverySnapshot('Reconnected — synchronizing match state');
+          if (this.awaitingPeerSnapshot) this.requestPeerSnapshot();
+          else if (this.isHost) this.sendRecoverySnapshot('Reconnected — synchronizing match state');
           else {
             this.recoveryPending = true;
             this.roomPaused = true;
@@ -207,6 +215,10 @@ export class LockstepRuntime {
     this.clearRecoveryResumeTimer();
     this.options.client.disconnect();
     this.connected = false;
+  }
+
+  get pausedForConnection(): boolean {
+    return !this.connected || this.roomPaused || this.recoveryPending || this.awaitingPeerSnapshot;
   }
 
   canAdvance(): boolean {
@@ -264,6 +276,10 @@ export class LockstepRuntime {
   }
 
   issue(command: NetCommand): boolean {
+    if (this.connectionInterrupted || this.roomPaused || this.recoveryPending) {
+      this.options.onStatus?.('Connection recovery in progress — orders paused until synchronization', true);
+      return false;
+    }
     const roomDelay = this.options.session.room.inputDelay ?? DEFAULT_INPUT_DELAY_TICKS;
     const tick = this.options.sim.tick + roomDelay;
     if (isEconomyCommand(command) && !this.canManageEconomy) {
@@ -296,6 +312,12 @@ export class LockstepRuntime {
     try {
       await this.options.client.sendCommand(this.options.session.room.code, this.options.session.player.id, tick, command);
     } catch (err) {
+      if (!this.connectionInterrupted) {
+        this.connected = false;
+        this.roomPaused = true;
+        this.connectionInterrupted = true;
+        this.options.client.retryConnection?.();
+      }
       this.options.onStatus?.(`Command send failed: ${String((err as Error).message ?? err)}`, true);
     }
   }
@@ -353,7 +375,8 @@ export class LockstepRuntime {
       const peerReconnected = this.peerMissing && !missing;
       const peerDisconnected = !this.peerMissing && missing;
       this.peerMissing = missing;
-      this.roomPaused = missing || this.recoveryPending;
+      this.roomPaused = missing || this.recoveryPending || this.awaitingPeerSnapshot;
+      if (this.awaitingPeerSnapshot) { this.requestPeerSnapshot(); return; }
       if (releasedPossession && this.isHost && !this.recoveryPending) {
         this.sendRecoverySnapshot('Teammate control released after disconnect — synchronizing match state');
       }
@@ -378,7 +401,7 @@ export class LockstepRuntime {
       this.clearRecoveryResumeTimer();
       this.connected = false;
       this.roomPaused = true;
-      this.options.onRoomClosed?.();
+      this.options.onRoomClosed?.(event.reason);
       this.options.onStatus?.(roomClosedMessage(event.reason, this.localTeam), true);
       return;
     }
@@ -398,6 +421,8 @@ export class LockstepRuntime {
     if (this.seen.has(key)) return;
     this.seen.add(key);
     if (
+      command.type === 'peer-snapshot-request' ||
+      command.type === 'peer-snapshot' ||
       command.type === 'snapshot-request' ||
       command.type === 'match-snapshot' ||
       command.type === 'snapshot-applied' ||
@@ -433,12 +458,31 @@ export class LockstepRuntime {
       if (localHash !== command.hash) this.handleHashMismatch(localHash, command.hash);
       return;
     }
+    const hostIndex = this.options.session.room.players.find(p => p.id === this.options.session.room.hostPlayerId)?.index ?? 1;
+    if (command.type === 'peer-snapshot-request') {
+      if (this.isHost || playerIndex !== hostIndex || command.donorIndex !== this.localPlayerIndex) return;
+      // A refreshed host has no authoritative world yet. Donate the paused
+      // battlefield, then wait for the usual host snapshot/ack/resume handshake.
+      this.roomPaused = true; this.recoveryPending = true;
+      const state = serializeMatchState(this.options.sim, Object.values(this.options.economies));
+      void this.send({ type: 'peer-snapshot', requestId: command.requestId, state, hash: this.currentHash(), tick: this.options.sim.tick }, this.options.sim.tick);
+      this.options.onStatus?.('Restoring the host connection — synchronizing match state', true);
+      return;
+    }
+    if (command.type === 'peer-snapshot') {
+      if (!this.isHost || !this.awaitingPeerSnapshot || playerIndex !== this.refreshDonorIndex || command.requestId !== this.refreshRequestId || !isSerializedMatchState(command.state)) return;
+      this.restoreSnapshot(command.state, command.hash, false);
+      if (this.currentHash() !== command.hash) return;
+      this.awaitingPeerSnapshot = false;
+      this.sendRecoverySnapshot('Host restored from teammate — synchronizing match state');
+      return;
+    }
     if (command.type === 'snapshot-request') {
-      if (this.isHost) this.sendRecoverySnapshot(`Snapshot requested after desync ${command.hash} vs ${command.expectedHash}`);
+      if (this.isHost && !this.awaitingPeerSnapshot) this.sendRecoverySnapshot(`Snapshot requested after desync ${command.hash} vs ${command.expectedHash}`);
       return;
     }
     if (command.type === 'match-snapshot') {
-      if (this.isHost || !isSerializedMatchState(command.state)) return;
+      if (this.isHost || playerIndex !== hostIndex || !isSerializedMatchState(command.state)) return;
       this.restoreSnapshot(command.state, command.hash);
       return;
     }
@@ -639,7 +683,7 @@ export class LockstepRuntime {
     this.options.onStatus?.(message, true);
   }
 
-  private restoreSnapshot(state: SerializedMatchState, expectedHash: number): void {
+  private restoreSnapshot(state: SerializedMatchState, expectedHash: number, acknowledge = true): void {
     restoreSerializedSim(this.options.sim, this.options.hf, state.sim);
     this.possessionOwners.clear();
     for (const economyState of state.economies) {
@@ -655,12 +699,21 @@ export class LockstepRuntime {
     this.roomPaused = true;
     this.options.onSnapshotRestored?.();
     const localHash = this.currentHash();
-    void this.send({ type: 'snapshot-applied', hash: localHash, tick: this.options.sim.tick }, this.options.sim.tick);
+    if (acknowledge) void this.send({ type: 'snapshot-applied', hash: localHash, tick: this.options.sim.tick }, this.options.sim.tick);
     this.primeTickBarrier(this.options.sim.tick);
     this.options.onStatus?.(
       localHash === expectedHash ? `Snapshot applied at tick ${state.sim.tick} — waiting for host` : `Recovered snapshot hash differs: ${localHash} vs ${expectedHash}`,
       localHash !== expectedHash,
     );
+  }
+
+  private requestPeerSnapshot(): void {
+    this.roomPaused = true; this.recoveryPending = true;
+    const donor = this.options.session.room.players.filter(p => p.connected && p.index !== this.localPlayerIndex).sort((a,b) => a.index-b.index)[0];
+    this.refreshDonorIndex = donor?.index;
+    this.refreshRequestId = secureRandomUuid();
+    if (donor) void this.send({ type: 'peer-snapshot-request', donorIndex: donor.index, requestId: this.refreshRequestId }, this.options.sim.tick);
+    this.options.onStatus?.(donor ? 'Reconnected — recovering the battlefield from another player' : 'Reconnected — waiting for another player to restore the battlefield', true);
   }
 
   private scheduleHostRecoveryResume(tick: number): void {
