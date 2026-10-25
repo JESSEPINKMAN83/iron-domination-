@@ -1,3 +1,4 @@
+import { groundSpeedMultiplier } from './terrainAdvantages';
 import { oreFieldCapacity } from './heightfield';
 import { artilleryCanMove, stepArtillery } from './artillery';
 import { World, type Query, type With } from 'miniplex';
@@ -1092,6 +1093,8 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       desiredX *= 1 - throwScale * 0.88;
       desiredZ *= 1 - throwScale * 0.88;
     }
+    const terrainSpeed = groundSpeedMultiplier(hf, entity);
+    desiredX *= terrainSpeed; desiredZ *= terrainSpeed;
     const movementDamping = entity.armor?.kind === 'infantry' && staggerScale < 1 ? 14 : 8;
     velocity.x += (desiredX - velocity.x) * Math.min(1, dt * movementDamping);
     velocity.z += (desiredZ - velocity.z) * Math.min(1, dt * movementDamping);
@@ -1883,6 +1886,7 @@ export function hashSim(sim: GameSim): number {
   const entities = Array.from(sim.world.entities).sort((a, b) => a.id - b.id);
   for (const entity of entities) {
     mix(entity.id);
+    mix(entity.terrainRevealedUntilTick ?? 0);
     if(entity.campaign){
       mix(entity.campaign.phase==='quiet'?1:entity.campaign.phase==='attack'?2:entity.campaign.phase==='victory'?3:4);
       mix(entity.campaign.strikeCount);entity.campaign.targetIds.forEach(mix);entity.campaign.nextStrikeTicks.forEach(mix);
@@ -2115,6 +2119,7 @@ export function hashCriticalSimState(sim: GameSim): number {
   const entities = Array.from(sim.world.entities).sort((a, b) => a.id - b.id);
   for (const entity of entities) {
     mix(entity.id);
+    mix(entity.terrainRevealedUntilTick ?? 0);
     if(entity.campaign){
       mix(entity.campaign.phase==='quiet'?1:entity.campaign.phase==='attack'?2:entity.campaign.phase==='victory'?3:4);
       mix(entity.campaign.strikeCount);entity.campaign.targetIds.forEach(mix);entity.campaign.nextStrikeTicks.forEach(mix);

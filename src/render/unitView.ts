@@ -645,7 +645,7 @@ export class UnitView {
     entities: Entity[],
     private readonly hf: Heightfield,
     ctx: RenderContext,
-    private readonly isVisible: (x: number, z: number) => boolean = () => true,
+    private readonly isVisible: (x: number, z: number, entity?: Entity) => boolean = () => true,
     private readonly localTeam = 1,
   ) {
     this.teamMaterials = {
@@ -1091,7 +1091,7 @@ export class UnitView {
       const ring = this.selectedRings.get(entity);
       if (!obj || !ring) continue;
       const gone = entity === this.hiddenEntity;
-      const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
+      const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z, entity);
       const inView = this.cameraCulling.contains(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z), entity.transform.z, Math.max(12, (entity.mover?.radius ?? 3) * 3));
       const batchKey = this.batchKeys.get(entity);
       const batched = batchKey !== undefined && inView && !gone && !fogged && this.shouldBatchDistantUnit(entity, camera);
@@ -1238,7 +1238,7 @@ export class UnitView {
       const wash = this.rotorWashes.get(entity);
       if (wash) wash.mesh.visible = false;
       const gone = entity === this.hiddenEntity;
-      const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z);
+      const fogged = entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z, entity);
       const inView = this.cameraCulling.contains(entity.transform.x, entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z), entity.transform.z, Math.max(12, (entity.mover?.radius ?? 3) * 3));
       if (gone || fogged || !inView) {
         setEntityRenderActive(obj, this.group, false);
@@ -2043,7 +2043,7 @@ export class UnitView {
 
   private isPickable(entity: Entity): boolean {
     if (entity === this.hiddenEntity || entity.destroyed) return false;
-    if (entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z)) return false;
+    if (entity.team?.id !== this.localTeam && !this.isVisible(entity.transform.x, entity.transform.z, entity)) return false;
     return true;
   }
 
