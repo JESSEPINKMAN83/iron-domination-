@@ -1,12 +1,14 @@
 // Classic RTS camera: keyboard/edge pan, Space + mouse grab pan,
-// wheel zoom (28–280), Q/E 90° rotation, saved Command-left-drag or empty
+// wheel zoom (28–650), Q/E 90° rotation, saved Command-left-drag or empty
 // right-drag free look, smooth exponential damping. The look-target follows terrain height.
 import { MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 
 export const ZOOM_MIN = 28;
-export const ZOOM_MAX = 280;
+export const ZOOM_MAX = 650;
+// Preserve the familiar near/base camera angles while extending map overview.
+const PITCH_ZOOM_DISTANCE = 280;
 const PITCH_NEAR = MathUtils.degToRad(46);
 const PITCH_FAR = MathUtils.degToRad(62);
 const PITCH_MIN = MathUtils.degToRad(7);
@@ -242,7 +244,7 @@ export class RtsCameraRig {
     this.dist = this.distGoal;
     // A consistent low 22° view shows the base in the foreground and the
     // battlefield ahead, regardless of a previous session's saved free look.
-    const zoomT=(this.dist-ZOOM_MIN)/(ZOOM_MAX-ZOOM_MIN);
+    const zoomT=MathUtils.clamp((this.dist-ZOOM_MIN)/(PITCH_ZOOM_DISTANCE-ZOOM_MIN),0,1);
     this.pitchOffsetGoal = MathUtils.degToRad(22)-MathUtils.lerp(PITCH_NEAR,PITCH_FAR,zoomT);
     this.pitchOffset = this.pitchOffsetGoal;
     this.jumpTo(focusX, focusZ);
@@ -359,7 +361,7 @@ export class RtsCameraRig {
   }
 
   private currentPitch(): number {
-    const zoomT = (this.dist - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN);
+    const zoomT = MathUtils.clamp((this.dist - ZOOM_MIN) / (PITCH_ZOOM_DISTANCE - ZOOM_MIN), 0, 1);
     return MathUtils.clamp(MathUtils.lerp(PITCH_NEAR, PITCH_FAR, zoomT) + this.pitchOffset, PITCH_MIN, PITCH_MAX);
   }
 

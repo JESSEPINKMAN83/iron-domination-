@@ -66,6 +66,11 @@ export function keyboardAircraftClimb(isDown: (code: string) => boolean): number
   return (isDown('Space') ? 1 : 0) - (isDown('KeyC') ? 1 : 0);
 }
 
+/** Same signed yaw as mouse-look; Q/E never contribute strafe or thrust. */
+export function keyboardLookYaw(isDown: (code: string) => boolean, dt: number): number {
+  return ((isDown('KeyQ') ? 1 : 0) - (isDown('KeyE') ? 1 : 0)) * Math.PI / 2 * Math.min(Math.max(dt, 0), 0.05);
+}
+
 export function resolveExitCameraPose(prepared: CameraPose | undefined, fallback: () => CameraPose): CameraPose {
   const pose = prepared ?? fallback();
   return {
@@ -168,9 +173,11 @@ export class FirstPersonController {
   private readonly tmpYawKick = new Quaternion();
   private readonly tmpPitchKick = new Quaternion();
   private readonly tmpRollKick = new Quaternion();
-  private readonly smoothFlightCenter = new Vector3();
-  private hasSmoothFlightCenter = false;
+  private hasFlightCameraMotion = false;
+  private smoothFlightVelocityYaw = 0;
+  private smoothFlightSpeed = 0;
   private chaseZoom = 0;
+  private renderChaseZoom = 0;
   private sniperScopeZoom = 0.35;
   private sniperScopeActive = false;
   private fortressZoomTarget = 0;
@@ -428,7 +435,7 @@ export class FirstPersonController {
     this.takeControl(entity);
     this.transitionT = 0;
     this.fromPose = this.captureCameraPose();
-    this.hasSmoothFlightCenter = false;
+    this.hasFlightCameraMotion = false;
     this.orbitYaw = 0;
     this.orbitPitch = 0;
     this.toPose = this.poseFor(entity, this.lookYaw, this.lookPitch, 62, 1, 1 / 60);
@@ -456,7 +463,7 @@ export class FirstPersonController {
     this.squad = alive;
     this.takeControl(next);
     this.squadIndex = nextIndex;
-    this.hasSmoothFlightCenter = false;
+    this.hasFlightCameraMotion = false;
     this.nextSquadFollowTick = this.sim.tick;
     this.lastSquadFollowYaw = Number.NaN;
     this.toPose = this.poseFor(next, this.lookYaw, this.lookPitch, this.zoomedFov(62), 1, 1 / 60);
@@ -484,8 +491,7 @@ export class FirstPersonController {
     // heading uses (sin rot, cos rot): positive turn rotates toward -screen-right,
     // so D (turn right) must apply negative turn — matches mouse-look direction
     const baseTurn = (this.input.isDown('KeyA') ? 1 : 0) - (this.input.isDown('KeyD') ? 1 : 0);
-    const hardTurn = this.possessed.flight ? (this.input.isDown('KeyQ') ? 1 : 0) - (this.input.isDown('KeyE') ? 1 : 0) : 0;
-    const turn = fortress ? 0 : MathUtils.clamp(baseTurn + hardTurn * 1.55 + mobile.turn, -1.75, 1.75);
+    const turn = fortress ? 0 : MathUtils.clamp(baseTurn + mobile.turn, -1.75, 1.75);
     const foot = this.isFootSoldier();
     const aiming = foot && (this.input.isButton(2) || this.isSniperScoped());
     const strafe = foot ? MathUtils.clamp(baseTurn + mobile.turn, -1, 1) * (aiming ? 0.55 : 1) : 0;
@@ -601,6 +607,8 @@ export class FirstPersonController {
     if (fortress) {
       this.fortressZoom += (this.fortressZoomTarget - this.fortressZoom) * (1 - Math.exp(-dt * 11));
     }
+    this.renderChaseZoom += (this.chaseZoom - this.renderChaseZoom) * (1 - Math.exp(-dt * 14));
+    if (this.mode === 'fps') this.lookYaw += keyboardLookYaw(code => this.input.isDown(code), dt);
     this.updateScopeOverlay(sniperScoped);
     this.updateAbilityHud();
     const delta = this.input.consumeMouseDelta();
@@ -673,7 +681,7 @@ export class FirstPersonController {
     this.possessed = undefined;
     this.squad = [];
     this.squadIndex = 0;
-    this.hasSmoothFlightCenter = false;
+    this.hasFlightCameraMotion = false;
     this.sniperScopeActive = false;
     this.sniperReloadFlash = 0;
     this.abilityStatusTimer = 0;
@@ -768,27 +776,31 @@ export class FirstPersonController {
     return this.lookPose(position, this.tmpAimTarget, fov);
   }
 
-  private flightPoseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
+  private flightPoseFor(entity: Entity, yaw: number, pitch: number, _fov: number, alpha: number, dt: number): CameraPose {
     const aircraftCenter = this.interpolatedCenter(entity, alpha);
     this.tmpForward.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     this.tmpHorizontal.set(Math.sin(yaw), 0, Math.cos(yaw));
     const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
     const model = FLIGHT_MODELS[entity.flight!.model];
-    if (entity.velocity && speed > 1) this.tmpVelocityDir.set(entity.velocity.x / speed, 0, entity.velocity.z / speed);
-    else this.tmpVelocityDir.copy(this.tmpHorizontal);
-    const velocityYaw = Math.atan2(this.tmpVelocityDir.x, this.tmpVelocityDir.z);
-    const lookBackT = MathUtils.smoothstep(Math.abs(normalizeAngle(yaw - velocityYaw)), 0.8, 2.35);
-    const driftBlend = Math.min(0.65, (speed / 8) * 0.65) * (1 - lookBackT * 0.88);
-    this.tmpVelocityDir.lerp(this.tmpHorizontal, 1 - driftBlend).normalize();
-    const targetCenter = this.tmpFlightTarget.set(aircraftCenter.x, aircraftCenter.y + 1.3, aircraftCenter.z);
-    if (!this.hasSmoothFlightCenter) {
-      this.smoothFlightCenter.copy(targetCenter);
-      this.hasSmoothFlightCenter = true;
+    const rawVelocityYaw = entity.velocity && speed > 1 ? Math.atan2(entity.velocity.x, entity.velocity.z) : yaw;
+    if (!this.hasFlightCameraMotion) {
+      this.smoothFlightVelocityYaw = rawVelocityYaw;
+      this.smoothFlightSpeed = speed;
+      this.hasFlightCameraMotion = true;
     } else {
-      this.smoothFlightCenter.lerp(targetCenter, 1 - Math.exp(-dt * 9));
+      const blend = 1 - Math.exp(-dt * 12);
+      this.smoothFlightVelocityYaw += normalizeAngle(rawVelocityYaw - this.smoothFlightVelocityYaw) * blend;
+      this.smoothFlightSpeed += (speed - this.smoothFlightSpeed) * blend;
     }
-    const center = this.smoothFlightCenter;
-    const speedT = MathUtils.smoothstep(speed / model.maxSpeed, 0, 1.6);
+    const velocityYaw = this.smoothFlightVelocityYaw;
+    this.tmpVelocityDir.set(Math.sin(velocityYaw), 0, Math.cos(velocityYaw));
+    const lookBackT = MathUtils.smoothstep(Math.abs(normalizeAngle(yaw - velocityYaw)), 0.8, 2.35);
+    const driftBlend = Math.min(0.65, (this.smoothFlightSpeed / 8) * 0.65) * (1 - lookBackT * 0.88);
+    this.tmpVelocityDir.lerp(this.tmpHorizontal, 1 - driftBlend).normalize();
+    // Share the model's render-time position exactly. A second position filter
+    // makes the visible aircraft oscillate against its own delayed chase anchor.
+    const center = this.tmpFlightTarget.set(aircraftCenter.x, aircraftCenter.y + 1.3, aircraftCenter.z);
+    const speedT = MathUtils.smoothstep(this.smoothFlightSpeed / model.maxSpeed, 0, 1.6);
     const followYaw = Math.atan2(this.tmpVelocityDir.x, this.tmpVelocityDir.z) + this.orbitYaw;
     this.tmpVelocityDir.set(Math.sin(followYaw), 0, Math.cos(followYaw));
     const chaseDistance = MathUtils.lerp(14, 22, speedT) * this.zoomScale();
@@ -799,8 +811,9 @@ export class FirstPersonController {
     position.y += Math.max(2.6, chaseHeight);
     this.tmpAimTarget.copy(center).addScaledVector(this.tmpForward, 170);
     this.tmpCameraTarget.copy(center).addScaledVector(this.tmpForward, 80);
-    const cameraRoll = MathUtils.clamp((entity.flight?.rollAttitude ?? 0) * 0.4, MathUtils.degToRad(-10), MathUtils.degToRad(10));
-    return this.lookPose(position, this.tmpCameraTarget, fov, -cameraRoll);
+    const roll = MathUtils.lerp(entity.flight!.previousRollAttitude, entity.flight!.rollAttitude, alpha);
+    const cameraRoll = MathUtils.clamp(roll * 0.4, MathUtils.degToRad(-10), MathUtils.degToRad(10));
+    return this.lookPose(position, this.tmpCameraTarget, this.zoomedFov(MathUtils.lerp(64, 78, speedT)), -cameraRoll);
   }
 
   private fire(slot: 'primary' | 'secondary' | 'special'): boolean {
@@ -1335,11 +1348,11 @@ export class FirstPersonController {
   }
 
   private zoomScale(): number {
-    return Math.exp(this.chaseZoom * 0.55);
+    return Math.exp(this.renderChaseZoom * 0.55);
   }
 
   private zoomedFov(baseFov: number): number {
-    return MathUtils.clamp(baseFov + this.chaseZoom * 3.2, 48, 76);
+    return MathUtils.clamp(baseFov + this.renderChaseZoom * 3.2, 48, 76);
   }
 
   private takeControl(entity: Entity): void {
