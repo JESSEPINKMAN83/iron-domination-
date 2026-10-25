@@ -137,7 +137,7 @@ export function controlGuideSections(mobile: boolean): GuideSection[] {
         { control: 'Defense tower', action: 'In V-mode, use the wheel for optical zoom. Hold T to scan; release to lock.' },
         { control: 'Tab', action: 'Swap to the next unit in the currently selected squad.' },
         { control: 'Aircraft', action: 'Space climbs, C descends. Q/E turns your view; the aircraft follows your heading.' },
-        { control: 'Field artillery', action: 'Build from the vehicle factory. Stop to deploy for 15 seconds; moving packs the gun for 5 seconds. In V mode, aim with the observer sight and click to fire. F deploys or packs. Range: 75–430; vulnerable to close attacks.' },
+        { control: 'Field artillery', action: 'Build from the vehicle factory. Click Deploy for a 10-second setup. Deployed guns stay stationary: click Pack & move and wait 5 seconds before repositioning. In V mode, aim with the observer sight and click to fire. F deploys or packs. Range: 75–430; vulnerable to close attacks.' },
       ],
     },
     {

@@ -1,4 +1,5 @@
 import { legacyModelPreview } from './codeRedPreview';
+import { ARTILLERY_DEPLOY_SECONDS, ARTILLERY_PACK_SECONDS } from '../sim/artillery';
 import { nationForTeam } from '../content/nations';
 import { createCodeRedVehicle } from './codeRedModels';
 import { UnitBatchLod } from './unitBatchLod';
@@ -1490,7 +1491,7 @@ export class UnitView {
     const refs = this.refs.get(entity);
     if (entity.artillery) {
       const gun=entity.artillery;
-      const extension=gun.phase==='deployed'?1:gun.phase==='deploying'?gun.elapsed/15:gun.phase==='packing'?1-gun.elapsed/5:0;
+      const extension=gun.phase==='deployed'?1:gun.phase==='deploying'?gun.elapsed/ARTILLERY_DEPLOY_SECONDS:gun.phase==='packing'?1-gun.elapsed/ARTILLERY_PACK_SECONDS:0;
       for (const brace of refs?.artilleryBraces ?? []) brace.scale.x=0.12+0.88*extension;
     }
     if (entity.destroyed) {

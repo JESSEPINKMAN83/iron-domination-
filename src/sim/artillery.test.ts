@@ -10,20 +10,20 @@ import { createEconomy,createInitialBase } from './economy';
 import { VisibilityGrid } from './visibility';
 import { EnemyCommander } from '../ai/commander';
 
-function fixture(team=1) {
+function fixture(team=1, deploy=true) {
   const hf=generateHeightfield({...MAP01,seed:41}); hf.heights.fill(10); hf.walkable.fill(1);
   const sim=createGameSim(hf);
-  const gun=spawnArtilleryAt(sim,0,0,'Field gun',team); gun.turret!.yaw=0;
+  const gun=spawnArtilleryAt(sim,0,0,'Field gun',team); gun.turret!.yaw=0; gun.artillery!.deploy=deploy;
   const tick=(count:number)=>{for(let i=0;i<count;i++)stepSim(sim,hf,1/30);};
   return {hf,sim,gun,tick};
 }
 
 describe('deployable artillery',()=>{
-  it.each([1,2])('requires the complete 15-second setup for army %s',team=>{
+  it.each([1,2])('requires the complete 10-second setup for army %s',team=>{
     const {sim,gun,tick}=fixture(team);
     expect(UNITS.artillery.doctrine).toBeUndefined();
     expect(manualFireAt(sim,gun,0,250)).toBe(false);
-    tick(449); expect(gun.artillery!.phase).toBe('deploying');
+    tick(299); expect(gun.artillery!.phase).toBe('deploying');
     expect(manualFireAt(sim,gun,0,250)).toBe(false);
     tick(1); expect(gun.artillery!.phase).toBe('deployed');
     gun.turret!.yaw=0;
@@ -33,7 +33,7 @@ describe('deployable artillery',()=>{
   });
 
   it('rejects close targets and shots beyond its maximum range',()=>{
-    const {sim,gun,tick}=fixture(); tick(450);
+    const {sim,gun,tick}=fixture(); tick(300);
     expect(manualFireAt(sim,gun,0,40)).toBe(false);
     expect(manualFireAt(sim,gun,0,440)).toBe(false);
     expect(sim.projectiles).toHaveLength(0);
@@ -41,14 +41,28 @@ describe('deployable artillery',()=>{
   });
 
   it('packs for five seconds before obeying a movement order',()=>{
-    const {sim,gun,tick}=fixture();tick(450);
+    const {sim,gun,tick}=fixture();tick(300);
     issueMoveOrder(sim,[gun],80,0);
-    const start={...gun.transform};tick(149);
+    const start={...gun.transform};tick(30);
+    expect(gun.artillery!.phase).toBe('deployed');
+    expect(gun.mover!.target).toBeUndefined();
+    expect(gun.transform.x).toBeCloseTo(start.x);
+    setArtilleryDeployment(gun,false);
+    issueMoveOrder(sim,[gun],80,0);
+    tick(149);
     expect(gun.artillery!.phase).toBe('packing');
     expect(gun.transform.x).toBeCloseTo(start.x);
     expect(manualFireAt(sim,gun,0,250)).toBe(false);
     tick(20);expect(gun.artillery!.phase).toBe('mobile');
     expect(Math.hypot(gun.transform.x-start.x,gun.transform.z-start.z)).toBeGreaterThan(0);
+  });
+
+  it('starts mobile and only sets up after an explicit deploy request',()=>{
+    const {gun,tick}=fixture(1,false);tick(60);
+    expect(gun.artillery!.phase).toBe('mobile');
+    setArtilleryDeployment(gun,true);tick(299);
+    expect(gun.artillery!.phase).toBe('deploying');
+    tick(1);expect(gun.artillery!.phase).toBe('deployed');
   });
 
   it('cancels setup on a pack request and preserves deployment through snapshots',()=>{
@@ -61,7 +75,7 @@ describe('deployable artillery',()=>{
   });
 
   it('uses a ground-impact arc with meaningful splash damage at long range',()=>{
-    const {sim,gun,tick}=fixture();tick(450);
+    const {sim,gun,tick}=fixture();tick(300);
     const target=spawnTankAt(sim,0,250,'Target',2);
     const hp=target.health!.current;gun.turret!.yaw=0;
     expect(manualFireAt(sim,gun,0,250)).toBe(true);

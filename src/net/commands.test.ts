@@ -14,10 +14,10 @@ describe('multiplayer lockstep commands', () => {
     const own=spawnArtilleryAt(sim,0,0,'Own',1),enemy=spawnArtilleryAt(sim,40,0,'Enemy',2);
     const client={connect:()=>undefined,disconnect:()=>undefined,sendCommand:async()=>undefined} as unknown as MultiplayerClient;
     const runtime=new LockstepRuntime({sim,hf,economies:{1:createEconomy(1)},client,session:sessionFor(1)});
-    runtime.issue({type:'artillery-deploy',ids:[own.id,enemy.id],deploy:false});
-    expect(own.artillery!.deploy).toBe(true);
+    runtime.issue({type:'artillery-deploy',ids:[own.id,enemy.id],deploy:true});
+    expect(own.artillery!.deploy).toBe(false);
     for(let i=0;i<8;i++){sim.tick++;runtime.tick();}
-    expect(own.artillery!.deploy).toBe(false);expect(enemy.artillery!.deploy).toBe(true);
+    expect(own.artillery!.deploy).toBe(true);expect(enemy.artillery!.deploy).toBe(false);
   });
   it('applies altitude orders only to owned aircraft through lockstep', () => {
     const hf = generateHeightfield(MAP01), sim = createGameSim(hf);

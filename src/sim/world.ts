@@ -1,5 +1,5 @@
 import { oreFieldCapacity } from './heightfield';
-import { stepArtillery } from './artillery';
+import { artilleryCanMove, stepArtillery } from './artillery';
 import { World, type Query, type With } from 'miniplex';
 import { normalizeAngle, slewAngle } from './angles';
 import type { Entity } from './components';
@@ -365,7 +365,7 @@ export function spawnArtilleryAt(sim: GameSim, x: number, z: number, name: strin
   const gun=spawnTankVariantAt(sim,x,z,name,team,{
     primary:'siegeShell',primaryRange:430,health:125,speed:10,radius:2.8,turretRate:1.4,vision:430,
   });
-  gun.artillery={phase:'mobile',elapsed:0,deploy:true};
+  gun.artillery={phase:'mobile',elapsed:0,deploy:false};
   gun.armor={kind:'light'};
   return gun;
 }
@@ -522,7 +522,7 @@ export function issueMoveOrder(
   sprint = false,
 ): boolean {
   let issued = false;
-  const movers = entities.filter((entity): entity is Entity & { mover: NonNullable<Entity['mover']> } => !!entity.mover && !entity.destroyed);
+  const movers = entities.filter((entity): entity is Entity & { mover: NonNullable<Entity['mover']> } => !!entity.mover && !entity.destroyed && artilleryCanMove(entity));
   if (movers.length === 0) return false;
   const effectiveSpread = faceYaw !== undefined && formationSpread !== undefined
     ? formationSpreadForEntities(movers, formationSpread)

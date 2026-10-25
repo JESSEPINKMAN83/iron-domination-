@@ -277,10 +277,12 @@ export class EnemyCommander {
         gun.artillery!.deploy=true;
         const distance=Math.hypot(objective.x-gun.transform.x,objective.z-gun.transform.z);
         if ((distance>400 || distance<85) && !gun.mover!.target) {
+          gun.artillery!.deploy=false;
           const dx=objective.x-base.transform.x,dz=objective.z-base.transform.z,length=Math.hypot(dx,dz)||1;
           const cell=this.sim.nav.nearestWalkableCellGlobal(objective.x-dx/length*300,objective.z-dz/length*300);
           if (cell) { const point=this.sim.nav.cellCenter(cell.x,cell.y); issueMoveOrder(this.sim,[gun],point.x,point.z); }
         }
+        if (gun.mover!.target) gun.artillery!.deploy=false;
         if (target) gun.weapon!.targetId=target.id;
       }
       const escorts=mine.filter(unit=>!unit.artillery && !unit.flight && !unit.playerControlled && !unit.mover?.objectiveDuty && !squads.has(unit) && (!unit.mover!.artilleryEscort || unit.mover!.artilleryEscort===gun.id)).slice(0,2);

@@ -1,3 +1,4 @@
+import { artilleryCanMove } from '../sim/artillery';
 import { Raycaster, Vector2, Vector3, type PerspectiveCamera } from 'three';
 import type { GameSim } from '../sim/world';
 import {
@@ -248,7 +249,7 @@ export class RtsController {
 
   orderSelectedTo(x: number, z: number, attackMove = false): boolean {
     if (!this.enabled) return false;
-    const movers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover);
+    const movers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover && artilleryCanMove(entity));
     const moverIds = movers.map((entity) => entity.id).filter((id): id is number => id !== undefined);
     if (moverIds.length === 0) {
       this.flashControlGroup('SELECT A MOBILE UNIT FIRST');
@@ -586,7 +587,8 @@ export class RtsController {
             harvesters.length > 0 &&
             (this.commandSink?.returnHarvesters?.(harvesterIds, destination.x, destination.z) ?? issueHarvesterReturnOrder(this.sim, harvesters, destination.x, destination.z));
           const specialIssued = harvestIssued || returnIssued;
-          const movers = specialIssued ? selected.filter((entity) => !entity.harvester) : selected;
+          const movers = (specialIssued ? selected.filter((entity) => !entity.harvester) : selected).filter(artilleryCanMove);
+          if (!movers.length && selected.some(unit=>unit.artillery)) this.flashControlGroup('ARTILLERY DEPLOYED · PACK FIRST TO MOVE');
           if (specialIssued) this.orderFeedback?.showOrder(destination.x, destination.z, 'move');
           const moverIds = movers.map((entity) => entity.id).filter((id): id is number => id !== undefined);
           const now = performance.now();
