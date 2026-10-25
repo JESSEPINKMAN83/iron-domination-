@@ -402,8 +402,12 @@ export function issueAttackOrder(sim: GameSim, attackers: Entity[], target: Enti
       weaponSlots(attacker).some((weapon) => isWeaponTargetable(sim, attacker, weapon, target)),
   );
   if (eligible.length === 0) return false;
-  const destination = attackStandoffPoint(sim, eligible, target);
-  if (!issueMoveOrder(sim, eligible, destination.x, destination.z, true)) return false;
+  // Deployed guns accept fire orders without packing or moving to standoff.
+  const mobile = eligible.filter((attacker) => !attacker.artillery?.deploy);
+  if (mobile.length > 0) {
+    const destination = attackStandoffPoint(sim, mobile, target);
+    if (!issueMoveOrder(sim, mobile, destination.x, destination.z, true)) return false;
+  }
   for (const attacker of eligible) {
     attacker.mover!.attackTargetId = target.id;
     for (const weapon of weaponSlots(attacker)) {

@@ -74,6 +74,8 @@ interface TeamMaterials {
 interface UnitRefs {
   artilleryProbe?:Group;
   artilleryBraces?:Object3D[];
+  artilleryBarrel?:Object3D;
+  artilleryMarker?:Object3D;
   launchAge?:number;
   turretPivot?: Object3D;
   barrelPivot?: Object3D;
@@ -791,14 +793,17 @@ export class UnitView {
       probe.add(body,fins,trail);probe.visible=false;this.group.add(probe);built.refs.artilleryProbe=probe;
       built.refs.artilleryBraces=[];
       for (const side of [-1,1]) for (const z of [-1.9,1.9]) {
-        const brace=new Mesh(sharedBoxGeometry(3.4,0.3,0.5),this.gunmetalMaterial);
-        brace.position.set(side*2.8,0.35,z); unit.add(brace); built.refs.artilleryBraces.push(brace);
+        const brace=new Mesh(sharedBoxGeometry(5.2,0.55,0.9),this.gunmetalMaterial);
+        brace.position.set(side*2.8,0.35,z); brace.userData.side=side; unit.add(brace); built.refs.artilleryBraces.push(brace);
       }
       const barrel=new Mesh(sharedBoxGeometry(0.38,0.38,7.2),this.gunmetalMaterial);
       barrel.position.set(0,2.5,5); barrel.rotation.x=-0.28;
-      (built.refs.turretPivot ?? unit).add(barrel);
+      (built.refs.turretPivot ?? unit).add(barrel); built.refs.artilleryBarrel=barrel;
+      const marker=new Mesh(sharedCylinderGeometry(0.8,0.8,0.3,8),materials.lightBar);
+      marker.position.set(0,4,0);marker.visible=false;unit.add(marker);built.refs.artilleryMarker=marker;
     }
-    if (!entity.flight) {
+    if (!entity.flight && !entity.artillery) {
+      // Artillery keeps its animated deployment silhouette at every distance.
       // Bake before upgrades, overlays and scale are attached to the root.
       const batchKey = `${entity.artillery?'field-artillery':kind}:${factionId(entity.team?.id)}:${nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion'}`;
       const rig = this.soldierRigs.get(entity);
@@ -1268,7 +1273,7 @@ export class UnitView {
         entity.destroyed !== undefined &&
         entity.destroyed.aircraftCrash?.impacted !== true;
       const selected = entity.selectable?.selected ?? false;
-      const keepDetailed = shouldKeepDetailedUnitInPerformanceMode({
+      const keepDetailed = Boolean(entity.artillery) || shouldKeepDetailedUnitInPerformanceMode({
         distanceSquared: dx * dx + dy * dy + dz * dz,
         selected,
         playerControlled: Boolean(entity.playerControlled),
@@ -1510,7 +1515,12 @@ export class UnitView {
     if (entity.artillery) {
       const gun=entity.artillery;
       const extension=gun.phase==='deployed'?1:gun.phase==='deploying'?gun.elapsed/ARTILLERY_DEPLOY_SECONDS:gun.phase==='packing'?1-gun.elapsed/ARTILLERY_PACK_SECONDS:0;
-      for (const brace of refs?.artilleryBraces ?? []) brace.scale.x=0.12+0.88*extension;
+      for (const brace of refs?.artilleryBraces ?? []) {
+        brace.scale.x=0.12+0.88*extension;
+        brace.position.x=brace.userData.side*(1.8+2.2*extension);
+      }
+      if (refs?.artilleryBarrel) refs.artilleryBarrel.rotation.x=-0.05-0.65*extension;
+      if (refs?.artilleryMarker) refs.artilleryMarker.visible=gun.phase==='deployed' && !entity.destroyed;
     }
     if (entity.destroyed) {
       if (entity.flight) {

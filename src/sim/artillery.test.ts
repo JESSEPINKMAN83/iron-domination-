@@ -3,7 +3,7 @@ import { MAP01 } from '../content/map01';
 import { UNITS } from '../content/phase3';
 import { generateHeightfield } from './heightfield';
 import { createGameSim,spawnArtilleryAt,spawnTankAt,stepSim,hashSim,issueMoveOrder } from './world';
-import { manualFireAt,stepCombat } from './combat';
+import { issueAttackOrder,manualFireAt,stepCombat } from './combat';
 import { artilleryProbeProgress, setArtilleryDeployment } from './artillery';
 import { loadSerializedSim,serializeSim } from './serialize';
 import { createEconomy,createInitialBase } from './economy';
@@ -37,6 +37,21 @@ describe('deployable artillery',()=>{
     expect(manualFireAt(sim,gun,0,250)).toBe(true);
     expect(gun.weapon!.cooldown).toBe(10);
     expect(manualFireAt(sim,gun,0,250)).toBe(false);
+  });
+
+  it('accepts strategy attack orders while deployed and fires without moving',()=>{
+    const {sim,gun,tick}=fixture(); tick(300);
+    const enemy=spawnTankAt(sim,0,220,'Target',2);
+    const start={...gun.transform};
+    expect(issueAttackOrder(sim,[gun],enemy)).toBe(true);
+    expect(gun.mover!.attackTargetId).toBe(enemy.id);
+    expect(gun.mover!.target).toBeUndefined();
+    stepCombat(sim,1/30);
+    expect(sim.projectiles.some(p=>p.weaponKind==='siegeShell')).toBe(true);
+    tick(30);
+    expect(gun.artillery!.phase).toBe('deployed');
+    expect(gun.transform.x).toBe(start.x);
+    expect(gun.transform.z).toBe(start.z);
   });
 
   it('rejects close targets and shots beyond its maximum range',()=>{
