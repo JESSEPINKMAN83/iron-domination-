@@ -1,4 +1,5 @@
 import { createConnectionRecovery, promptToRejoin } from './net/recoveryUi';
+import { setArtilleryDeployment } from './sim/artillery';
 import { applyGraphicsPreference, createGraphicsControl } from './render/graphicsPreference';
 import { createLandingCapture } from './dev/landingCapture';
 import { showSinglePlayerModes } from './campaign/modeSelect';
@@ -192,6 +193,7 @@ import {
   spawnHammerheadAt,
   spawnScoutTankAt,
   spawnSiegeTankAt,
+  spawnArtilleryAt,
   spawnTankAt,
   spawnVultureAt,
   spawnWaspAt,
@@ -2727,7 +2729,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const infantryCombatTest = params.get('infantry-combat-test') === '1';
   const tankCombatTest = params.get('tank-combat-test') === '1';
   const combatReadabilityTest = params.get('combat-readability-test') === '1';
-  const aircraftRouteTest = (params.get('aircraft-route-test') === '1' || tankCombatTest || infantryCombatTest || combatReadabilityTest) && !multiplayerMode && !isPublicHost(location.hostname);
+  const artilleryTest=params.get('artillery-test')==='1';
+  const aircraftRouteTest = (artilleryTest || params.get('aircraft-route-test') === '1' || tankCombatTest || infantryCombatTest || combatReadabilityTest) && !multiplayerMode && !isPublicHost(location.hostname);
   const weaponsLab = startMode === 'weapons-lab' && !multiplayerMode && !isPublicHost(location.hostname);
   const lineupStart = startMode === 'lineup' || weaponsLab;
   const soundBattlePreview =
@@ -2951,8 +2954,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   if (aircraftRouteTest && !loadedFromSave) {
     const hostileTeam = armies.find((army) => areTeamsHostile(sim, localTeam, army.team))?.team;
     const aircraftTypes = [spawnWaspAt, spawnVultureAt, spawnHammerheadAt];
-    for (let i = 0; i < 6; i++) {
-      const aircraft = infantryCombatTest
+    for (let i = 0; i < (artilleryTest?2:6); i++) {
+      const aircraft = artilleryTest
+        ? spawnArtilleryAt(sim,routeStage.x-90,routeStage.z-25+i*35,`Artillery trial ${i+1}`,localTeam)
+        : infantryCombatTest
         ? spawnInfantryAt(sim, routeStage.x - 70, routeStage.z - 40 + i * 8, localTeam, (['infantry', 'grenadier', 'sniper', 'rocket-infantry', 'infantry', 'sniper'] as const)[i])
         : combatReadabilityTest
         ? i < 3
@@ -2968,6 +2973,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       aircraftRouteUnits.push(aircraft);
     }
     if (hostileTeam !== undefined) {
+      if (artilleryTest) {
+        const cell=sim.nav.nearestWalkableCellGlobal(routeStage.x+150,routeStage.z+80);
+        if (cell) { const point=sim.nav.cellCenter(cell.x,cell.y); aircraftRouteUnits.push(spawnArtilleryAt(sim,point.x,point.z,'Raad artillery trial',hostileTeam)); }
+      }
       for (let i = 0; i < 8; i++) {
         const x = routeStage.x - 15 + (i % 4) * 35;
         const z = routeStage.z + (i < 4 ? -55 : 55);
@@ -3636,6 +3645,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   });
   objectiveView.onInspect = site => selectionBar?.inspectObjective(site, () => isVisibleToPlayer(site.transform.x,site.transform.z) || (site.team !== undefined && !areTeamsHostile(sim,localTeam,site.team.id)));
   selectionBar = new SelectionBar(sim, {
+    deployArtillery:(units,deploy)=>{
+      if (lockstep) lockstep.issue({type:'artillery-deploy',ids:units.map(unit=>unit.id),deploy});
+      else for (const unit of units) setArtilleryDeployment(unit,deploy);
+    },
     selectEntities: (entities) => {
       selectionBar?.inspectObjective();
       audio.playUi('select');
@@ -3945,6 +3958,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           fire: (command) => lockstep.issue({ type: 'possess-fire', ...command }),
           follow: (command) => lockstep.issue({ type: 'possess-follow', ...command }),
           release: (id) => lockstep.issue({ type: 'possess-release', id }),
+          artillery:(id,deploy)=>lockstep.issue({type:'artillery-deploy',ids:[id],deploy}),
         }
       : undefined,
     isVisibleToPlayer,
@@ -4159,7 +4173,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         commanders,
         lockstep,
         autoFire: !lineupStart && !durabilityPreview && !impactMovementDemo && !buildingShowcase,
-        runCommanders: !workingBasePreview && !lineupStart && !durabilityPreview && !impactMovementDemo && !destructionPreview && !aircraftRouteTest,
+        runCommanders: !workingBasePreview && !lineupStart && !durabilityPreview && !impactMovementDemo && !destructionPreview && (!aircraftRouteTest || (artilleryTest && params.get('artillery-ai-test')==='1')),
       });
       const spawned = tickResult.spawned;
       for (const entity of spawned) {
@@ -6149,6 +6163,7 @@ function spawnCinematicUnit(
   if (kind === 'scout-tank') return spawnScoutTankAt(sim, x, z, `${prefix} Jackal`, team);
   if (kind === 'tank') return spawnTankAt(sim, x, z, `${prefix} M-17`, team);
   if (kind === 'siege-tank') return spawnSiegeTankAt(sim, x, z, `${prefix} Mauler`, team);
+  if (kind === 'artillery') return spawnArtilleryAt(sim,x,z,`${prefix} Field Gun`,team);
   if (kind === 'wasp') return spawnWaspAt(sim, hf, x, z, `${prefix} Wasp`, team);
   if (kind === 'vulture') return spawnVultureAt(sim, hf, x, z, `${prefix} Vulture`, team);
   if (kind === 'hammerhead') return spawnHammerheadAt(sim, hf, x, z, `${prefix} Hammerhead`, team);

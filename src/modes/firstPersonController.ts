@@ -1,4 +1,5 @@
 import { buildInfantryWeapon } from '../render/infantryWeapon';
+import { artilleryStatus, setArtilleryDeployment } from '../sim/artillery';
 import { Group, MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
@@ -130,6 +131,7 @@ export function fortressOpticalFov(zoom: number): number {
 }
 
 export interface FirstPersonCommandSink {
+  artillery?(id:number,deploy:boolean):void;
   control(command: {
     id: number;
     throttle: number;
@@ -514,6 +516,12 @@ export class FirstPersonController {
 
   useSpecialAbility(): boolean {
     if (this.mode !== 'fps' || !this.possessed) return false;
+    if (this.possessed.artillery) {
+      const deploy=!this.possessed.artillery.deploy;
+      if (this.commandSink) this.commandSink.artillery?.(this.possessed.id,deploy);
+      else setArtilleryDeployment(this.possessed,deploy);
+      return true;
+    }
     if (!this.possessed.specialWeapon) {
       this.flashAbilityStatus('SPECIAL LOCKED - BUY AN F ABILITY');
       return false;
@@ -707,6 +715,12 @@ export class FirstPersonController {
   }
 
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
+    if (entity.artillery) {
+      const target=this.artilleryTarget(entity,yaw,pitch);
+      this.tmpAimTarget.copy(target);
+      const position=target.clone().add(new Vector3(-Math.sin(yaw)*65,125,-Math.cos(yaw)*65).multiplyScalar(this.zoomScale()));
+      return this.lookPose(position,target,this.zoomedFov(50));
+    }
     if (entity.flight) return this.flightPoseFor(entity, yaw, pitch, fov, alpha, dt);
     if (isFortressTower(entity)) return this.fortressPoseFor(entity, yaw, pitch);
     if (this.isSniperScoped(entity)) return this.sniperPoseFor(entity, yaw, pitch);
@@ -818,6 +832,7 @@ export class FirstPersonController {
 
   private fire(slot: 'primary' | 'secondary' | 'special'): boolean {
     if (!this.possessed) return false;
+    if (this.possessed.artillery && this.possessed.artillery.phase!=='deployed') { this.flashAbilityStatus(artilleryStatus(this.possessed)); return false; }
     if (isFortressTower(this.possessed) && this.possessed.turret) this.possessed.turret.yaw = this.currentAimYaw();
     if (this.isSniper(this.possessed) && hasUnitUpgrade(this.possessed, 'combat-bike') && this.sniperBikeMoving(this.possessed)) {
       this.flashAbilityStatus('STOP COMBAT BIKE TO FIRE');
@@ -845,7 +860,7 @@ export class FirstPersonController {
     const sharedGroundTarget = lockedPosition
       ? new Vector3(lockedPosition.x, lockedPosition.y, lockedPosition.z)
       : this.tmpAimTarget;
-    const target = lockedTarget
+    const target = this.possessed.artillery ? this.artilleryTarget(this.possessed,this.lookYaw,this.lookPitch) : lockedTarget
       ? sharedGroundTarget
       : this.possessed.flight
         ? this.flightTarget(this.possessed, slot === 'secondary' ? 'secondary' : 'primary')
@@ -1192,6 +1207,14 @@ export class FirstPersonController {
       return;
     }
     const weapon = this.possessed.specialWeapon;
+    if (this.possessed.artillery) {
+      const target=this.artilleryTarget(this.possessed,this.lookYaw,this.lookPitch);
+      const range=Math.hypot(target.x-this.possessed.transform.x,target.z-this.possessed.transform.z);
+      this.abilityHud.textContent=`${artilleryStatus(this.possessed)} · RANGE ${Math.round(range)} / 430 · F ${this.possessed.artillery.deploy?'PACK':'DEPLOY'} · MOUSE/Q/E AIM · LMB FIRE`;
+      this.abilityHud.style.display='block'; this.abilityHud.style.color='#b7ebd4';
+      this.abilityHud.style.maxWidth='calc(100vw - 40px)'; this.abilityHud.style.whiteSpace='normal';
+      return;
+    }
     if (!weapon) {
       this.abilityHud.textContent = 'F  SPECIAL LOCKED';
       this.abilityHud.style.color = '#85918d';
@@ -1253,6 +1276,14 @@ export class FirstPersonController {
     const target = origin.addScaledVector(this.tmpForward, range);
     target.y = Math.max(sampleHeight(this.hf, target.x, target.z) + 1.5, target.y);
     return target;
+  }
+
+  private artilleryTarget(entity:Entity,yaw:number,pitch:number):Vector3 {
+    const range=MathUtils.lerp(78,425,MathUtils.clamp((pitch+0.9)/1.5,0,1));
+    const bound=this.hf.size*0.5-4;
+    const x=MathUtils.clamp(entity.transform.x+Math.sin(yaw)*range,-bound,bound);
+    const z=MathUtils.clamp(entity.transform.z+Math.cos(yaw)*range,-bound,bound);
+    return new Vector3(x,sampleHeight(this.hf,x,z)+0.4,z);
   }
 
   private flightBombTarget(entity: Entity): Vector3 {

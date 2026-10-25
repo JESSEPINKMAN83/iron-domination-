@@ -12,6 +12,7 @@ export type WeaponKind =
   | 'waspAutocannon'
   | 'cannon'
   | 'heavyCannon'
+  | 'siegeShell'
   | 'tankBomb'
   | 'bomb'
   | 'rocketPod'
@@ -198,6 +199,12 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     targetTypes: ['light', 'heavy', 'building'],
     vs: { infantry: 1.0, light: 0.9, heavy: 0.94, building: 0.9, air: 0 },
     projectile: { kind: 'artilleryShell', speed: 150, trajectory: 'arc', impactRadius: 3.2 },
+  },
+  siegeShell: {
+    kind:'siegeShell', label:'155mm Long-Range HE', damage:112, cooldown:8.5, range:430, minRange:75,
+    splashRadius:10, targetTypes:['infantry','light','heavy','building'],
+    vs:{infantry:0.85,light:1,heavy:0.85,building:1.05,air:0},
+    projectile:{kind:'artilleryShell',speed:110,trajectory:'arc',impactRadius:3.8},
   },
   tankBomb: {
     kind: 'tankBomb',

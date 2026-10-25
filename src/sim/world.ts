@@ -1,4 +1,5 @@
 import { oreFieldCapacity } from './heightfield';
+import { stepArtillery } from './artillery';
 import { World, type Query, type With } from 'miniplex';
 import { normalizeAngle, slewAngle } from './angles';
 import type { Entity } from './components';
@@ -358,6 +359,15 @@ export function spawnSiegeTankAt(sim: GameSim, x: number, z: number, name: strin
     turretRate: 2.2,
     vision: 194,
   });
+}
+
+export function spawnArtilleryAt(sim: GameSim, x: number, z: number, name: string, team=1): Entity {
+  const gun=spawnTankVariantAt(sim,x,z,name,team,{
+    primary:'siegeShell',primaryRange:430,health:125,speed:10,radius:2.8,turretRate:1.4,vision:430,
+  });
+  gun.artillery={phase:'mobile',elapsed:0,deploy:true};
+  gun.armor={kind:'light'};
+  return gun;
 }
 
 function spawnTankVariantAt(sim: GameSim, x: number, z: number, name: string, team: number, variant: TankVariant): Entity {
@@ -832,6 +842,11 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
   for (let i = 0; i < movers.length; i++) {
     const entity = movers[i];
+    if (stepArtillery(entity, dt)) {
+      entity.velocity.x=entity.velocity.z=0;
+      if (entity.playerControlled && entity.turret) entity.turret.yaw=slewAngle(entity.turret.yaw,entity.playerControlled.aimYaw,entity.turret.turnRate,dt);
+      continue;
+    }
     if (!entity.destroyed && !entity.playerControlled && entity.mover.tactic?.startAtTick !== undefined && sim.tick < entity.mover.tactic.startAtTick) {
       entity.velocity.x = 0;
       entity.velocity.z = 0;
@@ -1880,6 +1895,7 @@ export function hashSim(sim: GameSim): number {
       mix(o.captureTicks); mix(o.contested ? 1 : 0); mix(o.rewardTicks);
     }
     mix(entity.team?.id ?? 0);
+    if (entity.artillery) { mixText(entity.artillery.phase); mix(Math.round(entity.artillery.elapsed*1000)); mix(entity.artillery.deploy?1:0); }
     mix(Math.round(entity.transform.x * 100));
     mix(Math.round((entity.transform.y ?? 0) * 100));
     mix(Math.round(entity.transform.z * 100));
@@ -1940,6 +1956,7 @@ export function hashSim(sim: GameSim): number {
       mix(entity.mover.defenseAlert?.targetId ?? 0);
       mix(entity.mover.defenseAlert ? Math.round(entity.mover.defenseAlert.ttl * 1000) : 0);
       mix(entity.mover.sprint ? 1 : 0);
+      mix(entity.mover.artilleryEscort ?? 0);
       if (entity.mover.tactic) {
         const priorities = entity.mover.tactic.targetPriorities ?? [];
         mix(priorities.length);

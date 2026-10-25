@@ -1,4 +1,5 @@
 import { objectiveStatus } from './objectiveStatus';
+import { artilleryStatus } from '../sim/artillery';
 import { CAPTURE_TICKS, OBJECTIVE_INFO } from '../sim/objectives';
 import { armyName } from '../content/nations';
 import { codeRedIconPath } from './codeRedIcons';
@@ -80,6 +81,7 @@ export class SelectionBar {
       upgradeDefense?: (entity: Entity) => { ok: boolean; reason: string };
       setFormation?: (entities: Entity[], preset: FormationPreset) => void;
       setAggressive?: (entities: Entity[], enabled: boolean) => void;
+      deployArtillery?: (entities:Entity[], deploy:boolean)=>void;
       openTacticPlanner?: (entities: Entity[]) => void;
       strategic?: {
         economy: EconomyState;
@@ -205,7 +207,7 @@ export class SelectionBar {
     this.syncWorldUpgradeButtons(selected);
     const groups = selectionGroups(selected);
     const siloSelected = selected.length === 1 && selected[0].building?.kind === 'strategic-silo' && this.actions.strategic;
-    const key = selectionGroupsKey(groups) + selected.map((unit) => `|a:${unit.id}:${Boolean(unit.mover?.aggressive)}:${unit.mover?.formationPreset}|d:${defenseLevel(unit)}:${this.actions.credits() >= defenseUpgradeCost(unit)}:${unit.building?.complete}`).join('') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
+    const key = selectionGroupsKey(groups) + selected.map((unit) => `|a:${unit.id}:${Boolean(unit.mover?.aggressive)}:${unit.mover?.formationPreset}|d:${defenseLevel(unit)}:${this.actions.credits() >= defenseUpgradeCost(unit)}:${unit.building?.complete}|gun:${unit.artillery?.phase}:${unit.artillery?.deploy}:${Math.floor(unit.artillery?.elapsed ?? 0)}`).join('') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
     if (key !== this.lastKey) {
       this.lastKey = key;
       if (siloSelected) this.renderStrategicSilo(groups[0], selected[0]);
@@ -315,6 +317,16 @@ export class SelectionBar {
     this.root.append(header, grid);
     const actions = document.createElement('div');
     actions.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:8px;';
+    const guns=fighters.filter(unit=>unit.artillery);
+    if (guns.length && this.actions.deployArtillery) {
+      const label=document.createElement('span'); label.textContent=artilleryStatus(guns[0]); label.style.cssText='margin-right:auto;font-size:10px;color:#9de5c4';
+      const deploy=document.createElement('button');
+      const active=guns.some(gun=>gun.artillery!.deploy);
+      deploy.textContent=active?'Pack artillery':'Deploy artillery';
+      deploy.title='15 seconds to deploy. Move orders pack the gun in 5 seconds. Fires only while deployed, between 75 and 430 range.';
+      deploy.onclick=()=>this.actions.deployArtillery!(guns,!active);
+      actions.append(label,deploy);
+    }
     if (fighters.length > 1 && this.actions.setFormation) {
       const dropdown = document.createElement('div');
       dropdown.className = 'game-formation-dropdown';
@@ -769,7 +781,7 @@ export class SelectionBar {
     icon.append(fallback, img, badge(`×${group.entities.length}`, active));
     const topRank = Math.max(0, ...group.entities.map((entity) => entity.combatRank?.rank ?? 0));
     if (topRank > 0) icon.appendChild(rankChevronBadge(topRank));
-    if (group.unitKind) icon.appendChild(this.upgradeButton(group));
+    if (group.unitKind && upgradeOptionsForKind(group.unitKind).length) icon.appendChild(this.upgradeButton(group));
 
     const copy = document.createElement('div');
     copy.className = 'game-unit-card__copy';
@@ -888,7 +900,7 @@ export class SelectionBar {
   }
 
   private syncWorldUpgradeButtons(selected: Entity[]): void {
-    const upgradeable = selected.filter((entity) => unitKindForUpgrade(entity) !== undefined);
+    const upgradeable = selected.filter((entity) => { const kind=unitKindForUpgrade(entity); return kind !== undefined && upgradeOptionsForKind(kind).length>0; });
     const activeIds = new Set(upgradeable.map((entity) => entity.id));
     for (const [id, button] of this.worldButtons) {
       if (activeIds.has(id)) continue;

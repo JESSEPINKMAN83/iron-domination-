@@ -1950,6 +1950,7 @@ function bombSalvoForUnit(kind: UnitKind): number {
 
 function speedScoreForUnit(kind: UnitKind): number {
   const scores: Record<UnitKind, number> = {
+    artillery:0.2,
     infantry: 0.22,
     sniper: 0.19,
     grenadier: 0.2,

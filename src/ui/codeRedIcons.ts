@@ -12,6 +12,7 @@ export type CodeRedIconKind = typeof CODE_RED_ICON_KINDS[number];
 const kinds = new Set<string>(CODE_RED_ICON_KINDS);
 
 export function codeRedIconPath(kind: string, team?: number): string {
+  if (kind === 'artillery') return codeRedIconPath('siege-tank',team);
   if (!kinds.has(kind)) return `/assets/ui/command-icons/${kind}.png`;
   const nation = nationForTeam(team);
   // HQ flags belong to the actual nation, including allies and proxies.

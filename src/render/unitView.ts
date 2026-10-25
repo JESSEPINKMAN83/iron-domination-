@@ -71,6 +71,7 @@ interface TeamMaterials {
 }
 
 interface UnitRefs {
+  artilleryBraces?:Object3D[];
   launchAge?:number;
   turretPivot?: Object3D;
   barrelPivot?: Object3D;
@@ -780,9 +781,19 @@ export class UnitView {
       built = legacyModelPreview ? createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial) : createCodeRedVehicle(kind, nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion', materials, this.gunmetalMaterial, this.muzzleMaterial);
     }
     const unit = built.root;
+    if (entity.artillery) {
+      built.refs.artilleryBraces=[];
+      for (const side of [-1,1]) for (const z of [-1.9,1.9]) {
+        const brace=new Mesh(sharedBoxGeometry(3.4,0.3,0.5),this.gunmetalMaterial);
+        brace.position.set(side*2.8,0.35,z); unit.add(brace); built.refs.artilleryBraces.push(brace);
+      }
+      const barrel=new Mesh(sharedBoxGeometry(0.38,0.38,7.2),this.gunmetalMaterial);
+      barrel.position.set(0,2.5,5); barrel.rotation.x=-0.28;
+      (built.refs.turretPivot ?? unit).add(barrel);
+    }
     if (!entity.flight) {
       // Bake before upgrades, overlays and scale are attached to the root.
-      const batchKey = `${kind}:${factionId(entity.team?.id)}:${nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion'}`;
+      const batchKey = `${entity.artillery?'field-artillery':kind}:${factionId(entity.team?.id)}:${nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion'}`;
       const rig = this.soldierRigs.get(entity);
       this.batchLod.bake(batchKey, unit, built.refs.turretPivot, rig ? [rig.combatBike, rig.muzzleFlash] : []);
       if (this.batchLod.has(batchKey)) this.batchKeys.set(entity, batchKey);
@@ -1477,6 +1488,11 @@ export class UnitView {
   private applyPose(entity: Entity, obj: Object3D, dt: number, alpha: number): void {
     const isInfantry = entity.selectable?.type === 'infantry';
     const refs = this.refs.get(entity);
+    if (entity.artillery) {
+      const gun=entity.artillery;
+      const extension=gun.phase==='deployed'?1:gun.phase==='deploying'?gun.elapsed/15:gun.phase==='packing'?1-gun.elapsed/5:0;
+      for (const brace of refs?.artilleryBraces ?? []) brace.scale.x=0.12+0.88*extension;
+    }
     if (entity.destroyed) {
       if (entity.flight) {
         const crash = entity.destroyed.aircraftCrash;

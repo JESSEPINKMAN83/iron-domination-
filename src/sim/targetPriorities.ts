@@ -31,7 +31,7 @@ export function matchesTargetPriorities(entity: Entity, priorities: readonly Tar
       case 'economy': if (entity.harvester || kind === 'refinery' || kind === 'power-plant') return true; break;
       case 'missile-sites': if (kind === 'strategic-silo' || kind === 'intelligence-center') return true; break;
       case 'aircraft': if (entity.flight) return true; break;
-      case 'artillery': if (!entity.building && (entity.weapon?.kind === 'heavyCannon' || entity.weapon?.kind === 'siegeMissile' || entity.weapons?.secondary?.kind === 'siegeMissile')) return true; break;
+      case 'artillery': if (!entity.building && (entity.artillery || entity.weapon?.kind === 'heavyCannon' || entity.weapon?.kind === 'siegeMissile' || entity.weapons?.secondary?.kind === 'siegeMissile')) return true; break;
       case 'defenses': if (kind === 'guard-tower' || kind === 'aa-tower' || kind === 'missile-defense' || kind === 'skylance-ciws') return true; break;
       case 'armor': if (!entity.building && !entity.harvester && entity.selectable?.type === 'tank') return true; break;
       case 'infantry': if (!entity.building && entity.selectable?.type === 'infantry') return true; break;

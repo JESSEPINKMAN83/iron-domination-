@@ -1,7 +1,7 @@
 import type { UnitKind } from './phase3';
 import type { WeaponKind } from './phase4';
 
-export type WeaponHudFamily = 'rifle' | 'ballistic' | 'precision' | 'seeker' | 'armor' | 'artillery' | 'aviation' | 'strike';
+export type WeaponHudFamily = 'rifle' | 'ballistic' | 'precision' | 'seeker' | 'armor' | 'artillery' | 'observer' | 'aviation' | 'strike';
 
 export interface UnitArsenal {
   primary: WeaponKind;
@@ -65,6 +65,7 @@ export const UNIT_ARSENALS: Record<UnitKind, UnitArsenal> = {
     fireControl: '155MM CANNON + GUIDED MISSILE',
     hud: 'artillery',
   },
+  artillery:{primary:'siegeShell',designation:'DEPLOYABLE FIELD ARTILLERY',fireControl:'LONG-RANGE OBSERVER · F DEPLOY / PACK',hud:'observer'},
   wasp: {
     primary: 'waspAutocannon',
     secondary: 'aaMissile',

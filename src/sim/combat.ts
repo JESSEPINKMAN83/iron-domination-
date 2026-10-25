@@ -41,6 +41,7 @@ function playerPrimaryScales(kind: WeaponKind): PlayerFireScales {
     case 'cannon':
       return { speed: 1.18, damage: 1, force: 1.42, impact: 1.28 };
     case 'heavyCannon':
+    case 'siegeShell':
       return { speed: 1, damage: 1, force: 1.62, impact: 1.55 };
     case 'rocketPod':
       return { speed: 1.18, damage: 1.08, force: 1.18, impact: 1.2 };
@@ -106,6 +107,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     (entity) => weaponSlots(entity).length > 0 && entity.health && entity.team && !entity.destroyed,
   );
   for (const attacker of combatants) {
+    if (attacker.artillery && attacker.artillery.phase !== 'deployed') continue;
     if (!attacker.health || !attacker.team) continue;
     if (attacker.playerControlled) continue; // brain bypassed; stepSim slews the turret to the crosshair
     const commandDrivenCombat = !sim.rules.autoCombat;
@@ -445,6 +447,7 @@ export function manualFireAt(
   lockHoldSeconds = 0,
 ): boolean {
   if (!attacker.team || attacker.destroyed) return false;
+  if (attacker.artillery && (attacker.artillery.phase !== 'deployed' || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)<75 || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)>430)) return false;
   const weapon = weaponForSlot(attacker, slot);
   if (!weapon) return false;
   const def = WEAPONS[weapon.kind as WeaponKind];
@@ -514,7 +517,7 @@ export function manualFireAt(
     weapon.cooldown = weaponCooldown(def.cooldown, attacker);
     return true;
   }
-  let target = lockedTarget ?? acquireLineTarget(
+  let target = attacker.artillery ? undefined : lockedTarget ?? acquireLineTarget(
     sim,
     attacker,
     weapon,

@@ -107,6 +107,7 @@ export class EnemyCommander {
     this.commandStrategicStrike();
     this.commandObjectives();
     this.commandSquads();
+    this.commandArtillery();
   }
 
   private aliveBuildings(): Entity[] {
@@ -250,12 +251,44 @@ export class EnemyCommander {
   private nextVehicleKind(count: number): UnitKind {
     // Hard reinforces with armor and siege fire instead of repeatedly filling
     // the front line with scouts after casualties reduce the unit count.
-    if (this.advancedTactics) return (['scout-tank', 'tank', 'siege-tank', 'tank', 'siege-tank', 'tank'] as UnitKind[])[count % 6];
-    return (['scout-tank', 'tank', 'tank', 'siege-tank', 'scout-tank', 'tank'] as UnitKind[])[count % 6];
+    if (this.advancedTactics) return (['scout-tank', 'tank', 'siege-tank', 'tank', 'artillery', 'tank'] as UnitKind[])[count % 6];
+    return (['scout-tank', 'tank', 'tank', 'siege-tank', 'artillery', 'tank'] as UnitKind[])[count % 6];
   }
 
   private nextInfantryKind(count: number): UnitKind {
     return (['infantry', 'grenadier', 'sniper', 'rocket-infantry', 'infantry', 'rocket-infantry'] as UnitKind[])[count % 6];
+  }
+
+  private commandArtillery():void {
+    const base=this.base(); if (!base) return;
+    const mine=this.myUnits(), guns=mine.filter(unit=>unit.artillery && !unit.playerControlled);
+    const squads=new Set(this.squads.flatMap(squad=>squad.units));
+    for (const escort of mine) if (escort.mover?.artilleryEscort && !guns.some(gun=>gun.id===escort.mover!.artilleryEscort)) escort.mover.artilleryEscort=undefined;
+    const targets=[...this.sim.world.entities].filter(unit=>!unit.destroyed && unit.health && unit.team && areTeamsHostile(this.sim,this.economy.team,unit.team.id) && !unit.flight && this.vision.isVisibleWorld(unit.transform.x,unit.transform.z)).sort((a,b)=>Number(Boolean(b.building))-Number(Boolean(a.building)) || a.id-b.id);
+    for (const gun of guns) {
+      const retreat=gun.health!.current/gun.health!.max<0.35;
+      const target=targets.find(unit=>Math.hypot(unit.transform.x-gun.transform.x,unit.transform.z-gun.transform.z)<=430) ?? targets[0];
+      const objective=target?.transform ?? this.scoutHints.find(hint=>hint.team!==this.economy.team);
+      gun.mover!.aggressive=true;
+      if (retreat) {
+        gun.artillery!.deploy=false;
+        if (!gun.mover!.target) issueMoveOrder(this.sim,[gun],base.transform.x,base.transform.z);
+      } else if (objective) {
+        gun.artillery!.deploy=true;
+        const distance=Math.hypot(objective.x-gun.transform.x,objective.z-gun.transform.z);
+        if ((distance>400 || distance<85) && !gun.mover!.target) {
+          const dx=objective.x-base.transform.x,dz=objective.z-base.transform.z,length=Math.hypot(dx,dz)||1;
+          const cell=this.sim.nav.nearestWalkableCellGlobal(objective.x-dx/length*300,objective.z-dz/length*300);
+          if (cell) { const point=this.sim.nav.cellCenter(cell.x,cell.y); issueMoveOrder(this.sim,[gun],point.x,point.z); }
+        }
+        if (target) gun.weapon!.targetId=target.id;
+      }
+      const escorts=mine.filter(unit=>!unit.artillery && !unit.flight && !unit.playerControlled && !unit.mover?.objectiveDuty && !squads.has(unit) && (!unit.mover!.artilleryEscort || unit.mover!.artilleryEscort===gun.id)).slice(0,2);
+      for (const escort of escorts) {
+        escort.mover!.artilleryEscort=gun.id; escort.mover!.aggressive=true;
+        if (Math.hypot(escort.transform.x-gun.transform.x,escort.transform.z-gun.transform.z)>35 && !escort.mover!.target) issueMoveOrder(this.sim,[escort],gun.transform.x+15,gun.transform.z+12);
+      }
+    }
   }
 
   private nextAircraftKind(count: number): UnitKind {
@@ -361,7 +394,7 @@ export class EnemyCommander {
       if (unit.mover?.objectiveDuty && !sites.some(site => site.id === unit.mover!.objectiveDuty)) unit.mover.objectiveDuty = undefined;
     }
     if (mine.filter(canCapture).length < 5 || !sites.length) return;
-    const detachment = mine.filter(unit => canCapture(unit) && !unit.playerControlled && !assigned.has(unit) && unit.health!.current / unit.health!.max >= 0.6).slice(0, 2);
+    const detachment = mine.filter(unit => canCapture(unit) && !unit.artillery && !unit.mover?.artilleryEscort && !unit.playerControlled && !assigned.has(unit) && unit.health!.current / unit.health!.max >= 0.6).slice(0, 2);
     for (const unit of detachment) {
       const site = sites.slice().sort((a,b) => Math.hypot(a.transform.x-unit.transform.x,a.transform.z-unit.transform.z)-Math.hypot(b.transform.x-unit.transform.x,b.transform.z-unit.transform.z) || a.id-b.id)[0];
       if (unit.mover!.objectiveDuty === site.id) continue;
@@ -382,7 +415,7 @@ export class EnemyCommander {
     const inSquads = new Set(this.squads.flatMap((squad) => squad.units));
     // Wounded reserves defend at home; they are not recycled into suicide waves.
     const idle = this.myUnits().filter((unit) => !unit.mover?.objectiveDuty && !inSquads.has(unit) && (unit.health?.current ?? 0) / (unit.health?.max ?? 1) >= 0.55).sort((a, b) => a.id - b.id);
-    const ground = idle.filter((unit) => !unit.flight);
+    const ground = idle.filter((unit) => !unit.flight && !unit.artillery && !unit.mover?.artilleryEscort);
     const air = idle.filter((unit) => !!unit.flight);
     this.reinforceRegroupingSquads(ground, air, base);
 

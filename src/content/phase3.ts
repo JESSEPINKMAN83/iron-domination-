@@ -22,6 +22,7 @@ export type UnitKind =
   | 'scout-tank'
   | 'tank'
   | 'siege-tank'
+  | 'artillery'
   | 'wasp'
   | 'vulture'
   | 'hammerhead';
@@ -297,6 +298,10 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     buildTime: 12,
     requires: 'factory',
     producer: 'vehicles',
+  },
+  artillery: {
+    kind:'artillery', label:'Field Artillery', role:'Deploy 15s · range 430 · minimum range 75 · pack 5s',
+    tab:'vehicles', cost:1100, buildTime:18, requires:'factory', producer:'vehicles',
   },
   wasp: {
     kind: 'wasp',

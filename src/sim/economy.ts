@@ -10,7 +10,7 @@ import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
 import { createStructureDamage } from './structureDamage';
 import type { GameSim } from './world';
-import { reserveUnitPosition, issueMoveOrder, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt } from './world';
+import { reserveUnitPosition, issueMoveOrder, spawnArtilleryAt, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt } from './world';
 
 export type UnitProducerType = 'infantry' | 'vehicles' | 'aircraft';
 export const MAX_PRODUCER_JOBS = 10;
@@ -727,6 +727,7 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
   if (kind === 'scout-tank') entity = spawnScoutTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash Jackal' : 'Jackal'} ${suffix}`, team);
   else if (kind === 'tank') entity = spawnTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash M-17' : 'M-17'} ${suffix}`, team);
   else if (kind === 'siege-tank') entity = spawnSiegeTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash Mauler' : 'Mauler'} ${suffix}`, team);
+  else if (kind === 'artillery') entity = spawnArtilleryAt(sim,pos.x,pos.z,`Field Artillery ${suffix}`,team);
   else if (kind === 'wasp') entity = spawnWaspAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Wasp' : 'Wasp'} ${suffix}`, team);
   else if (kind === 'vulture') entity = spawnVultureAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Vulture' : 'Vulture'} ${suffix}`, team);
   else if (kind === 'hammerhead') entity = spawnHammerheadAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Hammerhead' : 'Hammerhead'} ${suffix}`, team);
