@@ -9,6 +9,7 @@ import {
   BoxGeometry,
   CanvasTexture,
   CircleGeometry,
+  Color,
   CylinderGeometry,
   DoubleSide,
   DynamicDrawUsage,
@@ -586,6 +587,14 @@ export class UnitView {
   private readonly entities: Entity[] = [];
   private readonly teamMaterials: Record<FactionId, TeamMaterials>;
   private readonly friendlyGlow: FriendlyGlowMesh;
+  private readonly infantryMarkers = new InstancedMesh(
+    new RingGeometry(0.45, 1, 4),
+    new MeshBasicMaterial({ transparent:true, opacity:0.85, depthWrite:false, depthTest:true, toneMapped:false, side:DoubleSide }),
+    MAX_FRIENDLY_GLOWS,
+  );
+  private infantryMarkerCount = 0;
+  private readonly infantryMarkerTransform = new Object3D();
+  private readonly infantryMarkerColor = new Color();
   private readonly glowTransform = new Object3D();
   private readonly lowDetailMeshes: Record<FactionId, Record<LowDetailKind, LowDetailMesh>>;
   private readonly lowDetailTransform = new Object3D();
@@ -658,6 +667,10 @@ export class UnitView {
     this.group.add(this.batchLod.group);
     this.friendlyGlow = createFriendlyGlowMesh(factionId(localTeam));
     this.group.add(this.friendlyGlow.mesh);
+    this.infantryMarkers.count = 0;
+    this.infantryMarkers.frustumCulled = false;
+    this.infantryMarkers.instanceMatrix.setUsage(DynamicDrawUsage);
+    this.group.add(this.infantryMarkers);
     this.bikeDustMesh = createBikeDustMesh(hf.kind);
     this.group.add(this.bikeDustMesh);
     this.wreckMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1d1a16, roughness: 1, metalness: 0.05 }));
@@ -1026,8 +1039,10 @@ export class UnitView {
     this.cameraCulling.update(camera);
     this.visualFrame++;
     this.batchLod.begin();
+    this.infantryMarkerCount = 0;
     if (this.visualQuality >= 2) {
       this.updateLowDetail(alpha, dt, camera);
+      this.finishInfantryMarkers();
       this.batchLod.end();
       this.syncOverlayAttachment();
       return;
@@ -1076,6 +1091,7 @@ export class UnitView {
       }
       if (entity.infantryStance) y += entity.infantryStance.height - entity.infantryStance.crouch * 0.6;
       obj.position.set(x, y, z);
+      this.updateInfantryMarker(entity, x, y, z, camera);
       obj.rotation.y = rot;
       if (updateDetails && !entity.destroyed) this.updateFriendlyGlow(entity, x, y, z, glowTime);
       this.applyPose(entity, obj, dt, alpha);
@@ -1132,6 +1148,7 @@ export class UnitView {
       this.updateBikeDust(dt * detailInterval);
     }
     this.batchLod.end();
+    this.finishInfantryMarkers();
     this.syncOverlayAttachment();
   }
 
@@ -1249,6 +1266,7 @@ export class UnitView {
         this.addLowDetailInstance(entity, x, y, z, rot, terrainAttitude);
       }
       ring.position.set(x, groundY + 0.08, z);
+      this.updateInfantryMarker(entity, x, y, z, camera);
       ring.visible = this.selectionOverlayVisible && !entity.destroyed && selected;
       ring.scale.setScalar(1);
       this.updateHealthBar(entity, x, y, z, camera, true);
@@ -1334,6 +1352,29 @@ export class UnitView {
     this.glowTransform.updateMatrix();
     this.friendlyGlow.mesh.setMatrixAt(this.friendlyGlow.count, this.glowTransform.matrix);
     this.friendlyGlow.count++;
+  }
+
+  private updateInfantryMarker(entity: Entity, x: number, y: number, z: number, camera: Camera): void {
+    if (!this.selectionOverlayVisible || entity.destroyed || entity.selectable?.type !== 'infantry' || this.infantryMarkerCount >= MAX_FRIENDLY_GLOWS) return;
+    const distance = Math.hypot(x-camera.position.x, y-camera.position.y, z-camera.position.z);
+    // A small, stable faction diamond remains readable at the new overview zoom.
+    // Respect normal visibility/depth: no markers through fog or buildings.
+    if (distance < 60) return;
+    const radius = Math.min(3.8, Math.max(0.65, distance * 0.006));
+    this.infantryMarkerTransform.position.set(x, y + 3.5 + radius, z);
+    this.infantryMarkerTransform.quaternion.copy(camera.quaternion);
+    this.infantryMarkerTransform.scale.setScalar(radius);
+    this.infantryMarkerTransform.updateMatrix();
+    const index = this.infantryMarkerCount++;
+    this.infantryMarkers.setMatrixAt(index, this.infantryMarkerTransform.matrix);
+    this.infantryMarkerColor.set(entity.team?.id === this.localTeam ? '#a5ebcf' : FACTION[factionId(entity.team?.id)].lightBar);
+    this.infantryMarkers.setColorAt(index, this.infantryMarkerColor);
+  }
+
+  private finishInfantryMarkers(): void {
+    this.infantryMarkers.count = this.infantryMarkerCount;
+    this.infantryMarkers.instanceMatrix.needsUpdate = true;
+    if (this.infantryMarkers.instanceColor) this.infantryMarkers.instanceColor.needsUpdate = true;
   }
 
   private updateUpgradeVisuals(entity: Entity): void {
