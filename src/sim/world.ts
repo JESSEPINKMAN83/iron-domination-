@@ -363,7 +363,7 @@ export function spawnSiegeTankAt(sim: GameSim, x: number, z: number, name: strin
 
 export function spawnArtilleryAt(sim: GameSim, x: number, z: number, name: string, team=1): Entity {
   const gun=spawnTankVariantAt(sim,x,z,name,team,{
-    primary:'siegeShell',primaryRange:430,health:125,speed:10,radius:2.8,turretRate:1.4,vision:430,
+    primary:'siegeShell',primaryRange:300,health:125,speed:10,radius:2.8,turretRate:1.4,vision:300,
   });
   gun.artillery={phase:'mobile',elapsed:0,deploy:false};
   gun.armor={kind:'light'};

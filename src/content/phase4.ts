@@ -201,10 +201,10 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     projectile: { kind: 'artilleryShell', speed: 150, trajectory: 'arc', impactRadius: 3.2 },
   },
   siegeShell: {
-    kind:'siegeShell', label:'155mm Long-Range HE', damage:112, cooldown:8.5, range:430, minRange:75,
-    splashRadius:10, targetTypes:['infantry','light','heavy','building'],
+    kind:'siegeShell', label:'Heavy Siege Warhead', damage:180, cooldown:10, range:300, minRange:75,
+    splashRadius:14, targetTypes:['infantry','light','heavy','building'],
     vs:{infantry:0.85,light:1,heavy:0.85,building:1.05,air:0},
-    projectile:{kind:'artilleryShell',speed:110,trajectory:'arc',impactRadius:3.8},
+    projectile:{kind:'artilleryShell',speed:75,trajectory:'arc',impactRadius:5},
   },
   tankBomb: {
     kind: 'tankBomb',

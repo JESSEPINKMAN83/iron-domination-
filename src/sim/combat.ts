@@ -447,7 +447,7 @@ export function manualFireAt(
   lockHoldSeconds = 0,
 ): boolean {
   if (!attacker.team || attacker.destroyed) return false;
-  if (attacker.artillery && (attacker.artillery.phase !== 'deployed' || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)<75 || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)>430)) return false;
+  if (attacker.artillery && (attacker.artillery.phase !== 'deployed' || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)<75 || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)>300)) return false;
   const weapon = weaponForSlot(attacker, slot);
   if (!weapon) return false;
   const def = WEAPONS[weapon.kind as WeaponKind];
@@ -810,12 +810,13 @@ function launchWeaponProjectile(
     speed,
     damageScale: isLocked ? Math.min(1, damageScale) * LOCKED_MISSILE_DAMAGE_SCALE : damageScale,
     forceScale: isLocked ? Math.min(1, forceScale) * LOCKED_MISSILE_FORCE_SCALE : forceScale,
-    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale,
+    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale * (def.kind==='siegeShell'?1.7:1),
     manualAim: Boolean(attacker.playerControlled),
     maxDistance: projectileDef.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
     directTargetId: target?.id,
     trajectory,
     homing,
+    strategicLift:def.kind==='siegeShell'?110:undefined,
     teamId: attacker.team.id,
     attackerId: attacker.id,
   });
@@ -842,8 +843,9 @@ function launchWeaponProjectile(
     damage: 0,
     killed: false,
     duration,
-    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale,
+    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale * (def.kind==='siegeShell'?1.7:1),
     trajectory,
+    strategicLift:def.kind==='siegeShell'?110:undefined,
     homingSpeed: homing?.speed,
     homingTurnRate: homing?.turnRate,
   });

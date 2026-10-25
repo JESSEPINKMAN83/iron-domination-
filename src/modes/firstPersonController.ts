@@ -1,5 +1,5 @@
 import { buildInfantryWeapon } from '../render/infantryWeapon';
-import { artilleryStatus, setArtilleryDeployment } from '../sim/artillery';
+import { artilleryStatus, artilleryProbeProgress, ARTILLERY_RANGE, ARTILLERY_PROBE_HEIGHT, setArtilleryDeployment } from '../sim/artillery';
 import { Group, MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
@@ -715,12 +715,6 @@ export class FirstPersonController {
   }
 
   private poseFor(entity: Entity, yaw: number, pitch: number, fov: number, alpha: number, dt: number): CameraPose {
-    if (entity.artillery) {
-      const target=this.artilleryTarget(entity,yaw,pitch);
-      this.tmpAimTarget.copy(target);
-      const position=target.clone().add(new Vector3(-Math.sin(yaw)*65,125,-Math.cos(yaw)*65).multiplyScalar(this.zoomScale()));
-      return this.lookPose(position,target,this.zoomedFov(50));
-    }
     if (entity.flight) return this.flightPoseFor(entity, yaw, pitch, fov, alpha, dt);
     if (isFortressTower(entity)) return this.fortressPoseFor(entity, yaw, pitch);
     if (this.isSniperScoped(entity)) return this.sniperPoseFor(entity, yaw, pitch);
@@ -746,7 +740,16 @@ export class FirstPersonController {
     const terrainAim = this.rayTerrainPoint(position, this.tmpForward, this.hf.size * 1.6);
     if (terrainAim) this.tmpAimTarget.copy(terrainAim);
     else this.tmpAimTarget.copy(position).addScaledVector(this.tmpForward, this.hf.size * 1.5);
-    return this.lookPose(position, this.tmpCameraTarget, fov);
+    const groundPose=this.lookPose(position, this.tmpCameraTarget, fov);
+    if (!entity.artillery) return groundPose;
+    const probe=artilleryProbeProgress(entity);
+    if (probe<=0) return groundPose;
+    const target=this.artilleryTarget(entity,yaw,pitch);
+    this.tmpAimTarget.copy(target);
+    // The observer stays above its own launcher: it cannot roam across the map.
+    const probePosition=new Vector3(center.x,groundY+ARTILLERY_PROBE_HEIGHT,center.z);
+    const observer=this.lookPose(probePosition,target,MathUtils.clamp(50+this.renderChaseZoom*3,42,56));
+    return lerpPose(groundPose,observer,probe*probe*(3-2*probe));
   }
 
   private fortressPoseFor(entity: Entity, yaw: number, pitch: number): CameraPose {
@@ -1210,7 +1213,7 @@ export class FirstPersonController {
     if (this.possessed.artillery) {
       const target=this.artilleryTarget(this.possessed,this.lookYaw,this.lookPitch);
       const range=Math.hypot(target.x-this.possessed.transform.x,target.z-this.possessed.transform.z);
-      this.abilityHud.textContent=`${artilleryStatus(this.possessed)} · RANGE ${Math.round(range)} / 430 · F ${this.possessed.artillery.deploy?'PACK':'DEPLOY'} · MOUSE/Q/E AIM · LMB FIRE`;
+      this.abilityHud.textContent=this.possessed.artillery.phase==='mobile'?'MOBILE / UNARMED · W/S DRIVE · A/D TURN · F DEPLOY':`${artilleryStatus(this.possessed)} · PROBE RADIUS ${Math.round(range)} / ${ARTILLERY_RANGE} · F ${this.possessed.artillery.deploy?'PACK':'DEPLOY'} · MOUSE/Q/E AIM · LMB FIRE`;
       this.abilityHud.style.display='block'; this.abilityHud.style.color='#b7ebd4';
       this.abilityHud.style.maxWidth='calc(100vw - 40px)'; this.abilityHud.style.whiteSpace='normal';
       return;
@@ -1279,7 +1282,7 @@ export class FirstPersonController {
   }
 
   private artilleryTarget(entity:Entity,yaw:number,pitch:number):Vector3 {
-    const range=MathUtils.lerp(78,425,MathUtils.clamp((pitch+0.9)/1.5,0,1));
+    const range=MathUtils.lerp(78,ARTILLERY_RANGE-2,MathUtils.clamp((pitch+0.9)/1.5,0,1));
     const bound=this.hf.size*0.5-4;
     const x=MathUtils.clamp(entity.transform.x+Math.sin(yaw)*range,-bound,bound);
     const z=MathUtils.clamp(entity.transform.z+Math.cos(yaw)*range,-bound,bound);

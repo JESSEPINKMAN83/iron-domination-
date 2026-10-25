@@ -4,7 +4,7 @@ import { UNITS } from '../content/phase3';
 import { generateHeightfield } from './heightfield';
 import { createGameSim,spawnArtilleryAt,spawnTankAt,stepSim,hashSim,issueMoveOrder } from './world';
 import { manualFireAt,stepCombat } from './combat';
-import { setArtilleryDeployment } from './artillery';
+import { artilleryProbeProgress, setArtilleryDeployment } from './artillery';
 import { loadSerializedSim,serializeSim } from './serialize';
 import { createEconomy,createInitialBase } from './economy';
 import { VisibilityGrid } from './visibility';
@@ -19,6 +19,13 @@ function fixture(team=1, deploy=true) {
 }
 
 describe('deployable artillery',()=>{
+  it('launches the observer only after stabilizers and recalls it when packing',()=>{
+    const {gun,tick}=fixture();tick(180);expect(artilleryProbeProgress(gun)).toBe(0);
+    tick(60);expect(artilleryProbeProgress(gun)).toBeCloseTo(0.5);
+    tick(60);expect(artilleryProbeProgress(gun)).toBe(1);
+    setArtilleryDeployment(gun,false);tick(75);expect(artilleryProbeProgress(gun)).toBeCloseTo(0.5);
+    tick(75);expect(artilleryProbeProgress(gun)).toBe(0);
+  });
   it.each([1,2])('requires the complete 10-second setup for army %s',team=>{
     const {sim,gun,tick}=fixture(team);
     expect(UNITS.artillery.doctrine).toBeUndefined();
@@ -28,14 +35,14 @@ describe('deployable artillery',()=>{
     tick(1); expect(gun.artillery!.phase).toBe('deployed');
     gun.turret!.yaw=0;
     expect(manualFireAt(sim,gun,0,250)).toBe(true);
-    expect(gun.weapon!.cooldown).toBe(8.5);
+    expect(gun.weapon!.cooldown).toBe(10);
     expect(manualFireAt(sim,gun,0,250)).toBe(false);
   });
 
   it('rejects close targets and shots beyond its maximum range',()=>{
     const {sim,gun,tick}=fixture(); tick(300);
     expect(manualFireAt(sim,gun,0,40)).toBe(false);
-    expect(manualFireAt(sim,gun,0,440)).toBe(false);
+    expect(manualFireAt(sim,gun,0,310)).toBe(false);
     expect(sim.projectiles).toHaveLength(0);
     expect(gun.weapon!.cooldown).toBe(0);
   });
@@ -80,6 +87,8 @@ describe('deployable artillery',()=>{
     const hp=target.health!.current;gun.turret!.yaw=0;
     expect(manualFireAt(sim,gun,0,250)).toBe(true);
     expect(sim.projectiles[0].trajectory).toBe('arc');
+    expect(sim.projectiles[0].strategicLift).toBe(110);
+    expect(sim.projectiles[0].impactScale).toBeGreaterThan(1.5);
     for(let i=0;i<300;i++)stepCombat(sim,1/30,{autoFire:false});
     expect(target.health!.current).toBeLessThan(hp-50);
     expect(gun.health!.max).toBe(125);

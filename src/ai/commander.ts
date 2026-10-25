@@ -267,7 +267,7 @@ export class EnemyCommander {
     const targets=[...this.sim.world.entities].filter(unit=>!unit.destroyed && unit.health && unit.team && areTeamsHostile(this.sim,this.economy.team,unit.team.id) && !unit.flight && this.vision.isVisibleWorld(unit.transform.x,unit.transform.z)).sort((a,b)=>Number(Boolean(b.building))-Number(Boolean(a.building)) || a.id-b.id);
     for (const gun of guns) {
       const retreat=gun.health!.current/gun.health!.max<0.35;
-      const target=targets.find(unit=>Math.hypot(unit.transform.x-gun.transform.x,unit.transform.z-gun.transform.z)<=430) ?? targets[0];
+      const target=targets.find(unit=>Math.hypot(unit.transform.x-gun.transform.x,unit.transform.z-gun.transform.z)<=300) ?? targets[0];
       const objective=target?.transform ?? this.scoutHints.find(hint=>hint.team!==this.economy.team);
       gun.mover!.aggressive=true;
       if (retreat) {
@@ -276,10 +276,10 @@ export class EnemyCommander {
       } else if (objective) {
         gun.artillery!.deploy=true;
         const distance=Math.hypot(objective.x-gun.transform.x,objective.z-gun.transform.z);
-        if ((distance>400 || distance<85) && !gun.mover!.target) {
+        if ((distance>280 || distance<85) && !gun.mover!.target) {
           gun.artillery!.deploy=false;
           const dx=objective.x-base.transform.x,dz=objective.z-base.transform.z,length=Math.hypot(dx,dz)||1;
-          const cell=this.sim.nav.nearestWalkableCellGlobal(objective.x-dx/length*300,objective.z-dz/length*300);
+          const cell=this.sim.nav.nearestWalkableCellGlobal(objective.x-dx/length*220,objective.z-dz/length*220);
           if (cell) { const point=this.sim.nav.cellCenter(cell.x,cell.y); issueMoveOrder(this.sim,[gun],point.x,point.z); }
         }
         if (gun.mover!.target) gun.artillery!.deploy=false;

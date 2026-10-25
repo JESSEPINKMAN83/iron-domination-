@@ -300,7 +300,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     producer: 'vehicles',
   },
   artillery: {
-    kind:'artillery', label:'Field Artillery', role:'Deploy 10s · stationary fire · range 75–430 · pack 5s',
+    kind:'artillery', label:'Field Artillery', role:'Deploy 10s · stationary fire · range 75–300 · pack 5s',
     tab:'vehicles', cost:1100, buildTime:18, requires:'factory', producer:'vehicles',
   },
   wasp: {

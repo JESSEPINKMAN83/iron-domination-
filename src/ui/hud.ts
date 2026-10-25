@@ -309,6 +309,20 @@ export class Hud {
     }
     updateReticleReloadNode(this.reticle, 'primary', primary?.kind, primary?.cooldown ?? 0);
     updateReticleReloadNode(this.reticle, 'secondary', secondary?.kind, secondary?.cooldown ?? 0);
+    const gun=this.firstPersonEntity.artillery;
+    this.reticle.style.visibility=gun && gun.phase!=='deployed'?'hidden':'visible';
+    if (gun) {
+      const headline=this.modeBanner.firstElementChild;
+      if (headline) headline.textContent=gun.phase==='mobile'?'ARTILLERY TRANSPORT · UNARMED':gun.phase==='deployed'?'CAMERA PROBE · 300m FIRE ZONE':'ARTILLERY DEPLOYMENT';
+      const subtitle=this.modeBanner.lastElementChild;
+      if (subtitle) subtitle.textContent=gun.phase==='mobile'?'W/S DRIVE · A/D STEER · F DEPLOY · V EXIT':gun.phase==='deployed'?'MOUSE / Q / E AIM · LMB HEAVY WARHEAD · F RECALL PROBE':'STABILIZERS / CAMERA PROBE TRANSITION · WEAPON LOCKED';
+      if (gun.phase!=='deployed') {
+        const label=this.weaponFrame.querySelector<HTMLElement>('[data-reload-label="primary"]');
+        const bar=this.weaponFrame.querySelector<HTMLElement>('[data-reload-bar="primary"]');
+        if (label) label.textContent=gun.phase==='mobile'?'HEAVY WEAPON STOWED · F TO DEPLOY':'HEAVY WEAPON LOCKED · SETUP / PACKING';
+        if (bar) bar.style.width='0%';
+      }
+    }
   }
 
   private updateReticleWeaponReadiness(): void {

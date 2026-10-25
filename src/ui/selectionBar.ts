@@ -349,7 +349,7 @@ export class SelectionBar {
       deploy.textContent=packing?'Packing…':guns.every(gun=>gun.artillery!.phase==='deploying')?'Cancel setup':active?'Pack & move':'Deploy · 10s';
       deploy.disabled=packing;
       deploy.style.cssText='padding:8px 12px;border:1px solid #78b99e;border-radius:6px;background:#264339;color:#c5efdd;font:600 11px system-ui;white-space:nowrap;cursor:pointer';
-      deploy.title='Deploy for 10 seconds to fire. The gun stays locked in place until you pack it for 5 seconds. Range: 75–430.';
+      deploy.title='Deploy for 10 seconds to fire. The gun stays locked in place until you pack it for 5 seconds. Range: 75–300.';
       deploy.onclick=()=>this.actions.deployArtillery!(guns,!active);
       actions.append(status,deploy);
     }

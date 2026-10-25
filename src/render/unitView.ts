@@ -1,5 +1,5 @@
 import { legacyModelPreview } from './codeRedPreview';
-import { ARTILLERY_DEPLOY_SECONDS, ARTILLERY_PACK_SECONDS } from '../sim/artillery';
+import { artilleryProbeProgress, ARTILLERY_PROBE_HEIGHT, ARTILLERY_DEPLOY_SECONDS, ARTILLERY_PACK_SECONDS } from '../sim/artillery';
 import { nationForTeam } from '../content/nations';
 import { createCodeRedVehicle } from './codeRedModels';
 import { UnitBatchLod } from './unitBatchLod';
@@ -72,6 +72,7 @@ interface TeamMaterials {
 }
 
 interface UnitRefs {
+  artilleryProbe?:Group;
   artilleryBraces?:Object3D[];
   launchAge?:number;
   turretPivot?: Object3D;
@@ -783,6 +784,11 @@ export class UnitView {
     }
     const unit = built.root;
     if (entity.artillery) {
+      const probe=new Group();
+      const body=new Mesh(sharedCylinderGeometry(0.12,0.55,3.5,6),this.gunmetalMaterial);
+      const fins=new Mesh(sharedBoxGeometry(2.1,0.2,0.8),materials.lightBar);fins.position.y=-1.2;
+      const trail=new Mesh(sharedCylinderGeometry(0.15,0.03,6,5),this.muzzleMaterial);trail.position.y=-4.2;trail.name='probeExhaust';
+      probe.add(body,fins,trail);probe.visible=false;this.group.add(probe);built.refs.artilleryProbe=probe;
       built.refs.artilleryBraces=[];
       for (const side of [-1,1]) for (const z of [-1.9,1.9]) {
         const brace=new Mesh(sharedBoxGeometry(3.4,0.3,0.5),this.gunmetalMaterial);
@@ -873,6 +879,8 @@ export class UnitView {
    * shared materials are module/instance-owned and NOT disposed here.
    */
   private removeEntity(entity: Entity): void {
+    const probe=this.refs.get(entity)?.artilleryProbe;
+    if (probe) this.group.remove(probe);
     const obj = this.objects.get(entity);
     if (obj) {
       this.group.remove(obj);
@@ -1049,6 +1057,16 @@ export class UnitView {
       }
     }
     this.cameraCulling.update(camera);
+    for (const entity of this.entities) {
+      const probe=this.refs.get(entity)?.artilleryProbe;
+      if (!probe) continue;
+      const progress=artilleryProbeProgress(entity);
+      probe.visible=progress>0 && !entity.destroyed && (entity.team?.id===this.localTeam || this.isVisible(entity.transform.x,entity.transform.z));
+      if (!probe.visible) continue;
+      probe.position.set(entity.transform.x,sampleHeight(this.hf,entity.transform.x,entity.transform.z)+3+progress*ARTILLERY_PROBE_HEIGHT,entity.transform.z);
+      const exhaust=probe.getObjectByName('probeExhaust');
+      if (exhaust) exhaust.visible=entity.artillery!.phase==='deploying';
+    }
     this.visualFrame++;
     this.batchLod.begin();
     this.infantryMarkerCount = 0;
