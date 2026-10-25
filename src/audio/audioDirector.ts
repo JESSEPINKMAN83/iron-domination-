@@ -1031,7 +1031,7 @@ export class AudioDirector {
       this.playCannon(event);
       return;
     }
-    if (event.kind === 'cannon' || event.kind === 'heavyCannon') {
+    if (event.kind === 'cannon' || event.kind === 'heavyCannon' || event.kind === 'siegeShell') {
       this.playCannon(event);
       return;
     }
@@ -1364,7 +1364,7 @@ export class AudioDirector {
   }
 
   private playCannon(event: CombatEvent): void {
-    const heavy = event.kind === 'heavyCannon';
+    const heavy = event.kind === 'heavyCannon' || event.kind === 'siegeShell';
     const auto = event.kind === 'autocannon' || event.kind === 'waspAutocannon' || event.kind === 'skylanceGun';
     const profile = combatProfile({ gain: heavy ? 0.3 : auto ? 0.12 : 0.24, near: 24, far: heavy ? 330 : 260 }, event);
     if (!this.allowSoundAt(event.kind, event.fromX, event.fromZ, profile, auto ? 0.042 : 0.1)) return;

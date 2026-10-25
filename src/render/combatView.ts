@@ -1865,6 +1865,7 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
     bandWidth: 0.2, glowRadius: 0.9, fins: 4, finThickness: 0.13, finLength: 1.45, finWidth: 1.2,
     segments: 16, scale: 1.25,
   };
+  if (weaponKind==='siegeShell') return {...base,bodyRadius:0.45,bodyLength:3.6,noseLength:0.9,fins:4,scale:1.8,glowOpacity:0.65,glowRadius:0.7};
   return projectileKind === 'tankBomb' ? { ...base, bodyRadius: 0.4, bodyLength: 2.3, scale: 2.2 } : base;
 }
 

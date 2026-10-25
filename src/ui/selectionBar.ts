@@ -1,4 +1,5 @@
 import { objectiveStatus } from './objectiveStatus';
+import { artilleryStatus, ARTILLERY_DEPLOY_SECONDS, ARTILLERY_PACK_SECONDS } from '../sim/artillery';
 import { CAPTURE_TICKS, OBJECTIVE_INFO } from '../sim/objectives';
 import { armyName } from '../content/nations';
 import { codeRedIconPath } from './codeRedIcons';
@@ -80,6 +81,7 @@ export class SelectionBar {
       upgradeDefense?: (entity: Entity) => { ok: boolean; reason: string };
       setFormation?: (entities: Entity[], preset: FormationPreset) => void;
       setAggressive?: (entities: Entity[], enabled: boolean) => void;
+      deployArtillery?: (entities:Entity[], deploy:boolean)=>void;
       openTacticPlanner?: (entities: Entity[]) => void;
       strategic?: {
         economy: EconomyState;
@@ -205,11 +207,29 @@ export class SelectionBar {
     this.syncWorldUpgradeButtons(selected);
     const groups = selectionGroups(selected);
     const siloSelected = selected.length === 1 && selected[0].building?.kind === 'strategic-silo' && this.actions.strategic;
-    const key = selectionGroupsKey(groups) + selected.map((unit) => `|a:${unit.id}:${Boolean(unit.mover?.aggressive)}:${unit.mover?.formationPreset}|d:${defenseLevel(unit)}:${this.actions.credits() >= defenseUpgradeCost(unit)}:${unit.building?.complete}`).join('') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
+    const key = selectionGroupsKey(groups) + selected.map((unit) => `|a:${unit.id}:${Boolean(unit.mover?.aggressive)}:${unit.mover?.formationPreset}|d:${defenseLevel(unit)}:${this.actions.credits() >= defenseUpgradeCost(unit)}:${unit.building?.complete}|gun:${unit.artillery?.phase}:${unit.artillery?.deploy}`).join('') + (siloSelected ? `|strategic:${this.strategicStateKey()}` : '');
     if (key !== this.lastKey) {
       this.lastKey = key;
       if (siloSelected) this.renderStrategicSilo(groups[0], selected[0]);
       else this.render(groups, selected.length);
+    }
+    const guns=selected.filter(unit=>unit.artillery);
+    const gunLabel=this.root.querySelector<HTMLElement>('[data-artillery-status]');
+    const gunHint=this.root.querySelector<HTMLElement>('[data-artillery-hint]');
+    const gunBar=this.root.querySelector<HTMLElement>('[data-artillery-progress]');
+    if (guns.length && gunLabel && gunHint && gunBar) {
+      const phase=guns[0].artillery!.phase;
+      const mixed=guns.some(unit=>unit.artillery!.phase!==phase);
+      const ready=guns.filter(unit=>unit.artillery!.phase==='deployed').length;
+      const duration=phase==='packing'?ARTILLERY_PACK_SECONDS:ARTILLERY_DEPLOY_SECONDS;
+      const elapsed=Math.min(...guns.map(unit=>unit.artillery!.elapsed));
+      const progress=mixed?ready/guns.length:phase==='deployed'?1:phase==='mobile'?0:Math.min(1,elapsed/duration);
+      gunLabel.textContent=mixed?`${ready}/${guns.length} DEPLOYED · MIXED BATTERY`:artilleryStatus(guns[0]);
+      gunLabel.style.color=phase==='deployed'&&!mixed?'#a5ebcf':'#e4c781';
+      gunHint.textContent=mixed?'Select one gun to inspect its status':phase==='deployed'?'Cannot move · pack first to reposition':phase==='mobile'?'Can move · deploy to enable firing':phase==='deploying'?'Setting stabilizers · cannot move or fire':'Stowing gun · movement unlocks when complete';
+      gunBar.style.width=`${progress*100}%`;
+      gunBar.parentElement!.setAttribute('aria-valuenow',String(Math.round(progress*100)));
+      gunBar.parentElement!.setAttribute('aria-valuetext',gunLabel.textContent);
     }
     for (const [index, group] of groups.entries()) {
       const row = this.root.querySelector<HTMLElement>(`[data-order-group="${index}"]`);
@@ -315,6 +335,24 @@ export class SelectionBar {
     this.root.append(header, grid);
     const actions = document.createElement('div');
     actions.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:8px;';
+    const guns=fighters.filter(unit=>unit.artillery);
+    if (guns.length && this.actions.deployArtillery) {
+      const status=document.createElement('div');status.style.cssText='margin-right:auto;min-width:0;flex:1;font-size:10px;max-width:300px';
+      const label=document.createElement('div');label.dataset.artilleryStatus='';label.style.cssText='font-weight:700;letter-spacing:.04em';
+      const track=document.createElement('div');track.setAttribute('role','progressbar');track.setAttribute('aria-label','Artillery deployment');track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.style.cssText='height:4px;margin:5px 0;background:#344139;border-radius:2px;overflow:hidden';
+      const fill=document.createElement('div');fill.dataset.artilleryProgress='';fill.style.cssText='height:100%;width:0;background:#9de5c4;transition:width .1s linear';track.append(fill);
+      const hint=document.createElement('div');hint.dataset.artilleryHint='';hint.style.cssText='font-size:9px;color:#aebcb4;line-height:1.3';
+      status.append(label,track,hint);
+      const deploy=document.createElement('button');
+      const active=guns.some(gun=>gun.artillery!.deploy);
+      const packing=guns.every(gun=>gun.artillery!.phase==='packing');
+      deploy.textContent=packing?'Packing…':guns.every(gun=>gun.artillery!.phase==='deploying')?'Cancel setup':active?'Pack & move':'Deploy · 10s';
+      deploy.disabled=packing;
+      deploy.style.cssText='padding:8px 12px;border:1px solid #78b99e;border-radius:6px;background:#264339;color:#c5efdd;font:600 11px system-ui;white-space:nowrap;cursor:pointer';
+      deploy.title='Deploy for 10 seconds to fire. The gun stays locked in place until you pack it for 5 seconds. Range: 75–300.';
+      deploy.onclick=()=>this.actions.deployArtillery!(guns,!active);
+      actions.append(status,deploy);
+    }
     if (fighters.length > 1 && this.actions.setFormation) {
       const dropdown = document.createElement('div');
       dropdown.className = 'game-formation-dropdown';
@@ -769,7 +807,7 @@ export class SelectionBar {
     icon.append(fallback, img, badge(`×${group.entities.length}`, active));
     const topRank = Math.max(0, ...group.entities.map((entity) => entity.combatRank?.rank ?? 0));
     if (topRank > 0) icon.appendChild(rankChevronBadge(topRank));
-    if (group.unitKind) icon.appendChild(this.upgradeButton(group));
+    if (group.unitKind && upgradeOptionsForKind(group.unitKind).length) icon.appendChild(this.upgradeButton(group));
 
     const copy = document.createElement('div');
     copy.className = 'game-unit-card__copy';
@@ -888,7 +926,7 @@ export class SelectionBar {
   }
 
   private syncWorldUpgradeButtons(selected: Entity[]): void {
-    const upgradeable = selected.filter((entity) => unitKindForUpgrade(entity) !== undefined);
+    const upgradeable = selected.filter((entity) => { const kind=unitKindForUpgrade(entity); return kind !== undefined && upgradeOptionsForKind(kind).length>0; });
     const activeIds = new Set(upgradeable.map((entity) => entity.id));
     for (const [id, button] of this.worldButtons) {
       if (activeIds.has(id)) continue;

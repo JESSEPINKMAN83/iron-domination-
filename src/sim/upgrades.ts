@@ -112,6 +112,7 @@ export const UNIT_UPGRADES: Record<UnitUpgradeId, UnitUpgradeDef> = {
 };
 
 const OPTIONS_BY_KIND: Record<UnitKind, UnitUpgradeId[]> = {
+  artillery:[],
   infantry: ['combat-bike', 'tesla-dart'],
   grenadier: ['combat-bike', 'cluster-satchel'],
   sniper: ['combat-bike', 'rail-lance'],
@@ -149,6 +150,7 @@ export function specialUpgradeForEntity(entity: Entity | undefined): UnitUpgrade
 }
 
 export function unitKindForUpgrade(entity: Entity): UnitKind | undefined {
+  if (entity.artillery) return 'artillery';
   if (entity.building) return undefined;
   const name = (entity.name ?? '').toLowerCase();
   const weapon = entity.weapon?.kind;

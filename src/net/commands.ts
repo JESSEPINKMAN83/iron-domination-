@@ -1,4 +1,5 @@
 import { secureRandomUuid } from '../crypto';
+import { setArtilleryDeployment } from '../sim/artillery';
 import type { StructureKind, UnitKind } from '../content/phase3';
 import { isFortressTower } from '../content/fortress';
 import type { Entity } from '../sim/components';
@@ -62,6 +63,7 @@ export type NetCommand =
   | { type: 'rally'; producerId: number; x: number; z: number }
   | { type: 'upgrade-units'; ids: number[]; upgradeId: UnitUpgradeId }
   | { type: 'upgrade-defense'; id: number; expectedLevel: number }
+  | { type:'artillery-deploy'; ids:number[]; deploy:boolean }
   | { type: 'upgrade-strategic'; upgrade: 'accuracy' | 'warhead' | 'ember-quantity' | 'ember-warhead' }
   | { type: 'launch-strategic'; weapon: 'missile' | 'ember'; enemyTeam: number; x: number; z: number }
   | {
@@ -564,6 +566,8 @@ export class LockstepRuntime {
       setFormationPreset(this.options.sim, ownedEntities(this.options.sim, command.ids, team), command.preset, command.facing);
     } else if (command.type === 'aircraft-altitude') {
       adjustAircraftAltitude(ownedEntities(this.options.sim, command.ids, team), command.delta);
+    } else if (command.type === 'artillery-deploy') {
+      for (const gun of ownedEntities(this.options.sim,command.ids,team)) setArtilleryDeployment(gun,command.deploy);
     } else if (command.type === 'set-aggressive') {
       setAggressiveMode(ownedEntities(this.options.sim, command.ids, team), command.enabled === true);
     } else if (command.type === 'stop') {

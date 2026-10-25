@@ -59,6 +59,7 @@ export interface TacticPlan {
 }
 
 export interface Mover {
+  artilleryEscort?:number;
   /** Ground detachment assigned to a public capture site by its commander. */
   objectiveDuty?: number;
   speed: number;
@@ -252,6 +253,7 @@ export interface ProductionJob {
 }
 
 export interface Entity {
+  artillery?: { phase:'mobile'|'deploying'|'deployed'|'packing'; elapsed:number; deploy:boolean };
   campaign?: import('../campaign/firstLight').CampaignState;
   id: number;
   name?: string;

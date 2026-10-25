@@ -41,6 +41,7 @@ function playerPrimaryScales(kind: WeaponKind): PlayerFireScales {
     case 'cannon':
       return { speed: 1.18, damage: 1, force: 1.42, impact: 1.28 };
     case 'heavyCannon':
+    case 'siegeShell':
       return { speed: 1, damage: 1, force: 1.62, impact: 1.55 };
     case 'rocketPod':
       return { speed: 1.18, damage: 1.08, force: 1.18, impact: 1.2 };
@@ -106,6 +107,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     (entity) => weaponSlots(entity).length > 0 && entity.health && entity.team && !entity.destroyed,
   );
   for (const attacker of combatants) {
+    if (attacker.artillery && attacker.artillery.phase !== 'deployed') continue;
     if (!attacker.health || !attacker.team) continue;
     if (attacker.playerControlled) continue; // brain bypassed; stepSim slews the turret to the crosshair
     const commandDrivenCombat = !sim.rules.autoCombat;
@@ -400,8 +402,12 @@ export function issueAttackOrder(sim: GameSim, attackers: Entity[], target: Enti
       weaponSlots(attacker).some((weapon) => isWeaponTargetable(sim, attacker, weapon, target)),
   );
   if (eligible.length === 0) return false;
-  const destination = attackStandoffPoint(sim, eligible, target);
-  if (!issueMoveOrder(sim, eligible, destination.x, destination.z, true)) return false;
+  // Deployed guns accept fire orders without packing or moving to standoff.
+  const mobile = eligible.filter((attacker) => !attacker.artillery?.deploy);
+  if (mobile.length > 0) {
+    const destination = attackStandoffPoint(sim, mobile, target);
+    if (!issueMoveOrder(sim, mobile, destination.x, destination.z, true)) return false;
+  }
   for (const attacker of eligible) {
     attacker.mover!.attackTargetId = target.id;
     for (const weapon of weaponSlots(attacker)) {
@@ -445,6 +451,7 @@ export function manualFireAt(
   lockHoldSeconds = 0,
 ): boolean {
   if (!attacker.team || attacker.destroyed) return false;
+  if (attacker.artillery && (attacker.artillery.phase !== 'deployed' || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)<75 || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)>300)) return false;
   const weapon = weaponForSlot(attacker, slot);
   if (!weapon) return false;
   const def = WEAPONS[weapon.kind as WeaponKind];
@@ -514,7 +521,7 @@ export function manualFireAt(
     weapon.cooldown = weaponCooldown(def.cooldown, attacker);
     return true;
   }
-  let target = lockedTarget ?? acquireLineTarget(
+  let target = attacker.artillery ? undefined : lockedTarget ?? acquireLineTarget(
     sim,
     attacker,
     weapon,
@@ -807,12 +814,13 @@ function launchWeaponProjectile(
     speed,
     damageScale: isLocked ? Math.min(1, damageScale) * LOCKED_MISSILE_DAMAGE_SCALE : damageScale,
     forceScale: isLocked ? Math.min(1, forceScale) * LOCKED_MISSILE_FORCE_SCALE : forceScale,
-    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale,
+    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale * (def.kind==='siegeShell'?1.7:1),
     manualAim: Boolean(attacker.playerControlled),
     maxDistance: projectileDef.fizzleRange ?? (isTankDirectMissile(def.kind) ? distanceToAim : def.range),
     directTargetId: target?.id,
     trajectory,
     homing,
+    strategicLift:def.kind==='siegeShell'?110:undefined,
     teamId: attacker.team.id,
     attackerId: attacker.id,
   });
@@ -839,8 +847,9 @@ function launchWeaponProjectile(
     damage: 0,
     killed: false,
     duration,
-    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale,
+    impactScale: isLocked ? Math.min(1, impactScale) * LOCKED_MISSILE_IMPACT_SCALE : impactScale * (def.kind==='siegeShell'?1.7:1),
     trajectory,
+    strategicLift:def.kind==='siegeShell'?110:undefined,
     homingSpeed: homing?.speed,
     homingTurnRate: homing?.turnRate,
   });

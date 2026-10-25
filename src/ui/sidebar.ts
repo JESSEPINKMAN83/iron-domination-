@@ -316,6 +316,7 @@ export class Sidebar {
           `F    ${weaponLabel(special).toUpperCase()}  ${ready(special?.cooldown)}   ·   V EXIT`
         : `LMB  ${weaponLabel(primary).toUpperCase()}  ${ready(primary?.cooldown)}\n` +
           `RMB  ${weaponLabel(secondary).toUpperCase()}  ${ready(secondary?.cooldown)}   ·   V EXIT`;
+      if (possessed.artillery && possessed.artillery.phase!=='deployed') this.firstPersonStatus.textContent=possessed.artillery.phase==='mobile'?'MOBILE / UNARMED\nF  DEPLOY CAMERA PROBE · V EXIT':'DEPLOYMENT / PROBE RECALL\nHEAVY WEAPON LOCKED · V EXIT';
     }
     if (this.radarAlert || this.sim.tick - this.lastRadarTick >= 3) {
       this.lastRadarTick = this.sim.tick;
@@ -1950,6 +1951,7 @@ function bombSalvoForUnit(kind: UnitKind): number {
 
 function speedScoreForUnit(kind: UnitKind): number {
   const scores: Record<UnitKind, number> = {
+    artillery:0.2,
     infantry: 0.22,
     sniper: 0.19,
     grenadier: 0.2,

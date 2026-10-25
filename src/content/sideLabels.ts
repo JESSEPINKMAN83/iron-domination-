@@ -14,6 +14,7 @@ const UNIT_LABELS: Record<ArmyDoctrineId, Partial<Record<UnitKind, string>>> = {
     'scout-tank': 'Eitan APC',
     tank: 'Merkava Mk4',
     'siege-tank': 'Rochev Howitzer',
+    artillery:'ATMOS Field Gun',
     wasp: 'AH-1 Cobra',
     vulture: 'AH-64 Apache',
     hammerhead: 'Yasur Strike Gunship',
@@ -26,6 +27,7 @@ const UNIT_LABELS: Record<ArmyDoctrineId, Partial<Record<UnitKind, string>>> = {
     'scout-tank': 'Rakhsh APC',
     tank: 'Karrar Tank',
     'siege-tank': 'Fajr Rocket Artillery',
+    artillery:'Raad Field Gun',
   },
 };
 

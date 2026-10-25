@@ -1,4 +1,5 @@
 import { buildInfantryWeapon } from '../render/infantryWeapon';
+import { artilleryStatus, artilleryProbeProgress, ARTILLERY_RANGE, ARTILLERY_PROBE_HEIGHT, setArtilleryDeployment } from '../sim/artillery';
 import { Group, MathUtils, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Input } from '../engine/input';
 import type { Entity } from '../sim/components';
@@ -130,6 +131,7 @@ export function fortressOpticalFov(zoom: number): number {
 }
 
 export interface FirstPersonCommandSink {
+  artillery?(id:number,deploy:boolean):void;
   control(command: {
     id: number;
     throttle: number;
@@ -514,6 +516,12 @@ export class FirstPersonController {
 
   useSpecialAbility(): boolean {
     if (this.mode !== 'fps' || !this.possessed) return false;
+    if (this.possessed.artillery) {
+      const deploy=!this.possessed.artillery.deploy;
+      if (this.commandSink) this.commandSink.artillery?.(this.possessed.id,deploy);
+      else setArtilleryDeployment(this.possessed,deploy);
+      return true;
+    }
     if (!this.possessed.specialWeapon) {
       this.flashAbilityStatus('SPECIAL LOCKED - BUY AN F ABILITY');
       return false;
@@ -732,7 +740,16 @@ export class FirstPersonController {
     const terrainAim = this.rayTerrainPoint(position, this.tmpForward, this.hf.size * 1.6);
     if (terrainAim) this.tmpAimTarget.copy(terrainAim);
     else this.tmpAimTarget.copy(position).addScaledVector(this.tmpForward, this.hf.size * 1.5);
-    return this.lookPose(position, this.tmpCameraTarget, fov);
+    const groundPose=this.lookPose(position, this.tmpCameraTarget, fov);
+    if (!entity.artillery) return groundPose;
+    const probe=artilleryProbeProgress(entity);
+    if (probe<=0) return groundPose;
+    const target=this.artilleryTarget(entity,yaw,pitch);
+    this.tmpAimTarget.copy(target);
+    // The observer stays above its own launcher: it cannot roam across the map.
+    const probePosition=new Vector3(center.x,groundY+ARTILLERY_PROBE_HEIGHT,center.z);
+    const observer=this.lookPose(probePosition,target,MathUtils.clamp(50+this.renderChaseZoom*3,42,56));
+    return lerpPose(groundPose,observer,probe*probe*(3-2*probe));
   }
 
   private fortressPoseFor(entity: Entity, yaw: number, pitch: number): CameraPose {
@@ -818,6 +835,7 @@ export class FirstPersonController {
 
   private fire(slot: 'primary' | 'secondary' | 'special'): boolean {
     if (!this.possessed) return false;
+    if (this.possessed.artillery && this.possessed.artillery.phase!=='deployed') { this.flashAbilityStatus(artilleryStatus(this.possessed)); return false; }
     if (isFortressTower(this.possessed) && this.possessed.turret) this.possessed.turret.yaw = this.currentAimYaw();
     if (this.isSniper(this.possessed) && hasUnitUpgrade(this.possessed, 'combat-bike') && this.sniperBikeMoving(this.possessed)) {
       this.flashAbilityStatus('STOP COMBAT BIKE TO FIRE');
@@ -845,7 +863,7 @@ export class FirstPersonController {
     const sharedGroundTarget = lockedPosition
       ? new Vector3(lockedPosition.x, lockedPosition.y, lockedPosition.z)
       : this.tmpAimTarget;
-    const target = lockedTarget
+    const target = this.possessed.artillery ? this.artilleryTarget(this.possessed,this.lookYaw,this.lookPitch) : lockedTarget
       ? sharedGroundTarget
       : this.possessed.flight
         ? this.flightTarget(this.possessed, slot === 'secondary' ? 'secondary' : 'primary')
@@ -1192,6 +1210,14 @@ export class FirstPersonController {
       return;
     }
     const weapon = this.possessed.specialWeapon;
+    if (this.possessed.artillery) {
+      const target=this.artilleryTarget(this.possessed,this.lookYaw,this.lookPitch);
+      const range=Math.hypot(target.x-this.possessed.transform.x,target.z-this.possessed.transform.z);
+      this.abilityHud.textContent=this.possessed.artillery.phase==='mobile'?'MOBILE / UNARMED · W/S DRIVE · A/D TURN · F DEPLOY':`${artilleryStatus(this.possessed)} · PROBE RADIUS ${Math.round(range)} / ${ARTILLERY_RANGE} · F ${this.possessed.artillery.deploy?'PACK':'DEPLOY'} · MOUSE/Q/E AIM · LMB FIRE`;
+      this.abilityHud.style.display='block'; this.abilityHud.style.color='#b7ebd4';
+      this.abilityHud.style.maxWidth='calc(100vw - 40px)'; this.abilityHud.style.whiteSpace='normal';
+      return;
+    }
     if (!weapon) {
       this.abilityHud.textContent = 'F  SPECIAL LOCKED';
       this.abilityHud.style.color = '#85918d';
@@ -1253,6 +1279,14 @@ export class FirstPersonController {
     const target = origin.addScaledVector(this.tmpForward, range);
     target.y = Math.max(sampleHeight(this.hf, target.x, target.z) + 1.5, target.y);
     return target;
+  }
+
+  private artilleryTarget(entity:Entity,yaw:number,pitch:number):Vector3 {
+    const range=MathUtils.lerp(78,ARTILLERY_RANGE-2,MathUtils.clamp((pitch+0.9)/1.5,0,1));
+    const bound=this.hf.size*0.5-4;
+    const x=MathUtils.clamp(entity.transform.x+Math.sin(yaw)*range,-bound,bound);
+    const z=MathUtils.clamp(entity.transform.z+Math.cos(yaw)*range,-bound,bound);
+    return new Vector3(x,sampleHeight(this.hf,x,z)+0.4,z);
   }
 
   private flightBombTarget(entity: Entity): Vector3 {

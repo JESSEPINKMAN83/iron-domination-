@@ -309,6 +309,20 @@ export class Hud {
     }
     updateReticleReloadNode(this.reticle, 'primary', primary?.kind, primary?.cooldown ?? 0);
     updateReticleReloadNode(this.reticle, 'secondary', secondary?.kind, secondary?.cooldown ?? 0);
+    const gun=this.firstPersonEntity.artillery;
+    this.reticle.style.visibility=gun && gun.phase!=='deployed'?'hidden':'visible';
+    if (gun) {
+      const headline=this.modeBanner.firstElementChild;
+      if (headline) headline.textContent=gun.phase==='mobile'?'ARTILLERY TRANSPORT · UNARMED':gun.phase==='deployed'?'CAMERA PROBE · 300m FIRE ZONE':'ARTILLERY DEPLOYMENT';
+      const subtitle=this.modeBanner.lastElementChild;
+      if (subtitle) subtitle.textContent=gun.phase==='mobile'?'W/S DRIVE · A/D STEER · F DEPLOY · V EXIT':gun.phase==='deployed'?'MOUSE / Q / E AIM · LMB HEAVY WARHEAD · F RECALL PROBE':'STABILIZERS / CAMERA PROBE TRANSITION · WEAPON LOCKED';
+      if (gun.phase!=='deployed') {
+        const label=this.weaponFrame.querySelector<HTMLElement>('[data-reload-label="primary"]');
+        const bar=this.weaponFrame.querySelector<HTMLElement>('[data-reload-bar="primary"]');
+        if (label) label.textContent=gun.phase==='mobile'?'HEAVY WEAPON STOWED · F TO DEPLOY':'HEAVY WEAPON LOCKED · SETUP / PACKING';
+        if (bar) bar.style.width='0%';
+      }
+    }
   }
 
   private updateReticleWeaponReadiness(): void {
@@ -405,6 +419,7 @@ function reticleVisual(family: WeaponHudFamily | 'fortress'): { size: number; ra
       : family === 'seeker' || family === 'fortress' ? 'rgba(194,244,221,.9)'
         : 'rgba(190,238,202,.8)';
   const cross = '<i style="position:absolute;left:50%;top:-12px;width:1px;height:9px;background:currentColor"></i><i style="position:absolute;left:50%;bottom:-12px;width:1px;height:9px;background:currentColor"></i><i style="position:absolute;top:50%;left:-12px;width:9px;height:1px;background:currentColor"></i><i style="position:absolute;top:50%;right:-12px;width:9px;height:1px;background:currentColor"></i>';
+  if (family === 'observer') return {size:78,radius:'50%',color:'rgba(181,234,211,.9)',glow:'rgba(157,229,196,.12)',border:'dashed',markup:`${cross}<b style="position:absolute;inset:26px;border:1px solid currentColor;border-radius:50%"></b><span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);white-space:nowrap;font:8px monospace;letter-spacing:1px">IMPACT AREA</span>`};
   if (family === 'aviation') return { size: 42, radius: '50%', color, glow: 'rgba(72,205,255,.25)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:50%;width:72px;height:18px;border:1px solid currentColor;border-top:0;border-radius:0 0 50% 50%;transform:translate(-50%,-22%)"></b>` };
   if (family === 'strike') return { size: 46, radius: '2px', color, glow: 'rgba(72,205,255,.28)', border: 'dashed', markup: `${cross}<b style="position:absolute;inset:9px;border:1px solid currentColor;transform:rotate(45deg)"></b>` };
   if (family === 'artillery') return { size: 50, radius: '50% 50% 4px 4px', color, glow: 'rgba(157,229,196,.28)', border: 'solid', markup: `${cross}<b style="position:absolute;left:50%;top:7px;bottom:7px;border-left:1px dashed currentColor"></b><em style="position:absolute;left:calc(50% + 5px);top:5px;font:7px monospace">8<br>6<br>4<br>2</em>` };
