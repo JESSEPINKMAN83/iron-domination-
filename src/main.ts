@@ -311,12 +311,13 @@ interface DurabilityPreviewScene {
   right: { x: number; z: number };
 }
 
-const DIFFICULTIES: Difficulty[] = ['easy', 'normal', 'hard'];
+const DIFFICULTIES: Difficulty[] = ['easy', 'normal', 'hard', 'extra-hard'];
 const PERSONALITIES: Personality[] = ['turtle', 'rusher', 'balanced'];
 const DIFFICULTY_DESCRIPTIONS: Record<Difficulty, string> = {
   easy: 'Slower reactions, weaker economy, delayed first attack, and less accurate combat. Good for learning and V-mode fights.',
   normal: 'Baseline public match pacing. Honest income, fair reactions, pressure after the opening.',
-  hard: 'Faster reactions, stronger economy, earlier attacks. Built for stress-testing defenses.',
+  hard: 'Faster reactions, stronger economy, early air power, interception and coordinated ground assaults.',
+  'extra-hard': 'Relentless combined-arms pressure: larger air wings, defense strikes and multi-front assaults. 2× ore income; no hidden-unit vision.',
 };
 const PERSONALITY_DESCRIPTIONS: Record<Personality, string> = {
   turtle: 'Builds up, defends longer, then sends heavier pressure.',
@@ -806,7 +807,7 @@ function showSetupScreen(defaults: SkirmishSettings, options: { intent?: Landing
     const weatherChoice = createSegmentedControl(
       'Weather', WEATHER_IDS, defaults.weather ?? 'clear', weatherDescriptions, (id) => WEATHER_LABELS[id], () => refresh(),
     );
-    const difficulty = createSegmentedControl('Difficulty', DIFFICULTIES, defaults.ai, DIFFICULTY_DESCRIPTIONS, undefined, () => refresh());
+    const difficulty = createSegmentedControl('Difficulty', DIFFICULTIES, defaults.ai, DIFFICULTY_DESCRIPTIONS, value => value.replace('-', ' ').toUpperCase(), () => refresh());
     const commander = createSegmentedControl('Enemy commander', PERSONALITIES, defaults.aiStyle, PERSONALITY_DESCRIPTIONS, undefined, () => refresh());
     const combatMode = createSegmentedControl('Combat mode', COMBAT_MODES, defaults.combatMode, COMBAT_MODE_DESCRIPTIONS, undefined, () => refresh());
     const armies = createArmySetupControl(defaults.armyCount, defaults.armySides, defaults.armyDoctrines, () => refresh());
@@ -1885,7 +1886,7 @@ function createRoomLobbyView(
   for (const difficulty of DIFFICULTIES) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = difficulty === 'normal' ? 'MEDIUM' : difficulty.toUpperCase();
+    button.textContent = difficulty === 'normal' ? 'MEDIUM' : difficulty.replace('-', ' ').toUpperCase();
     button.onclick = () => client.updateSettings(latestRoom.code, session.player.id, { ...settings(), ai: difficulty });
     aiButtons.set(difficulty, button);
     aiSetting.choices.appendChild(button);
@@ -4070,6 +4071,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   lockstep?.connect();
   window.addEventListener('beforeunload', () => lockstep?.disconnect(), { once: true });
 
+  const scaleMetrics= params.get('scale-metrics')==='1' && !isPublicHost(location.hostname) ? document.createElement('div') : undefined;
+  if(scaleMetrics){scaleMetrics.style.cssText='position:fixed;top:110px;left:14px;z-index:25;padding:10px 12px;border:1px solid #729c88;border-radius:6px;background:rgba(8,20,15,.92);color:#c6e8d6;font:12px/1.5 monospace;white-space:pre;pointer-events:none';document.body.append(scaleMetrics);}
   let fps = 60;
   let simTicks = 0;
   let simHz = SIM_HZ;
@@ -4416,12 +4419,20 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         lastResourceVisualTick = sim.tick;
         terrain.updateResources(sim.resourceNodes);
       }
+      terrain.updateDetail(ctx.camera);
+      fogView.updateDetail(terrain.chunkGeometries);
       water.update(time, ctx.scene.fog as Fog);
       ctx.render(dt);
       landingCapture?.frame();
       combatView.completeFrame();
 
       fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
+      if(scaleMetrics && renderFrame%30===0){
+        const air=armies.reduce((sum,a)=>sum+(a.commander?.stats.airIntercepts??0),0),raids=armies.reduce((sum,a)=>sum+(a.commander?.stats.airRaids??0),0);
+        scaleMetrics.textContent=`${settings.ai.toUpperCase()} · ${Math.round(fps)} FPS
+${Math.round(ctx.renderer.info.render.triangles/1000)}k frame triangles · ${ctx.renderer.info.render.calls} draws
+AI air orders: ${air} intercept / ${raids} raid`;
+      }
       const now = performance.now();
       if (now - lastSimSample >= 1000) {
         simHz = simTicks;

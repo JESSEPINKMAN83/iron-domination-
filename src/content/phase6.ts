@@ -1,7 +1,7 @@
 import type { StructureKind } from './phase3';
 
 export type Personality = 'turtle' | 'rusher' | 'balanced';
-export type Difficulty = 'easy' | 'normal' | 'hard';
+export type Difficulty = 'easy' | 'normal' | 'hard' | 'extra-hard';
 
 export interface PersonalityDef {
   buildOrder: StructureKind[];
@@ -34,6 +34,7 @@ export interface DifficultyDef {
   targetAcquireDelayTicks: number;
   /** lower values make the AI less eager to dogpile the player-possessed unit */
   possessedTargetPriority: number;
+  aircraftCap: number;
   tankCap: number;
   infantryCap: number;
   startCredits: number;
@@ -82,6 +83,7 @@ export const AI_DIFFICULTY: Record<Difficulty, DifficultyDef> = {
     projectileScatter: 8.5,
     targetAcquireDelayTicks: 42,
     possessedTargetPriority: 0.92,
+    aircraftCap: 2,
     tankCap: 8,
     infantryCap: 4,
     startCredits: 2600,
@@ -95,6 +97,7 @@ export const AI_DIFFICULTY: Record<Difficulty, DifficultyDef> = {
     projectileScatter: 0.8,
     targetAcquireDelayTicks: 4,
     possessedTargetPriority: 0.55,
+    aircraftCap: 6,
     tankCap: 22,
     infantryCap: 8,
     startCredits: 4600,
@@ -108,8 +111,23 @@ export const AI_DIFFICULTY: Record<Difficulty, DifficultyDef> = {
     projectileScatter: 0.5,
     targetAcquireDelayTicks: 0,
     possessedTargetPriority: 0.45,
+    aircraftCap: 12,
     tankCap: 42,
     infantryCap: 18,
     startCredits: 7500,
+  },
+  'extra-hard': {
+    reactionDelay: 0.55,
+    attackDelayMultiplier: 0.35,
+    incomeMultiplier: 2,
+    combatAccuracy: 1,
+    combatCooldownMultiplier: 0.9,
+    projectileScatter: 0.5,
+    targetAcquireDelayTicks: 0,
+    possessedTargetPriority: 0.45,
+    aircraftCap: 18,
+    tankCap: 54,
+    infantryCap: 24,
+    startCredits: 10000,
   },
 };

@@ -30,6 +30,27 @@ export class NavigationGrid {
   readonly size: number;
   readonly blocked: Uint8Array;
   revision = 0;
+  private flowCacheRevision = -1;
+  private readonly flowCache = new Map<number, FlowField>();
+  private flowQueue?: Int32Array;
+
+  /** Builds are synchronous; all destinations reuse one bounded scratch queue. */
+  flowBuildQueue(): Int32Array {
+    return this.flowQueue ??= new Int32Array(this.cells*this.cells);
+  }
+
+  flowTo(x: number, z: number): FlowField {
+    if(this.flowCacheRevision!==this.revision){this.flowCache.clear();this.flowCacheRevision=this.revision;}
+    const cell=this.nearestWalkableCell(x,z);
+    if(!cell) throw new Error('flow field target has no walkable cell');
+    const key=this.index(cell.x,cell.y);
+    const cached=this.flowCache.get(key);
+    if(cached){this.flowCache.delete(key);this.flowCache.set(key,cached);return cached;}
+    const field=new FlowField(this,x,z);
+    this.flowCache.set(key,field);
+    if(this.flowCache.size>6) this.flowCache.delete(this.flowCache.keys().next().value!);
+    return field;
+  }
   private blockerBatchDepth = 0;
   private blockerBatchDirty = false;
   private readonly baseBlocked: Uint8Array;
@@ -256,14 +277,12 @@ export class FlowField {
 
   private build(): void {
     this.builtRevision = this.grid.revision;
-    const qx = new Int32Array(this.grid.cells * this.grid.cells);
-    const qy = new Int32Array(this.grid.cells * this.grid.cells);
+    const queue = this.grid.flowBuildQueue();
     let head = 0;
     let tail = 0;
     const targetIndex = this.grid.index(this.targetCell.x, this.targetCell.y);
     this.distance[targetIndex] = 0;
-    qx[tail] = this.targetCell.x;
-    qy[tail++] = this.targetCell.y;
+    queue[tail++] = targetIndex;
 
     const dirs = [
       [1, 0],
@@ -277,8 +296,9 @@ export class FlowField {
     ] as const;
 
     while (head < tail) {
-      const cx = qx[head];
-      const cy = qy[head++];
+      const cell = queue[head++];
+      const cx = cell % this.grid.cells;
+      const cy = Math.floor(cell / this.grid.cells);
       const base = this.distance[this.grid.index(cx, cy)];
       for (const [dx, dy] of dirs) {
         const nx = cx + dx;
@@ -290,8 +310,7 @@ export class FlowField {
         const ni = this.grid.index(nx, ny);
         if (this.distance[ni] !== -1) continue;
         this.distance[ni] = base + (dx === 0 || dy === 0 ? 10 : 14);
-        qx[tail] = nx;
-        qy[tail++] = ny;
+        queue[tail++] = ni;
       }
     }
   }

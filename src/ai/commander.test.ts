@@ -315,8 +315,10 @@ describe('phase 6 enemy commander', () => {
     const aiTanks = Array.from(sim.world.entities).filter(
       (entity) => entity.team?.id === 2 && entity.selectable?.type === 'tank' && !entity.destroyed,
     );
-    expect(aiTanks.length).toBeGreaterThanOrEqual(4);
-    expect(commander.stats.attacksLaunched).toBeGreaterThanOrEqual(1);
+    const aiAircraft=Array.from(sim.world.entities).filter(entity=>entity.team?.id===2&&entity.flight&&!entity.destroyed);
+    expect(aiTanks.length+aiAircraft.length).toBeGreaterThanOrEqual(4);
+    expect(aiAircraft.length).toBeGreaterThanOrEqual(1);
+    expect(commander.stats.attacksLaunched, JSON.stringify([...sim.world.entities].filter(e=>e.team?.id===2&&!e.building&&!e.destroyed).map(e=>({name:e.name,hp:e.health?.current,task:e.mover?.objectiveDuty,escort:e.mover?.artilleryEscort})))).toBeGreaterThanOrEqual(1);
   });
 
   it('is deterministic: same setup → identical sim hash', () => {

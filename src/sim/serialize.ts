@@ -1,5 +1,5 @@
 import { registerObjectiveBlocker } from './objectives';
-import { FlowField, type DynamicBlockerSnapshot } from './flowfield';
+import type { DynamicBlockerSnapshot } from './flowfield';
 import { STRUCTURES, type StructureKind } from '../content/phase3';
 import type { Entity, StructureDamage } from './components';
 import type { EconomyState } from './economy';
@@ -161,7 +161,7 @@ function restoreEntity(sim: GameSim, hf: Heightfield, serialized: SerializedEnti
   }
   if (entity.mover?.target && !entity.flight) {
     try {
-      entity.mover.flow = new FlowField(sim.nav, entity.mover.target.x, entity.mover.target.z);
+      entity.mover.flow = sim.nav.flowTo(entity.mover.target.x, entity.mover.target.z);
     } catch {
       entity.mover.flow = undefined;
     }

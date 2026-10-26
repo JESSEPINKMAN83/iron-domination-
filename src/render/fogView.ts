@@ -35,6 +35,10 @@ export class FogView {
     this.refresh();
   }
 
+  updateDetail(geometries:BufferGeometry[]):void {
+    this.group.children.forEach((child,index)=>{(child as Mesh).geometry=geometries[index];});
+  }
+
   /** Re-uploads the fog texture; call after visibility updates (once per sim tick). */
   refresh(): void {
     const { state } = this.grid;

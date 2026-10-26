@@ -2,7 +2,7 @@ import { canCapture } from '../sim/objectives';
 // Phase 6 — utility-based enemy commander. Runs inside the deterministic sim
 // tick (no randomness beyond sim state, stable iteration orders). Honesty rule:
 // target *selection* only uses what the AI's own visibility grid has seen.
-import { STRUCTURES, type StructureKind, type UnitKind } from '../content/phase3';
+import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { AI_DIFFICULTY, AI_PERSONALITY, type Difficulty, type DifficultyDef, type Personality, type PersonalityDef } from '../content/phase6';
 import type { Entity } from '../sim/components';
 import {
@@ -14,6 +14,7 @@ import {
   startStructureBuild,
   structureLineInLane,
   updatePlacement,
+  upgradeStrategicMissile, upgradeStrategicAccuracy, upgradeEmberDroneQuantity, upgradeEmberDroneWarhead,
   type EconomyState,
 } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
@@ -55,7 +56,7 @@ interface SquadTarget {
 }
 
 export class EnemyCommander {
-  readonly stats = { structuresPlaced: 0, rebuilds: 0, attacksLaunched: 0, retreats: 0, coordinatedAttacks: 0, airSupportedAttacks: 0, regroupsCompleted: 0 };
+  readonly stats = { structuresPlaced: 0, rebuilds: 0, attacksLaunched: 0, retreats: 0, coordinatedAttacks: 0, airSupportedAttacks: 0, regroupsCompleted: 0, airIntercepts: 0, airRaids: 0 };
   private readonly personality: PersonalityDef;
   private readonly difficulty: DifficultyDef;
   private readonly buildQueue: StructureKind[];
@@ -67,6 +68,9 @@ export class EnemyCommander {
   private operationSequence = 0;
   private pincerWaitStartedAt?: number;
   private readonly advancedTactics: boolean;
+  private readonly extraHard: boolean;
+  private airOrdersAt=0;
+  private aircraftBuiltSequence=0;
   private readonly proactiveTactics: boolean;
 
   constructor(
@@ -83,12 +87,17 @@ export class EnemyCommander {
   ) {
     this.personality = AI_PERSONALITY[personality];
     this.difficulty = AI_DIFFICULTY[difficulty];
-    this.advancedTactics = difficulty === 'hard';
+    this.extraHard=difficulty==='extra-hard';
+    this.advancedTactics = difficulty === 'hard' || this.extraHard;
     this.proactiveTactics = difficulty !== 'easy';
     economy.incomeMultiplier = this.difficulty.incomeMultiplier;
     this.buildQueue = economy.doctrine === 'missile-command'
       ? ['power-plant', 'refinery', 'power-plant', 'factory', ...(this.proactiveTactics ? ['barracks' as const] : []), 'intelligence-center', 'strategic-silo', 'guard-tower', 'aa-tower']
       : [...this.personality.buildOrder, ...(strategicDefenseNeeded ? ['skylance-ciws' as const, 'missile-defense' as const] : [])];
+    if(economy.doctrine==='iron-legion' && this.proactiveTactics){
+      const factory=this.buildQueue.indexOf('factory');
+      this.buildQueue.splice(factory+1,0,'helipad');
+    }
     this.log(`online — ${personality}/${difficulty}, build order: ${this.buildQueue.join(' → ')}`);
   }
 
@@ -108,6 +117,7 @@ export class EnemyCommander {
     this.commandObjectives();
     this.commandSquads();
     this.commandArtillery();
+    this.commandAirWings();
   }
 
   private aliveBuildings(): Entity[] {
@@ -134,7 +144,7 @@ export class EnemyCommander {
     let rebuilding = false;
     if (!next) {
       if (this.economy.powerProduced < this.economy.powerUsed + 10) next = 'power-plant';
-      else if (this.proactiveTactics && this.economy.doctrine === 'iron-legion' && this.stats.attacksLaunched > 0 && this.count('factory') > 0 && this.count('helipad') < 1 && this.economy.credits > 1200) next = 'helipad';
+      else if (this.proactiveTactics && this.economy.doctrine === 'iron-legion' && this.count('factory') > 0 && this.count('helipad') < (this.extraHard ? 2 : 1) && this.economy.credits > 700) next = 'helipad';
       else if (this.count('refinery') < this.personality.targetRefineries + (this.advancedTactics ? 1 : 0)) next = 'refinery';
       else if (this.count('factory') < this.personality.targetFactories + (this.advancedTactics ? 1 : 0)) next = 'factory';
       else if ((this.personality.wantsBarracks || this.advancedTactics) && this.count('barracks') < 1) next = 'barracks';
@@ -228,24 +238,23 @@ export class EnemyCommander {
     const mine = this.myUnits();
     // On Normal and Hard, fund a first expedition before saving for a silo
     // chain. Once that force exists, construction regains its normal priority.
-    const expeditionNeeded = this.proactiveTactics && mine.length < this.assaultSize() + this.homeGuardSize();
+    const expeditionNeeded = this.proactiveTactics && mine.filter(unit=>!unit.flight&&!unit.artillery).length < this.assaultSize() + this.homeGuardSize();
     if (this.buildQueue.length > 0 && this.economy.credits < 1500 && !expeditionNeeded) return;
-    const tanks = mine.filter((entity) => entity.selectable?.type === 'tank').length;
-    const infantry = mine.filter((entity) => entity.selectable?.type === 'infantry').length;
-    const aircraft = mine.filter((entity) => entity.flight).length;
-    if (tanks < this.difficulty.tankCap) queueUnit(this.sim, this.economy, this.nextVehicleKind(tanks));
-    if (this.proactiveTactics) {
-      // Different producer lanes can work together: don't wait for the tank cap
-      // before producing any infantry or air support.
-      if (infantry < this.difficulty.infantryCap) queueUnit(this.sim, this.economy, this.nextInfantryKind(infantry));
-      if (this.count('helipad') > 0 && aircraft < Math.max(2, Math.floor(this.difficulty.tankCap / 7))) {
-        queueUnit(this.sim, this.economy, this.nextAircraftKind(aircraft));
-      }
-    } else if (tanks >= this.difficulty.tankCap && this.count('helipad') > 0 && aircraft < Math.max(2, Math.floor(this.difficulty.tankCap / 7))) {
-      queueUnit(this.sim, this.economy, this.nextAircraftKind(aircraft));
-    } else if (tanks >= this.difficulty.tankCap && infantry < this.difficulty.infantryCap) {
-      queueUnit(this.sim, this.economy, this.nextInfantryKind(infantry));
+    const jobs=this.aliveBuildings().flatMap(b=>[...(b.producer?.queue??[]),...(b.producer?.active?[b.producer.active]:[])]);
+    const pending=(tab:string)=>jobs.filter(job=>UNITS[job.kind as UnitKind]?.tab===tab).length;
+    const tanks = mine.filter(entity=>entity.selectable?.type==='tank').length+pending('vehicles');
+    const infantry = mine.filter(entity=>entity.selectable?.type==='infantry').length+pending('infantry');
+    const aircraft = mine.filter(entity=>entity.flight).length+pending('aircraft');
+    const needsAirTech=this.proactiveTactics && this.economy.doctrine==='iron-legion' && !this.aliveBuildings().some(b=>b.building?.kind==='helipad'&&b.building.complete);
+    // Fund the air base before spending the same credits on another tank queue.
+    if(needsAirTech && this.buildQueue.includes('helipad') && this.economy.credits<1100) return;
+    if((aircraft===0 || tanks>=this.assaultSize()+this.homeGuardSize()) && this.economy.doctrine==='iron-legion' && aircraft<this.difficulty.aircraftCap && this.count('helipad')>0 && (this.proactiveTactics || tanks>=this.difficulty.tankCap)){
+      const kind=this.nextAircraftKind(this.aircraftBuiltSequence);
+      if(queueUnit(this.sim,this.economy,kind)) this.aircraftBuiltSequence++;
+      else if(this.proactiveTactics && aircraft<4 && this.economy.credits<UNITS[kind].cost) return;
     }
+    if(tanks<this.difficulty.tankCap) queueUnit(this.sim,this.economy,this.nextVehicleKind(tanks));
+    if(infantry<this.difficulty.infantryCap && (this.proactiveTactics || tanks>=this.difficulty.tankCap)) queueUnit(this.sim,this.economy,this.nextInfantryKind(infantry));
   }
 
   private nextVehicleKind(count: number): UnitKind {
@@ -294,11 +303,19 @@ export class EnemyCommander {
   }
 
   private nextAircraftKind(count: number): UnitKind {
-    return (this.proactiveTactics ? ['vulture', 'hammerhead', 'wasp', 'vulture'] as UnitKind[] : ['wasp', 'vulture', 'wasp', 'hammerhead'] as UnitKind[])[count % 4];
+    const visibleAir=[...this.sim.world.entities].some(e=>e.flight&&!e.destroyed&&e.team&&areTeamsHostile(this.sim,this.economy.team,e.team.id)&&this.vision.isEntityVisible(e,this.sim.tick));
+    if(visibleAir && this.myUnits().filter(e=>e.flight&&e.weapon?.kind==='waspAutocannon').length<Math.ceil(this.difficulty.aircraftCap/3)) return 'wasp';
+    return (['wasp','vulture','hammerhead','vulture'] as UnitKind[])[count%4];
   }
 
   private commandStrategicStrike(): void {
     if (this.economy.doctrine !== 'missile-command') return;
+    if(this.extraHard && this.elapsed>120 && this.economy.credits>2600){
+      if(this.economy.strategicAccuracyLevel<2) upgradeStrategicAccuracy(this.sim,this.economy);
+      else if(this.economy.emberDroneQuantityLevel<3) upgradeEmberDroneQuantity(this.sim,this.economy);
+      else if(this.economy.strategicMissileLevel<3) upgradeStrategicMissile(this.sim,this.economy);
+      else if(this.economy.emberDroneWarheadLevel<2) upgradeEmberDroneWarhead(this.sim,this.economy);
+    }
     let target: Entity | undefined;
     for (const entity of this.sim.world.entities) {
       if (
@@ -422,7 +439,7 @@ export class EnemyCommander {
     this.reinforceRegroupingSquads(ground, air, base);
 
     const active = this.squads.filter((squad) => squad.state === 'attacking' || squad.state === 'staging').length;
-    const capacity = this.personality.maxSquads + (this.advancedTactics ? 3 : 0);
+    const capacity = this.personality.maxSquads + (this.extraHard ? 5 : this.advancedTactics ? 3 : 0);
     let waitForPartner = false;
     if (this.advancedTactics && this.stats.attacksLaunched > 0 && active + 2 <= capacity && ground.length - this.homeGuardSize() >= this.assaultSize()) {
       // Production arrives one unit at a time. Save a wave briefly instead of
@@ -436,7 +453,7 @@ export class EnemyCommander {
       !waitForPartner &&
       active < capacity &&
       this.elapsed >= Math.min(this.personality.attackDelay * this.difficulty.attackDelayMultiplier, this.advancedTactics ? 100 : this.proactiveTactics ? 180 : Infinity) &&
-      ground.length - this.homeGuardSize() >= this.assaultSize()
+      (ground.length - this.homeGuardSize() >= this.assaultSize() || (air.length>0 && ground.length-this.homeGuardSize()>=Math.max(3,this.assaultSize()-1)))
     ) {
       // Probe first, then use a shared objective and rendezvous for a pincer.
       const paired = this.advancedTactics && this.stats.attacksLaunched > 0 && active + 2 <= capacity && ground.length - this.homeGuardSize() >= this.assaultSize() * 2;
@@ -622,6 +639,45 @@ export class EnemyCommander {
     for (const unit of air) if (unit.mover) unit.mover.aggressive = true;
   }
 
+  private commandAirWings():void {
+    if(!this.proactiveTactics || this.economy.doctrine!=='iron-legion' || this.sim.tick<this.airOrdersAt) return;
+    this.airOrdersAt=this.sim.tick+90;
+    const base=this.base();if(!base) return;
+    const aircraft=this.myUnits().filter(e=>e.flight&&!e.playerControlled);
+    const assigned=new Set(this.squads.flatMap(s=>s.units));
+    const visible=[...this.sim.world.entities].filter(e=>e.team&&e.health&&!e.destroyed&&areTeamsHostile(this.sim,this.economy.team,e.team.id)&&this.vision.isEntityVisible(e,this.sim.tick));
+    const enemyAir=visible.filter(e=>e.flight);
+    const interceptors=aircraft.filter(e=>e.weapons?.secondary?.kind==='aaMissile');
+    for(const aircraftUnit of aircraft){
+      if((aircraftUnit.health?.current??0)/(aircraftUnit.health?.max??1)<0.35){
+        issueMoveOrder(this.sim,[aircraftUnit],base.transform.x,base.transform.z);continue;
+      }
+      if(interceptors.includes(aircraftUnit)&&enemyAir.length){
+        const target=enemyAir.slice().sort((a,b)=>Math.hypot(a.transform.x-aircraftUnit.transform.x,a.transform.z-aircraftUnit.transform.z)-Math.hypot(b.transform.x-aircraftUnit.transform.x,b.transform.z-aircraftUnit.transform.z)||a.id-b.id)[0];
+        issueMoveOrder(this.sim,[aircraftUnit],target.transform.x,target.transform.z);
+        aircraftUnit.mover!.aggressive=true;
+        aircraftUnit.weapons!.secondary!.targetId=target.id;
+        this.stats.airIntercepts++;continue;
+      }
+      if(assigned.has(aircraftUnit)) continue;
+      const score=(target:Entity)=>{
+        const kind=target.building?.kind;
+        const priority=this.extraHard&&['aa-tower','skylance-ciws','missile-defense'].includes(kind??'')?0:target.harvester||kind==='refinery'?1:kind==='helipad'||kind==='factory'||kind==='power-plant'?2:target.building?3:4;
+        return priority*10000+Math.hypot(target.transform.x-aircraftUnit.transform.x,target.transform.z-aircraftUnit.transform.z);
+      };
+      const target=visible.filter(e=>!e.flight).sort((a,b)=>score(a)-score(b)||a.id-b.id)[0];
+      const hint=target?.transform??this.scoutHints[this.aircraftBuiltSequence%Math.max(1,this.scoutHints.length)];
+      if(!hint) continue;
+      const destination=target?attackStandoffPoint(this.sim,[aircraftUnit],target):hint;
+      const current=aircraftUnit.mover?.target??aircraftUnit.mover?.holdPosition;
+      if(!current||Math.hypot(current.x-destination.x,current.z-destination.z)>24){
+        issueMoveOrder(this.sim,[aircraftUnit],destination.x,destination.z);this.stats.airRaids++;
+      }
+      aircraftUnit.mover!.aggressive=true;
+      if(target) for(const weapon of [aircraftUnit.weapon,aircraftUnit.weapons?.secondary]) if(weapon) weapon.targetId=target.id;
+    }
+  }
+
   private preparePincer(squads: Squad[]): void {
     const objective = this.pickTarget({ ...squads[0], maneuver: 'direct' });
     const operation: AssaultOperation = { id: ++this.operationSequence, objective: { ...objective }, deadline: this.sim.tick + 30 * 45, released: false };
@@ -700,7 +756,7 @@ export class EnemyCommander {
   }
 
   private assaultSize(): number {
-    return this.proactiveTactics ? Math.min(5, this.personality.squadSize) : this.personality.squadSize;
+    return this.extraHard ? 7 : this.proactiveTactics ? Math.min(5, this.personality.squadSize) : this.personality.squadSize;
   }
 
   private homeGuardSize(): number {

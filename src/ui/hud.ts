@@ -57,7 +57,7 @@ export class Hud {
     this.help.textContent = [
       'CODE RED — debug',
       'Default: Command HQ + small escort · ?start=test all tech · ?start=battle-test staged battle',
-      'AI opts   ?ai=easy|normal|hard  ?ai-style=turtle|rusher|balanced',
+      'AI opts   ?ai=easy|normal|hard|extra-hard  ?ai-style=turtle|rusher|balanced',
       'Pan       W A S D / arrows / screen edge',
       'Grab pan  hold Space + drag mouse button',
       'Look      Cmd/Ctrl + left-drag; empty right-drag',
