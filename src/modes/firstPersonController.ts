@@ -247,7 +247,7 @@ export class FirstPersonController {
     } = {},
     private readonly localTeam = 1,
     private readonly commandSink?: FirstPersonCommandSink,
-    private readonly isVisible: (x: number, z: number) => boolean = () => true,
+    private readonly isVisible: (x: number, z: number, entity?: Entity) => boolean = () => true,
   ) {
     for (const kind of ['rifle', 'grenade', 'sniperRifle', 'rocketLauncher']) this.infantryWeapon.add(buildInfantryWeapon(kind));
     this.infantryWeapon.visible = false;
@@ -934,7 +934,7 @@ export class FirstPersonController {
         !target ||
         !this.possessed.team ||
         !areTeamsHostile(this.sim, this.possessed.team.id, this.lockTargetTeamId(target)) ||
-        !this.isVisible(this.lockTargetPosition(target).x, this.lockTargetPosition(target).z)
+        !this.isVisible(this.lockTargetPosition(target).x, this.lockTargetPosition(target).z, target.kind==='entity'?target.entity:undefined)
       ) {
         this.resetTargetLock();
         return;
@@ -1086,7 +1086,7 @@ export class FirstPersonController {
         .some((weapon) => canManualWeaponLockTarget(weapon?.kind, candidate))) continue;
       if (isFortressTower(entity) && entity.weapons?.primary.kind === 'aaMissile' && candidate.armor?.kind !== 'air') continue;
       if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
-      if (!this.isVisible(candidate.transform.x, candidate.transform.z)) continue;
+      if (!this.isVisible(candidate.transform.x, candidate.transform.z, candidate)) continue;
       const offsetX = candidate.transform.x - this.camera.position.x;
       const baseY = candidate.transform.y ?? sampleHeight(this.hf, candidate.transform.x, candidate.transform.z);
       const candidateY = baseY + (candidate.flight ? 0 : candidate.building ? 3.2 : candidate.selectable?.type === 'infantry' ? 1 : 1.5);

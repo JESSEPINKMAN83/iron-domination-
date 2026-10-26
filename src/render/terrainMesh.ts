@@ -1,3 +1,4 @@
+import { terrainCell } from '../sim/terrainAdvantages';
 // Builds the chunked terrain mesh with a splat-mapped standard material
 // (CSM-shadow compatible) plus a walkability debug overlay (F3).
 import {
@@ -63,6 +64,7 @@ function buildChunkGeometry(hf: Heightfield, startX: number, startY: number, chu
   const w = chunkCells + 1;
   const positions = new Float32Array(w * w * 3);
   const normals = new Float32Array(w * w * 3);
+  const colors = new Float32Array(w*w*3).fill(1);
   const uvs = new Float32Array(w * w * 2);
 
   for (let vy = 0; vy < w; vy++) {
@@ -74,6 +76,9 @@ function buildChunkGeometry(hf: Heightfield, startX: number, startY: number, chu
       positions[i * 3] = gx * cellSize - half;
       positions[i * 3 + 1] = h;
       positions[i * 3 + 2] = gy * cellSize - half;
+      if(hf.terrainAdvantages?.woodland[terrainCell(hf,positions[i*3],positions[i*3+2])]) {
+        colors[i*3]=0.76; colors[i*3+1]=0.9; colors[i*3+2]=0.72;
+      }
 
       // analytic normal from the shared heightfield → seamless across chunks
       const hL = heights[gy * samples + Math.max(gx - 1, 0)];
@@ -112,6 +117,7 @@ function buildChunkGeometry(hf: Heightfield, startX: number, startY: number, chu
 
   const geom = new BufferGeometry();
   geom.setAttribute('position', new BufferAttribute(positions, 3));
+  geom.setAttribute('color',new BufferAttribute(colors,3));
   geom.setAttribute('normal', new BufferAttribute(normals, 3));
   geom.setAttribute('uv', new BufferAttribute(uvs, 2));
   geom.setIndex(new BufferAttribute(indices, 1));
@@ -639,7 +645,7 @@ function createSplatMaterial(
   splatTex.magFilter = LinearFilter;
   splatTex.needsUpdate = true;
 
-  const material = new MeshStandardMaterial({ roughness: 0.96, metalness: 0 });
+  const material = new MeshStandardMaterial({ roughness: 0.96, metalness: 0, vertexColors: true });
   material.defines = { USE_UV: '' };
 
   // CSM patches shadows via onBeforeCompile; wrap it so our splat patch composes.

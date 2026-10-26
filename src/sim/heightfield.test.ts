@@ -16,6 +16,21 @@ describe('heightfield generation', () => {
     expect(large).toMatchObject({ cells: 640, cellSize: 2, oreFieldCount: 6 });
   });
 
+  it('provides Extra Large at approximately twice Large area without changing cell spacing', () => {
+    const large=mapConfig('highlands','large'), xl=mapConfig('highlands','extra-large');
+    expect(xl.cellSize).toBe(large.cellSize);
+    expect((xl.cells/large.cells)**2).toBeCloseTo(2,2);
+    expect(xl.cells%4).toBe(0);
+    expect(xl.oreFieldCount).toBeGreaterThan(large.oreFieldCount);
+    for(const mapId of Object.keys(MAP_PRESETS) as Array<keyof typeof MAP_PRESETS>) {
+      const hf=generateHeightfield({...mapConfig(mapId,'extra-large'),seed:41});
+      expect(hf.size).toBe(1808);
+      expect(hf.heights.every(Number.isFinite)).toBe(true);
+      expect(hf.walkable.some(Boolean)).toBe(true);
+      expect(hf.terrainAdvantages!.roads.length).toBe(hf.cells**2);
+    }
+  });
+
   it('scales ore field count with the bounded setup ore amount', () => {
     expect(mapConfig('highlands', 'small', 50).oreFieldCount).toBe(2);
     expect(mapConfig('highlands', 'medium', 100).oreFieldCount).toBe(5);

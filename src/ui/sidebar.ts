@@ -1448,7 +1448,7 @@ export class Sidebar {
     this.drawRadarResources();
     for (const entity of this.sim.world.entities) {
       if (!entity.transform || entity.destroyed) continue;
-      if (entity.team?.id !== this.economy.team && !this.fog.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
+      if (entity.team?.id !== this.economy.team && !this.fog.isEntityVisible(entity,this.sim.tick)) continue;
       const p = this.worldToRadar(entity.transform.x, entity.transform.z);
       if (p.x < 0 || p.y < 0 || p.x >= this.radar.width || p.y >= this.radar.height) continue;
       const isBuilding = !!entity.building;

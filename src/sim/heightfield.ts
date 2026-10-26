@@ -1,3 +1,4 @@
+import { initializeTerrainAdvantages } from './terrainAdvantages';
 // Terrain data generation: heights, walkability, splat weights, ore fields.
 // Fully deterministic from the map seed. No rendering dependencies.
 import { fbm2, mulberry32, smoothstep } from './noise';
@@ -42,6 +43,7 @@ export interface OreField {
 }
 
 export interface Heightfield {
+  terrainAdvantages?: { roads: Uint8Array; woodland: Uint8Array; sight: Float32Array };
   kind: MapKind;
   cells: number;
   cellSize: number;
@@ -392,7 +394,9 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
   }
 
   if ((cfg.oreRichness ?? 1) > 1) for (const field of oreFields) field.richness = cfg.oreRichness;
-  return { kind, cells, cellSize, size, samples, waterLevel, maxHeight, heights, walkable, splat, oreFields };
+  const hf: Heightfield = { kind, cells, cellSize, size, samples, waterLevel, maxHeight, heights, walkable, splat, oreFields };
+  initializeTerrainAdvantages(hf, seed);
+  return hf;
 }
 
 function flattenDeploymentShelves(heights: Float32Array, samples: number, cellSize: number, size: number): void {

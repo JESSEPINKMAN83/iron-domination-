@@ -1,3 +1,4 @@
+import { woodlandAffinity, terrainCell } from '../sim/terrainAdvantages';
 // Scatters map-specific low-poly vegetation and rocks on valid terrain.
 // Placement is seed-deterministic and uses broad density fields so trees form
 // readable groves with open combat lanes instead of an even wallpaper.
@@ -383,19 +384,6 @@ function scatterDefs(kind: Heightfield['kind'], rng: () => number): ScatterDef[]
   ];
 }
 
-function woodlandAffinity(kind: Heightfield['kind'], x: number, z: number, seed: number): number {
-  const salt = seed * 0.000013;
-  const broad = Math.sin(x * 0.013 + salt) * Math.cos(z * 0.016 - salt * 1.7);
-  const medium = Math.sin((x + z) * 0.027 - salt * 0.6) * 0.48;
-  const fine = Math.cos((x - z) * 0.041 + salt * 2.1) * 0.2;
-  if (kind === 'highlands') {
-    const raw = 0.5 + broad * 0.42 + medium * 1.12 + fine;
-    const groves = Math.max(0, Math.min(1, (raw - 0.3) / 0.52));
-    return 0.05 + groves * groves * 0.9;
-  }
-  const biomeBias = kind === 'natanz' ? -0.24 : kind === 'crater-oasis' ? -0.15 : -0.04;
-  return Math.max(0.08, Math.min(0.96, 0.5 + broad * 0.34 + medium + fine + biomeBias));
-}
 
 function rockClusterAffinity(x: number, z: number, seed: number): number {
   const salt = seed * 0.000019;
@@ -607,6 +595,7 @@ export function buildScatter(
       const x = (rng() * 2 - 1) * bound;
       const z = (rng() * 2 - 1) * bound;
       const h = sampleHeight(hf, x, z);
+      if (hf.terrainAdvantages?.roads[terrainCell(hf,x,z)]) continue;
       const nearShore = kind === 'highlands' && !def.isTree && h >= hf.waterLevel + 0.45 && h < hf.waterLevel + 0.9;
       if (h < hf.waterLevel + 0.9 && !nearShore) continue;
       const gx = Math.abs(sampleHeight(hf, x + 1.4, z) - sampleHeight(hf, x - 1.4, z)) / 2.8;

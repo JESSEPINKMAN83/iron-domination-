@@ -264,7 +264,7 @@ export class EnemyCommander {
     const mine=this.myUnits(), guns=mine.filter(unit=>unit.artillery && !unit.playerControlled);
     const squads=new Set(this.squads.flatMap(squad=>squad.units));
     for (const escort of mine) if (escort.mover?.artilleryEscort && !guns.some(gun=>gun.id===escort.mover!.artilleryEscort)) escort.mover.artilleryEscort=undefined;
-    const targets=[...this.sim.world.entities].filter(unit=>!unit.destroyed && unit.health && unit.team && areTeamsHostile(this.sim,this.economy.team,unit.team.id) && !unit.flight && this.vision.isVisibleWorld(unit.transform.x,unit.transform.z)).sort((a,b)=>Number(Boolean(b.building))-Number(Boolean(a.building)) || a.id-b.id);
+    const targets=[...this.sim.world.entities].filter(unit=>!unit.destroyed && unit.health && unit.team && areTeamsHostile(this.sim,this.economy.team,unit.team.id) && !unit.flight && this.vision.isEntityVisible(unit,this.sim.tick)).sort((a,b)=>Number(Boolean(b.building))-Number(Boolean(a.building)) || a.id-b.id);
     for (const gun of guns) {
       const retreat=gun.health!.current/gun.health!.max<0.35;
       const target=targets.find(unit=>Math.hypot(unit.transform.x-gun.transform.x,unit.transform.z-gun.transform.z)<=300) ?? targets[0];
@@ -306,7 +306,7 @@ export class EnemyCommander {
         entity.destroyed ||
         !entity.team ||
         !areTeamsHostile(this.sim, this.economy.team, entity.team.id) ||
-        !this.vision.isVisibleWorld(entity.transform.x, entity.transform.z)
+        !this.vision.isEntityVisible(entity,this.sim.tick)
       ) continue;
       if (!target || entity.id < target.id) target = entity;
     }
@@ -650,7 +650,7 @@ export class EnemyCommander {
       objective = this.pickTarget(squad);
       squad.operation!.objective = { ...objective };
     }
-    if (objective.entity && !objective.entity.destroyed && this.vision.isVisibleWorld(objective.entity.transform.x, objective.entity.transform.z)) {
+    if (objective.entity && !objective.entity.destroyed && this.vision.isEntityVisible(objective.entity,this.sim.tick)) {
       return { x: objective.entity.transform.x, z: objective.entity.transform.z, entity: objective.entity };
     }
     // Last observed position is allowed; hidden units are never tracked live.
@@ -726,7 +726,7 @@ export class EnemyCommander {
     const sz = lead?.transform.z ?? bz;
     for (const entity of this.sim.world.entities) {
       if (!entity.team || !areTeamsHostile(this.sim, this.economy.team, entity.team.id) || entity.destroyed) continue;
-      if (!this.vision.isVisibleWorld(entity.transform.x, entity.transform.z)) continue;
+      if (!this.vision.isEntityVisible(entity,this.sim.tick)) continue;
       const d = Math.hypot(entity.transform.x - bx, entity.transform.z - bz);
       const squadD = Math.hypot(entity.transform.x - sx, entity.transform.z - sz);
       if (this.advancedTactics && ['factory', 'helipad', 'barracks', 'power-plant'].includes(entity.building?.kind ?? '') && squadD < productionD) {

@@ -1,3 +1,4 @@
+import { stageTerrainPreview } from './sim/terrainPreview';
 import { createConnectionRecovery, promptToRejoin } from './net/recoveryUi';
 import { setArtilleryDeployment } from './sim/artillery';
 import { applyGraphicsPreference, createGraphicsControl } from './render/graphicsPreference';
@@ -2729,6 +2730,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const infantryCombatTest = params.get('infantry-combat-test') === '1';
   const tankCombatTest = params.get('tank-combat-test') === '1';
   const combatReadabilityTest = params.get('combat-readability-test') === '1';
+  const terrainTest=params.get('terrain-test')==='1' && !multiplayerMode && !isPublicHost(location.hostname);
   const artilleryTest=params.get('artillery-test')==='1';
   const aircraftRouteTest = (artilleryTest || params.get('aircraft-route-test') === '1' || tankCombatTest || infantryCombatTest || combatReadabilityTest) && !multiplayerMode && !isPublicHost(location.hostname);
   const weaponsLab = startMode === 'weapons-lab' && !multiplayerMode && !isPublicHost(location.hostname);
@@ -2878,7 +2880,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const smokePreviewStage = smokePreview ? createSmokePreviewStage(sim, armies, localTeam) : undefined;
   const isVisibleToPlayer = cinematicWar || lineupStart || destructionPreview || smokePreview || soundBattlePreview || aircraftRouteTest || performanceTest || aiCoordinationPreview || wallPerformancePreview
     ? () => true
-    : (x: number, z: number): boolean => playerVision.isVisibleWorld(x, z);
+    : (x: number, z: number, entity?: Entity): boolean => entity ? playerVision.isEntityVisible(entity,sim.tick) : playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
     if (storyMode || wallPerformancePreview || durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
     const hints = armies
@@ -2928,7 +2930,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const cinematicScene = largeBattleScenario && !loadedFromSave
     ? spawnCinematicWar(sim, hf, armies, localTeam, battleStaging)
     : undefined;
-  const performanceUnits: Entity[] = [];
+  const terrainTrials=terrainTest && !loadedFromSave ? stageTerrainPreview(sim,hf,localTeam,armies.find(a=>areTeamsHostile(sim,localTeam,a.team))?.team ?? 2) : [];
+  const performanceUnits: Entity[] = terrainTrials.flatMap(trial=>trial.units);
   if (performanceTest && !loadedFromSave) {
     for (const army of armies) {
       performanceUnits.push(...spawnStartingTanks(sim, hf, army.base.transform.x, army.base.transform.z, army.team, 60));
@@ -3778,7 +3781,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       terrainRelief: settings.terrainRelief,
       terrainLayout: settings.terrainLayout,
       localAnchor: { x: localBase.transform.x, z: localBase.transform.z },
-      isVisible: (x, z) => playerVision.isVisibleWorld(x, z),
+      isVisible: (x, z, entity) => entity ? playerVision.isEntityVisible(entity,sim.tick) : playerVision.isVisibleWorld(x, z),
     },
     {
       onOpen: () => {
@@ -3963,6 +3966,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       : undefined,
     isVisibleToPlayer,
   );
+  if(terrainTrials.length){
+    const panel=document.createElement('div');panel.dataset.terrainTrial='';
+    panel.style.cssText='position:fixed;top:112px;left:14px;width:260px;padding:14px;background:rgba(9,24,20,.94);border:1px solid #85c8ab;border-radius:8px;color:#e4eee7;z-index:15;font:12px/1.5 sans-serif';
+    const title=document.createElement('strong');title.textContent='TERRAIN FIELD TEST';panel.append(title);
+    const controls=document.createElement('div');controls.style.cssText='display:flex;gap:6px;margin:10px 0';panel.append(controls);
+    const description=document.createElement('p');description.style.margin='0';panel.append(description);
+    for(const trial of terrainTrials){const button=document.createElement('button');button.textContent=trial.label;button.style.cssText='padding:6px;border:1px solid #648e7d;border-radius:4px;background:#173c2d;color:#e4eee7;cursor:pointer';
+      button.onclick=()=>{description.textContent=trial.description;setSelected(sim,trial.units.filter(u=>u.team?.id===localTeam),false,localTeam);rig.focusOn(trial.point.x,trial.point.z,{x:trial.point.x-85,z:trial.point.z-110},150,-6);};controls.append(button);
+    }
+    document.body.append(panel);(controls.firstElementChild as HTMLButtonElement)?.click();
+  }
   if (weaponsLab) createWeaponsLabPanel(lineupUnits, sim, localTeam, rig);
   if (mobileTouch) {
     mobileControls = new MobileGameControls(input, sidebar, {
@@ -4173,7 +4187,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         commanders,
         lockstep,
         autoFire: !lineupStart && !durabilityPreview && !impactMovementDemo && !buildingShowcase,
-        runCommanders: !workingBasePreview && !lineupStart && !durabilityPreview && !impactMovementDemo && !destructionPreview && (!aircraftRouteTest || (artilleryTest && params.get('artillery-ai-test')==='1')),
+        runCommanders: !terrainTest && !workingBasePreview && !lineupStart && !durabilityPreview && !impactMovementDemo && !destructionPreview && (!aircraftRouteTest || (artilleryTest && params.get('artillery-ai-test')==='1')),
       });
       const spawned = tickResult.spawned;
       for (const entity of spawned) {

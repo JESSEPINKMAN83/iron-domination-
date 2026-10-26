@@ -1,3 +1,4 @@
+import { terrainAdvantagesLabel } from '../sim/terrainAdvantages';
 import { objectiveStatus } from './objectiveStatus';
 import { artilleryStatus, ARTILLERY_DEPLOY_SECONDS, ARTILLERY_PACK_SECONDS } from '../sim/artillery';
 import { CAPTURE_TICKS, OBJECTIVE_INFO } from '../sim/objectives';
@@ -236,9 +237,13 @@ export class SelectionBar {
       if (!row) continue;
       const feedback = groupOrderFeedback(group.entities, this.sim.tick);
       const compact = feedback.status.replace(/(\d+) moving/g, '↑ $1').replace(/(\d+) attacking/g, '⚔ $1').replace(/(\d+) parked/g, '▪ $1').replace(/(\d+) waiting/g, '◷ $1');
-      if (row.textContent !== compact) row.textContent = compact;
+      const terrain = this.hf ? [...new Set(group.entities.map(unit=>terrainAdvantagesLabel(this.hf!,unit,this.sim.tick)).filter(Boolean))].join('; ') : '';
+      const sightBonus=terrain.match(/\+(\d+)% sight/);
+      const shortTerrain=terrain.includes('concealed')?'Concealed':terrain.includes('Road')?'Road +20%':sightBonus?`Sight +${sightBonus[1]}%`:'';
+      const text=compact+(shortTerrain ? ` · ${shortTerrain}` : '');
+      if (row.textContent !== text) row.textContent = text;
       row.style.color = feedback.status.includes('attacking') ? '#ffd397' : feedback.status.includes('moving') ? '#a5eed2' : '#b2c0b9';
-      const description = `${group.label}: ${feedback.status}. ${feedback.mode}. ${feedback.destination}`;
+      const description = `${group.label}: ${feedback.status}. ${feedback.mode}. ${feedback.destination}${terrain ? ". "+terrain : ""}`;
       row.title = description;
       row.setAttribute('aria-label', description);
     }

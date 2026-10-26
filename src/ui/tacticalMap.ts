@@ -179,7 +179,7 @@ export function renderTacticalMap(root: HTMLDivElement, options: TacticalMapOpti
 
   const heading = document.createElement('div');
   heading.className = 'tactical-map__heading';
-  heading.innerHTML = `<strong>${preset.shortLabel}</strong><span>${sizePreset.label} · ${raster.worldSize}M²</span>`;
+  heading.innerHTML = `<strong>${preset.shortLabel}</strong><span>${sizePreset.label} · ${raster.worldSize}M / SIDE</span>`;
 
   const telemetry = document.createElement('div');
   telemetry.className = 'tactical-map__telemetry';

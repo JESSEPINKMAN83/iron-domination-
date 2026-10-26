@@ -1,3 +1,4 @@
+import { effectiveSight, canDetectTerrainTarget, TERRAIN_REVEAL_TICKS } from './terrainAdvantages';
 import { matchesTargetPriorities } from './targetPriorities';
 import { armyName } from '../content/nations';
 import { defensePower, defenseReload, defenseMissileSpeed } from './defenseUpgrades';
@@ -124,7 +125,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
       if (!def) continue;
       // a unit can only auto-engage what it can see — no shelling into the fog
       const weaponRange = weapon.range || def.range;
-      const range = Math.min(weaponRange, attacker.vision?.radius ?? weaponRange);
+      const range = Math.min(weaponRange, effectiveSight(sim.nav.heightfield, attacker) || weaponRange);
       let target: Entity | undefined;
       if (orderedTarget) {
         if (!isWeaponTargetable(sim, attacker, weapon, orderedTarget)) {
@@ -164,6 +165,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
         if (Math.abs(angleDelta(attacker.turret.yaw, bearing)) > AIM_TOLERANCE) continue;
       }
       if (weapon.cooldown > 0) continue;
+      if (attacker.selectable?.type === 'infantry') attacker.terrainRevealedUntilTick = sim.tick + TERRAIN_REVEAL_TICKS;
       if (def.kind === 'bomb' || def.kind === 'tankBomb') {
         const aim = autoAimPoint(sim, attacker, weapon, target, defenseAim.x, defenseAim.z, 'bomb');
         launchBomb(sim, attacker, weapon, aim.x, aim.z, def.range);
@@ -460,6 +462,7 @@ export function manualFireAt(
   const primaryScales = boostedPrimary
     ? playerPrimaryScales(def.kind)
     : { speed: 1, damage: 1, force: 1, impact: 1 };
+  if (attacker.selectable?.type === 'infantry') attacker.terrainRevealedUntilTick = sim.tick + TERRAIN_REVEAL_TICKS;
   const speedScale = primaryScales.speed;
   const damageScale = primaryScales.damage;
   const forceScale = primaryScales.force;
@@ -1772,7 +1775,7 @@ function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: numb
   if (!weapon.targetId) return undefined;
   const target = entityById(sim, weapon.targetId);
   if (!target || !isWeaponTargetable(sim, attacker, weapon, target)) return undefined;
-  const visionCap = attacker.vision?.radius ?? range;
+  const visionCap = effectiveSight(sim.nav.heightfield, attacker) || range;
   const d = distance(attacker, target);
   return d <= effectiveRangeForTarget(weapon.kind as WeaponKind, target, range, visionCap) &&
     d >= minimumRangeForWeapon(weapon.kind as WeaponKind) &&
@@ -1786,7 +1789,7 @@ function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: nu
   let bestScore = Number.POSITIVE_INFINITY;
   let bestPriority = Number.POSITIVE_INFINITY;
   const priorities = attacker.mover?.tactic?.targetPriorities;
-  const visionCap = attacker.vision?.radius ?? range;
+  const visionCap = effectiveSight(sim.nav.heightfield, attacker) || range;
   const searchRadius = Math.max(range, visionCap);
   sim.spatial.visitNearby(attacker.transform.x, attacker.transform.z, searchRadius, (candidate) => {
     if (!isWeaponTargetable(sim, attacker, weapon, candidate)) return;
@@ -1853,7 +1856,7 @@ function acquireLineTarget(
 ): Entity | undefined {
   let best: Entity | undefined;
   let bestAlong = Number.POSITIVE_INFINITY;
-  const visionCap = attacker.vision?.radius ?? range;
+  const visionCap = effectiveSight(sim.nav.heightfield, attacker) || range;
   for (const candidate of sim.world.entities) {
     const manualTankAirTarget =
       allowManualTankAir &&
@@ -1902,6 +1905,7 @@ function isWeaponTargetable(sim: GameSim, attacker: Entity, weapon: Weapon, targ
 
 function isTargetable(sim: GameSim, attacker: Entity, target: Entity): boolean {
   if (attacker === target) return false;
+  if (!canDetectTerrainTarget(sim.nav.heightfield,attacker,target,sim.tick)) return false;
   if (!attacker.team || !target.team) return false;
   return targetableByTeam(sim, attacker.team.id, target);
 }
