@@ -3781,7 +3781,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       terrainRelief: settings.terrainRelief,
       terrainLayout: settings.terrainLayout,
       localAnchor: { x: localBase.transform.x, z: localBase.transform.z },
-      isVisible: (x, z) => playerVision.isVisibleWorld(x, z),
+      isVisible: (x, z, entity) => entity ? playerVision.isEntityVisible(entity,sim.tick) : playerVision.isVisibleWorld(x, z),
     },
     {
       onOpen: () => {

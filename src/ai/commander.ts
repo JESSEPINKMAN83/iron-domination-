@@ -650,7 +650,7 @@ export class EnemyCommander {
       objective = this.pickTarget(squad);
       squad.operation!.objective = { ...objective };
     }
-    if (objective.entity && !objective.entity.destroyed && this.vision.isVisibleWorld(objective.entity.transform.x, objective.entity.transform.z)) {
+    if (objective.entity && !objective.entity.destroyed && this.vision.isEntityVisible(objective.entity,this.sim.tick)) {
       return { x: objective.entity.transform.x, z: objective.entity.transform.z, entity: objective.entity };
     }
     // Last observed position is allowed; hidden units are never tracked live.

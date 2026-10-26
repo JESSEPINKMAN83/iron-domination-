@@ -240,13 +240,13 @@ describe('multiplayer relay', () => {
 
     const synchronizedSettings = nextMessage(
       guest,
-      (message) => message.type === 'room-state' && message.room.mapId === 'crater-oasis' && message.room.mapSize === 'large' && message.room.seed === 246810 && message.room.oreAmount === 400 && message.room.terrainRelief === 150 && message.room.armyCount === 4,
+      (message) => message.type === 'room-state' && message.room.mapId === 'crater-oasis' && message.room.mapSize === 'extra-large' && message.room.seed === 246810 && message.room.oreAmount === 400 && message.room.terrainRelief === 150 && message.room.armyCount === 4,
     );
     host.send(JSON.stringify({
       type: 'settings',
       roomCode,
       playerId: hostId,
-      settings: { mapId: 'crater-oasis', mapSize: 'large', seed: 246810, oreAmount: 400, terrainRelief: 150, terrainLayout: 'lakes', combatMode: 'manual', armyDoctrines: ['iron-legion', 'missile-command', 'iron-legion', 'missile-command'], armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
+      settings: { mapId: 'crater-oasis', mapSize: 'extra-large', seed: 246810, oreAmount: 400, terrainRelief: 150, terrainLayout: 'lakes', combatMode: 'manual', armyDoctrines: ['iron-legion', 'missile-command', 'iron-legion', 'missile-command'], armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
     }));
     const synchronizedRoom = await synchronizedSettings;
     expect(synchronizedRoom.room.spawnSlots).toEqual([2, 1, 3, 4]);
@@ -294,8 +294,8 @@ describe('multiplayer relay', () => {
     ]);
     expect(hostStart.room.mapId).toBe('crater-oasis');
     expect(guestStart.room.mapId).toBe('crater-oasis');
-    expect(hostStart.room.mapSize).toBe('large');
-    expect(guestStart.room.mapSize).toBe('large');
+    expect(hostStart.room.mapSize).toBe('extra-large');
+    expect(guestStart.room.mapSize).toBe('extra-large');
     expect(hostStart.room.seed).toBe(246810);
     expect(guestStart.room.seed).toBe(246810);
     expect(hostStart.room.oreAmount).toBe(400);
@@ -523,7 +523,7 @@ describe('multiplayer relay', () => {
     const room = {
       code: 'RESUME',
       mapId: 'frostbite-pass',
-      mapSize: 'small',
+      mapSize: 'extra-large',
       seed: 771204,
       oreAmount: 150,
       ai: 'easy',
@@ -544,7 +544,7 @@ describe('multiplayer relay', () => {
     expect(restored.room.code).toBe('RESUME');
     expect(restored.room.status).toBe('in-game');
     expect(restored.room.mapId).toBe('frostbite-pass');
-    expect(restored.room.mapSize).toBe('small');
+    expect(restored.room.mapSize).toBe('extra-large');
     expect(restored.room.oreAmount).toBe(150);
     expect(restored.player.id).toBe(hostId);
 

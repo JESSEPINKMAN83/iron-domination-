@@ -17,7 +17,7 @@ export type TacticPlannerMapContext = {
   /** World-space anchor for the local army (HQ / spawn). Used to orient the map. */
   localAnchor: { x: number; z: number };
   /** Fog-of-war visibility. Hidden armies must never be revealed by the planner. */
-  isVisible?: (x: number, z: number) => boolean;
+  isVisible?: (x: number, z: number, entity?: Entity) => boolean;
 };
 
 export type TacticExecutePayload = {
@@ -573,7 +573,7 @@ export class TacticPlanner {
 
   private isEntityVisible(entity: Entity): boolean {
     return entity.team?.id === this.localTeam ||
-      (this.map.isVisible?.(entity.transform.x, entity.transform.z) ?? true);
+      (this.map.isVisible?.(entity.transform.x, entity.transform.z, entity) ?? true);
   }
 }
 

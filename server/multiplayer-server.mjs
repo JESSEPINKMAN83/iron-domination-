@@ -28,7 +28,7 @@ const rooms = new Map();
  *   code: string;
  *   matchId?: string;
  *   mapId: string;
- *   mapSize: 'small' | 'medium' | 'large';
+ *   mapSize: 'small' | 'medium' | 'large' | 'extra-large';
  *   seed: number;
  *   oreAmount: number;
  *   terrainRelief: number;
@@ -799,7 +799,7 @@ function normalizeMapId(value) {
 }
 
 function normalizeMapSize(value) {
-  return value === 'small' || value === 'large' ? value : 'medium';
+  return value === 'small' || value === 'large' || value === 'extra-large' ? value : 'medium';
 }
 
 function normalizeTacticalPingKind(value) {

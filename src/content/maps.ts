@@ -4,7 +4,7 @@ export type MapId = 'highlands' | 'crater-oasis' | 'frostbite-pass' | 'natanz';
 
 export type MapBiome = 'temperate' | 'desert' | 'snow';
 
-export type MapSize = 'small' | 'medium' | 'large';
+export type MapSize = 'small' | 'medium' | 'large' | 'extra-large';
 
 export const ORE_AMOUNT_MIN = 50;
 export const ORE_AMOUNT_MAX = 400;
@@ -338,6 +338,13 @@ export const MAP_SIZE_PRESETS = {
     cells: 640,
     oreMultiplier: 1.25,
     description: '1280m battlefield. More expansion space and longer four-army wars.',
+  },
+  'extra-large': {
+    id: 'extra-large',
+    label: 'EXTRA LARGE',
+    cells: 904,
+    oreMultiplier: 2.5,
+    description: '1808m battlefield. About twice the area of Large, with more expansion room and resources.',
   },
 } as const satisfies Record<MapSize, MapSizePreset>;
 export const MAP_SIZE_IDS = Object.keys(MAP_SIZE_PRESETS) as MapSize[];
