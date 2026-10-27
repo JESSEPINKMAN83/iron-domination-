@@ -41,7 +41,7 @@ const NATION_ORDER: Record<ArmyDoctrineId, readonly NationId[]> = {
 /** Nation for each army (index 0 = army 1), assigned by doctrine order. */
 export function nationsForDoctrines(doctrines: readonly ArmyDoctrineId[]): NationId[] {
   const used: Record<ArmyDoctrineId, number> = { 'iron-legion': 0, 'missile-command': 0 };
-  return doctrines.slice(0, 4).map((doctrine) => {
+  return doctrines.slice(0, 7).map((doctrine) => {
     const order = NATION_ORDER[doctrine];
     return order[Math.min(order.length - 1, used[doctrine]++)];
   });

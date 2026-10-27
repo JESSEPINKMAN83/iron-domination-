@@ -896,3 +896,5 @@
 .graphics-preference select:focus-visible { outline:2px solid #9de5c4; outline-offset:2px; }
 .performance-graphics .war-setup, .performance-graphics .war-lobby, .performance-graphics .iron-feedback__trigger { backdrop-filter:none; }
 .war-config, .war-operation__config { overflow-x:hidden; overscroll-behavior:contain; }
+
+@media(max-width:600px) { .war-armies__count { grid-template-columns:repeat(3,minmax(0,1fr)); } }

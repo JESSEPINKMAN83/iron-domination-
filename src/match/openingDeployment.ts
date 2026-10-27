@@ -12,8 +12,8 @@ export interface OpeningDeploymentObstacle {
 }
 
 export function openingFormationBasis(team: number): OpeningFormationBasis {
-  const sx = team === 2 || team === 3 ? -1 : 1;
-  const sz = team === 2 || team === 4 ? -1 : 1;
+  const sx = team === 6 ? -1 : team === 5 || team === 7 ? 0 : team === 2 || team === 3 ? -1 : 1;
+  const sz = team === 6 ? 0 : team === 7 ? -1 : team === 2 || team === 4 ? -1 : 1;
   const len = Math.hypot(sx, sz);
   const forwardX = sx / len;
   const forwardZ = sz / len;

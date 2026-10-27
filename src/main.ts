@@ -209,7 +209,6 @@ import { showOutcomeScreen } from './ui/outcomeScreen';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
 import { TacticPlanner } from './ui/tacticPlanner';
-import { maybeAskTacticFeedback, hideTacticFeedbackPrompt } from './ui/tacticFeedbackPrompt';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
 import { unitDisplayName } from './ui/unitDisplayName';
 import { defenseLevel, purchaseDefenseUpgrade } from './sim/defenseUpgrades';
@@ -247,9 +246,9 @@ interface SkirmishSettings {
   spawnPoints: ArmySpawnPoints;
 }
 
-type ArmyCount = 2 | 3 | 4;
-type ArmySides = [number, number, number, number];
-type ArmySpawnSlots = [number, number, number, number];
+type ArmyCount = 2 | 3 | 4 | 5 | 6 | 7;
+type ArmySides = number[];
+type ArmySpawnSlots = number[];
 
 interface ArmyRuntime {
   team: number;
@@ -475,34 +474,34 @@ function strategicRandomSeed(mapId: MapId, mapSize: MapSize, oreAmount: number, 
 }
 
 function defaultArmySides(): ArmySides {
-  return [1, 2, 3, 4];
+  return [1, 2, 3, 4, 5, 6, 7];
 }
 
 function sanitizeArmyCount(value: unknown): ArmyCount | undefined {
   const count = Math.floor(Number(value));
-  if (count === 2 || count === 3 || count === 4) return count;
+  if (count >= 2 && count <= 7) return count as ArmyCount;
   return undefined;
 }
 
 function sanitizeArmySides(value: unknown): ArmySides | undefined {
   const raw = Array.isArray(value) ? value : [];
   if (raw.length === 0) return undefined;
-  return [0, 1, 2, 3].map((index) => {
+  return [0, 1, 2, 3, 4, 5, 6].map((index) => {
     const side = Math.floor(Number(raw[index]));
-    return Number.isFinite(side) ? Math.max(1, Math.min(4, side)) : index + 1;
+    return Number.isFinite(side) ? Math.max(1, Math.min(7, side)) : index + 1;
   }) as ArmySides;
 }
 
 function defaultSpawnSlots(): ArmySpawnSlots {
-  return [1, 2, 3, 4];
+  return [1, 2, 3, 4, 5, 6, 7];
 }
 
 function sanitizeSpawnSlots(value: unknown): ArmySpawnSlots | undefined {
   if (!Array.isArray(value) || value.length === 0) return undefined;
   const used = new Set<number>();
-  return [0, 1, 2, 3].map((index) => {
-    const requested = Math.max(1, Math.min(4, Math.floor(Number(value[index]) || index + 1)));
-    const slot = used.has(requested) ? [1, 2, 3, 4].find((candidate) => !used.has(candidate)) ?? index + 1 : requested;
+  return [0, 1, 2, 3, 4, 5, 6].map((index) => {
+    const requested = Math.max(1, Math.min(7, Math.floor(Number(value[index]) || index + 1)));
+    const slot = used.has(requested) ? [1, 2, 3, 4, 5, 6, 7].find((candidate) => !used.has(candidate)) ?? index + 1 : requested;
     used.add(slot);
     return slot;
   }) as ArmySpawnSlots;
@@ -591,7 +590,7 @@ function parseSpawnPointsParam(value: string | null): ArmySpawnPoints | undefine
   if (!value) return undefined;
   const parts = value.split(',').map(Number);
   if (parts.length < 8 || parts.some((part) => !Number.isFinite(part))) return undefined;
-  return sanitizeSpawnPoints([0, 1, 2, 3].map((index) => ({
+  return sanitizeSpawnPoints([0, 1, 2, 3, 4, 5, 6].map((index) => ({
     x: parts[index * 2] / 100,
     z: parts[index * 2 + 1] / 100,
   })));
@@ -625,7 +624,7 @@ function initialSettings(params: URLSearchParams): SkirmishSettings {
     aiStyle: fromUrl.aiStyle ?? stored.aiStyle ?? 'balanced',
     debug: fromUrl.debug ?? stored.debug ?? false,
     combatMode: fromUrl.combatMode ?? stored.combatMode ?? 'assisted',
-    armyDoctrines: fromUrl.armyDoctrines ?? stored.armyDoctrines ?? defaultArmyDoctrines(),
+    armyDoctrines: Array.from({ length: 7 }, (_, i) => (fromUrl.armyDoctrines ?? stored.armyDoctrines ?? defaultArmyDoctrines())[i] ?? (i % 2 === 0 ? 'iron-legion' : 'missile-command')),
     armyCount,
     armySides: ensureOpposingSides(armyCount, armySides),
     spawnSlots,
@@ -1319,16 +1318,16 @@ function createArmySetupControl(
   let count: ArmyCount = initialCount;
   let playerIndex = 1;
   let disabled = false;
-  const sides: ArmySides = ensureOpposingSides(initialCount, initialSides);
-  const doctrines: ArmyDoctrineAssignments = [...initialDoctrines];
+  const sides: ArmySides = ensureOpposingSides(7, Array.from({ length: 7 }, (_, i) => initialSides[i] ?? i + 1));
+  const doctrines: ArmyDoctrineAssignments = Array.from({ length: 7 }, (_, i) => initialDoctrines[i] ?? (i % 2 === 0 ? 'iron-legion' : 'missile-command'));
   const root = document.createElement('div');
   root.className = 'war-armies';
   const title = document.createElement('div');
   title.className = 'war-armies__header';
   title.innerHTML = '<span>ARMY COUNT</span><small>SAME SIDE = ALLIES</small>';
   const countButtons = document.createElement('div');
-  countButtons.className = 'war-choice-group';
-  countButtons.style.setProperty('--option-count', '3');
+  countButtons.className = 'war-choice-group war-armies__count';
+  countButtons.style.setProperty('--option-count', '6');
   const sideRows = document.createElement('div');
   sideRows.className = 'war-armies__rows';
   const tableHead = document.createElement('div');
@@ -1371,7 +1370,7 @@ function createArmySetupControl(
     matchup.textContent = formatArmyMatchup(count, sides, (army) => NATIONS[setupNations[army - 1]].tag);
   };
 
-  for (const value of [2, 3, 4] as ArmyCount[]) {
+  for (const value of [2, 3, 4, 5, 6, 7] as ArmyCount[]) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'war-choice';
@@ -1396,7 +1395,7 @@ function createArmySetupControl(
     countButtons.appendChild(button);
   }
 
-  for (let army = 1; army <= 4; army++) {
+  for (let army = 1; army <= 7; army++) {
     const row = document.createElement('div');
     row.dataset.army = String(army);
     row.className = 'war-army-row';
@@ -1407,7 +1406,7 @@ function createArmySetupControl(
     sideSelect.className = 'war-army-row__select war-army-row__select--side';
     sideSelect.dataset.role = 'side';
     sideSelect.setAttribute('aria-label', `Army ${army} side`);
-    for (let side = 1; side <= 4; side++) {
+    for (let side = 1; side <= 7; side++) {
       const option = document.createElement('option');
       option.value = String(side);
       option.textContent = String(side);
@@ -1415,7 +1414,7 @@ function createArmySetupControl(
     }
     sideSelect.onchange = () => {
       const previous = sides[army - 1];
-      sides[army - 1] = Math.max(1, Math.min(4, Number(sideSelect.value) || army));
+      sides[army - 1] = Math.max(1, Math.min(7, Number(sideSelect.value) || army));
       if (new Set(sides.slice(0, count)).size < 2) sides[army - 1] = previous;
       render();
       onChange();
@@ -1448,8 +1447,8 @@ function createArmySetupControl(
     armyDoctrines: () => [...doctrines] as ArmyDoctrineAssignments,
     setState: (nextCount, nextSides, nextDoctrines) => {
       count = nextCount;
-      for (let index = 0; index < sides.length; index++) sides[index] = nextSides[index];
-      for (let index = 0; index < doctrines.length; index++) doctrines[index] = nextDoctrines[index];
+      for (let index = 0; index < sides.length; index++) sides[index] = nextSides[index] ?? index + 1;
+      for (let index = 0; index < doctrines.length; index++) doctrines[index] = nextDoctrines[index] ?? (index % 2 === 0 ? 'iron-legion' : 'missile-command');
       normalizeSides();
       render();
       onChange();
@@ -1649,6 +1648,10 @@ function createMultiplayerSetupPanel(
 
   const openHostRoom = async (): Promise<void> => {
     if (openingHostRoom || activeSession || activeMode !== 'host') return;
+    if (settings().armyCount > 4) {
+      setStatus('Five to seven armies are available in skirmish. Choose up to four for an online room.', true);
+      return;
+    }
     openingHostRoom = true;
     skirmish.disabled = true;
     host.disabled = true;
@@ -2652,6 +2655,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const hf = generateHeightfield({
     ...mapConfig(settings.mapId, settings.mapSize, settings.oreAmount, settings.terrainRelief, settings.terrainLayout),
     seed: settings.seed,
+    armyCount: settings.armyCount,
   });
   console.info(`[map] ${selectedMap.label} · ${MAP_SIZE_PRESETS[settings.mapSize].label} · seed ${settings.seed} · ${hf.oreFields.length} ore fields · ${hf.cells}×${hf.cells} cells generated in ${(performance.now() - t0).toFixed(0)} ms`);
 
@@ -3519,6 +3523,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       showTargetHover: (target) => orderMarkers.showTargetHover(target),
       clearTargetHover: () => orderMarkers.clearTargetHover(),
       inspectHover: (target) => buildingView.setHovered(target),
+      unitHover: (target) => selectionBar?.setHoveredUnit(target),
       tryRally: (x, z) => {
         const selected = selectedEntities(sim, localTeam);
         if (selected.length !== 1) return false;
@@ -3786,7 +3791,6 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     },
     {
       onOpen: () => {
-        hideTacticFeedbackPrompt();
         controller.setEnabled(false);
         sendTelemetryEvent('tactic-open', matchTelemetryMetadata(), {
           selectionCount: selectedEntities(sim, localTeam).filter((entity) => entity.mover && !entity.building && !entity.harvester).length,
@@ -3795,9 +3799,6 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       onCancel: ({ plannerDurationMs, selectionCount }) => {
         controller.setEnabled(true);
         sendTelemetryEvent('tactic-cancel', matchTelemetryMetadata(), { plannerDurationMs, selectionCount });
-        maybeAskTacticFeedback((useful) => {
-          sendTelemetryEvent('tactic-feedback', matchTelemetryMetadata(), { useful });
-        });
       },
       onExecute: (payload) => {
         controller.setEnabled(true);
@@ -3843,9 +3844,6 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           last.z,
           payload.endAction.kind === 'hold' ? 'move' : payload.endAction.kind === 'attack-move' || payload.endAction.kind === 'attack-through' ? 'attack-move' : 'attack',
         );
-        maybeAskTacticFeedback((useful) => {
-          sendTelemetryEvent('tactic-feedback', matchTelemetryMetadata(), { useful });
-        });
       },
     },
   );
@@ -4212,6 +4210,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       unitLossFeed.update();
       destructionPanel?.simTick(sim.tick);
       debriefTracker.recordEvents(events);
+      debriefTracker.sampleTimeline(sim.tick / SIM_HZ);
       if (impactDemoScene) {
         const playerTookTanks = impactDemoScene.tanks.some((tank) => tank.selectable?.selected || tank.playerControlled);
         if (playerTookTanks) impactDemoCameraReleased = true;
@@ -4981,7 +4980,7 @@ function createDebriefPreviewSnapshot(armyCount: ArmyCount): MatchSnapshot {
     { damageDealt: 6_870, damageReceived: 10_930, kills: 7, buildingKills: 2, units: 0, lost: 19, buildings: 0, buildingLosses: 8, income: 8_640, spent: 8_110, credits: 530, shots: 184, hits: 81, assaults: 5, rebuilds: 1, retreats: 2 },
     { damageDealt: 4_310, damageReceived: 8_220, kills: 5, buildingKills: 1, units: 0, lost: 15, buildings: 0, buildingLosses: 7, income: 7_420, spent: 7_030, credits: 390, shots: 151, hits: 63, assaults: 4, rebuilds: 0, retreats: 1 },
   ];
-  const armies = samples.slice(0, armyCount).map((sample, index) => ({
+  const armies = Array.from({ length: armyCount }, (_, index) => samples[index % samples.length]).map((sample, index) => ({
     team: index + 1,
     side: index + 1,
     label: index === 0 ? 'YOUR ARMY' : `AI ARMY ${index + 1}`,
@@ -5009,6 +5008,22 @@ function createDebriefPreviewSnapshot(armyCount: ArmyCount): MatchSnapshot {
     retreats: sample.retreats,
   }));
   return {
+    timelineDemo: true,
+    timeline: Array.from({ length: 61 }, (_, step) => {
+      const t = step / 60;
+      return { seconds: t * 877, armies: armies.map((army, index) => {
+        const progress = Math.min(1, Math.max(0, (t - index * 0.03) / (1 - index * 0.03)));
+        return {
+          team: army.team,
+          credits: step === 60 ? army.credits : Math.round(3000 + 1700 * Math.sin(t * 17 + index) + progress * army.credits),
+          income: Math.round(army.income * progress),
+          unitKills: Math.round(army.unitKills * progress ** 1.3),
+          unitLosses: Math.round(army.unitLosses * progress ** 1.7),
+          unitsSurviving: step === 60 ? army.unitsSurviving : Math.max(0, Math.round(8 + Math.sin(t * 3.14) * (18 + index * 6) - progress * index * 7)),
+          damageDealt: Math.round(army.damageDealt * progress ** 1.2),
+        };
+      }) };
+    }),
     elapsedSeconds: 14 * 60 + 37,
     playerCredits: armies[0].credits,
     playerBuildings: armies[0].buildingsSurviving,

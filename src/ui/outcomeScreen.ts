@@ -1,3 +1,4 @@
+import { createBattleTimeline } from './battleTimeline';
 import { debriefInsights } from '../match/debriefInsights';
 import { currentCommander } from '../identity/commander';
 import type { MapId, MapSize } from '../content/maps';
@@ -191,7 +192,12 @@ export function showOutcomeScreen(options: OutcomeScreenOptions): void {
   }, true);
   actions.append(setup, again);
   footer.append(hint, actions);
-  shell.append(header, highlights, body, footer);
+  const totals = document.createElement('details');
+  totals.className = 'battle-timeline__totals';
+  const totalsLabel = document.createElement('summary');
+  totalsLabel.textContent = 'Final army totals & battlefield findings';
+  totals.append(totalsLabel, body);
+  shell.append(header, highlights, createBattleTimeline(options.snapshot), totals, footer);
   overlay.append(shell);
   document.body.append(overlay);
 }

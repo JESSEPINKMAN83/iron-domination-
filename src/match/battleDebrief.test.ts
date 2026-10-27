@@ -5,6 +5,26 @@ import { createGameSim } from '../sim/world';
 import { BattleDebriefTracker } from './battleDebrief';
 
 describe('BattleDebriefTracker', () => {
+  it('records real balances at intervals, retains final state and bounds long-match history', () => {
+    const hf = generateHeightfield({ cells: 24, cellSize: 2, waterLevel: 1.5, seed: 91, oreFieldCount: 0 });
+    const sim = createGameSim(hf);
+    const economy = createEconomy(1, 1000);
+    const tracker = new BattleDebriefTracker(sim, [{ team: 1, side: 1, economy }], 1);
+    economy.credits = 750;
+    tracker.sampleTimeline(4);
+    tracker.sampleTimeline(5);
+    economy.credits = 600;
+    const snapshot = tracker.snapshot(7);
+    expect(snapshot.timeline?.map((p) => [p.seconds, p.armies[0].credits])).toEqual([[0, 1000], [5, 750], [7, 600]]);
+    snapshot.timeline![0].armies[0].credits = 999;
+    expect(tracker.snapshot(7).timeline![0].armies[0].credits).toBe(1000);
+    for (let seconds = 10; seconds <= 20000; seconds += 5) tracker.sampleTimeline(seconds);
+    const final = tracker.snapshot(20003);
+    expect(final.timeline!.length).toBeLessThanOrEqual(720);
+    expect(final.timeline![0].seconds).toBe(0);
+    expect(final.timeline!.at(-1)?.seconds).toBe(20003);
+  });
+
   it('reports per-army combat, force and economy results without mutating the sim', () => {
     const hf = generateHeightfield({ cells: 48, cellSize: 2, waterLevel: 1.5, seed: 91, oreFieldCount: 2 });
     const sim = createGameSim(hf);

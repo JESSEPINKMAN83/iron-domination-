@@ -134,6 +134,9 @@ export class BuildingView {
       2: this.createAccentMaterial(ctx, 2),
       3: this.createAccentMaterial(ctx, 3),
       4: this.createAccentMaterial(ctx, 4),
+      5: this.createAccentMaterial(ctx, 5),
+      6: this.createAccentMaterial(ctx, 6),
+      7: this.createAccentMaterial(ctx, 7),
     };
     for (const material of Object.values(this.accentMaterials)) {
       if (material instanceof MeshStandardMaterial) {

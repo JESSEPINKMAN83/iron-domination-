@@ -1,14 +1,17 @@
-export type StartTeam = 1 | 2 | 3 | 4;
+export type StartTeam = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /** Normalised offset from map centre, as a fraction of map size. */
 export type SpawnPoint = { x: number; z: number };
-export type ArmySpawnPoints = [SpawnPoint, SpawnPoint, SpawnPoint, SpawnPoint];
+export type ArmySpawnPoints = SpawnPoint[];
 
 const START_FACTORS: Record<StartTeam, SpawnPoint> = {
   1: { x: -0.34, z: -0.34 },
   2: { x: 0.34, z: 0.34 },
   3: { x: 0.34, z: -0.34 },
   4: { x: -0.34, z: 0.34 },
+  5: { x: 0, z: -0.38 },
+  6: { x: 0.38, z: 0 },
+  7: { x: 0, z: 0.38 },
 };
 
 /**
@@ -49,12 +52,15 @@ export function defaultSpawnPoints(): ArmySpawnPoints {
     { ...START_FACTORS[2] },
     { ...START_FACTORS[3] },
     { ...START_FACTORS[4] },
+    { ...START_FACTORS[5] },
+    { ...START_FACTORS[6] },
+    { ...START_FACTORS[7] },
   ];
 }
 
 /** Spawn points laid out by a slot assignment, the pre-drag corner behaviour. */
 export function spawnPointsFromSlots(slots: readonly number[]): ArmySpawnPoints {
-  return [0, 1, 2, 3].map((index) => ({
+  return [0, 1, 2, 3, 4, 5, 6].map((index) => ({
     ...START_FACTORS[clampStartTeam(slots[index] ?? index + 1)],
   })) as ArmySpawnPoints;
 }
@@ -69,7 +75,7 @@ export function snapSpawnPoint(point: SpawnPoint): SpawnPoint {
 export function sanitizeSpawnPoints(value: unknown): ArmySpawnPoints | undefined {
   if (!Array.isArray(value) || value.length === 0) return undefined;
   const fallback = defaultSpawnPoints();
-  return [0, 1, 2, 3].map((index) => {
+  return [0, 1, 2, 3, 4, 5, 6].map((index) => {
     const raw = value[index] as Partial<SpawnPoint> | undefined;
     const x = Number(raw?.x);
     const z = Number(raw?.z);
@@ -88,5 +94,5 @@ function clampSpawnAxis(value: number): number {
 }
 
 function clampStartTeam(team: number): StartTeam {
-  return team === 2 || team === 3 || team === 4 ? team : 1;
+  return Number.isInteger(team) && team >= 1 && team <= 7 ? team as StartTeam : 1;
 }

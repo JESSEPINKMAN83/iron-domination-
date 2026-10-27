@@ -10,7 +10,7 @@ export interface FactionPalette {
   lightBar: number;
 }
 
-export type FactionId = 1 | 2 | 3 | 4;
+export type FactionId = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export const ARMY_COLOR_FAMILIES = {
   aegisBlue: {
@@ -69,6 +69,9 @@ const DEFAULT_TEAM_PALETTES: Record<FactionId, FactionPalette> = {
   2: ARMY_COLOR_FAMILIES.vesperRed,
   3: ARMY_COLOR_FAMILIES.coalitionAmber,
   4: ARMY_COLOR_FAMILIES.coalitionGreen,
+  5: ARMY_COLOR_FAMILIES.coalitionViolet,
+  6: { ...ARMY_COLOR_FAMILIES.aegisBlue, accent: 0x35cacc, lightBar: 0x9aeeee },
+  7: { ...ARMY_COLOR_FAMILIES.vesperRed, accent: 0xec77bc, lightBar: 0xffbce6 },
 };
 
 export const FACTION: Record<FactionId, FactionPalette> = Object.fromEntries(
@@ -102,7 +105,7 @@ export function armyFactionPalettes(
   doctrines: readonly ArmyDoctrineId[],
   sides: readonly number[],
 ): FactionPalette[] {
-  const count = Math.min(4, Math.max(doctrines.length, sides.length));
+  const count = Math.min(7, Math.max(doctrines.length, sides.length));
   if (count === 0) return [];
   const groups = new Map<number, number[]>();
   for (let index = 0; index < count; index++) {
@@ -116,7 +119,7 @@ export function armyFactionPalettes(
   const nations = nationsForDoctrines(doctrines.slice(0, count));
   const assigned: FactionPalette[] = [];
   const used = new Set<FactionPalette>();
-  const fallbacks = Object.values(ARMY_COLOR_FAMILIES) as FactionPalette[];
+  const fallbacks = [...Object.values(ARMY_COLOR_FAMILIES), DEFAULT_TEAM_PALETTES[6], DEFAULT_TEAM_PALETTES[7]] as FactionPalette[];
   for (const members of groups.values()) {
     // Allies share the colors of the side's first nation.
     const preferred = NATION_COLORS[nations[members[0]] ?? 'israel'];
@@ -129,7 +132,7 @@ export function armyFactionPalettes(
 
 /** Applies doctrine/side colors before world views create their materials. */
 export function applyArmyFactionColors(doctrines: readonly ArmyDoctrineId[], sides: readonly number[]): void {
-  for (const id of [1, 2, 3, 4] as FactionId[]) Object.assign(FACTION[id], DEFAULT_TEAM_PALETTES[id]);
+  for (const id of [1, 2, 3, 4, 5, 6, 7] as FactionId[]) Object.assign(FACTION[id], DEFAULT_TEAM_PALETTES[id]);
   const palettes = armyFactionPalettes(doctrines, sides);
   for (let index = 0; index < palettes.length; index++) Object.assign(FACTION[(index + 1) as FactionId], palettes[index]);
 }
@@ -154,7 +157,7 @@ export function factionCamoColors(id: FactionId): string[] {
 }
 
 export function factionId(teamId: number | undefined): FactionId {
-  return teamId === 2 || teamId === 3 || teamId === 4 ? teamId : 1;
+  return teamId !== undefined && Number.isInteger(teamId) && teamId >= 1 && teamId <= 7 ? teamId as FactionId : 1;
 }
 
 export function colorCss(color: number): string {
