@@ -12,6 +12,14 @@ import {
 } from './startPositions';
 
 describe('spawn points', () => {
+  it('provides seven separate starts with safe spacing', () => {
+    const points = defaultSpawnPoints();
+    expect(points).toHaveLength(7);
+    for (let i = 0; i < 7; i++) {
+      expect(armyStartPosition(1000, i + 1)).toEqual({ x: points[i].x * 1000, z: points[i].z * 1000 });
+      for (let j = i + 1; j < 7; j++) expect(spawnPointsTooClose(points[i], points[j])).toBe(false);
+    }
+  });
   it('falls back to the fixed corner when no custom point is set', () => {
     expect(armyStartPosition(1000, 2)).toEqual(startPosition(1000, 2));
   });

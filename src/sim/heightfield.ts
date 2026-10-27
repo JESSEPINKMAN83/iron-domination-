@@ -21,6 +21,7 @@ export function isDesertKind(kind: MapKind | undefined): boolean {
 }
 
 export interface MapConfig {
+  armyCount?: number;
   seed: number;
   kind?: MapKind;
   /** cells per side of the walkability grid (heights have cells+1 samples per side) */
@@ -247,7 +248,7 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
   // Every starting command yard receives a deterministic, broad construction
   // shelf with a blended shoulder. Deep maps remain dramatic without spawning
   // buildings inside a cliff or trapping the opening army.
-  flattenDeploymentShelves(heights, samples, cellSize, size);
+  flattenDeploymentShelves(heights, samples, cellSize, size, cfg.armyCount ?? 4);
   maxHeight = 0;
   for (let i = 0; i < heights.length; i++) maxHeight = Math.max(maxHeight, heights[i]);
 
@@ -399,14 +400,14 @@ export function generateHeightfield(cfg: MapConfig): Heightfield {
   return hf;
 }
 
-function flattenDeploymentShelves(heights: Float32Array, samples: number, cellSize: number, size: number): void {
+function flattenDeploymentShelves(heights: Float32Array, samples: number, cellSize: number, size: number, armyCount: number): void {
   const half = size / 2;
   const innerRadius = Math.max(36, size * 0.045);
   const outerRadius = Math.max(70, size * 0.085);
-  for (const [fx, fz] of [[-0.34, -0.34], [0.34, 0.34], [0.34, -0.34], [-0.34, 0.34]] as const) {
+  for (const [fx, fz] of [[-0.34, -0.34], [0.34, 0.34], [0.34, -0.34], [-0.34, 0.34], [0, -0.38], [0.38, 0], [0, 0.38]].slice(0, Math.max(4, Math.min(7, armyCount)))) {
     const centerX = size * fx;
     const centerZ = size * fz;
-    const target = sampleHeightData(heights, samples, cellSize, centerX, centerZ);
+    const target = armyCount > 4 ? Math.max(sampleHeightData(heights, samples, cellSize, centerX, centerZ), 6) : sampleHeightData(heights, samples, cellSize, centerX, centerZ);
     const minX = Math.max(0, Math.floor((centerX - outerRadius + half) / cellSize));
     const maxX = Math.min(samples - 1, Math.ceil((centerX + outerRadius + half) / cellSize));
     const minZ = Math.max(0, Math.floor((centerZ - outerRadius + half) / cellSize));

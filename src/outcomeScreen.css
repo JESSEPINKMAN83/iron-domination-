@@ -234,3 +234,24 @@
   .battle-debrief__army-output b { font-size: 17px; }
   .battle-debrief__army-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.battle-timeline { padding:24px 28px; }
+.battle-timeline__heading { display:flex;align-items:center;justify-content:space-between;gap:12px; }
+.battle-timeline__heading small,.battle-timeline__heading > span { font:600 10px/1.4 system-ui;letter-spacing:.12em;color:#91aaa2; }
+.battle-timeline h2 { margin:5px 0 20px;font:700 clamp(22px,3vw,32px)/1.2 system-ui; }
+.battle-timeline__controls,.battle-timeline__legend { display:flex;flex-wrap:wrap;gap:7px; }
+.battle-timeline button { cursor:pointer;border:1px solid #344640;border-radius:6px;background:#121d1a;color:#b2c2bb;padding:8px 12px;font:600 12px system-ui; }
+.battle-timeline__controls button[aria-pressed=true] { color:#081910;background:#a3e4c6;border-color:#a3e4c6; }
+.battle-timeline__legend { margin:18px 0 8px; }
+.battle-timeline__legend button { color:var(--line-color);background:transparent;border-color:transparent;padding:5px 8px; }
+.battle-timeline__legend button[aria-pressed=false] { opacity:.35;text-decoration:line-through; }
+.battle-timeline__detail { color:#9eb0a9;font-size:12px;min-height:18px; }
+.battle-timeline__plot { background:linear-gradient(180deg,#121e1b,#09110f);border:1px solid #293c34;border-radius:8px;overflow:hidden; }
+.battle-timeline__plot svg { width:100%;display:block;touch-action:pan-y;min-height:220px; }
+.battle-timeline__readout { display:flex;flex-wrap:wrap;gap:10px 22px;padding:14px 4px;font:600 12px system-ui;min-height:48px; }
+.battle-timeline__readout strong { color:#eef6ef; }
+.battle-timeline__totals > summary { padding:18px 28px;cursor:pointer;border-top:1px solid #304239;color:#bcd6ca;font-weight:600; }
+@media(max-width:600px) { .battle-timeline { padding:18px 12px; }.battle-timeline__heading > span { display:none; }.battle-timeline button { padding:7px 9px; }.battle-timeline__plot { overflow:auto; }.battle-timeline__plot svg { min-width:580px; } }
+
+.battle-timeline__scrubber { display:block;width:calc(100% - 34px);margin:8px 17px 0;accent-color:#a3e4c6;cursor:ew-resize; }
+@media(min-width:800px) { .battle-debrief__header { min-height:100px;padding:18px 28px; }.battle-debrief__result-mark { width:58px;height:58px; }.battle-debrief__result-mark span { font-size:40px; }.battle-debrief__result-copy h1 { font-size:40px; }.battle-debrief__highlights .battle-debrief__metric { padding:12px 17px; }.battle-timeline { padding-top:18px; }.battle-timeline h2 { margin-bottom:14px; } }

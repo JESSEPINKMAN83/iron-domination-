@@ -44,3 +44,9 @@ describe('match startup routing', () => {
     expect(isVictoryFromHostileBuildingCounts([0, 1])).toBe(false);
   });
 });
+
+it('supports a seven-army free-for-all and six AI opponents', () => {
+  expect(aiControlledTeams(7, [1])).toEqual([2, 3, 4, 5, 6, 7]);
+  expect(ensureOpposingSides(7, [1,2,3,4,5,6,7])).toEqual([1,2,3,4,5,6,7]);
+  expect(formatArmyMatchup(7, [1,2,3,4,5,6,7])).toContain('ARMY 7');
+});

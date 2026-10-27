@@ -13,7 +13,6 @@ import type { GameSim } from './world';
 import { reserveUnitPosition, issueMoveOrder, spawnArtilleryAt, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt } from './world';
 
 export type UnitProducerType = 'infantry' | 'vehicles' | 'aircraft';
-export const MAX_PRODUCER_JOBS = 10;
 const COMMAND_YARD_HEALTH = 1680;
 const DEFAULT_STRUCTURE_HEALTH = 630;
 
@@ -236,7 +235,6 @@ export function canQueueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind
   if (!hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}`, producers };
   if (producers.length === 0) return { ok: false, reason: 'No producer', producers };
   if (economy.credits < def.cost) return { ok: false, reason: 'Insufficient credits', producers };
-  if (producers.every((entity) => queueDepth(entity) >= MAX_PRODUCER_JOBS)) return { ok: false, reason: 'Queue full', producers };
   return { ok: true, reason: '', producers };
 }
 
@@ -407,7 +405,7 @@ export function queueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind, p
     const depth = queueDepth(entity);
     return depth < bestDepth ? entity : best;
   }, check.producers[0]);
-  if (!producer.producer || queueDepth(producer) >= MAX_PRODUCER_JOBS) return false;
+  if (!producer.producer) return false;
   spend(economy, sim.tick, def.label, def.cost);
   producer.producer.queue.push({ kind, label: def.label, remaining: def.buildTime, total: def.buildTime, cost: def.cost });
   return true;

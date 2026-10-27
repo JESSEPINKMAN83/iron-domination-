@@ -593,8 +593,8 @@ export class UnitView {
   private readonly teamMaterials: Record<FactionId, TeamMaterials>;
   private readonly friendlyGlow: FriendlyGlowMesh;
   private readonly infantryMarkers = new InstancedMesh(
-    new RingGeometry(0.45, 1, 4),
-    new MeshBasicMaterial({ transparent:true, opacity:0.85, depthWrite:false, depthTest:true, toneMapped:false, side:DoubleSide }),
+    new RingGeometry(1.7, 2.3, 48),
+    new MeshBasicMaterial({ transparent:true, opacity:0.3, depthWrite:false, depthTest:true, toneMapped:false, side:DoubleSide }),
     MAX_FRIENDLY_GLOWS,
   );
   private infantryMarkerCount = 0;
@@ -653,6 +653,9 @@ export class UnitView {
       2: createTeamMaterials(ctx, 2, localTeam === 2),
       3: createTeamMaterials(ctx, 3, localTeam === 3),
       4: createTeamMaterials(ctx, 4, localTeam === 4),
+      5: createTeamMaterials(ctx, 5, localTeam === 5),
+      6: createTeamMaterials(ctx, 6, localTeam === 6),
+      7: createTeamMaterials(ctx, 7, localTeam === 7),
     };
     const ownMaterials = this.teamMaterials[factionId(localTeam)];
     for (const material of Object.values(ownMaterials)) {
@@ -665,6 +668,9 @@ export class UnitView {
       2: createLowDetailMeshes(ctx, 2),
       3: createLowDetailMeshes(ctx, 3),
       4: createLowDetailMeshes(ctx, 4),
+      5: createLowDetailMeshes(ctx, 5),
+      6: createLowDetailMeshes(ctx, 6),
+      7: createLowDetailMeshes(ctx, 7),
     };
     for (const meshes of Object.values(this.lowDetailMeshes)) {
       for (const proxy of Object.values(meshes)) this.group.add(proxy.body, proxy.color, proxy.detail);
@@ -1389,16 +1395,13 @@ export class UnitView {
     this.friendlyGlow.count++;
   }
 
-  private updateInfantryMarker(entity: Entity, x: number, y: number, z: number, camera: Camera): void {
+  private updateInfantryMarker(entity: Entity, x: number, _y: number, z: number, _camera: Camera): void {
     if (!this.selectionOverlayVisible || entity.destroyed || entity.selectable?.type !== 'infantry' || this.infantryMarkerCount >= MAX_FRIENDLY_GLOWS) return;
-    const distance = Math.hypot(x-camera.position.x, y-camera.position.y, z-camera.position.z);
-    // A small, stable faction diamond remains readable at the new overview zoom.
-    // Respect normal visibility/depth: no markers through fog or buildings.
-    if (distance < 60) return;
-    const radius = Math.min(3.8, Math.max(0.65, distance * 0.006));
-    this.infantryMarkerTransform.position.set(x, y + 3.5 + radius, z);
-    this.infantryMarkerTransform.quaternion.copy(camera.quaternion);
-    this.infantryMarkerTransform.scale.setScalar(radius);
+    if (entity.selectable.selected) return;
+    // Use the same ground ring as selection, dimmed and batched for idle infantry.
+    this.infantryMarkerTransform.position.set(x, sampleHeight(this.hf, x, z) + 0.08, z);
+    this.infantryMarkerTransform.rotation.set(-Math.PI / 2, 0, 0);
+    this.infantryMarkerTransform.scale.setScalar(1);
     this.infantryMarkerTransform.updateMatrix();
     const index = this.infantryMarkerCount++;
     this.infantryMarkers.setMatrixAt(index, this.infantryMarkerTransform.matrix);

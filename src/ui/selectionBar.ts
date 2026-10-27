@@ -249,6 +249,23 @@ export class SelectionBar {
     }
   }
 
+  private hoveredUnit?: Entity;
+  private hoverHideTimer?: ReturnType<typeof setTimeout>;
+
+  setHoveredUnit(entity?: Entity): void {
+    if (this.hoverHideTimer) clearTimeout(this.hoverHideTimer);
+    if (entity) {
+      this.hoveredUnit = entity;
+      this.updateWorldAnchors();
+    } else {
+      // Give the pointer time to reach the floating upgrade button.
+      this.hoverHideTimer = setTimeout(() => {
+        this.hoveredUnit = undefined;
+        this.updateWorldAnchors();
+      }, 250);
+    }
+  }
+
   updateWorldAnchors(): void {
     if (!this.visible || !this.camera || !this.hf) return;
     const selectedIds = new Set(selectedEntities(this.sim, this.localTeam).filter((entity) => !entity.destroyed).map((entity) => entity.id));
@@ -259,7 +276,8 @@ export class SelectionBar {
         continue;
       }
       const anchor = this.projectUpgradeAnchor(entity);
-      button.style.display = anchor.visible ? 'grid' : 'none';
+      const hovered = this.hoveredUnit === entity || button.matches(':hover') || this.worldPopoverEntityId === id;
+      button.style.display = anchor.visible && hovered ? 'grid' : 'none';
       if (!anchor.visible) {
         if (this.worldPopoverEntityId === id) this.closeWorldPopover();
         continue;
@@ -962,6 +980,7 @@ export class SelectionBar {
           const current = this.sim.byId.get(entity.id);
           if (current) this.openWorldUpgradePopover(current);
         };
+        button.onpointerleave = () => this.setHoveredUnit(undefined);
         button.oncontextmenu = (event) => event.preventDefault();
         this.worldButtons.set(entity.id, button);
         this.worldOverlay.appendChild(button);

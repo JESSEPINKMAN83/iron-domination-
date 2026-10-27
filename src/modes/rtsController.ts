@@ -48,6 +48,7 @@ export interface OrderFeedback {
   showTargetHover?(target: Entity): void;
   clearTargetHover?(): void;
   inspectHover?(target?: Entity): void;
+  unitHover?(target?: Entity): void;
   tryRally?(x: number, z: number): boolean;
   selectionChanged?(entities: Entity[]): void;
   inspectObjectiveAtScreen?(x: number, y: number): boolean;
@@ -177,7 +178,7 @@ export class RtsController {
     document.body.appendChild(this.buildingHoverLabel);
     this.buildingHoverLabel.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.buildingHoverLabel.addEventListener('pointerleave', () => this.clearBuildingHover());
-    window.addEventListener('blur', () => this.clearBuildingHover());
+    window.addEventListener('blur', () => { this.clearBuildingHover(); this.orderFeedback?.unitHover?.(undefined); });
     this.selectionBox = document.createElement('div');
     this.selectionBox.style.cssText =
       'position:fixed;border:1px solid rgba(125,242,125,.9);background:rgba(125,242,125,.12);display:none;pointer-events:none;z-index:20;';
@@ -295,6 +296,7 @@ export class RtsController {
     if (!enabled) this.clearBuildingHover();
     this.enabled = enabled;
     if (!enabled) {
+      this.orderFeedback?.unitHover?.(undefined);
       this.resetTouchGesture();
       this.attackMoveQueued = false;
       this.lastMoveOrderClick = undefined;
@@ -776,6 +778,7 @@ export class RtsController {
     if (this.hoverClearTimer) window.clearTimeout(this.hoverClearTimer);
     if (e.target instanceof Node && this.buildingHoverLabel.contains(e.target)) return;
     const hit = this.entityAt(e.clientX, e.clientY);
+    this.orderFeedback?.unitHover?.(hit && !hit.building && !hit.destroyed ? hit : undefined);
     const building = hit?.building && !hit.destroyed ? hit : undefined;
     this.orderFeedback?.inspectHover?.(building);
     this.buildings?.setHoveredBuilding?.(building);

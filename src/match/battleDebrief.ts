@@ -32,7 +32,14 @@ export interface ArmyDebriefStats {
   retreats: number;
 }
 
+export interface BattleTimelinePoint {
+  seconds: number;
+  armies: Pick<ArmyDebriefStats, 'team' | 'credits' | 'income' | 'unitKills' | 'unitLosses' | 'unitsSurviving' | 'damageDealt'>[];
+}
+
 export interface MatchSnapshot {
+  timeline?: BattleTimelinePoint[];
+  timelineDemo?: boolean;
   elapsedSeconds: number;
   playerCredits: number;
   playerBuildings: number;
@@ -107,6 +114,8 @@ function isDamageEvent(event: CombatEvent): boolean {
  * stream already consumed by rendering/audio and never mutates deterministic sim state.
  */
 export class BattleDebriefTracker {
+  private timeline: BattleTimelinePoint[] = [];
+  private sampleInterval = 5;
   private readonly stats = new Map<number, TrackedArmy>();
   private readonly entities = new Map<number, EntityRecord>();
   private readonly countedDestroyed = new Set<number>();
@@ -120,6 +129,7 @@ export class BattleDebriefTracker {
     for (const entity of sim.world.entities) this.trackEntity(entity, true);
     sim.world.onEntityAdded.subscribe((entity) => this.trackEntity(entity, false));
     sim.world.onEntityRemoved.subscribe((entity) => this.recordLoss(entity));
+    this.sampleTimeline(0);
   }
 
   recordEvents(events: readonly CombatEvent[]): void {
@@ -151,12 +161,29 @@ export class BattleDebriefTracker {
     }
   }
 
+  sampleTimeline(seconds: number, force = false): void {
+    const last = this.timeline[this.timeline.length - 1];
+    if (last && (seconds <= last.seconds || (!force && seconds - last.seconds < this.sampleInterval))) return;
+    const armies = this.armies.map((army) => {
+      const report = this.armySnapshot(army);
+      const { team, credits, income, unitKills, unitLosses, unitsSurviving, damageDealt } = report;
+      return { team, credits, income, unitKills, unitLosses, unitsSurviving, damageDealt };
+    });
+    this.timeline.push({ seconds, armies });
+    if (this.timeline.length > 720) {
+      this.timeline = this.timeline.filter((_, index) => index % 2 === 0);
+      this.sampleInterval *= 2;
+    }
+  }
+
   snapshot(elapsedSeconds: number): MatchSnapshot {
+    this.sampleTimeline(elapsedSeconds, true);
     const armyReports = this.armies.map((army) => this.armySnapshot(army));
     const local = armyReports.find((army) => army.team === this.localTeam) ?? armyReports[0];
     const enemies = armyReports.filter((army) => army.side !== local.side);
     const sum = (pick: (army: ArmyDebriefStats) => number): number => enemies.reduce((total, army) => total + pick(army), 0);
     return {
+      timeline: this.timeline.map((point) => ({ seconds: point.seconds, armies: point.armies.map((army) => ({ ...army })) })),
       elapsedSeconds,
       playerCredits: local.credits,
       playerBuildings: local.buildingsSurviving,

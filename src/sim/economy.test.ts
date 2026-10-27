@@ -13,7 +13,6 @@ import {
   createInitialBase,
   issueHarvesterReturnOrder,
   issueHarvestOrder,
-  MAX_PRODUCER_JOBS,
   placeStructure,
   queueUnit,
   setProducerRally,
@@ -335,7 +334,7 @@ describe('phase 3 economy and production', () => {
     expect(economy.readyDefenseStructure).toBeUndefined();
   });
 
-  it('lets repeated unit clicks stack a full ten-job producer queue', () => {
+  it('queues beyond ten jobs until credits run out without charging rejected purchases', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const economy = createEconomy(1, 8000);
@@ -352,9 +351,17 @@ describe('phase 3 economy and production', () => {
 
     buildReady('power-plant', -44, 0);
     const barracks = buildReady('barracks', 0, 44);
-    for (let i = 0; i < MAX_PRODUCER_JOBS; i++) expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(true);
+    const cost = UNITS.infantry.cost;
+    economy.credits = cost * 37 + cost - 1;
+    for (let i = 0; i < 37; i++) expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(true);
+    expect(economy.credits).toBe(cost - 1);
+    expect(canQueueUnit(sim, economy, 'infantry')).toMatchObject({ ok: false, reason: 'Insufficient credits' });
     expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(false);
-    expect(barracks.producer?.queue.length).toBe(MAX_PRODUCER_JOBS);
+    expect(economy.credits).toBe(cost - 1);
+    expect(barracks.producer?.queue.length).toBe(37);
+    economy.credits += cost;
+    expect(queueUnit(sim, economy, 'infantry', barracks)).toBe(true);
+    expect(barracks.producer?.queue.length).toBe(38);
   });
 
   it('produces the expanded infantry, vehicle, and aircraft roster with distinct weapons', () => {

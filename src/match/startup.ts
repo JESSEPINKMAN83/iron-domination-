@@ -9,12 +9,12 @@ export function aiControlledTeams(armyCount: number, humanTeams: Iterable<number
   return Array.from({ length: Math.max(0, Math.floor(armyCount)) }, (_, index) => index + 1).filter((team) => !humans.has(team));
 }
 
-export function ensureOpposingSides(armyCount: number, armySides: readonly number[]): [number, number, number, number] {
-  const count = Math.max(2, Math.min(4, Math.floor(armyCount) || 2));
-  const sides = [0, 1, 2, 3].map((index) => {
+export function ensureOpposingSides(armyCount: number, armySides: readonly number[]): number[] {
+  const count = Math.max(2, Math.min(7, Math.floor(armyCount) || 2));
+  const sides = Array.from({ length: Math.max(4, count) }, (_, i) => i).map((index) => {
     const side = Math.floor(Number(armySides[index]));
-    return Number.isFinite(side) ? Math.max(1, Math.min(4, side)) : index + 1;
-  }) as [number, number, number, number];
+    return Number.isFinite(side) ? Math.max(1, Math.min(7, side)) : index + 1;
+  }) as number[];
   if (new Set(sides.slice(0, count)).size < 2) sides[1] = sides[0] === 1 ? 2 : 1;
   return sides;
 }
@@ -24,10 +24,10 @@ export function formatArmyMatchup(
   armySides: readonly number[],
   armyLabel: (army: number) => string = (army) => `ARMY ${army}`,
 ): string {
-  const count = Math.max(2, Math.min(4, Math.floor(armyCount) || 2));
+  const count = Math.max(2, Math.min(7, Math.floor(armyCount) || 2));
   const groups = new Map<number, number[]>();
   for (let army = 1; army <= count; army++) {
-    const side = Math.max(1, Math.min(4, Math.floor(Number(armySides[army - 1])) || army));
+    const side = Math.max(1, Math.min(7, Math.floor(Number(armySides[army - 1])) || army));
     const members = groups.get(side) ?? [];
     members.push(army);
     groups.set(side, members);
