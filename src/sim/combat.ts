@@ -1,3 +1,4 @@
+import { directionalArmorMultiplier } from './directionalArmor';
 import { effectiveSight, canDetectTerrainTarget, TERRAIN_REVEAL_TICKS } from './terrainAdvantages';
 import { matchesTargetPriorities } from './targetPriorities';
 import { armyName } from '../content/nations';
@@ -1955,7 +1956,7 @@ interface DamageImpact {
 
 function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: DamageImpact, source?: Entity): number {
   if (!target.health || amount <= 0) return 0;
-  const scaled = amount * (source ? combatRankDamageMultiplier(source) * defensePower(source) : 1);
+  const scaled = amount * (source ? combatRankDamageMultiplier(source) * defensePower(source) : 1) * (impact ? directionalArmorMultiplier(target,impact) : 1);
   const before = target.health.current;
   target.health.current = Math.max(0, target.health.current - scaled);
   const dealt = before - target.health.current;
