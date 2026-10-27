@@ -5,7 +5,7 @@ import { World, type Query, type With } from 'miniplex';
 import { normalizeAngle, slewAngle } from './angles';
 import type { Entity } from './components';
 import { copyTransform } from './components';
-import { FlowField, NavigationGrid, type BlockedFootprint } from './flowfield';
+import { type FlowField, NavigationGrid, type BlockedFootprint } from './flowfield';
 import { sampleHeight, type Heightfield } from './heightfield';
 import { mulberry32 } from './noise';
 import { FLIGHT_MODELS } from '../content/flightModels';
@@ -536,16 +536,16 @@ export function issueMoveOrder(
   const width = formationWidth(movers.length, faceYaw);
   const groundReference = movers.find((entity) => !entity.flight);
   let targetPoint = groundReference ? walkableOrderPoint(sim, targetX, targetZ) : undefined;
-  let flow = targetPoint ? new FlowField(sim.nav, targetPoint.x, targetPoint.z) : undefined;
+  let flow = targetPoint ? sim.nav.flowTo(targetPoint.x, targetPoint.z) : undefined;
   if (groundReference && targetPoint && flow) {
     const referenceCell = sim.nav.worldToCell(groundReference.transform.x, groundReference.transform.z);
     if (flow.distance[sim.nav.index(referenceCell.x, referenceCell.y)] < 0) {
       const originCell = sim.nav.nearestWalkableCellGlobal(groundReference.transform.x, groundReference.transform.z);
       if (originCell) {
         const origin = sim.nav.cellCenter(originCell.x, originCell.y);
-        const component = new FlowField(sim.nav, origin.x, origin.z);
+        const component = sim.nav.flowTo(origin.x, origin.z);
         targetPoint = connectedWalkableOrderPoint(sim, targetX, targetZ, component);
-        flow = targetPoint ? new FlowField(sim.nav, targetPoint.x, targetPoint.z) : undefined;
+        flow = targetPoint ? sim.nav.flowTo(targetPoint.x, targetPoint.z) : undefined;
       }
     }
   }
@@ -579,11 +579,11 @@ export function issueMoveOrder(
         const originCell = sim.nav.nearestWalkableCellGlobal(entity.transform.x, entity.transform.z);
         if (!originCell) return;
         const origin = sim.nav.cellCenter(originCell.x, originCell.y);
-        const component = new FlowField(sim.nav, origin.x, origin.z);
+        const component = sim.nav.flowTo(origin.x, origin.z);
         const reachableTarget = connectedWalkableOrderPoint(sim, targetX, targetZ, component);
         if (!reachableTarget) return;
         entityTarget = reachableTarget;
-        entityFlow = new FlowField(sim.nav, entityTarget.x, entityTarget.z);
+        entityFlow = sim.nav.flowTo(entityTarget.x, entityTarget.z);
       }
       const requestedSlot = { x: entityTarget.x + offset.x, z: entityTarget.z + offset.z };
       const slot = connectedWalkableOrderPoint(sim, requestedSlot.x, requestedSlot.z, entityFlow);
@@ -592,7 +592,7 @@ export function issueMoveOrder(
       if (faceYaw !== undefined) {
         entity.mover.target = { x: slot.x, z: slot.z };
         entity.mover.formationOffset = undefined;
-        entity.mover.flow = new FlowField(sim.nav, slot.x, slot.z);
+        entity.mover.flow = sim.nav.flowTo(slot.x, slot.z);
       } else {
         entity.mover.target = { x: entityTarget.x, z: entityTarget.z };
         entity.mover.formationOffset = { x: slot.x - entityTarget.x, z: slot.z - entityTarget.z };
@@ -922,7 +922,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         if (nearest) {
           mover.target = sim.nav.cellCenter(nearest.x, nearest.y);
           mover.formationOffset = undefined;
-          mover.flow = new FlowField(sim.nav, mover.target.x, mover.target.z);
+          mover.flow = sim.nav.flowTo(mover.target.x, mover.target.z);
         }
       }
     }

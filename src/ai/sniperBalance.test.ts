@@ -27,7 +27,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('enemy sniper balance', () => {
   for (const doctrine of ['iron-legion', 'missile-command'] as const) {
-    it.each(['easy', 'normal', 'hard'] as const)(`${doctrine}: reduces sniper range and accuracy on %s without changing player snipers or other weapons`, (difficulty) => {
+    it.each(['easy', 'normal', 'hard', 'extra-hard'] as const)(`${doctrine}: reduces sniper range and accuracy on %s without changing player snipers or other weapons`, (difficulty) => {
       const { sniper, friendly, tank, apply } = fixture(doctrine, difficulty);
       expect(sniper.weapon!.range).toBe(192);
       expect(sniper.aiCombat!.accuracy).toBeCloseTo(AI_DIFFICULTY[difficulty].combatAccuracy * 0.65);

@@ -246,7 +246,7 @@ describe('multiplayer relay', () => {
       type: 'settings',
       roomCode,
       playerId: hostId,
-      settings: { mapId: 'crater-oasis', mapSize: 'extra-large', seed: 246810, oreAmount: 400, terrainRelief: 150, terrainLayout: 'lakes', combatMode: 'manual', armyDoctrines: ['iron-legion', 'missile-command', 'iron-legion', 'missile-command'], armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
+      settings: { ai: 'extra-hard', mapId: 'crater-oasis', mapSize: 'extra-large', seed: 246810, oreAmount: 400, terrainRelief: 150, terrainLayout: 'lakes', combatMode: 'manual', armyDoctrines: ['iron-legion', 'missile-command', 'iron-legion', 'missile-command'], armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
     }));
     const synchronizedRoom = await synchronizedSettings;
     expect(synchronizedRoom.room.spawnSlots).toEqual([2, 1, 3, 4]);
@@ -295,6 +295,8 @@ describe('multiplayer relay', () => {
     expect(hostStart.room.mapId).toBe('crater-oasis');
     expect(guestStart.room.mapId).toBe('crater-oasis');
     expect(hostStart.room.mapSize).toBe('extra-large');
+    expect(hostStart.room.ai).toBe('extra-hard');
+    expect(guestStart.room.ai).toBe('extra-hard');
     expect(guestStart.room.mapSize).toBe('extra-large');
     expect(hostStart.room.seed).toBe(246810);
     expect(guestStart.room.seed).toBe(246810);

@@ -1,3 +1,4 @@
+import { terrainLodIndices, terrainDetailStep } from './terrainLod';
 import { terrainCell } from '../sim/terrainAdvantages';
 // Builds the chunked terrain mesh with a splat-mapped standard material
 // (CSM-shadow compatible) plus a walkability debug overlay (F3).
@@ -5,6 +6,7 @@ import {
   AdditiveBlending,
   BoxGeometry,
   BufferAttribute,
+  type Camera,
   BufferGeometry,
   CircleGeometry,
   Color,
@@ -130,6 +132,7 @@ export class TerrainView {
   /** shared with overlays that drape data over the terrain (walkability, fog) */
   readonly chunkGeometries: BufferGeometry[] = [];
   private readonly overlayGroup = new Group();
+  private readonly terrainChunks: Array<{mesh:Mesh;levels:Record<1|2|4,BufferGeometry>;step:1|2|4;minX:number;maxX:number;minZ:number;maxZ:number;maxY:number}> = [];
   private readonly oreGlowGroup = new Group();
   private readonly oreGlows: OreGlow[] = [];
 
@@ -143,7 +146,19 @@ export class TerrainView {
       for (let cx = 0; cx < CHUNKS; cx++) {
         const geom = buildChunkGeometry(hf, cx * chunkCells, cy * chunkCells, chunkCells);
         this.chunkGeometries.push(geom);
+        const levels={1:geom} as Record<1|2|4,BufferGeometry>;
+        for(const step of [2,4] as const){
+          const coarse=new BufferGeometry();
+          for(const [name,attribute] of Object.entries(geom.attributes)) coarse.setAttribute(name,attribute);
+          coarse.setIndex(new BufferAttribute(terrainLodIndices(chunkCells,step),1));
+          levels[step]=coarse;
+        }
+        geom.computeBoundingBox();
+        geom.computeBoundingSphere();
+        for(const step of [2,4] as const){levels[step].boundingBox=geom.boundingBox;levels[step].boundingSphere=geom.boundingSphere;}
+        const bounds=geom.boundingBox!;
         const mesh = new Mesh(geom, material);
+        this.terrainChunks.push({mesh,levels,step:1,minX:bounds.min.x,maxX:bounds.max.x,minZ:bounds.min.z,maxZ:bounds.max.z,maxY:bounds.max.y});
         mesh.receiveShadow = true;
         mesh.castShadow = false;
         mesh.matrixAutoUpdate = false;
@@ -180,6 +195,16 @@ export class TerrainView {
   toggleWalkOverlay(): boolean {
     this.overlayGroup.visible = !this.overlayGroup.visible;
     return this.overlayGroup.visible;
+  }
+
+  updateDetail(camera:Camera):void {
+    for(const [index,chunk] of this.terrainChunks.entries()){
+      const dx=Math.max(chunk.minX-camera.position.x,0,camera.position.x-chunk.maxX);
+      const dz=Math.max(chunk.minZ-camera.position.z,0,camera.position.z-chunk.maxZ);
+      const dy=Math.max(0,camera.position.y-chunk.maxY);
+      const step=terrainDetailStep(Math.hypot(dx,dy,dz),chunk.step);
+      if(step!==chunk.step){chunk.mesh.geometry=chunk.levels[step];this.chunkGeometries[index]=chunk.levels[step];chunk.step=step;}
+    }
   }
 
   updateResources(nodes: ResourceNode[]): void {

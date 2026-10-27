@@ -2,7 +2,7 @@ import type { EnemyCommander } from '../ai/commander';
 import type { Entity } from '../sim/components';
 import type { EconomyState } from '../sim/economy';
 import type { Heightfield } from '../sim/heightfield';
-import { areTeamsHostile, spawnTankAt, spawnScoutTankAt, spawnSiegeTankAt, spawnVultureAt, spawnHammerheadAt, type GameSim } from '../sim/world';
+import { areTeamsHostile, spawnTankAt, spawnScoutTankAt, spawnSiegeTankAt, spawnVultureAt, spawnHammerheadAt, spawnWaspAt, type GameSim } from '../sim/world';
 
 interface PreviewArmy {
   team: number;
@@ -35,9 +35,10 @@ export function stageCoordinationPreview(sim: GameSim, hf: Heightfield, armies: 
     }
   };
   const spawnAir = (army: PreviewArmy, advance: number, count: number) => {
+    if(army.economy.doctrine!=='iron-legion') return;
     for (let i = 0; i < count; i++) {
       const p = point(advance, (i - (count - 1) / 2) * 20);
-      units.push([spawnVultureAt, spawnHammerheadAt][i % 2](sim, hf, p.x, p.z, `${i % 2 ? 'Hammerhead' : 'Vulture'} support ${army.team}-${i}`, army.team));
+      units.push([spawnWaspAt, spawnVultureAt, spawnHammerheadAt][i % 3](sim, hf, p.x, p.z, `${['Wasp','Vulture','Hammerhead'][i%3]} support ${army.team}-${i}`, army.team));
     }
   };
   for (const army of armies) army.economy.credits = 22000;

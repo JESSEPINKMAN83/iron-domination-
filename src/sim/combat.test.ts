@@ -1557,6 +1557,8 @@ describe('charged salvo damage delivery', () => {
       const sim = createGameSim(hf);
       const attacker = spawnHammerheadAt(sim, hf, 0, 0, 'Launcher', 1);
       const target = kind === 'aaMissile' ? spawnVultureAt(sim, hf, 0, 75, 'Air target', 2) : spawnTankAt(sim, 0, 75, 'Ground target', 2);
+      // Keep a consistent armor face while checking independent missile damage.
+      target.transform.rot = Math.PI;
       target.health!.current = target.health!.max = 10000;
       target.weapon = undefined;
       target.weapons = undefined;
