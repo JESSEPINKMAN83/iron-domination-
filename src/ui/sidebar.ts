@@ -6,7 +6,6 @@ import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { isFortressTower } from '../content/fortress';
 import type { Entity } from '../sim/components';
 import {
-  MAX_PRODUCER_JOBS,
   buildings,
   canBuildStructure,
   canQueueUnit,
@@ -911,16 +910,15 @@ export class Sidebar {
     const def = UNITS[kind];
     const check = canQueueUnit(this.sim, this.economy, kind);
     const relevant = this.unitProducers(def.producer, producer);
-    const queueFull = relevant.length > 0 && relevant.every((entity) => queueDepth(entity) >= MAX_PRODUCER_JOBS);
     const active = relevant.find((entity) => entity.producer?.active?.kind === kind)?.producer?.active;
     const count = relevant.reduce((sum, entity) => {
       const queue = entity.producer?.queue.filter((job) => job.kind === kind).length ?? 0;
       return sum + queue + (entity.producer?.active?.kind === kind ? 1 : 0);
     }, 0);
-    const enabled = check.ok && !queueFull && (!producer || relevant.includes(producer));
+    const enabled = check.ok && (!producer || relevant.includes(producer));
     return {
       enabled,
-      reason: queueFull ? 'Queue full' : check.reason,
+      reason: check.reason,
       count,
       progress: active ? 1 - active.remaining / active.total : 0,
       active: !!active,
@@ -1122,7 +1120,7 @@ export class Sidebar {
       const row = document.createElement('div');
       row.dataset.producerRowId = String(producer.id);
       row.title = producer.building?.label ?? 'Producer';
-      row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${queueDepth(producer)}/${MAX_PRODUCER_JOBS}`;
+      row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${queueDepth(producer)}`;
       row.title = row.textContent;
       el.appendChild(row);
     }
@@ -1196,7 +1194,7 @@ export class Sidebar {
       const primary = unitTab && this.economy.primaryProducerIds[unitTab] === producer.id ? ' ★' : '';
       const rally = producer.producer.rally ? ' ⚑' : '';
       const active = producer.producer.active;
-      row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${queueDepth(producer)}/${MAX_PRODUCER_JOBS}`;
+      row.textContent = `${producer.building?.label}${primary}${rally}: ${active ? `${active.label} ${Math.round((1 - active.remaining / active.total) * 100)}%` : 'idle'} q${queueDepth(producer)}`;
       row.title = row.textContent;
     }
   }
