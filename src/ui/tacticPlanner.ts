@@ -483,9 +483,34 @@ export class TacticPlanner {
     const hq = toView(this.map.localAnchor.x, this.map.localAnchor.z);
     drawHqMarker(ctx, hq.x, hq.y);
 
+    // Objectives are public map landmarks, including neutral sites without a team.
+    for (const entity of this.sim.world.entities) {
+      if (entity.destroyed || !entity.objective) continue;
+      const objective = entity.objective;
+      const point = toView(entity.transform.x, entity.transform.z);
+      const owner = objective.ownerTeam;
+      const color = objective.contested ? '#f5bd63' : owner === undefined ? '#e3e7df'
+        : owner === this.localTeam ? '#9de5c4'
+        : areTeamsHostile(this.sim, this.localTeam, owner) ? '#df5742' : '#7aa7ff';
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      ctx.fillStyle = '#0b1714';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(objective.kind === 'radar' ? 'R' : objective.kind === 'supply' ? 'S' : 'O', 0, 0);
+      ctx.font = 'bold 9px sans-serif'; ctx.textBaseline = 'top';
+      ctx.strokeStyle = '#08100e'; ctx.lineWidth = 3;
+      const label = objective.kind.toUpperCase() + (objective.contested ? ' · CONTESTED' : objective.capturingTeam !== undefined ? ' · CAPTURING' : '');
+      ctx.strokeText(label, 0, 11); ctx.fillText(label, 0, 11);
+      ctx.restore();
+    }
+
     const priorities = [...this.targetPriorities];
     for (const entity of this.sim.world.entities) {
-      if (entity.destroyed || !entity.team) continue;
+      if (entity.destroyed || !entity.team || entity.objective) continue;
       const point = toView(entity.transform.x, entity.transform.z);
       const hostile = areTeamsHostile(this.sim, this.localTeam, entity.team.id);
       const mine = entity.team.id === this.localTeam;

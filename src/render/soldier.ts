@@ -88,11 +88,11 @@ function cyl(radiusTop: number, radiusBottom: number, height: number, segments: 
 function buildLeg(m: SoldierMaterials, side: 1 | -1): { hip: Group; knee: Group } {
   const hip = new Group();
   hip.position.set(side * 0.12, 0.98, 0);
-  hip.add(box(0.125, 0.54, 0.14, m.uniform, 0, -0.27, 0));
+  hip.add(cyl(0.085, 0.068, 0.54, 8, m.uniform, 0, -0.27, 0));
 
   const knee = new Group();
   knee.position.set(0, -0.52, 0);
-  knee.add(box(0.115, 0.48, 0.13, m.uniform, 0, -0.22, 0));
+  knee.add(cyl(0.069, 0.052, 0.48, 8, m.uniform, 0, -0.22, 0));
   knee.add(box(0.145, 0.11, 0.26, m.gear, 0, -0.18, 0.055)); // kneepad
   knee.add(box(0.18, 0.1, 0.32, m.gear, 0, -0.48, 0.08)); // boot
   hip.add(knee);
@@ -103,12 +103,12 @@ function buildArm(m: SoldierMaterials, side: 1 | -1, rotationZ: number): { shoul
   const shoulder = new Group();
   shoulder.position.set(side * 0.3, 0.47, 0.02);
   shoulder.rotation.set(-0.78, 0, rotationZ);
-  shoulder.add(box(0.12, 0.34, 0.12, m.uniform, 0, -0.16, 0));
+  shoulder.add(cyl(0.075, 0.058, 0.34, 8, m.uniform, 0, -0.16, 0));
 
   const elbow = new Group();
   elbow.position.set(0, -0.32, 0);
   elbow.rotation.x = -0.62;
-  elbow.add(box(0.105, 0.29, 0.1, m.uniform, 0, -0.13, 0));
+  elbow.add(cyl(0.06, 0.044, 0.29, 8, m.uniform, 0, -0.13, 0));
   elbow.add(box(0.105, 0.075, 0.1, m.skin, 0, -0.29, 0.02)); // palm
   elbow.add(box(0.045, 0.05, 0.055, m.skin, side * -0.045, -0.28, 0.07)); // thumb
   shoulder.add(elbow);
@@ -133,12 +133,13 @@ function buildRifle(m: SoldierMaterials): { rifle: Group; muzzleFlash: Mesh } {
 }
 
 function addSoldierBody(torso: Group, m: SoldierMaterials): { chest: Mesh; abdomen: Mesh } {
-  const abdomen = box(0.34, 0.34, 0.22, m.uniform, 0, 0.19, 0);
+  const abdomen = cyl(0.21, 0.17, 0.34, 8, m.uniform, 0, 0.19, 0);
+  abdomen.scale.z = 0.65;
   const chest = box(0.44, 0.42, 0.25, m.uniform, 0, 0.52, 0.005);
   chest.rotation.x = -0.05;
   torso.add(abdomen, chest);
   torso.add(box(0.48, 0.3, 0.28, m.gear, 0, 0.42, 0.02)); // plate carrier
-  torso.add(box(0.42, 0.055, 0.08, m.accent, 0, 0.62, 0.17)); // chest team strip
+  torso.add(box(0.12, 0.035, 0.08, m.accent, 0, 0.62, 0.17)); // chest team strip
   torso.add(box(0.42, 0.055, 0.06, m.gear, 0, 0.12, 0.13)); // belt
   for (const x of [-0.14, 0, 0.14]) torso.add(box(0.075, 0.105, 0.055, m.gear, x, 0.02, 0.16));
   torso.add(box(0.085, 0.13, 0.065, m.gear, 0.22, 0.07, -0.02)); // canteen
@@ -147,7 +148,8 @@ function addSoldierBody(torso: Group, m: SoldierMaterials): { chest: Mesh; abdom
 }
 
 function addHead(torso: Group, m: SoldierMaterials): void {
-  torso.add(box(0.17, 0.21, 0.16, m.skin, 0, 0.91, 0.015)); // smaller head
+  const face = cyl(0.085, 0.065, 0.21, 8, m.skin, 0, 0.91, 0.015);
+  face.scale.z = 0.9; torso.add(face); // smaller head
   torso.add(box(0.185, 0.055, 0.17, m.visor, 0, 0.955, 0.095)); // goggles
   torso.add(box(0.16, 0.035, 0.155, m.gear, 0, 0.895, 0.102)); // face shadow
   const helmet = cyl(0.135, 0.155, 0.125, 8, m.uniform, 0, 1.07, 0);
@@ -156,7 +158,7 @@ function addHead(torso: Group, m: SoldierMaterials): void {
   torso.add(box(0.25, 0.035, 0.09, m.uniform, 0, 1.03, 0.105)); // brim
   torso.add(box(0.055, 0.1, 0.09, m.uniform, -0.13, 1.0, 0.005));
   torso.add(box(0.055, 0.1, 0.09, m.uniform, 0.13, 1.0, 0.005));
-  torso.add(box(0.23, 0.035, 0.175, m.accent, 0, 1.055, 0.01)); // camo/team band
+  torso.add(box(0.23, 0.025, 0.175, m.uniform, 0, 1.055, 0.01)); // camo/team band
   torso.add(box(0.055, 0.05, 0.04, m.gear, 0, 1.055, 0.13)); // NVG mount
   torso.add(box(0.14, 0.022, 0.04, m.gear, 0, 0.84, 0.08)); // chin strap
 }
@@ -335,6 +337,14 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle', doc
   }
   torso.add(weapon.rifle);
   root.add(torso);
+
+  // Keep collision and movement dimensions independent of presentation scale.
+  const presentationScale = 1.22;
+  for (const child of root.children) {
+    if (child === combatBike.root) continue;
+    child.position.multiplyScalar(presentationScale);
+    child.scale.multiplyScalar(presentationScale);
+  }
 
   return {
     root,
