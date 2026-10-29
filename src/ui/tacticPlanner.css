@@ -312,8 +312,8 @@
 
 @media (min-width:761px) {
   .iron-tactic__body { overflow:hidden; align-items:start; }
-  .iron-tactic__side { height:min(57vh,560px); overflow-y:auto; padding-right:5px; grid-template-rows:none; align-content:start; }
-  .iron-tactic__map-wrap { width:min(100%,calc(57vh - 50px)); margin-inline:auto; }
+  .iron-tactic__side { height:min(74vh,760px); overflow-y:auto; padding-right:5px; grid-template-rows:none; align-content:start; }
+  .iron-tactic__map-wrap { width:min(100%,calc(74vh - 50px)); margin-inline:auto; }
 }
 
 .iron-tactic__legend i.is-priority { background:transparent; border-color:#f1c66d; }

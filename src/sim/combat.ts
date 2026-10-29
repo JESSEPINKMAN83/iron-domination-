@@ -1890,7 +1890,7 @@ function acquireLineTarget(
         // A standing soldier is a vertical body, not a sphere around the waist.
         // Sample the capsule axis so torso/head shots match the rendered silhouette.
         const stance = candidate.infantryStance;
-        const feetY = baseY + (stance?.height ?? 0);
+        const feetY = baseY;
         const bodyHeight = 2.7 - (stance?.crouch ?? 0) * 0.7;
         let closest = Number.POSITIVE_INFINITY;
         let bodyAlong = along;
