@@ -1810,7 +1810,6 @@ export class UnitView {
     rig.torso.position.y = 1.12 * 1.22 - anim.crouch * 0.08 + Math.sin(anim.phase * 0.35 + entity.id) * 0.008 * (1 - anim.swing);
     rig.torso.rotation.x = -anim.crouch * 0.08 - (anim.recoil > 0 ? 0.035 : 0);
     rig.torso.rotation.z = Math.sin(anim.phase) * 0.025 * anim.swing;
-    rig.torso.rotation.y = Math.sin(anim.phase) * 0.035 * anim.swing * (1 - anim.aim);
     const recoilT = Math.min(1, anim.recoil / (rig.kit === 'rocket' ? 0.18 : 0.12));
     const baseWeapon = soldierWeaponBasePose(rig.kit);
     rig.rifle.visible = true;
