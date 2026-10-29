@@ -584,8 +584,15 @@ export class FirstPersonController {
     const near = this.isFootSoldier() ? 0.08 : 2;
     if (this.camera.near !== near) { this.camera.near = near; this.camera.updateProjectionMatrix(); }
     this.infantryWeapon.visible = this.mode === 'fps' && this.isFootSoldier() && this.infantryDistance < 0.65 && !this.isSniperScoped();
-    this.infantryWeapon.position.set(MathUtils.lerp(0.23, 0, this.infantryAim), -0.26 - this.infantryKick * 0.3, -0.85 + this.infantryKick);
-    this.infantryWeapon.rotation.x = this.infantryKick * 0.4;
+    const footSpeed = Math.hypot(this.possessed.velocity?.x ?? 0, this.possessed.velocity?.z ?? 0);
+    const strideWeight = Math.min(1, footSpeed / 8) * (1 - this.infantryAim * 0.9);
+    const running = this.isFootSoldier() && this.possessed.playerControlled?.boost ? 1 : 0;
+    this.infantryWeapon.position.set(
+      MathUtils.lerp(0.23, 0, this.infantryAim) + Math.sin(this.infantryStep) * 0.012 * strideWeight,
+      -0.26 - this.infantryKick * 0.3 + Math.cos(this.infantryStep * 2) * 0.008 * strideWeight - running * 0.045,
+      -0.85 + this.infantryKick);
+    this.infantryWeapon.rotation.set(this.infantryKick * 0.4 - running * 0.12, 0,
+      Math.sin(this.infantryStep) * 0.018 * strideWeight + running * 0.08);
     const infantryKind = this.possessed.weapon?.kind ?? 'rifle';
     for (const model of this.infantryWeapon.children) model.visible = model.name === infantryKind;
     this.infantryAim += ((infantryAiming ? 1 : 0) - this.infantryAim) * (1 - Math.exp(-dt * 16));

@@ -1553,30 +1553,31 @@ export class UnitView {
       if (isInfantry) {
         const rig = this.soldierRigs.get(entity);
         const variant = Math.floor(deterministicUnit(entity.id, 0xdead) * 3);
-        if (variant === 0) {
-          obj.rotation.z = fall * (Math.PI / 2) * 0.96;
-          obj.rotation.x = fall * 0.2;
-        } else if (variant === 1) {
-          obj.rotation.x = fall * (Math.PI / 2) * 0.88;
-          obj.rotation.z = deterministicUnitSigned(entity.id, 0xdeaf) * fall * 0.22;
-          obj.position.z += fall * 0.22;
-        } else {
-          obj.rotation.x = -fall * (Math.PI / 2) * 0.82;
-          obj.rotation.z = deterministicUnitSigned(entity.id, 0xdec0) * fall * 0.28;
-          obj.position.z -= fall * 0.38;
-        }
-        obj.position.y += 0.12 - fall * 0.2;
+        const side = deterministicUnitSigned(entity.id, 0xdeaf) >= 0 ? 1 : -1;
+        // Knees give way first, then gravity accelerates the body into contact.
+        const buckle = smoothRange(0, 0.24, sinceDeath);
+        const collapse = smoothRange(0.14, 0.86, sinceDeath);
+        const contact = smoothRange(0.82, 1.12, sinceDeath);
+        const settle = Math.sin(contact * Math.PI) * 0.035;
+        obj.rotation.x = variant === 0 ? collapse * 0.16 : (variant === 1 ? 1 : -1) * collapse * 1.49;
+        obj.rotation.z = variant === 0 ? side * collapse * 1.51 : side * collapse * 0.18;
+        obj.position.y += 0.05 - buckle * 0.18 + collapse * 0.32 + settle;
+        obj.position.x += variant === 0 ? -side * collapse * 0.24 : 0;
+        obj.position.z += variant === 1 ? collapse * 0.3 : variant === 2 ? -collapse * 0.3 : 0;
         obj.scale.setScalar(1);
         if (rig) {
-          rig.hipL.rotation.x = -0.25 * fall;
-          rig.hipR.rotation.x = 0.35 * fall;
-          rig.kneeL.rotation.x = 0.8 * fall;
-          rig.kneeR.rotation.x = 0.45 * fall;
-          rig.shoulderL.rotation.x = -0.5 + fall * 0.75;
-          rig.shoulderR.rotation.x = -0.5 - fall * 0.35;
-          rig.elbowL.rotation.x = -0.35 + fall * 0.45;
-          rig.elbowR.rotation.x = -0.4 + fall * 0.32;
-          rig.rifle.visible = fall < 0.92 || rig.kit === 'rocket';
+          rig.torso.position.y = 1.12 * 1.22 - buckle * 0.12;
+          rig.torso.rotation.set(-buckle * 0.14 * (1 - collapse), 0, side * buckle * 0.06);
+          rig.hipL.rotation.x = -0.36 * buckle + collapse * 0.13;
+          rig.hipR.rotation.x = -0.25 * buckle + collapse * 0.58;
+          rig.kneeL.rotation.x = buckle * 0.95 - contact * 0.25;
+          rig.kneeR.rotation.x = buckle * 0.72 - contact * 0.18;
+          rig.shoulderL.rotation.set(-0.5 + collapse * 0.65, 0, side * collapse * 0.3);
+          rig.shoulderR.rotation.set(-0.5 + collapse * 0.35, 0, -side * collapse * 0.22);
+          rig.elbowL.rotation.x = -0.35 - collapse * 0.15;
+          rig.elbowR.rotation.x = -0.4 + collapse * 0.12;
+          // Keep the weapon with the fallen soldier instead of making it vanish.
+          rig.rifle.visible = true;
           rig.muzzleFlash.visible = false;
           if (rig.backBlast) rig.backBlast.visible = false;
         }
@@ -1744,16 +1745,18 @@ export class UnitView {
     anim.lastCooldown = cooldown;
     anim.recoil = Math.max(0, anim.recoil - dt);
     anim.aim += ((aiming ? 1 : 0) - anim.aim) * Math.min(1, dt * 10);
-    const shouldCrouch = aiming && speed < 0.4;
+    const shouldCrouch = (entity.infantryStance?.crouch ?? 0) > 0.3 || (rig.kit === 'rocket' && aiming && speed < 0.4);
     anim.crouch += ((shouldCrouch ? 1 : 0) - anim.crouch) * Math.min(1, dt * 8);
     anim.swing += ((moving ? speedT : 0) - anim.swing) * Math.min(1, dt * 8);
-    if (moving) anim.phase += dt * (3.2 + speed * 0.62);
+    // Distance-driven steps keep the gait attached to actual travel.
+    if (moving) anim.phase += dt * speed * 2.6;
 
-    const s = Math.sin(anim.phase);
-    const c = Math.sin(anim.phase + Math.PI);
+    const stepPhase = anim.phase + entity.id * 2.399963;
+    const s = Math.sin(stepPhase);
+    const c = Math.sin(stepPhase + Math.PI);
     const rocketKneel = rig.kit === 'rocket' ? anim.crouch : 0;
-    rig.hipL.rotation.x = s * 0.62 * anim.swing - anim.crouch * 0.42 - rocketKneel * 0.42;
-    rig.hipR.rotation.x = c * 0.62 * anim.swing - anim.crouch * 0.34 + rocketKneel * 0.25;
+    rig.hipL.rotation.x = s * 0.48 * anim.swing - anim.crouch * 0.42 - rocketKneel * 0.42;
+    rig.hipR.rotation.x = c * 0.48 * anim.swing - anim.crouch * 0.34 + rocketKneel * 0.25;
     // knee bends as the leg swings back and lifts
     rig.kneeL.rotation.x = Math.max(0, -s) * 0.85 * anim.swing + anim.crouch * 0.72 + rocketKneel * 0.55;
     rig.kneeR.rotation.x = Math.max(0, -c) * 0.85 * anim.swing + anim.crouch * 0.62 + rocketKneel * 1.2;
@@ -1804,8 +1807,10 @@ export class UnitView {
     obj.position.y += onCombatBike ? 0.34 : (Math.abs(Math.sin(anim.phase * 2)) * 0.05 - 0.02) * anim.swing - anim.crouch * 0.12 - rocketKneel * 0.08;
     rig.root.rotation.x = onCombatBike ? -0.08 + anim.bikePitch : 0.04 + 0.1 * speedT * anim.swing - anim.crouch * 0.05;
     // idle breathing
-    rig.torso.position.y = 1.12 - anim.crouch * 0.08 + Math.sin(anim.phase * 0.35 + entity.id) * 0.008 * (1 - anim.swing);
+    rig.torso.position.y = 1.12 * 1.22 - anim.crouch * 0.08 + Math.sin(anim.phase * 0.35 + entity.id) * 0.008 * (1 - anim.swing);
     rig.torso.rotation.x = -anim.crouch * 0.08 - (anim.recoil > 0 ? 0.035 : 0);
+    rig.torso.rotation.z = Math.sin(anim.phase) * 0.025 * anim.swing;
+    rig.torso.rotation.y = Math.sin(anim.phase) * 0.035 * anim.swing * (1 - anim.aim);
     const recoilT = Math.min(1, anim.recoil / (rig.kit === 'rocket' ? 0.18 : 0.12));
     const baseWeapon = soldierWeaponBasePose(rig.kit);
     rig.rifle.visible = true;
@@ -1815,8 +1820,8 @@ export class UnitView {
     rig.rifle.rotation.x += aimDrop * (1 - anim.aim) - recoilT * 0.1;
     rig.rifle.position.z -= recoilT * (rig.kit === 'rocket' ? 0.07 : 0.045);
     rig.rifle.position.y += anim.aim * (rig.kit === 'rocket' ? 0.02 : 0.04) - anim.crouch * 0.02;
-    rig.shoulderR.rotation.x = -0.8 + anim.aim * -0.18 + recoilT * 0.1;
-    rig.shoulderL.rotation.x = -0.72 + anim.aim * -0.25;
+    rig.shoulderR.rotation.x = -0.8 + anim.aim * -0.18 + recoilT * 0.1 + c * anim.swing * 0.07 * (1 - anim.aim);
+    rig.shoulderL.rotation.x = -0.72 + anim.aim * -0.25 + s * anim.swing * 0.06 * (1 - anim.aim);
     rig.elbowR.rotation.x = -0.62 + anim.aim * -0.08 + recoilT * 0.12;
     rig.elbowL.rotation.x = -0.72 + anim.aim * -0.15;
     if (rig.kit === 'rocket') {

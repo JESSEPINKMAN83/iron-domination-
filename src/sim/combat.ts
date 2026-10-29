@@ -1886,6 +1886,25 @@ function acquireLineTarget(
       if (along < 0) continue;
       perp = Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along));
       tolerance = strictManualAim ? radius * (candidate.flight ? 0.9 : 0.82) + (candidate.flight ? 0 : assistMargin) : radius + (candidate.flight ? 1.35 : 0.8);
+      if (candidate.selectable?.type === 'infantry' && baseY !== undefined) {
+        // A standing soldier is a vertical body, not a sphere around the waist.
+        // Sample the capsule axis so torso/head shots match the rendered silhouette.
+        const stance = candidate.infantryStance;
+        const feetY = baseY + (stance?.height ?? 0);
+        const bodyHeight = 2.7 - (stance?.crouch ?? 0) * 0.7;
+        let closest = Number.POSITIVE_INFINITY;
+        let bodyAlong = along;
+        for (let i = 0; i <= 8; i++) {
+          const bodyDy = feetY + 0.22 + (bodyHeight - 0.44) * i / 8 - aimRay.fromY;
+          const projection = dx * aimRay.x + bodyDy * aimRay.y + dz * aimRay.z;
+          if (projection < 0) continue;
+          const distance = Math.sqrt(Math.max(0, dx * dx + bodyDy * bodyDy + dz * dz - projection * projection));
+          if (distance < closest) { closest = distance; bodyAlong = projection; }
+        }
+        perp = closest;
+        along = bodyAlong;
+        tolerance = strictManualAim ? 0.48 : 0.7;
+      }
     }
     if (along > bestAlong || perp > tolerance) continue;
     best = candidate;

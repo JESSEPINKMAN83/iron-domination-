@@ -1,9 +1,9 @@
-import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial } from 'three';
+import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 
 export function buildInfantryWeapon(kind: string): Group {
   const root = new Group();
   root.name = kind;
-  const metal = new MeshBasicMaterial({ color: 0x252c30, fog: false, toneMapped: false, depthTest: false, depthWrite: false });
+  const metal = new MeshStandardMaterial({ color: 0x252c30, roughness: 0.65, metalness: 0.35, depthTest: false, depthWrite: false });
   const stock = metal.clone(); stock.color.setHex(kind === 'sniperRifle' ? 0x68734e : kind === 'grenade' ? 0x8a7150 : 0x46564a);
   const glass = metal.clone(); glass.color.setHex(0x63b7b0);
   const box = (w: number, h: number, d: number, x: number, y: number, z: number, material = metal) => {
@@ -41,8 +41,22 @@ export function buildInfantryWeapon(kind: string): Group {
       box(0.02, 0.012, 0.02, 0, 0.12, -0.08, glass);
     }
   }
-  box(0.095, 0.08, 0.2, 0.07, -0.15, 0.18, stock);
+  // Articulated-looking sleeves and gloves belong only to the possessed view.
+  const sleeve = stock.clone(); sleeve.color.setHex(0x59634a); sleeve.roughness = 1;
+  const glove = metal.clone(); glove.color.setHex(0x30382c); glove.metalness = 0;
+  for (const side of [-1, 1]) {
+    const arm = new Mesh(new CylinderGeometry(0.055, 0.075, 0.42, 10), sleeve);
+    arm.position.set(side > 0 ? 0.15 : -0.17, -0.24, side > 0 ? 0.32 : -0.05);
+    arm.rotation.x = -1.1; arm.rotation.z = side * 0.25; root.add(arm);
+  }
+  box(0.095, 0.08, 0.2, 0.07, -0.15, 0.18, glove);
   box(0.095, 0.08, 0.2, -0.07, -0.12, -0.16, stock);
+  // Rails, charging hardware and optic mounts give each weapon a readable profile.
+  if (kind !== 'rocketLauncher') {
+    box(0.035, 0.025, 0.24, 0, 0.073, -0.13);
+    for (let i = 0; i < 5; i++) box(0.085, 0.018, 0.014, 0, 0.058, -0.14 - i * 0.027);
+    box(0.045, 0.025, 0.05, 0.065, 0.02, 0.03);
+  }
   root.traverse((object) => { object.renderOrder = 10000; object.frustumCulled = false; });
   return root;
 }
