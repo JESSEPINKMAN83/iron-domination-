@@ -66,12 +66,21 @@ export class VisibilityGrid {
     const minZ = Math.max(0, Math.floor((z - radius + this.half) / this.cellSize));
     const maxZ = Math.min(this.res - 1, Math.floor((z + radius + this.half) / this.cellSize));
     const r2 = radius * radius;
+    const inside = (cx: number, dz2: number): boolean => ((cx + 0.5) * this.cellSize - this.half - x) ** 2 + dz2 <= r2;
+    // Each row of a disc is one contiguous span. Estimate its ends, then settle
+    // them with the exact per-cell test so the stamped cells never change.
+    const centerCell = (x + this.half) / this.cellSize - 0.5;
     for (let cz = minZ; cz <= maxZ; cz++) {
-      const wz = (cz + 0.5) * this.cellSize - this.half;
-      for (let cx = minX; cx <= maxX; cx++) {
-        const wx = (cx + 0.5) * this.cellSize - this.half;
-        if ((wx - x) ** 2 + (wz - z) ** 2 <= r2) target[cz * this.res + cx] = 2;
-      }
+      const dz2 = ((cz + 0.5) * this.cellSize - this.half - z) ** 2;
+      if (dz2 > r2) continue;
+      const halfSpan = Math.sqrt(r2 - dz2) / this.cellSize;
+      let lo = Math.max(minX, Math.ceil(centerCell - halfSpan));
+      let hi = Math.min(maxX, Math.floor(centerCell + halfSpan));
+      while (lo > minX && inside(lo - 1, dz2)) lo--;
+      while (lo <= hi && !inside(lo, dz2)) lo++;
+      while (hi < maxX && inside(hi + 1, dz2)) hi++;
+      while (hi >= lo && !inside(hi, dz2)) hi--;
+      if (lo <= hi) target.fill(2, cz * this.res + lo, cz * this.res + hi + 1);
     }
   }
 }

@@ -39,6 +39,15 @@ export class NavigationGrid {
     return this.flowQueue ??= new Int32Array(this.cells*this.cells);
   }
 
+  /**
+   * Up to seven armies route to many destinations at once; a six-entry cache
+   * thrashed and rebuilt whole-map fields every few orders. Hold ~40 MB of
+   * fields, so medium maps keep 32 and extra-large maps keep 12.
+   */
+  private flowCacheLimit(): number {
+    return Math.max(6, Math.min(32, Math.floor(40_000_000 / (this.cells * this.cells * 4))));
+  }
+
   flowTo(x: number, z: number): FlowField {
     if(this.flowCacheRevision!==this.revision){this.flowCache.clear();this.flowCacheRevision=this.revision;}
     const cell=this.nearestWalkableCell(x,z);
@@ -48,7 +57,7 @@ export class NavigationGrid {
     if(cached){this.flowCache.delete(key);this.flowCache.set(key,cached);return cached;}
     const field=new FlowField(this,x,z);
     this.flowCache.set(key,field);
-    if(this.flowCache.size>6) this.flowCache.delete(this.flowCache.keys().next().value!);
+    if(this.flowCache.size>this.flowCacheLimit()) this.flowCache.delete(this.flowCache.keys().next().value!);
     return field;
   }
   private blockerBatchDepth = 0;
@@ -278,40 +287,38 @@ export class FlowField {
   private build(): void {
     this.builtRevision = this.grid.revision;
     const queue = this.grid.flowBuildQueue();
+    const cells = this.grid.cells;
+    const blocked = this.grid.blocked;
+    const distance = this.distance;
     let head = 0;
     let tail = 0;
     const targetIndex = this.grid.index(this.targetCell.x, this.targetCell.y);
-    this.distance[targetIndex] = 0;
+    distance[targetIndex] = 0;
     queue[tail++] = targetIndex;
 
-    const dirs = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-      [1, 1],
-      [1, -1],
-      [-1, 1],
-      [-1, -1],
-    ] as const;
-
+    // Breadth-first fill over flat indices. Neighbours are visited in the fixed
+    // order E, W, S, N, SE, NE, SW, NW, and a diagonal step needs both adjacent
+    // orthogonal cells open, so the result is identical on every client.
     while (head < tail) {
       const cell = queue[head++];
-      const cx = cell % this.grid.cells;
-      const cy = Math.floor(cell / this.grid.cells);
-      const base = this.distance[this.grid.index(cx, cy)];
-      for (const [dx, dy] of dirs) {
-        const nx = cx + dx;
-        const ny = cy + dy;
-        if (!this.grid.isWalkableCell(nx, ny)) continue;
-        if (dx !== 0 && dy !== 0 && (!this.grid.isWalkableCell(cx + dx, cy) || !this.grid.isWalkableCell(cx, cy + dy))) {
-          continue;
-        }
-        const ni = this.grid.index(nx, ny);
-        if (this.distance[ni] !== -1) continue;
-        this.distance[ni] = base + (dx === 0 || dy === 0 ? 10 : 14);
-        queue[tail++] = ni;
-      }
+      const cx = cell % cells;
+      const cy = (cell - cx) / cells;
+      const base = distance[cell];
+      const straight = base + 10;
+      const diagonal = base + 14;
+      const east = cx < cells - 1 && blocked[cell + 1] === 0;
+      const west = cx > 0 && blocked[cell - 1] === 0;
+      const south = cy < cells - 1 && blocked[cell + cells] === 0;
+      const north = cy > 0 && blocked[cell - cells] === 0;
+      let next: number;
+      if (east && distance[next = cell + 1] === -1) { distance[next] = straight; queue[tail++] = next; }
+      if (west && distance[next = cell - 1] === -1) { distance[next] = straight; queue[tail++] = next; }
+      if (south && distance[next = cell + cells] === -1) { distance[next] = straight; queue[tail++] = next; }
+      if (north && distance[next = cell - cells] === -1) { distance[next] = straight; queue[tail++] = next; }
+      if (east && south && blocked[next = cell + cells + 1] === 0 && distance[next] === -1) { distance[next] = diagonal; queue[tail++] = next; }
+      if (east && north && blocked[next = cell - cells + 1] === 0 && distance[next] === -1) { distance[next] = diagonal; queue[tail++] = next; }
+      if (west && south && blocked[next = cell + cells - 1] === 0 && distance[next] === -1) { distance[next] = diagonal; queue[tail++] = next; }
+      if (west && north && blocked[next = cell - cells - 1] === 0 && distance[next] === -1) { distance[next] = diagonal; queue[tail++] = next; }
     }
   }
 }
