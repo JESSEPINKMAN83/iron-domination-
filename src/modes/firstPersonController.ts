@@ -865,7 +865,7 @@ export class FirstPersonController {
       this.flashAbilityStatus(`${slot === 'primary' ? 'PRIMARY' : slot === 'secondary' ? 'SECONDARY' : 'SPECIAL'} RELOADING ${selectedWeapon.cooldown.toFixed(1)}S`);
       return false;
     }
-    const lockedTarget = isManualTargetLockWeapon(selectedWeapon?.kind) ? this.lockedTarget() : undefined;
+    const lockedTarget = this.lockedTarget();
     const lockedPosition = lockedTarget ? this.lockTargetPosition(lockedTarget) : undefined;
     const sharedGroundTarget = lockedPosition
       ? new Vector3(lockedPosition.x, lockedPosition.y, lockedPosition.z)
