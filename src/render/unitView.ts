@@ -1366,6 +1366,8 @@ export class UnitView {
         proxy.body.instanceMatrix.needsUpdate = true;
         proxy.color.instanceMatrix.needsUpdate = true;
         proxy.detail.instanceMatrix.needsUpdate = true;
+        if (proxy.body.instanceColor) proxy.body.instanceColor.needsUpdate = true;
+        if (proxy.color.instanceColor) proxy.color.instanceColor.needsUpdate = true;
       }
     }
   }
@@ -1421,6 +1423,16 @@ export class UnitView {
     this.lowDetailTransform.updateMatrix();
     proxy.body.setMatrixAt(proxy.count, this.lowDetailTransform.matrix);
     proxy.color.setMatrixAt(proxy.count, this.lowDetailTransform.matrix);
+    // Instance colors must be reset for live units because slots are reused.
+    const wreckTint = entity.destroyed ? 0x161616 : 0xffffff;
+    this.infantryMarkerColor.setHex(wreckTint);
+    proxy.body.setColorAt(proxy.count, this.infantryMarkerColor);
+    proxy.color.setColorAt(proxy.count, this.infantryMarkerColor);
+    if (entity.destroyed) {
+      // Remove faction accents/emissive details entirely from distant wrecks.
+      this.lowDetailTransform.scale.set(0, 0, 0);
+      this.lowDetailTransform.updateMatrix();
+    }
     proxy.detail.setMatrixAt(proxy.count, this.lowDetailTransform.matrix);
     proxy.count++;
   }
@@ -2187,10 +2199,9 @@ export class UnitView {
       badge.root.visible = false;
       return;
     }
-    // Always show earned ranks when near the camera — including low-detail army views.
+    // Earned ranks remain available in detailed and low-detail army views.
     const distance = camera.position.distanceTo(this.lowDetailTransform.position.set(x, y, z));
     badge.root.visible = true;
-    if (!badge.root.visible) return;
     if (badge.rank !== rank) {
       badge.rank = rank;
       badge.material.map = rankChevronTexture(rank);
@@ -2199,8 +2210,8 @@ export class UnitView {
     const healthBar = this.healthBars.get(entity);
     const healthVisible = !!healthBar?.root.visible;
     const lift = unitChromeLift(entity);
-    // Grow with camera distance so earned ranks remain legible at strategy zoom.
-    const scale = Math.max(compact ? 1.6 : 1.35, distance * 0.018);
+    // Gentle, capped growth: badges recede with units at strategic zoom.
+    const scale = Math.min(2.4, Math.max(compact ? 1.1 : 1.0, distance * 0.0035));
     badge.root.scale.setScalar(scale);
     badge.root.position.set(x, y + lift + scale * 0.45, z);
     badge.root.lookAt(camera.position);
