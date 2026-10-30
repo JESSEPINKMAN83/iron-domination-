@@ -640,8 +640,8 @@ export class LockstepRuntime {
       const followers = ownedEntities(this.options.sim, command.followerIds ?? [], team).filter((follower) => follower.id !== entity.id);
       for (const follower of followers) {
         if (follower.turret) follower.turret.yaw = Math.atan2(command.x - follower.transform.x, command.z - follower.transform.z);
-        manualFireAt(this.options.sim, follower, command.x, command.z, command.slot, command.y, undefined, command.strategicTargetId);
-        if (command.slot === 'secondary') manualFireAt(this.options.sim, follower, command.x, command.z, 'primary', command.y, undefined, command.strategicTargetId);
+        manualFireAt(this.options.sim, follower, command.x, command.z, command.slot, command.y, command.targetId, command.strategicTargetId);
+        if (command.slot === 'secondary') manualFireAt(this.options.sim, follower, command.x, command.z, 'primary', command.y, command.targetId, command.strategicTargetId);
       }
     } else if (command.type === 'possess-follow') {
       if (!ownedEntity(this.options.sim, command.leaderId, team)) return;

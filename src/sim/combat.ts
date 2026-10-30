@@ -860,7 +860,7 @@ function launchWeaponProjectile(
 }
 
 function validManualLockTarget(sim: GameSim, attacker: Entity, weapon: Weapon, targetId: number | undefined): Entity | undefined {
-  if (targetId === undefined || !attacker.playerControlled || !isManualTargetLockWeapon(weapon.kind) || !attacker.team) return undefined;
+  if (targetId === undefined || !isManualTargetLockWeapon(weapon.kind) || !attacker.team) return undefined;
   const target = entityById(sim, targetId);
   if (!target) return undefined;
   if (!canManualWeaponLockTarget(weapon.kind, target)) return undefined;

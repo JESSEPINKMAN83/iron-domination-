@@ -22,6 +22,7 @@ import {
   MeshStandardMaterial,
   Object3D,
   PlaneGeometry,
+  Quaternion,
   RingGeometry,
   RepeatWrapping,
   SRGBColorSpace,
@@ -506,7 +507,7 @@ export interface PerformanceDetailDecision {
  */
 export function shouldKeepDetailedUnitInPerformanceMode(decision: PerformanceDetailDecision): boolean {
   if (decision.crashingAircraft) return true;
-  if (decision.destroyed) return false;
+  if (decision.destroyed) return decision.priority || decision.distanceSquared <= 160 * 160;
   return decision.selected ||
     decision.playerControlled ||
     decision.priority ||
@@ -524,7 +525,24 @@ const FRIENDLY_GLOW_GEOM = new SphereGeometry(1, 16, 10);
 const MAX_FRIENDLY_GLOWS = 1024;
 const BIKE_DUST_GEOM = new SphereGeometry(1, 8, 5);
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
-const UNIT_DAMAGE_SMOKE_GEOM = markShared(new SphereGeometry(1, 8, 6));
+const UNIT_DAMAGE_SMOKE_GEOM = markShared(new PlaneGeometry(2, 2));
+
+function createVehicleSmokeTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const context = canvas.getContext('2d')!;
+  // Overlapping soft lobes make one wispy cloud, without hard spherical edges.
+  for (let i = 0; i < 7; i++) {
+    const x = 24 + Math.sin(i * 2.4) * 10;
+    const y = 30 + Math.cos(i * 1.7) * 10;
+    const gradient = context.createRadialGradient(x, y, 0, x, y, 22);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.24)');
+    gradient.addColorStop(0.45, 'rgba(255,255,255,0.12)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient; context.fillRect(0, 0, 64, 64);
+  }
+  return new CanvasTexture(canvas);
+}
 const UNIT_DAMAGE_FIRE_GEOM = markShared(new SphereGeometry(1, 7, 5));
 const MAX_BIKE_DUST_PARTICLES = 256;
 const MAX_LOW_DETAIL_UNITS = 1024;
@@ -630,6 +648,8 @@ export class UnitView {
   private readonly rotorWashes = new Map<Entity, { mesh: Mesh; material: MeshBasicMaterial }>();
   private readonly damageOverlays = new Map<Entity, UnitDamageOverlay>();
   private readonly hitReactions = new Map<Entity, UnitHitReaction>();
+  private wreckPlumesThisFrame = 0;
+  private readonly smokeCameraRotation = new Quaternion();
   private readonly wreckTilts = new Map<Entity, { pitch: number; roll: number }>();
   private readonly groundAttitudes = new Map<Entity, GroundVehicleTerrainAttitude>();
   private readonly airShadowMaterial = new MeshBasicMaterial({ color: 0x020403, transparent: true, opacity: 0.26, depthWrite: false });
@@ -684,7 +704,7 @@ export class UnitView {
     this.group.add(this.infantryMarkers);
     this.bikeDustMesh = createBikeDustMesh(hf.kind);
     this.group.add(this.bikeDustMesh);
-    this.wreckMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1d1a16, roughness: 1, metalness: 0.05 }));
+    this.wreckMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x454039, roughness: 0.95, metalness: 0.12 }));
     this.vehicleScorchMaterial = new MeshBasicMaterial({ color: 0x070605, transparent: true, opacity: 0.64, depthWrite: false, side: DoubleSide });
     this.vehicleCrackMaterial = new MeshBasicMaterial({ color: 0x0b0a09, transparent: true, opacity: 0.86, depthWrite: false, side: DoubleSide });
     this.vehicleEmberMaterial = new MeshBasicMaterial({
@@ -696,9 +716,10 @@ export class UnitView {
       blending: AdditiveBlending,
     });
     this.vehicleSmokeMaterial = new MeshBasicMaterial({
-      color: 0x252321,
+      color: 0x494744,
+      map: createVehicleSmokeTexture(),
       transparent: true,
-      opacity: 0.32,
+      opacity: 0.48,
       depthWrite: false,
       side: DoubleSide,
       toneMapped: true,
@@ -822,7 +843,8 @@ export class UnitView {
     built.refs.escortDrone = escortVisual?.getObjectByName('escortDrone');
     built.refs.escortDroneRotors = built.refs.escortDrone?.children.filter((child) => child.name === 'escortDroneRotor');
     const scale = visualScaleForEntity(entity);
-    unit.scale.set(scale.x, scale.y, scale.z);
+    const tankSize = entity.selectable?.type === 'tank' ? 1.2 : 1;
+    unit.scale.set(scale.x * tankSize, scale.y * tankSize, scale.z * tankSize);
     unit.castShadow = false;
     unit.traverse((obj) => {
       obj.castShadow = false;
@@ -995,7 +1017,7 @@ export class UnitView {
       const isInfantry = entity.selectable?.type === 'infantry';
       const isAircraft = Boolean(entity.flight);
       const profile = impactReactionProfile(force, event.impactKind, unitVisualKind(entity), event.killed);
-      const duration = isAircraft ? Math.max(profile.duration, 0.62 + force * 0.82) : profile.duration;
+      const duration = isAircraft ? Math.max(profile.duration, 0.62 + force * 0.82) : isInfantry ? profile.duration : Math.max(1.1, profile.duration * 2.2);
       const existing = this.hitReactions.get(entity);
       const forwardX = Math.sin(entity.transform.rot);
       const forwardZ = Math.cos(entity.transform.rot);
@@ -1058,6 +1080,8 @@ export class UnitView {
   }
 
   update(alpha: number, dt: number, camera: Camera): void {
+    this.wreckPlumesThisFrame = 0;
+    camera.getWorldQuaternion(this.smokeCameraRotation);
     // Evict entities the sim has finished with (wreck window expired). The possessed
     // unit is only hidden, never evicted here — it's reclaimed when possession ends.
     for (let i = this.entities.length - 1; i >= 0; i--) {
@@ -1366,12 +1390,13 @@ export class UnitView {
     this.lowDetailTransform.rotation.set(
       terrainAttitude?.pitch ?? 0,
       rot,
-      (terrainAttitude?.roll ?? 0) + (entity.destroyed ? Math.PI * 0.38 : 0),
+      (terrainAttitude?.roll ?? 0) + (entity.destroyed ? 0.08 : 0),
       terrainAttitude ? 'YXZ' : 'XYZ',
     );
     if (kind === 'infantry') this.lowDetailTransform.scale.set(0.78, 1.75 * destroyedScale, 0.78);
     else if (kind === 'aircraft') this.lowDetailTransform.scale.set(radius * 1.55, 0.75 * destroyedScale, radius * 1.15);
     else this.lowDetailTransform.scale.set(radius * 1.35, Math.max(0.55, radius * 0.58) * destroyedScale, radius * 1.75);
+    if (entity.selectable?.type === 'tank') this.lowDetailTransform.scale.multiplyScalar(1.2);
     this.lowDetailTransform.updateMatrix();
     proxy.body.setMatrixAt(proxy.count, this.lowDetailTransform.matrix);
     proxy.color.setMatrixAt(proxy.count, this.lowDetailTransform.matrix);
@@ -1501,11 +1526,11 @@ export class UnitView {
         localForward,
         killed: reaction.killed,
       });
-      obj.rotation.x += pose.pitch;
-      obj.rotation.z += pose.roll;
-      obj.position.y += pose.lift;
-      obj.position.x += reaction.dirX * pose.shove * Math.min(0.85, reaction.shove);
-      obj.position.z += reaction.dirZ * pose.shove * Math.min(0.85, reaction.shove);
+      obj.rotation.x += Math.max(-0.1, Math.min(0.1, pose.pitch * 0.22));
+      obj.rotation.z += Math.max(-0.12, Math.min(0.12, pose.roll * 0.22));
+      obj.position.y += pose.lift * 0.18;
+      obj.position.x += reaction.dirX * pose.shove * Math.min(0.12, reaction.shove);
+      obj.position.z += reaction.dirZ * pose.shove * Math.min(0.12, reaction.shove);
       if (t >= 1 && reaction.killed) this.wreckTilts.set(entity, { pitch: pose.pitch, roll: pose.roll });
     }
     if (t >= 1) this.hitReactions.delete(entity);
@@ -1542,7 +1567,12 @@ export class UnitView {
         for (const tailRotor of refs?.tailRotors ?? []) tailRotor.rotation.x += dt * rotorSpeed * 1.35;
         if (crash?.impacted && !this.wrecked.has(entity)) {
           this.wrecked.add(entity);
+          const damageOverlay = this.damageOverlays.get(entity)?.root;
           obj.traverse((child) => {
+            // Damage effects retain their transparent smoke and glowing fire materials.
+            let ancestor: Object3D | null = child;
+            while (ancestor && ancestor !== damageOverlay) ancestor = ancestor.parent;
+            if (ancestor === damageOverlay) return;
             if (child instanceof Mesh) child.material = this.wreckMaterial;
           });
         }
@@ -1585,13 +1615,45 @@ export class UnitView {
         // tanks become scorched husks that persist
         if (!this.wrecked.has(entity)) {
           this.wrecked.add(entity);
+          const damageOverlay = this.damageOverlays.get(entity)?.root;
           obj.traverse((child) => {
+            // Damage effects retain their transparent smoke and glowing fire materials.
+            let ancestor: Object3D | null = child;
+            while (ancestor && ancestor !== damageOverlay) ancestor = ancestor.parent;
+            if (ancestor === damageOverlay) return;
             if (child instanceof Mesh) child.material = this.wreckMaterial;
           });
           const turret = refs?.turretPivot;
           if (turret) {
             turret.rotation.x = 0.14;
-            turret.position.y = -0.12;
+            turret.position.y -= 0.12;
+            turret.rotation.z = deterministicUnitSigned(entity.id, 0xbeef) * 0.22;
+            turret.position.x += 0.28;
+            turret.position.y -= 0.23;
+            turret.rotation.x = 0.25;
+          }
+          if (refs?.barrelPivot) {
+            refs.barrelPivot.rotation.x = 0.28;
+            refs.barrelPivot.rotation.z = 0.12;
+            refs.barrelPivot.scale.z = 0.72;
+          }
+          if (refs?.antenna) refs.antenna.visible = false;
+          // Deform the existing merged panels without cloning their geometry.
+          for (const part of obj.children) {
+            if (part instanceof Mesh && part.name === 'hull-panels') {
+              part.scale.y = 0.78;
+              part.rotation.z = deterministicUnitSigned(entity.id, 0xd34) * 0.045;
+            }
+          }
+          // A few torn armor plates break the factory-new silhouette.
+          if (entity.selectable?.type === 'tank') {
+            for (let i = 0; i < 3; i++) {
+              const plate = new Mesh(sharedBoxGeometry(0.75, 0.09, 1.1), this.wreckMaterial);
+              const side = i % 2 === 0 ? -1 : 1;
+              plate.position.set(side * (1.8 + i * 0.15), 0.35 + i * 0.17, -1.4 + i * 1.2);
+              plate.rotation.set(0.2 + i * 0.2, i * 0.9, side * (0.3 + i * 0.2));
+              obj.add(plate);
+            }
           }
         }
         const terrain = this.groundAttitudes.get(entity);
@@ -1601,8 +1663,8 @@ export class UnitView {
           obj.rotation.z = terrain?.roll ?? 0;
         } else {
           const wreck = this.wreckTilts.get(entity);
-          obj.rotation.x = (terrain?.pitch ?? 0) + (wreck?.pitch ?? 0.1);
-          obj.rotation.z = (terrain?.roll ?? 0) + (wreck?.roll ?? 0.12);
+          obj.rotation.x = Math.max(-0.55, Math.min(0.55, terrain?.pitch ?? 0)) + Math.max(-0.12, Math.min(0.12, wreck?.pitch ?? 0.06));
+          obj.rotation.z = Math.max(-0.55, Math.min(0.55, terrain?.roll ?? 0)) + Math.max(-0.14, Math.min(0.14, wreck?.roll ?? 0.08));
         }
       }
       return;
@@ -1954,6 +2016,9 @@ export class UnitView {
     overlay.root.visible = stage > 0;
     if (!overlay.root.visible) return;
     const time = performance.now() * 0.001;
+    const wreckAge = entity.destroyed ? Math.max(0, 20 - entity.destroyed.remaining) : 0;
+    const wreckFade = entity.destroyed ? Math.max(0, 1 - wreckAge / 8) : 1;
+    const showWreckPlume = !entity.destroyed || (wreckFade > 0 && this.wreckPlumesThisFrame++ < 8);
     const pulse = 0.5 + 0.5 * Math.sin(time * 11 + entity.id);
     for (const patch of overlay.patches) {
       patch.mesh.visible = stage >= patch.stage;
@@ -1961,14 +2026,18 @@ export class UnitView {
       if (patch.kind === 'ember') patch.mesh.scale.setScalar(0.9 + pulse * 0.34 + stage * 0.08);
     }
     for (const effect of overlay.effects) {
-      effect.mesh.visible = stage >= effect.stage;
+      effect.mesh.visible = stage >= effect.stage && showWreckPlume;
       if (!effect.mesh.visible) continue;
       const wave = 0.5 + 0.5 * Math.sin(time * (effect.kind === 'smoke' ? 1.9 : 8.5) + effect.phase);
       if (effect.kind === 'smoke') {
+        const cycle = ((time * 0.22 + effect.phase / (Math.PI * 2)) % 1);
+        // Billboard in the overlay's local frame; no extra particle objects.
+        overlay.root.getWorldQuaternion(effect.mesh.quaternion);
+        effect.mesh.quaternion.invert().multiply(this.smokeCameraRotation);
         const drift = Math.sin(time * 1.15 + effect.phase) * effect.baseScale * 0.2;
         effect.mesh.position.set(
           effect.baseX + drift,
-          effect.baseY + wave * effect.baseScale * 0.42,
+          effect.baseY + cycle * effect.baseScale * 3,
           effect.baseZ + Math.cos(time * 0.92 + effect.phase) * effect.baseScale * 0.12,
         );
         effect.mesh.scale.set(
@@ -1976,13 +2045,26 @@ export class UnitView {
           effect.baseScale * (1.15 + wave * 0.52),
           effect.baseScale * (0.88 + wave * 0.3),
         );
+        const cloudFade = Math.sin(cycle * Math.PI);
+        effect.mesh.scale.multiplyScalar((0.65 + cycle * 1.7) * cloudFade * (entity.destroyed ? wreckFade * 1.8 : 1));
+        effect.mesh.position.x += cycle * effect.baseScale * 0.9;
       } else {
+        if (entity.destroyed && wreckAge >= 6) { effect.mesh.visible = false; continue; }
         effect.mesh.position.set(effect.baseX, effect.baseY + wave * 0.12, effect.baseZ);
+        if (entity.destroyed) effect.mesh.position.y += wave * 0.35;
         effect.mesh.scale.set(
           effect.baseScale * (0.72 + wave * 0.38),
           effect.baseScale * (1.05 + wave * 0.72),
           effect.baseScale * (0.72 + wave * 0.38),
         );
+        if (entity.destroyed) {
+          const fade = Math.min(1, Math.max(0, (6 - wreckAge) / 2));
+          const ignition = Math.max(0, 1 - wreckAge / 0.65);
+          // One shared flame mesh: an ignition flare, then a tall flickering burn.
+          effect.mesh.scale.multiplyScalar((3.4 + ignition * 2.8) * fade);
+          effect.mesh.scale.y *= 1.6 + wave * 0.35;
+          effect.mesh.position.y += 0.25 + ignition * 0.35;
+        }
       }
     }
   }
@@ -2085,8 +2167,8 @@ export class UnitView {
       return;
     }
     // Always show earned ranks when near the camera — including low-detail army views.
-    const nearCamera = camera.position.distanceToSquared(this.lowDetailTransform.position.set(x, y, z)) < (compact ? 220_000 : 420_000);
-    badge.root.visible = nearCamera;
+    const distance = camera.position.distanceTo(this.lowDetailTransform.position.set(x, y, z));
+    badge.root.visible = true;
     if (!badge.root.visible) return;
     if (badge.rank !== rank) {
       badge.rank = rank;
@@ -2096,9 +2178,10 @@ export class UnitView {
     const healthBar = this.healthBars.get(entity);
     const healthVisible = !!healthBar?.root.visible;
     const lift = unitChromeLift(entity);
-    const scale = compact ? 1.2 : 1.05;
+    // Grow with camera distance so earned ranks remain legible at strategy zoom.
+    const scale = Math.max(compact ? 1.6 : 1.35, distance * 0.018);
     badge.root.scale.setScalar(scale);
-    badge.root.position.set(x, y + lift, z);
+    badge.root.position.set(x, y + lift + scale * 0.45, z);
     badge.root.lookAt(camera.position);
     // Sit to the left of the health bar (same height), or centered if HP chrome is hidden.
     badge.root.translateX(healthVisible ? -2.55 : 0);

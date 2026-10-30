@@ -2979,6 +2979,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         aircraft.health!.current = aircraft.health!.max = 5000;
       }
       aircraftRouteUnits.push(aircraft);
+      if (tankCombatTest) {
+        // Park a rifleman beside each tank for an immediate scale comparison.
+        const escort = spawnInfantryAt(sim, aircraft.transform.x + 6, aircraft.transform.z, localTeam, 'infantry');
+        escort.transform.rot = aircraft.transform.rot;
+      }
     }
     if (hostileTeam !== undefined) {
       if (artilleryTest) {

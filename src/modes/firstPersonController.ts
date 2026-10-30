@@ -865,7 +865,7 @@ export class FirstPersonController {
       this.flashAbilityStatus(`${slot === 'primary' ? 'PRIMARY' : slot === 'secondary' ? 'SECONDARY' : 'SPECIAL'} RELOADING ${selectedWeapon.cooldown.toFixed(1)}S`);
       return false;
     }
-    const lockedTarget = isManualTargetLockWeapon(selectedWeapon?.kind) ? this.lockedTarget() : undefined;
+    const lockedTarget = this.lockedTarget();
     const lockedPosition = lockedTarget ? this.lockTargetPosition(lockedTarget) : undefined;
     const sharedGroundTarget = lockedPosition
       ? new Vector3(lockedPosition.x, lockedPosition.y, lockedPosition.z)
@@ -913,11 +913,12 @@ export class FirstPersonController {
       for (const wingman of followers) {
         if (wingman.turret) wingman.turret.yaw = Math.atan2(target.x - wingman.transform.x, target.z - wingman.transform.z);
         const strategicId = lockedTarget?.kind === 'strategic' ? lockedTarget.projectile.strategicId : undefined;
-        manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y, undefined, strategicId);
-        if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y, undefined, strategicId);
+        manualFireAt(this.sim, wingman, target.x, target.z, slot, target.y, lockedTarget?.kind === 'entity' ? lockedTarget.entity.id : undefined, strategicId);
+        if (slot === 'secondary') manualFireAt(this.sim, wingman, target.x, target.z, 'primary', target.y, lockedTarget?.kind === 'entity' ? lockedTarget.entity.id : undefined, strategicId);
       }
     }
-    if (fired) this.lockHoldSeconds = 0;
+    // Cannon fire is independent of the missile salvo charging on this target.
+    if (fired && lockedTarget && isManualTargetLockWeapon(selectedWeapon?.kind)) this.lockHoldSeconds = 0;
     if (fired && slot === 'primary' && this.isFootSoldier()) {
       this.infantryKick = 0.06;
       this.lookPitch = Math.min(GROUND_LOOK_UP_MAX, this.lookPitch + 0.009 * (1 - this.infantryAim * 0.55));
