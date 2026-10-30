@@ -1483,8 +1483,8 @@ export class UnitView {
     const { localSide, localForward } = reaction;
     if (entity.selectable?.type === 'infantry') {
       const pose = infantryImpactPose(t, reaction.intensity, localSide, localForward, reaction.killed);
-      obj.rotation.x += Math.max(-0.1, Math.min(0.1, pose.pitch * 0.22));
-      obj.rotation.z += Math.max(-0.12, Math.min(0.12, pose.roll * 0.22));
+      obj.rotation.x += pose.pitch;
+      obj.rotation.z += pose.roll;
       obj.position.y += pose.lift;
       obj.position.x += reaction.dirX * pose.shove * reaction.shove;
       obj.position.z += reaction.dirZ * pose.shove * reaction.shove;
@@ -1567,7 +1567,12 @@ export class UnitView {
         for (const tailRotor of refs?.tailRotors ?? []) tailRotor.rotation.x += dt * rotorSpeed * 1.35;
         if (crash?.impacted && !this.wrecked.has(entity)) {
           this.wrecked.add(entity);
+          const damageOverlay = this.damageOverlays.get(entity)?.root;
           obj.traverse((child) => {
+            // Damage effects retain their transparent smoke and glowing fire materials.
+            let ancestor: Object3D | null = child;
+            while (ancestor && ancestor !== damageOverlay) ancestor = ancestor.parent;
+            if (ancestor === damageOverlay) return;
             if (child instanceof Mesh) child.material = this.wreckMaterial;
           });
         }
@@ -1610,7 +1615,12 @@ export class UnitView {
         // tanks become scorched husks that persist
         if (!this.wrecked.has(entity)) {
           this.wrecked.add(entity);
+          const damageOverlay = this.damageOverlays.get(entity)?.root;
           obj.traverse((child) => {
+            // Damage effects retain their transparent smoke and glowing fire materials.
+            let ancestor: Object3D | null = child;
+            while (ancestor && ancestor !== damageOverlay) ancestor = ancestor.parent;
+            if (ancestor === damageOverlay) return;
             if (child instanceof Mesh) child.material = this.wreckMaterial;
           });
           const turret = refs?.turretPivot;
