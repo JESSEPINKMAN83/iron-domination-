@@ -834,6 +834,17 @@ describe('phase 4 combat simulation', () => {
     expect(sim.events.some((event) => event.kind === 'tankMissile-impact' && event.targetId === vulture.id)).toBe(true);
   });
 
+  it('shares an explicit enemy lock with a squad tank that is not possessed', () => {
+    const sim = createGameSim(generateHeightfield(MAP01));
+    const follower = spawnTankAt(sim, -30, -20, 'Squad follower');
+    const target = spawnTankAt(sim, -20, 42, 'Locked enemy', 2);
+    follower.turret!.yaw = Math.atan2(target.transform.x - follower.transform.x, target.transform.z - follower.transform.z);
+    expect(follower.playerControlled).toBeUndefined();
+    expect(manualFireAt(sim, follower, target.transform.x, target.transform.z, 'primary', (target.transform.y ?? 0) + 1.5, target.id)).toBe(true);
+    expect(sim.projectiles.at(-1)?.homing?.targetId).toBe(target.id);
+    expect(sim.projectiles.at(-1)?.directTargetId).toBe(target.id);
+  });
+
   it('turns a locked primary tank missile into a homing shot that follows a moving target', () => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);

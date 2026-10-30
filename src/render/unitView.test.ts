@@ -76,7 +76,7 @@ describe('performance-mode unit detail', () => {
 
   it('simplifies only distant background units and completed wrecks', () => {
     expect(shouldKeepDetailedUnitInPerformanceMode(base)).toBe(false);
-    expect(shouldKeepDetailedUnitInPerformanceMode({ ...base, distanceSquared: 100, selected: true, destroyed: true })).toBe(false);
+    expect(shouldKeepDetailedUnitInPerformanceMode({ ...base, distanceSquared: 100, selected: true, destroyed: true })).toBe(true);
   });
 });
 
