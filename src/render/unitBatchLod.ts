@@ -19,6 +19,17 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const INITIAL_CAPACITY = 32;
 
+type SyncedMaterial = Material & {
+  color?: { copy(source: unknown): unknown };
+  emissive?: { copy(source: unknown): unknown };
+  emissiveIntensity?: number;
+};
+
+interface InstancedMaterial {
+  material: Material;
+  sourceVersion: number;
+}
+
 interface BatchPart {
   material: Material;
   geometry: BufferGeometry;
@@ -85,10 +96,20 @@ function createPartMesh(geometry: BufferGeometry, material: Material, capacity: 
   return mesh;
 }
 
+function copyShaderHooks(source: Material, target: Material): void {
+  // Material.copy() leaves these out; terrain-aware and team shaders rely on them.
+  target.onBeforeCompile = source.onBeforeCompile;
+  target.customProgramCacheKey = source.customProgramCacheKey;
+}
+
 export class UnitBatchLod {
   readonly group = new Group();
   private readonly batches = new Map<string, UnitBatch | null>();
   private readonly scratch = new Matrix4();
+  // Instanced parts draw with their own copy of each unit material. Sharing one
+  // material between plain and instanced meshes makes three.js re-resolve the
+  // shader program on every draw that switches between them.
+  private readonly instancedMaterials = new Map<Material, InstancedMaterial>();
 
   has(key: string): boolean {
     return Boolean(this.batches.get(key));
@@ -119,9 +140,10 @@ export class UnitBatchLod {
         const merged = mergeGeometries(geometries, false);
         for (const geometry of geometries) geometry.dispose();
         if (!merged) return undefined;
-        const mesh = createPartMesh(merged, material, INITIAL_CAPACITY);
+        const instancedMaterial = this.instancedMaterial(material);
+        const mesh = createPartMesh(merged, instancedMaterial, INITIAL_CAPACITY);
         this.group.add(mesh);
-        result.push({ material, geometry: merged, mesh, count: 0 });
+        result.push({ material: instancedMaterial, geometry: merged, mesh, count: 0 });
       }
       return result;
     };
@@ -143,6 +165,7 @@ export class UnitBatchLod {
   }
 
   begin(): void {
+    this.syncInstancedMaterials();
     for (const batch of this.batches.values()) {
       if (!batch) continue;
       for (const part of batch.hull) part.count = 0;
@@ -167,11 +190,43 @@ export class UnitBatchLod {
   end(): void {
     for (const batch of this.batches.values()) {
       if (!batch) continue;
-      for (const part of [...batch.hull, ...batch.turret]) {
-        part.mesh.count = part.count;
-        if (part.count > 0) part.mesh.instanceMatrix.needsUpdate = true;
-        part.mesh.visible = part.count > 0;
+      for (const part of batch.hull) this.finishPart(part);
+      for (const part of batch.turret) this.finishPart(part);
+    }
+  }
+
+  private finishPart(part: BatchPart): void {
+    part.mesh.count = part.count;
+    if (part.count > 0) part.mesh.instanceMatrix.needsUpdate = true;
+    part.mesh.visible = part.count > 0;
+  }
+
+  private instancedMaterial(source: Material): Material {
+    const cached = this.instancedMaterials.get(source);
+    if (cached) return cached.material;
+    const material = source.clone();
+    copyShaderHooks(source, material);
+    this.instancedMaterials.set(source, { material, sourceVersion: source.version });
+    return material;
+  }
+
+  /** Mirror runtime tweaks (accent glow, damage tint, recompiles) onto the instanced copies. */
+  private syncInstancedMaterials(): void {
+    for (const [source, entry] of this.instancedMaterials) {
+      const target = entry.material as SyncedMaterial;
+      if (source.version !== entry.sourceVersion) {
+        target.copy(source);
+        copyShaderHooks(source, target);
+        target.needsUpdate = true;
+        entry.sourceVersion = source.version;
+        continue;
       }
+      const from = source as SyncedMaterial;
+      if (from.color && target.color) target.color.copy(from.color);
+      if (from.emissive && target.emissive) target.emissive.copy(from.emissive);
+      if (from.emissiveIntensity !== undefined) target.emissiveIntensity = from.emissiveIntensity;
+      target.opacity = source.opacity;
+      target.visible = source.visible;
     }
   }
 

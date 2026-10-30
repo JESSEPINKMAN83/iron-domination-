@@ -348,9 +348,10 @@ export class BuildingView {
         const selectedGlow = this.selectedGlows.get(entity);
         const producerGlow = this.producerGlows.get(entity);
         const healthBar = this.healthBars.get(entity);
-        if (selectedGlow) selectedGlow.root.visible = false;
-        if (producerGlow) producerGlow.root.visible = false;
-        if (healthBar) healthBar.root.visible = false;
+        // Detach rather than hide: hidden nodes still cost a matrix update every frame.
+        if (selectedGlow) setEntityRenderActive(selectedGlow.root, this.group, false);
+        if (producerGlow) setEntityRenderActive(producerGlow.root, this.group, false);
+        if (healthBar) setEntityRenderActive(healthBar.root, this.group, false);
       }
       if (!object.root.visible) continue;
 
@@ -886,21 +887,21 @@ export class BuildingView {
     if (entity.health.current < object.lastHealth - 0.01) object.lastDamageTick = this.sim.tick;
     object.lastHealth = entity.health.current;
     if (fogged||!this.combatChromeVisible) {
-      healthBar.root.visible = false;
+      setEntityRenderActive(healthBar.root, this.group, false);
       return;
     }
     const pct = Math.max(0, Math.min(1, entity.health.current / entity.health.max));
     const selected = entity.selectable?.selected ?? false;
     const hovered = this.hoveredEntity === entity;
     const ticksSinceDamage = this.sim.tick - object.lastDamageTick;
-    healthBar.root.visible = buildingHealthBarVisible({
+    setEntityRenderActive(healthBar.root, this.group, buildingHealthBarVisible({
       fogged: false,
       destroyed: Boolean(entity.destroyed),
       selected,
       hovered,
       pct,
       ticksSinceDamage,
-    });
+    }));
     if (!healthBar.root.visible) return;
     const barWidth = Math.max(7.4, Math.max(entity.building.footprint.w, entity.building.footprint.h) * this.hf.cellSize * 1.05);
     const barHeight = 0.82;
@@ -922,7 +923,7 @@ export class BuildingView {
     if (!glow) return;
     const selected = (entity.selectable?.selected ?? false) && !entity.destroyed;
     const hovered = entity === this.hoveredBuilding && !entity.destroyed;
-    glow.root.visible = selected || hovered;
+    setEntityRenderActive(glow.root, this.group, selected || hovered);
     if (!selected && !hovered) return;
     const pulse = 0.5 + 0.5 * Math.sin(this.sim.tick * 0.16 + entity.id * 0.7);
     glow.root.position.set(entity.transform.x, groundY, entity.transform.z);
@@ -938,7 +939,7 @@ export class BuildingView {
       !entity.destroyed &&
       entity.building?.complete &&
       entity.building.kind !== 'command-yard';
-    glow.root.visible = !!highlighted;
+    setEntityRenderActive(glow.root, this.group, !!highlighted);
     if (!highlighted) return;
     const pulse = 0.5 + 0.5 * Math.sin(this.sim.tick * 0.22 + entity.id * 0.41);
     glow.root.position.set(entity.transform.x, groundY, entity.transform.z);
