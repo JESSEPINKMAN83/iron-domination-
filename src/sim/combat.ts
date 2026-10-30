@@ -20,7 +20,7 @@ import { hasTerrainLineOfSight, sampleHeight } from './heightfield';
 import { directionalImpactResponse } from './impactModel';
 import { applyStructureDamage } from './structureDamage';
 import { firstWallCoverHit } from './wallCover';
-import { areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, stopEntities, type GameSim, type Projectile } from './world';
+import { allianceSide, areTeamsHostile, attackStandoffPoint, entityById, issueMoveOrder, stopEntities, type GameSim, type Projectile } from './world';
 
 /** Cannons may only fire once the turret has traversed onto the bearing. */
 const AIM_TOLERANCE = 0.12;
@@ -96,7 +96,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
   // Movement rebuilds this grid with movers; combat needs all targetable
   // entities, including buildings. One linear rebuild replaces many O(n²)
   // battlefield scans below.
-  sim.spatial.rebuild(sim.world.entities);
+  sim.spatial.rebuild(sim.world.entities, (entity) => combatCellBit(sim, entity));
   stepProjectiles(sim, dt);
   tickWeaponCooldowns(sim, dt);
   stepEscortDrones(sim, dt, options.autoFire !== false);
@@ -118,7 +118,10 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     const orderedTarget = explicitOrderTarget(sim, attacker);
     let turretGoalYaw: number | undefined;
     let engagementTarget: Entity | undefined;
-    for (const weapon of weaponSlots(attacker)) {
+    const slots = weaponSlots(attacker);
+    // Set when the first weapon's scan also answered the guard question.
+    let guardScan: { foe?: Entity } | undefined;
+    for (const weapon of slots) {
       // Secondary fortress salvos are a deliberate V-mode advantage. Leaving
       // them on auto made unattended tower clusters disproportionately lethal.
       if (isFortressTower(attacker) && weapon === attacker.weapons?.secondary) continue;
@@ -152,7 +155,13 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
           continue;
         }
         if (attacker.aiCombat && (attacker.aiCombat.nextAcquireTick ?? 0) > sim.tick) continue;
-        target = acquireTarget(sim, attacker, weapon, range);
+        if (weapon === slots[0] && attacker.vision) {
+          const scan = scanTargets(sim, attacker, weapon, range, attacker.vision.radius);
+          target = scan.primary;
+          guardScan = { foe: scan.guard };
+        } else {
+          target = acquireTarget(sim, attacker, weapon, range);
+        }
         if (attacker.aiCombat) attacker.aiCombat.nextAcquireTick = sim.tick + attacker.aiCombat.targetAcquireDelayTicks;
       }
       weapon.targetId = target?.id;
@@ -179,7 +188,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     if (attacker.turret) {
       attacker.turret.yaw = slewAngle(attacker.turret.yaw, turretGoalYaw ?? attacker.transform.rot, attacker.turret.turnRate, dt);
     }
-    updateGuardBehavior(sim, attacker, dt, engagementTarget);
+    updateGuardBehavior(sim, attacker, dt, engagementTarget, guardScan);
   }
   tickDestroyed(sim, dt);
 }
@@ -363,7 +372,7 @@ function tickWeaponCooldowns(sim: GameSim, dt: number): void {
 }
 
 /** Idle units don't stand and take bombardment — they close on visible foes. */
-function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number, engagementTarget?: Entity): void {
+function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number, engagementTarget?: Entity, guardScan?: { foe?: Entity }): void {
   if (!attacker.mover || attacker.mover.attackThrough || attacker.mover.aggressive || attacker.mover.target || attacker.mover.attackTargetId !== undefined || !attacker.vision) return;
   const slots = weaponSlots(attacker);
   if (slots.length === 0) return;
@@ -375,7 +384,9 @@ function updateGuardBehavior(sim: GameSim, attacker: Entity, dt: number, engagem
   if (weaponRange === 0) weaponRange = WEAPONS[slots[0].kind as WeaponKind]?.range ?? 42;
   // Reuse the target already found by the weapon pass. Previously every idle
   // combatant performed a second full acquisition scan on the same tick.
-  const foe = engagementTarget ?? acquireTarget(sim, attacker, slots[0], attacker.vision.radius);
+  // Nothing fires while no weapon has a target, so a guard answer from this
+  // tick's weapon scan still matches a fresh scan.
+  const foe = engagementTarget ?? (guardScan ? guardScan.foe : acquireTarget(sim, attacker, slots[0], attacker.vision.radius));
   if (!foe && attacker.mover.defenseAlert) {
     const alert = attacker.mover.defenseAlert;
     alert.ttl -= dt;
@@ -1785,29 +1796,124 @@ function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: numb
     : undefined;
 }
 
+// Combat grid cell masks: bit 0 marks entities that cannot be targeted;
+// bits 1-15 mark ground entities of alliance side 1-15 and bits 16-30 their
+// aircraft. A cell is skipped when it holds nothing the weapon could hit.
+const UNTARGETABLE_BIT = 1;
+const GROUND_SIDE_BITS = 0x0000fffe;
+const AIR_SIDE_BITS = 0x7fff0000;
+const MAX_MASKED_SIDE = 15;
+
+function combatCellBit(sim: GameSim, entity: Entity): number {
+  // Wrecks stay in the world for a while but can never be targeted again.
+  if (!entity.armor || !entity.team || entity.destroyed || !entity.health || entity.health.current <= 0) return UNTARGETABLE_BIT;
+  const side = allianceSide(sim, entity.team.id) ?? 0;
+  const air = entity.armor.kind === 'air';
+  if (side < 1 || side > MAX_MASKED_SIDE) return air ? AIR_SIDE_BITS : GROUND_SIDE_BITS;
+  return air ? 1 << (side + MAX_MASKED_SIDE) : 1 << side;
+}
+
+/** Cells worth visiting for this attacker's weapon: hostile sides, matching armor. */
+function hostileCellBits(sim: GameSim, attacker: Entity, weapon: Weapon): number {
+  const def = WEAPONS[weapon.kind as WeaponKind];
+  let wanted = 0;
+  if (def?.targetTypes.some((kind) => kind !== 'air')) wanted |= GROUND_SIDE_BITS;
+  if (def?.targetTypes.includes('air')) wanted |= AIR_SIDE_BITS;
+  const side = allianceSide(sim, attacker.team?.id) ?? 0;
+  if (side < 1 || side > MAX_MASKED_SIDE) return wanted;
+  return wanted & ~((1 << side) | (1 << (side + MAX_MASKED_SIDE)));
+}
+
 function acquireTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
-  let best: Entity | undefined;
-  let bestScore = Number.POSITIVE_INFINITY;
-  let bestPriority = Number.POSITIVE_INFINITY;
+  return scanTargets(sim, attacker, weapon, range).primary;
+}
+
+interface TargetPick {
+  range: number;
+  visionCap: number;
+  best?: Entity;
+  score: number;
+  priority: number;
+}
+
+function targetPick(sim: GameSim, attacker: Entity, range: number): TargetPick {
+  return {
+    range,
+    visionCap: effectiveSight(sim.nav.heightfield, attacker) || range,
+    score: Number.POSITIVE_INFINITY,
+    priority: Number.POSITIVE_INFINITY,
+  };
+}
+
+function pickImproves(pick: TargetPick, candidate: Entity, priority: number, score: number): boolean {
+  return priority < pick.priority ||
+    (priority === pick.priority && (score < pick.score || (score === pick.score && candidate.id < (pick.best?.id ?? Number.POSITIVE_INFINITY))));
+}
+
+function takePick(pick: TargetPick, candidate: Entity, priority: number, score: number): void {
+  pick.priority = priority;
+  pick.score = score;
+  pick.best = candidate;
+}
+
+/**
+ * Best target within `range`, and optionally the best within `guardRange` from
+ * the same pass (an idle unit's guard behaviour asks that right after its
+ * weapon scan). Each answer is exactly what a separate acquireTarget call
+ * returns: the terrain line-of-sight ray is only skipped for candidates that
+ * could not beat the current best anyway.
+ */
+function scanTargets(
+  sim: GameSim,
+  attacker: Entity,
+  weapon: Weapon,
+  range: number,
+  guardRange?: number,
+): { primary?: Entity; guard?: Entity } {
   const priorities = attacker.mover?.tactic?.targetPriorities;
-  const visionCap = effectiveSight(sim.nav.heightfield, attacker) || range;
-  const searchRadius = Math.max(range, visionCap);
-  sim.spatial.visitNearby(attacker.transform.x, attacker.transform.z, searchRadius, (candidate) => {
+  const kind = weapon.kind as WeaponKind;
+  const primary = targetPick(sim, attacker, range);
+  const guard = guardRange === undefined ? undefined : targetPick(sim, attacker, guardRange);
+  const searchRadius = Math.max(range, primary.visionCap, guard?.range ?? 0, guard?.visionCap ?? 0);
+  // Slack keeps exact-boundary candidates for the precise hypot test below.
+  const rejectBeyondSq = searchRadius * searchRadius * 1.0001 + 1e-6;
+  const minimumRange = minimumRangeForWeapon(kind);
+  const attackerTeam = attacker.team?.id;
+  // Grid cells holding only friendly or unhittable entities cannot contain a
+  // target; with seven armies most cells are like that.
+  const hostileSides = hostileCellBits(sim, attacker, weapon);
+  // A candidate scores at least its distance times this, so nothing farther
+  // than best score / factor can win; cells beyond that are never visited.
+  const scoreFactor = Math.min(1, attacker.aiCombat?.possessedTargetPriority ?? 0.55);
+  const reach = (pick: TargetPick): number => {
+    if (!pick.best || (priorities?.length && pick.priority > 0)) return Math.max(pick.range, pick.visionCap);
+    return pick.score / scoreFactor;
+  };
+  const limit = (): number => Math.max(reach(primary), guard ? reach(guard) : 0);
+  sim.spatial.visitNearestMasked(attacker.transform.x, attacker.transform.z, searchRadius, hostileSides, (candidate) => {
+    // Cheap rejects first: crowded bases put hundreds of friendly or out-of-range
+    // entities in the grid cells. No effective range exceeds searchRadius, so
+    // this never changes which target wins.
+    if (!candidate.armor || !areTeamsHostile(sim, attackerTeam, candidate.team?.id)) return;
+    const dx = candidate.transform.x - attacker.transform.x;
+    const dz = candidate.transform.z - attacker.transform.z;
+    if (dx * dx + dz * dz > rejectBeyondSq) return;
     if (!isWeaponTargetable(sim, attacker, weapon, candidate)) return;
     const d = distance(attacker, candidate);
-    if (d > effectiveRangeForTarget(weapon.kind as WeaponKind, candidate, range, visionCap)) return;
-    if (d < minimumRangeForWeapon(weapon.kind as WeaponKind)) return;
-    if (!hasWeaponTerrainLineOfSight(sim, attacker, weapon, candidate)) return;
+    if (d < minimumRange) return;
     // the player's possessed unit reads as high-value — AI applies pressure to it
     const score = candidate.playerControlled ? d * (attacker.aiCombat?.possessedTargetPriority ?? 0.55) : d;
     const priority = priorities?.length && matchesTargetPriorities(candidate, priorities) ? 0 : 1;
-    if (priority < bestPriority || (priority === bestPriority && (score < bestScore || (score === bestScore && candidate.id < (best?.id ?? Number.POSITIVE_INFINITY))))) {
-      bestPriority = priority;
-      bestScore = score;
-      best = candidate;
-    }
-  });
-  return best;
+    const improvesPrimary = d <= effectiveRangeForTarget(kind, candidate, primary.range, primary.visionCap) &&
+      pickImproves(primary, candidate, priority, score);
+    const improvesGuard = !!guard && d <= effectiveRangeForTarget(kind, candidate, guard.range, guard.visionCap) &&
+      pickImproves(guard, candidate, priority, score);
+    if (!improvesPrimary && !improvesGuard) return;
+    if (!hasWeaponTerrainLineOfSight(sim, attacker, weapon, candidate)) return;
+    if (improvesPrimary) takePick(primary, candidate, priority, score);
+    if (improvesGuard) takePick(guard!, candidate, priority, score);
+  }, limit);
+  return { primary: primary.best, guard: guard?.best };
 }
 
 function hasWeaponTerrainLineOfSight(sim: GameSim, attacker: Entity, weapon: Weapon, target: Entity): boolean {

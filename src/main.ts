@@ -3163,7 +3163,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   audio.installButtonSounds();
   const orderMarkers = new OrderMarkerView(hf);
   // Dev-only handle for performance profiling scripts.
-  if (import.meta.env.DEV) Object.assign(window, { __iron: { ctx, sim, unitView, buildingView, combatView, armies } });
+  if (import.meta.env.DEV) Object.assign(window, { __iron: { ctx, sim, hf, unitView, buildingView, combatView, armies } });
   // Local preview of the Code Red alert: with `performance-test=1&stress-bases=26`
   // the first hostile missile army owns a silo, so fire a salvo every 25 s.
   if (!isPublicHost(location.hostname) && params.get('code-red-preview') === '1') {
@@ -4433,7 +4433,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
       if(scaleMetrics && renderFrame%30===0){
         const air=armies.reduce((sum,a)=>sum+(a.commander?.stats.airIntercepts??0),0),raids=armies.reduce((sum,a)=>sum+(a.commander?.stats.airRaids??0),0);
-        scaleMetrics.textContent=`${settings.ai.toUpperCase()} · ${Math.round(fps)} FPS
+        scaleMetrics.textContent=`${settings.ai.toUpperCase()} · ${Math.round(fps)} FPS · game speed ${Math.round(Math.min(1, simHz / SIM_HZ) * 100)}%
+${armies.length} armies · ${unitView.count()} units · ${ctx.visualQualityLabel}
 ${Math.round(ctx.renderer.info.render.triangles/1000)}k frame triangles · ${ctx.renderer.info.render.calls} draws
 AI air orders: ${air} intercept / ${raids} raid`;
       }

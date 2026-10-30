@@ -115,12 +115,20 @@ interface HitFragment {
 
 interface GroundScorch {
   mesh: Mesh<PlaneGeometry, MeshBasicMaterial>;
-  texture: CanvasTexture;
   material: MeshBasicMaterial;
+  size: number;
   ttl: number;
   total: number;
   baseOpacity: number;
 }
+
+/**
+ * Painting a 256² canvas and uploading it for every impact stalled big battles.
+ * Each weapon kind keeps a few painted variants instead; every mark still gets
+ * its own rotation, size and fade.
+ */
+const SCORCH_TEXTURE_VARIANTS = 8;
+const SCORCH_PLANE = new PlaneGeometry(1, 1);
 
 type VisualQualityTier = 0 | 1 | 2;
 
@@ -237,6 +245,7 @@ export class CombatView {
   private softSmokeTexture?: CanvasTexture;
   private readonly hitFragments: HitFragment[] = [];
   private readonly groundScorches: GroundScorch[] = [];
+  private readonly scorchTextures = new Map<string, CanvasTexture>();
   private readonly up = new Vector3(0, 1, 0);
   private visualQuality: VisualQualityTier = 0;
   private visualEventsThisFrame = 0;
@@ -1111,7 +1120,7 @@ export class CombatView {
 
   private spawnGroundScorch(event: CombatEvent): void {
     const profile = scorchProfile(event.kind, event.killed, event.weaponKind);
-    const texture = makeScorchTexture(event.kind, event.toX, event.toZ);
+    const texture = this.scorchTexture(event.kind, event.toX, event.toZ);
     const material = new MeshBasicMaterial({
       map: texture,
       color: 0xffffff,
@@ -1123,13 +1132,15 @@ export class CombatView {
       polygonOffsetUnits: -2,
     });
     const impactScale = event.impactScale ?? 1;
-    const mesh = new Mesh(new PlaneGeometry(profile.size * impactScale, profile.size * impactScale), material);
+    const size = profile.size * impactScale;
+    const mesh = new Mesh(SCORCH_PLANE, material);
+    mesh.scale.setScalar(size);
     mesh.rotation.x = -Math.PI / 2;
     mesh.rotation.z = deterministicAngle(event.toX, event.toZ, event.kind);
     mesh.position.set(event.toX, sampleHeight(this.hf, event.toX, event.toZ) + 0.045, event.toZ);
     mesh.renderOrder = 24;
     this.group.add(mesh);
-    this.groundScorches.push({ mesh, texture, material, ttl: profile.ttl, total: profile.ttl, baseOpacity: profile.opacity });
+    this.groundScorches.push({ mesh, material, size, ttl: profile.ttl, total: profile.ttl, baseOpacity: profile.opacity });
     const maxScorches = this.visualQuality === 0 ? 64 : this.visualQuality === 1 ? 44 : 28;
     while (this.groundScorches.length > maxScorches) this.disposeGroundScorch(this.groundScorches.shift());
   }
@@ -1140,7 +1151,7 @@ export class CombatView {
       scorch.ttl -= dt;
       const life = Math.max(0, scorch.ttl / scorch.total);
       scorch.material.opacity = scorch.baseOpacity * Math.min(1, life * 2.2);
-      scorch.mesh.scale.setScalar(1 + (1 - life) * 0.08);
+      scorch.mesh.scale.setScalar(scorch.size * (1 + (1 - life) * 0.08));
       if (scorch.ttl <= 0) {
         this.disposeGroundScorch(scorch);
         this.groundScorches.splice(i, 1);
@@ -1151,9 +1162,18 @@ export class CombatView {
   private disposeGroundScorch(scorch?: GroundScorch): void {
     if (!scorch) return;
     this.group.remove(scorch.mesh);
-    scorch.mesh.geometry.dispose();
-    scorch.texture.dispose();
     scorch.material.dispose();
+  }
+
+  private scorchTexture(kind: string, x: number, z: number): CanvasTexture {
+    const variant = hashScorchSeed(kind, x, z) % SCORCH_TEXTURE_VARIANTS;
+    const key = `${kind}:${variant}`;
+    let texture = this.scorchTextures.get(key);
+    if (!texture) {
+      texture = makeScorchTexture(kind, variant, 0);
+      this.scorchTextures.set(key, texture);
+    }
+    return texture;
   }
 
   private makeProjectileMesh(event: CombatEvent): Group {

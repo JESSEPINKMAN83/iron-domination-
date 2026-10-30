@@ -10,7 +10,9 @@ import {
   Fog,
   HalfFloatType,
   HemisphereLight,
+  DoubleSide,
   Material,
+  MeshBasicMaterial,
   PCFSoftShadowMap,
   PerspectiveCamera,
   Scene,
@@ -33,6 +35,30 @@ import {
 import { N8AOPostPass } from 'n8ao';
 
 export type VisualQualityTier = 0 | 1 | 2;
+
+/**
+ * three.js draws a transparent double-sided material twice (back faces, then
+ * front faces) and flags it `needsUpdate` around each pass, so every health
+ * bar, ring, status light and flash re-resolved its shader program twice per
+ * draw. An unlit, single-colour layer that never writes depth blends to the
+ * same pixels in either order, so those draw once.
+ */
+export function blendsIdenticallyInOnePass(material: MeshBasicMaterial): boolean {
+  return material.transparent && material.side === DoubleSide && !material.depthWrite &&
+    !material.map && !material.alphaMap && !material.vertexColors;
+}
+
+let singlePassFlatEffectsInstalled = false;
+function installSinglePassFlatEffects(): void {
+  if (singlePassFlatEffectsInstalled) return;
+  singlePassFlatEffectsInstalled = true;
+  const base = MeshBasicMaterial.prototype.onBeforeRender;
+  // Runs right before three.js chooses between one and two passes.
+  MeshBasicMaterial.prototype.onBeforeRender = function (this: MeshBasicMaterial, ...args: Parameters<Material['onBeforeRender']>) {
+    if (!this.forceSinglePass && blendsIdenticallyInOnePass(this)) this.forceSinglePass = true;
+    base.apply(this, args);
+  };
+}
 
 export function suggestedInitialVisualQuality(
   multiplayer: boolean,
@@ -230,6 +256,7 @@ export class RenderContext {
 
   constructor(container: HTMLElement, options: { multiplayer?: boolean; initialQualityTier?: VisualQualityTier; mobileSafeMode?: boolean; lockQualityTier?: boolean } = {}) {
     this.container = container;
+    installSinglePassFlatEffects();
     this.multiplayerMode = options.multiplayer === true;
     this.mobileSafeMode = options.mobileSafeMode === true;
     this.adaptiveQualityLocked = options.lockQualityTier === true;

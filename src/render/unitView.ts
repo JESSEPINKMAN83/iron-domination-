@@ -596,6 +596,23 @@ function sharedRingGeometry(radius: number): RingGeometry {
   return geom;
 }
 
+const optionalPartHomes = new WeakMap<Object3D, Object3D>();
+
+/**
+ * Upgrade kits and combat bikes are hidden on most units. A hidden node still
+ * costs three.js a matrix update every frame, so park it outside the scene
+ * graph and re-attach it to its original parent when it is shown.
+ */
+function setOptionalPartActive(part: Object3D, active: boolean): void {
+  let home = optionalPartHomes.get(part);
+  if (!home && part.parent) {
+    home = part.parent;
+    optionalPartHomes.set(part, home);
+  }
+  if (home) setEntityRenderActive(part, home, active);
+  else part.visible = active;
+}
+
 export class UnitView {
   private readonly cameraCulling = new BattlefieldCulling();
   readonly group = new Group();
@@ -917,6 +934,10 @@ export class UnitView {
     const obj = this.objects.get(entity);
     if (obj) {
       this.group.remove(obj);
+      // Re-attach parked optional parts so their geometry is disposed with the unit.
+      for (const visual of this.refs.get(entity)?.upgradeVisuals?.values() ?? []) setOptionalPartActive(visual, true);
+      const combatBike = this.soldierRigs.get(entity)?.combatBike;
+      if (combatBike) setOptionalPartActive(combatBike, true);
       obj.traverse((child) => {
         if (child instanceof Mesh && !isSharedUnitGeometry(child.geometry)) child.geometry.dispose();
       });
@@ -1442,7 +1463,7 @@ export class UnitView {
 
   private updateUpgradeVisuals(entity: Entity): void {
     for (const [upgradeId, visual] of this.refs.get(entity)?.upgradeVisuals ?? []) {
-      visual.visible = hasUnitUpgrade(entity, upgradeId);
+      setOptionalPartActive(visual, hasUnitUpgrade(entity, upgradeId));
     }
   }
 
@@ -1796,7 +1817,7 @@ export class UnitView {
     obj.rotation.z = bikeTerrain?.roll ?? 0;
     const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
     const onCombatBike = hasUnitUpgrade(entity, 'combat-bike');
-    rig.combatBike.visible = onCombatBike;
+    setOptionalPartActive(rig.combatBike, onCombatBike);
     const maxSpeed = entity.mover?.speed ?? 12;
     const speedT = Math.min(1, speed / Math.max(1, maxSpeed));
     const moving = speed > 0.4;
