@@ -1,3 +1,5 @@
+import { UNIT_ARSENALS } from '../content/unitArsenal';
+import { WEAPONS } from '../content/phase4';
 import { terrainAdvantagesLabel } from '../sim/terrainAdvantages';
 import { objectiveStatus } from './objectiveStatus';
 import { artilleryStatus, ARTILLERY_DEPLOY_SECONDS, ARTILLERY_PACK_SECONDS } from '../sim/artillery';
@@ -83,7 +85,7 @@ export class SelectionBar {
       setFormation?: (entities: Entity[], preset: FormationPreset) => void;
       setAggressive?: (entities: Entity[], enabled: boolean) => void;
       deployArtillery?: (entities:Entity[], deploy:boolean)=>void;
-      openTacticPlanner?: (entities: Entity[]) => void;
+      openTacticPlanner?: (entities: Entity[], profile?: HTMLElement) => void;
       strategic?: {
         economy: EconomyState;
         upgradeAccuracy: () => boolean;
@@ -789,7 +791,7 @@ export class SelectionBar {
     button.setAttribute('aria-pressed', String(active));
     button.tabIndex = 0;
     button.setAttribute('role', 'button');
-    button.title = `Select ${group.entities.length} ${group.label}`;
+    button.title = `Plan tactics for ${group.entities.length} ${group.label}`;
     button.setAttribute('aria-label', `Select ${group.entities.length} ${group.label}`);
     button.style.cssText =
       'flex:0 0 136px;min-height:92px;text-align:left;padding:5px;display:grid;grid-template-rows:48px auto;gap:4px;align-items:stretch;' +
@@ -800,16 +802,12 @@ export class SelectionBar {
       if (event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
-      this.actions.selectEntities(group.entities);
-      this.lastKey = '';
-      this.update();
+      this.openGroupTactics(group);
     };
     button.onkeydown = (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
-      this.actions.selectEntities(group.entities);
-      this.lastKey = '';
-      this.update();
+      this.openGroupTactics(group);
     };
     button.oncontextmenu = (event) => event.preventDefault();
 
@@ -846,6 +844,32 @@ export class SelectionBar {
     copy.append(name, meta);
     button.append(icon, copy);
     return button;
+  }
+
+  private openGroupTactics(group: SelectionGroup): void {
+    if (!group.unitKind || !this.actions.openTacticPlanner) {
+      this.actions.selectEntities(group.entities);
+      this.lastKey = ''; this.update(); return;
+    }
+    const profile = document.createElement('section');
+    profile.className = 'iron-tactic__unit-profile';
+    const image = document.createElement('img');
+    image.src = codeRedIconPath(group.kind, group.entities[0]?.team?.id);
+    image.alt = group.label;
+    const heading = document.createElement('h3'); heading.textContent = group.label;
+    const count = document.createElement('p'); count.textContent = `${group.entities.length} units in this plan · ${group.healthPct ?? 100}% average health`;
+    const arsenal = UNIT_ARSENALS[group.unitKind];
+    const weapon = WEAPONS[arsenal.primary];
+    const capabilities = document.createElement('p');
+    capabilities.textContent = `${UNITS[group.unitKind].role}. ${arsenal.designation}. Primary damage ${weapon.damage} · range ${weapon.range}.`;
+    const upgrades = document.createElement('div'); upgrades.className = 'iron-tactic__profile-upgrades';
+    profile.append(image, heading, count, capabilities, upgrades);
+    const refresh = () => {
+      upgrades.replaceChildren();
+      this.populateUpgradePopover(upgrades, group, refresh);
+    };
+    refresh();
+    this.actions.openTacticPlanner(group.entities, profile);
   }
 
   private upgradeButton(group: SelectionGroup): HTMLButtonElement {

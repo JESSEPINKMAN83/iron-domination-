@@ -1,7 +1,7 @@
 import { codeRedIconPath } from './codeRedIcons';
 import { isDesertKind } from '../sim/heightfield';
 import { armyTag } from '../content/nations';
-import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
+import { INFANTRY_MOVE_SPEEDS, STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { isFortressTower } from '../content/fortress';
 import type { Entity } from '../sim/components';
@@ -880,8 +880,8 @@ export class Sidebar {
       role.style.cssText = 'grid-column:1/-1;font-size:8px;line-height:1;color:#aebbc4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
       role.textContent = unitDetail.role.toUpperCase();
       const pips = document.createElement('div');
-      pips.style.cssText = 'grid-column:1/-1;display:grid;grid-template-columns:repeat(4,1fr);gap:2px;height:8px;';
-      for (const value of unitDetail.pips) pips.appendChild(statPip(value, state.enabled || !!state.ready));
+      pips.className = 'game-unit-ratings';
+      unitDetail.pips.forEach((value, index) => pips.appendChild(statPip(value, state.enabled || !!state.ready, index, kind, label)));
       content.append(role, pips);
     }
     button.append(icon, content);
@@ -1950,10 +1950,10 @@ function bombSalvoForUnit(kind: UnitKind): number {
 function speedScoreForUnit(kind: UnitKind): number {
   const scores: Record<UnitKind, number> = {
     artillery:0.2,
-    infantry: 0.22,
-    sniper: 0.19,
-    grenadier: 0.2,
-    'rocket-infantry': 0.18,
+    infantry: INFANTRY_MOVE_SPEEDS.infantry / 55,
+    sniper: INFANTRY_MOVE_SPEEDS.sniper / 55,
+    grenadier: INFANTRY_MOVE_SPEEDS.grenadier / 55,
+    'rocket-infantry': INFANTRY_MOVE_SPEEDS['rocket-infantry'] / 55,
     'scout-tank': 0.48,
     tank: 0.36,
     'siege-tank': 0.26,
@@ -1964,13 +1964,72 @@ function speedScoreForUnit(kind: UnitKind): number {
   return scores[kind];
 }
 
-function statPip(value: number, active: boolean): HTMLDivElement {
+function statPip(value: number, active: boolean, index: number, kind: string, label: string): HTMLDivElement {
   const el = document.createElement('div');
-  const pct = Math.max(6, Math.round(Math.max(0, Math.min(1, value)) * 100));
-  el.style.cssText =
-    'position:relative;overflow:hidden;border:1px solid rgba(0,0,0,.55);background:#101514;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);';
-  const fill = document.createElement('div');
-  fill.style.cssText = `height:100%;width:${pct}%;background:${active ? '#9de5c4' : '#5f6762'};`;
-  el.appendChild(fill);
+  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  const names = ['Damage', 'Range', 'Speed', 'Anti-air'];
+  const paths = [
+    '<path d="m9 2-6 7h4l-1 5 7-8H9l2-4"/>',
+    '<circle cx="8" cy="8" r="4"/><path d="M8 1v4m0 6v4M1 8h4m6 0h4"/>',
+    '<path d="m8 3 5 5-5 5M3 3l5 5-5 5"/>',
+    '<path d="m8 2 1.5 4 4 3v1l-4-1 .5 4-2-1-2 1 .5-4-4 1V9l4-3Z"/>',
+  ];
+  const unit = UNITS[kind as UnitKind];
+  const weapon = WEAPONS[primaryWeaponForUnit(unit.kind)];
+  const secondaryKind = secondaryWeaponForUnit(unit.kind);
+  const secondary = secondaryKind ? WEAPONS[secondaryKind] : undefined;
+  const descriptions = [
+    `${label}: primary weapon deals ${weapon.damage} base damage per hit. Rating compares the strongest shot or bomb salvo; armor and firing rate affect actual results.`,
+    `${label}: maximum listed weapon range ${Math.max(weapon.range, secondary?.range ?? 0)}. Target type and terrain can affect usable range.`,
+    `${label}: ${kind in INFANTRY_MOVE_SPEEDS ? `base movement speed ${INFANTRY_MOVE_SPEEDS[kind as keyof typeof INFANTRY_MOVE_SPEEDS]}. ` : ''}${pct >= 70 ? 'Fast' : pct >= 35 ? 'Moderate-speed' : 'Slow'} compared with the full roster, including vehicles and aircraft.`,
+    `${label}: ${pct === 0 ? 'no anti-air weapon; cannot engage aircraft with this loadout.' : 'has an anti-air-capable weapon. Effectiveness depends on weapon, target armor and range.'}`,
+  ];
+  const text = `${names[index]} — ${pct}% relative rating. ${descriptions[index]}`;
+  el.className = 'game-unit-rating';
+
+  el.tabIndex = 0;
+  el.setAttribute('aria-label', text);
+  el.style.setProperty('--rating', String(pct));
+  el.style.color = active ? '#9de5c4' : '#74827d';
+  el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle class="rating-track" cx="12" cy="12" r="10"/><circle class="rating-fill" cx="12" cy="12" r="10" pathLength="100" stroke-dasharray="${pct} 100" transform="rotate(-90 12 12)"/><g transform="translate(4 4)" class="rating-icon">${paths[index]}</g></svg>`;
+  const show = () => showUnitRatingTooltip(el, `${names[index]} · ${pct}%`, descriptions[index]);
+  el.addEventListener('pointerenter', show);
+  el.addEventListener('focus', show);
+  el.addEventListener('pointerleave', hideUnitRatingTooltip);
+  el.addEventListener('blur', hideUnitRatingTooltip);
+  el.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { event.stopPropagation(); hideUnitRatingTooltip(); }
+  });
   return el;
+}
+
+let unitRatingTooltip: HTMLDivElement | undefined;
+let unitRatingTooltipFrame = 0;
+function hideUnitRatingTooltip(): void {
+  cancelAnimationFrame(unitRatingTooltipFrame);
+  unitRatingTooltip?.remove();
+  unitRatingTooltip = undefined;
+}
+
+function showUnitRatingTooltip(anchor: HTMLElement, heading: string, detail: string): void {
+  hideUnitRatingTooltip();
+  const tooltip = document.createElement('div');
+  tooltip.className = 'game-unit-rating-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  const title = document.createElement('strong'); title.textContent = heading;
+  const description = document.createElement('div'); description.textContent = detail;
+  tooltip.append(title, description);
+  document.body.appendChild(tooltip);
+  unitRatingTooltip = tooltip;
+  const position = () => {
+    if (!anchor.isConnected || !tooltip.isConnected) { hideUnitRatingTooltip(); return; }
+    const box = anchor.getBoundingClientRect();
+    if (box.bottom < 0 || box.top > innerHeight) { hideUnitRatingTooltip(); return; }
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    tooltip.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.left - width + box.width))}px`;
+    tooltip.style.top = `${Math.max(8, box.top > height + 12 ? box.top - height - 10 : Math.min(innerHeight - height - 8, box.bottom + 10))}px`;
+    unitRatingTooltipFrame = requestAnimationFrame(position);
+  };
+  position();
 }

@@ -3705,9 +3705,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       if (lockstep) lockstep.issue({ type: 'set-formation', ids: entities.map((unit) => unit.id), preset, facing: rig.yawRadians + Math.PI });
       else setFormationPreset(sim, entities, preset, rig.yawRadians + Math.PI);
     },
-    openTacticPlanner: (entities) => {
+    openTacticPlanner: (entities, profile) => {
       audio.playUi('select');
-      tacticPlanner.open(entities);
+      tacticPlanner.open(entities, profile);
     },
     strategic: {
       economy,

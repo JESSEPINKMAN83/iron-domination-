@@ -629,7 +629,7 @@ export class UnitView {
   private readonly friendlyGlow: FriendlyGlowMesh;
   private readonly infantryMarkers = new InstancedMesh(
     new RingGeometry(1.7, 2.3, 48),
-    new MeshBasicMaterial({ transparent:true, opacity:0.3, depthWrite:false, depthTest:true, toneMapped:false, side:DoubleSide }),
+    new MeshBasicMaterial({ transparent:true, opacity:0.3, depthWrite:false, depthTest:false, toneMapped:false, side:DoubleSide }),
     MAX_FRIENDLY_GLOWS,
   );
   private infantryMarkerCount = 0;
@@ -758,7 +758,7 @@ export class UnitView {
       transparent: true,
       opacity: 0.94,
       depthWrite: false,
-      depthTest: true,
+      depthTest: false,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,

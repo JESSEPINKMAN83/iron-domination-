@@ -768,6 +768,8 @@ function launchWeaponProjectile(
   impactScale = 1,
 ): void {
   if (!attacker.team) return;
+  // The light scout helicopter carries a smaller anti-air missile warhead.
+  if (weapon.kind === 'aaMissile' && (attacker.weapons?.primary.kind ?? attacker.weapon?.kind) === 'waspAutocannon') damageScale *= 0.45;
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def) return;
   const projectileDef = def.projectile ?? (forceHoming && isManualTargetLockWeapon(def.kind)

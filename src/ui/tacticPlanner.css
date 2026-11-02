@@ -317,3 +317,19 @@
 }
 
 .iron-tactic__legend i.is-priority { background:transparent; border-color:#f1c66d; }
+
+.iron-tactic--focused .iron-tactic__body { grid-template-columns: minmax(190px, 240px) minmax(0, 1fr) minmax(200px, 240px); }
+.iron-tactic__unit-profile { max-height: 72vh; overflow-y: auto; padding-right: 8px; font: 12px/1.5 system-ui, sans-serif; }
+.iron-tactic__unit-profile > img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+.iron-tactic__unit-profile h3 { margin: 10px 0 4px; color: #d9f5e7; font-size: 18px; }
+.iron-tactic__unit-profile p { color: #b3c7bd; }
+.iron-tactic__profile-upgrades { display: grid; gap: 8px; }
+@media(max-width: 1000px) {
+ .iron-tactic--focused .iron-tactic__body { grid-template-columns: minmax(160px, 1fr) minmax(0, 2fr); overflow-y:auto; }
+ .iron-tactic--focused .iron-tactic__side { grid-column: 1 / -1; height: auto; }
+}
+@media(max-width: 600px) {
+ .iron-tactic--focused .iron-tactic__body { display: flex; flex-direction: column; }
+ .iron-tactic__unit-profile { max-height: none; }
+ .iron-tactic__unit-profile > img { max-width: 150px; }
+}

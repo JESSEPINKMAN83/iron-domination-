@@ -1,3 +1,4 @@
+import { INFANTRY_MOVE_SPEEDS } from '../content/phase3';
 import { structureLabel } from '../content/sideLabels';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
 import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, type FortressTowerKind } from '../content/fortress';
@@ -1014,7 +1015,7 @@ export function spawnInfantryAt(sim: GameSim, x: number, z: number, team: number
     health: { current: config.health, max: config.health },
     team: { id: team },
     selectable: { selected: false, type: 'infantry', radius: 1.4 },
-    mover: { speed: config.speed, radius: 1.1 },
+    mover: { speed: INFANTRY_MOVE_SPEEDS[kind as keyof typeof INFANTRY_MOVE_SPEEDS] ?? config.speed, radius: 1.1 },
     weapon: primaryWeapon,
     weapons: { primary: primaryWeapon, secondary: secondaryWeapon },
     // soldiers aim with their upper body — same slew path as a (fast) turret
