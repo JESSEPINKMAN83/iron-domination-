@@ -1,3 +1,4 @@
+import { hasUnitUpgrade } from './upgrades';
 import { groundSpeedMultiplier } from './terrainAdvantages';
 import { oreFieldCapacity } from './heightfield';
 import { artilleryCanMove, stepArtillery } from './artillery';
@@ -955,7 +956,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       }
       desiredX = Math.sin(transform.rot) * driveSpeed * throttle;
       desiredZ = Math.cos(transform.rot) * driveSpeed * throttle;
-      if (entity.selectable?.type === 'infantry') {
+      if (entity.selectable?.type === 'infantry' && !hasUnitUpgrade(entity, 'combat-bike')) {
         transform.rot = entity.playerControlled.aimYaw;
         const side = clamp(entity.playerControlled.strafe ?? 0, -1, 1);
         const length = Math.max(1, Math.hypot(throttle, side));
@@ -972,7 +973,12 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       const finalDx = finalX - transform.x;
       const finalDz = finalZ - transform.z;
       const finalDist = Math.hypot(finalDx, finalDz);
-      if (finalDist < Math.max(ARRIVAL_EPSILON, mover.radius * 0.72)) {
+      const bikeRoute = hasUnitUpgrade(entity, 'combat-bike');
+      const bikeArrival = bikeRoute ? Math.max(1.1, Math.hypot(velocity.x, velocity.z) * dt * 1.6) : 0;
+      if (bikeRoute && (mover.tactic?.remaining.length ?? 0) === 0) {
+        desiredSpeed = Math.min(desiredSpeed, Math.max(1, Math.sqrt(finalDist * 18)));
+      }
+      if (finalDist < Math.max(ARRIVAL_EPSILON, mover.radius * 0.72, bikeArrival)) {
         const continueAttackThrough = (mover.attackThrough || mover.aggressive) && (mover.tactic?.remaining.length ?? 0) > 0;
         mover.holdPosition = { x: finalX, z: finalZ };
         mover.target = undefined;
@@ -1095,7 +1101,8 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
     }
     const terrainSpeed = groundSpeedMultiplier(hf, entity);
     desiredX *= terrainSpeed; desiredZ *= terrainSpeed;
-    const movementDamping = entity.armor?.kind === 'infantry' && staggerScale < 1 ? 14 : 8;
+    const airborneBike = hasUnitUpgrade(entity, 'combat-bike') && (entity.infantryStance?.height ?? 0) > 0.05;
+    const movementDamping = airborneBike ? 0.35 : entity.armor?.kind === 'infantry' && staggerScale < 1 ? 14 : hasUnitUpgrade(entity, 'combat-bike') && entity.playerControlled ? 3.5 : 8;
     velocity.x += (desiredX - velocity.x) * Math.min(1, dt * movementDamping);
     velocity.z += (desiredZ - velocity.z) * Math.min(1, dt * movementDamping);
 
@@ -1114,12 +1121,27 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       const stance = entity.infantryStance ??= { height: 0, velocity: 0, jumpHeld: false, crouch: 0 };
       const climb = entity.playerControlled?.climb ?? 0;
       const jump = climb > 0.5;
-      if (jump && !stance.jumpHeld && stance.height <= 0) stance.velocity = 6.2;
+      const bike = hasUnitUpgrade(entity, 'combat-bike');
+      if (bike) {
+        // Preserve absolute altitude across terrain changes; gravity is never
+        // replaced by a slope-derived velocity while already airborne.
+        const previousAltitude = entity.previousTransform.y ?? transform.y;
+        if (stance.height > 0) stance.height = Math.max(0, previousAltitude - transform.y);
+      }
+      if (jump && !stance.jumpHeld && stance.height <= 0) stance.velocity = bike ? 9.5 : 6.2;
       stance.jumpHeld = jump;
-      stance.velocity -= 18 * dt;
+      stance.velocity -= (bike ? 14 : 18) * dt;
+      if (bike && stance.height > 0.05) {
+        const torque = entity.playerControlled?.strafe ?? 0;
+        stance.bikeSpin = approach(stance.bikeSpin ?? 0, torque * 6.5, dt * 12);
+        stance.bikePitch = (stance.bikePitch ?? 0) + stance.bikeSpin * dt;
+      } else if (bike) {
+        stance.bikePitch = normalizeAngle(stance.bikePitch ?? 0) * Math.max(0, 1 - dt * 10);
+        stance.bikeSpin = 0;
+      }
       stance.height = Math.max(0, stance.height + stance.velocity * dt);
       if (stance.height === 0) stance.velocity = 0;
-      stance.crouch = approach(stance.crouch, climb < -0.5 && stance.height === 0 ? 0.65 : 0, dt * 5);
+      stance.crouch = approach(stance.crouch, !bike && climb < -0.5 && stance.height === 0 ? 0.65 : 0, dt * 5);
       transform.y += stance.height;
     }
   }
@@ -1982,6 +2004,8 @@ export function hashSim(sim: GameSim): number {
       mix(Math.round(entity.infantryStance.velocity * 10000));
       mix(Math.round(entity.infantryStance.crouch * 10000));
       mix(entity.infantryStance.jumpHeld ? 1 : 0);
+      mix(Math.round((entity.infantryStance.bikePitch ?? 0) * 10000));
+      mix(Math.round((entity.infantryStance.bikeSpin ?? 0) * 10000));
     }
     if (entity.playerControlled) {
       mix(Math.round(entity.playerControlled.throttle * 1000));
