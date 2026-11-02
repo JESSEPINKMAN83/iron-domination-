@@ -1,3 +1,5 @@
+import { baseLayoutPreference } from './baseLayout';
+import { needsForwardRefinery } from './economyPlan';
 import { canCapture } from '../sim/objectives';
 // Phase 6 — utility-based enemy commander. Runs inside the deterministic sim
 // tick (no randomness beyond sim state, stable iteration orders). Honesty rule:
@@ -78,13 +80,15 @@ export class EnemyCommander {
     private readonly hf: Heightfield,
     readonly economy: EconomyState,
     private readonly vision: VisibilityGrid,
-    personality: Personality = 'balanced',
-    difficulty: Difficulty = 'normal',
+    private readonly layoutStyle: Personality = 'balanced',
+    private readonly layoutDifficulty: Difficulty = 'normal',
     /** map-geography scouting hints (e.g. known start locations) — not unit intel */
     private readonly scoutHints: { x: number; z: number; team?: number }[] = [],
     /** Faction intel is known at deployment, so Aegis can prepare for a Vesper opponent. */
     strategicDefenseNeeded = false,
   ) {
+    const personality = this.layoutStyle;
+    const difficulty = this.layoutDifficulty;
     this.personality = AI_PERSONALITY[personality];
     this.difficulty = AI_DIFFICULTY[difficulty];
     this.extraHard=difficulty==='extra-hard';
@@ -140,7 +144,10 @@ export class EnemyCommander {
       }
     }
 
-    let next: StructureKind | undefined = this.buildQueue[0];
+    const remoteEconomy = this.advancedTactics && this.needsResourceExpansion();
+    let next: StructureKind | undefined = remoteEconomy && this.count('power-plant') > 0
+      ? this.economy.powerProduced < this.economy.powerUsed + 10 ? 'power-plant' : 'refinery'
+      : this.buildQueue[0];
     let rebuilding = false;
     if (!next) {
       if (this.economy.powerProduced < this.economy.powerUsed + 10) next = 'power-plant';
@@ -185,20 +192,32 @@ export class EnemyCommander {
     }
     const base = this.base();
     if (!base) return undefined;
-    for (const radius of [26, 34, 44, 54, 66, 78]) {
-      for (let step = 0; step < 12; step++) {
-        const angle = (step / 12) * Math.PI * 2;
-        const placement = updatePlacement(
-          this.sim,
-          this.hf,
-          kind,
-          base.transform.x + Math.cos(angle) * radius,
-          base.transform.z + Math.sin(angle) * radius,
-          this.economy.team,
-        );
-        if (placement.valid) return placement;
+    const preference = baseLayoutPreference(kind, this.layoutStyle, this.layoutDifficulty);
+    const forward = Math.atan2(-base.transform.x, -base.transform.z);
+    const desiredAngle = forward + preference.angle;
+    const existing = this.aliveBuildings();
+    const footprint = STRUCTURES[kind].footprint;
+    const ownRadius = Math.max(footprint.w, footprint.h) * this.sim.nav.cellSize * 0.5;
+    const candidates: Array<{ placement: ReturnType<typeof updatePlacement>; score: number }> = [];
+    for (const radius of [30, 42, 54, 66, 78, 88]) {
+      for (let step = 0; step < 16; step++) {
+        const angle = desiredAngle + step / 16 * Math.PI * 2;
+        const placement = updatePlacement(this.sim, this.hf, kind,
+          base.transform.x + Math.sin(angle) * radius,
+          base.transform.z + Math.cos(angle) * radius, this.economy.team);
+        if (!placement.valid) continue;
+        let spacingPenalty = 0;
+        for (const building of existing) {
+          const distance = Math.hypot(building.transform.x - placement.x, building.transform.z - placement.z);
+          const clearance = distance - ownRadius - (building.collider?.radius ?? 8);
+          spacingPenalty += Math.max(0, preference.gap - clearance) * 18;
+        }
+        const angleError = Math.abs(Math.atan2(Math.sin(angle-desiredAngle), Math.cos(angle-desiredAngle)));
+        candidates.push({placement,score:spacingPenalty+angleError*18+Math.abs(radius-preference.radius)*0.3});
       }
     }
+    candidates.sort((a,b)=>a.score-b.score);
+    if (candidates.length) return candidates[0].placement;
     return undefined;
   }
 
@@ -217,14 +236,14 @@ export class EnemyCommander {
         const placement = updatePlacement(this.sim, this.hf, 'refinery', node.x + Math.cos(angle) * (node.radius + 18), node.z + Math.sin(angle) * (node.radius + 18), this.economy.team);
         if (placement.valid) return placement;
       }
-      for (const anchor of anchors) {
+      for (const anchor of [...anchors].sort((a,b) => Math.hypot(a.transform.x-node.x,a.transform.z-node.z)-Math.hypot(b.transform.x-node.x,b.transform.z-node.z))) {
         const dx = node.x - anchor.transform.x;
         const dz = node.z - anchor.transform.z;
         const d = Math.hypot(dx, dz);
         if (d < 0.001) continue;
         const ux = dx / d;
         const uz = dz / d;
-        for (const distance of [46, 64, 82]) {
+        for (const distance of [82, 64, 46]) {
           const placement = updatePlacement(this.sim, this.hf, 'refinery', anchor.transform.x + ux * distance, anchor.transform.z + uz * distance, this.economy.team);
           if (placement.valid) return placement;
         }
@@ -233,9 +252,16 @@ export class EnemyCommander {
     return undefined;
   }
 
+  private needsResourceExpansion(): boolean {
+    const refineries = this.aliveBuildings().filter(b => b.building?.kind === 'refinery');
+    return needsForwardRefinery(refineries, this.sim.resourceNodes, this.extraHard ? 8 : 5);
+  }
+
   private maintainProduction(): void {
     // saving up for a pending structure beats another tank
     const mine = this.myUnits();
+    // Preserve expansion funds when the economy is stranded away from ore.
+    if (this.advancedTactics && this.needsResourceExpansion() && this.economy.credits < STRUCTURES.refinery.cost + 150) return;
     // On Normal and Hard, fund a first expedition before saving for a silo
     // chain. Once that force exists, construction regains its normal priority.
     const expeditionNeeded = this.proactiveTactics && mine.filter(unit=>!unit.flight&&!unit.artillery).length < this.assaultSize() + this.homeGuardSize();

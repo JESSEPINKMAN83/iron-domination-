@@ -4490,7 +4490,7 @@ AI air orders: ${air} intercept / ${raids} raid`;
   fadeOutLandingMusic(40_000);
   if (debriefPreview) {
     window.setTimeout(() => {
-      showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount), undefined);
+      showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount, settings.armySides), undefined);
     }, 500);
   }
   if (coordinationStage) setSelected(sim, coordinationStage.units.filter((unit) => unit.team?.id === localTeam), false, localTeam);
@@ -4982,7 +4982,7 @@ function showOutcomeBanner(
   });
 }
 
-function createDebriefPreviewSnapshot(armyCount: ArmyCount): MatchSnapshot {
+function createDebriefPreviewSnapshot(armyCount: ArmyCount, sides: ArmySides): MatchSnapshot {
   const samples = [
     { damageDealt: 18_740, damageReceived: 7_920, kills: 31, buildingKills: 9, units: 24, lost: 8, buildings: 11, buildingLosses: 3, income: 14_260, spent: 13_480, credits: 5_380, shots: 286, hits: 174, assaults: 0, rebuilds: 0, retreats: 0 },
     { damageDealt: 9_460, damageReceived: 13_580, kills: 12, buildingKills: 3, units: 0, lost: 26, buildings: 0, buildingLosses: 10, income: 10_820, spent: 10_170, credits: 650, shots: 241, hits: 119, assaults: 7, rebuilds: 2, retreats: 1 },
@@ -4991,7 +4991,7 @@ function createDebriefPreviewSnapshot(armyCount: ArmyCount): MatchSnapshot {
   ];
   const armies = Array.from({ length: armyCount }, (_, index) => samples[index % samples.length]).map((sample, index) => ({
     team: index + 1,
-    side: index + 1,
+    side: sides[index] ?? index + 1,
     label: index === 0 ? 'YOUR ARMY' : `AI ARMY ${index + 1}`,
     isLocal: index === 0,
     eliminated: index > 0,
@@ -6510,7 +6510,7 @@ async function start(): Promise<void> {
       app.style.background =
         'radial-gradient(circle at 66% 32%,rgba(136,92,32,.4),transparent 38%),linear-gradient(145deg,#17150f,#050909 70%)';
     }
-    showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount));
+    showOutcomeBanner('victory', settings, createDebriefPreviewSnapshot(settings.armyCount, settings.armySides));
     return;
   }
   const rematch = consumeMultiplayerRematch();
