@@ -518,7 +518,7 @@ export class FirstPersonController {
     if (this.commandSink) this.publishControlState(control);
     else if (this.possessed.playerControlled) Object.assign(this.possessed.playerControlled, control);
     this.updateSquadFollowers();
-    if (foot && this.mode === 'fps' && this.input.isButton(0) && !this.input.isMetaDown()) {
+    if (this.isFootSoldier() && this.mode === 'fps' && this.input.isButton(0) && !this.input.isMetaDown()) {
       const weapon = this.possessed.weapons?.primary ?? this.possessed.weapon;
       if (weapon && weapon.cooldown <= 0) this.fire('primary');
     }
@@ -695,7 +695,7 @@ export class FirstPersonController {
     this.camera.near = 2;
     this.camera.updateProjectionMatrix();
     const entity = this.possessed;
-    if (entity) {
+    if (entity && !this.inspectingOrders) {
       if (this.commandSink) this.commandSink.release(entity.id);
       else delete entity.playerControlled;
       if (entity.velocity && !entity.flight) {
@@ -703,6 +703,7 @@ export class FirstPersonController {
         entity.velocity.z = 0;
       }
     }
+    this.inspectingOrders = false;
     this.possessed = undefined;
     this.squad = [];
     this.squadIndex = 0;
@@ -1425,7 +1426,7 @@ export class FirstPersonController {
   private takeControl(entity: Entity): void {
     this.input.resetMobileDrive();
     this.resetTargetLock();
-    if (this.possessed && this.possessed !== entity) {
+    if (this.possessed && this.possessed !== entity && !this.inspectingOrders) {
       if (this.commandSink) this.commandSink.release(this.possessed.id);
       else delete this.possessed.playerControlled;
     }
