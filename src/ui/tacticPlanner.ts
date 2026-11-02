@@ -74,7 +74,7 @@ export class TacticPlanner {
     return !!this.overlay;
   }
 
-  open(entities: Entity[]): void {
+  open(entities: Entity[], profile?: HTMLElement): void {
     if (this.overlay) this.close({ silent: true });
     const eligible = tacticEligibleEntities(entities);
     if (eligible.length === 0) return;
@@ -193,6 +193,12 @@ export class TacticPlanner {
     this.overlayCanvas = overlay.querySelector('.iron-tactic__overlay-canvas')!;
     this.statusEl = overlay.querySelector('[data-tactic-status]')!;
     this.executeBtn = overlay.querySelector('[data-action="execute"]')!;
+    if (profile) {
+      overlay.classList.add('iron-tactic--focused');
+      overlay.querySelector('.iron-tactic__body')?.prepend(profile);
+      const heading = overlay.querySelector('h2');
+      if (heading) heading.textContent = 'Unit tactics';
+    }
     this.overlay = overlay;
 
     overlay.querySelector('.iron-tactic__close')!.addEventListener('click', () => this.cancel());

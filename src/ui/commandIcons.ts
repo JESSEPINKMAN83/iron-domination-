@@ -1,4 +1,6 @@
-/** Shared by production cards, selected forces, and the local equipment atlas. */
+import { codeRedIconPath } from './codeRedIcons';
+
+/** Shared static artwork for production cards, selected forces and equipment atlas. */
 export function commandIconPath(kind: string): string {
-  return `/assets/ui/command-icons/${kind}-portrait.webp`;
+  return codeRedIconPath(kind);
 }

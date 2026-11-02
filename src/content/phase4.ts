@@ -173,7 +173,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     canTargetAir: true,
     splashRadius: 0,
     targetTypes: ['infantry', 'light', 'heavy', 'air'],
-    vs: { infantry: 1.0, light: 0.68, heavy: 0.22, building: 0.06, air: 0.9 },
+    vs: { infantry: 1.0, light: 0.68, heavy: 0.22, building: 0.06, air: 0.4 },
   },
   cannon: {
     kind: 'cannon',

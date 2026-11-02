@@ -12,11 +12,8 @@ export type CodeRedIconKind = typeof CODE_RED_ICON_KINDS[number];
 const kinds = new Set<string>(CODE_RED_ICON_KINDS);
 
 export function codeRedIconPath(kind: string, team?: number): string {
-  if (kind === 'artillery') return codeRedIconPath('siege-tank',team);
-  if (!kinds.has(kind)) return `/assets/ui/command-icons/${kind}.png`;
+  if (!kinds.has(kind) && kind !== 'artillery') return `/assets/ui/command-icons/${kind}.png`;
   const nation = nationForTeam(team);
-  // HQ flags belong to the actual nation, including allies and proxies.
-  if (kind === 'command-yard') return `/assets/ui/code-red/${nation?.id ?? 'israel'}-hq.webp`;
   const side = nation?.doctrine === 'missile-command' ? 'iran' : 'israel';
-  return `/assets/ui/code-red/${side}-${kind}.webp`;
+  return `/assets/ui/cinematic/${side}-${kind}.webp`;
 }

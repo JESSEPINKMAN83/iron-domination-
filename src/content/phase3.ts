@@ -337,3 +337,11 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     doctrine: 'iron-legion',
   },
 };
+
+/** Base infantry movement speeds, shared by simulation and card ratings. */
+export const INFANTRY_MOVE_SPEEDS = {
+  infantry: 10.5,
+  sniper: 9.5,
+  grenadier: 11,
+  'rocket-infantry': 10,
+} as const;

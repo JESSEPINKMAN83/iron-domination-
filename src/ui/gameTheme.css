@@ -280,3 +280,36 @@
   align-content: start;
   overflow-anchor: none;
 }
+
+/* Compact, labelled-on-hover relative unit ratings. */
+.game-command-card__copy .game-unit-ratings {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  height: 19px !important;
+  gap: 2px !important;
+  margin-top: 1px;
+}
+.game-unit-rating { width: 18px; height: 18px; justify-self: center; cursor: help; border-radius: 50%; }
+.game-unit-rating svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; }
+.game-unit-rating .rating-track { stroke: #35443f; stroke-width: 1.6; }
+.game-unit-rating .rating-fill { stroke-width: 1.6; }
+.game-unit-rating .rating-icon { stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+.game-unit-rating:focus-visible { outline: 1px solid #c2f4dd; outline-offset: 2px; }
+.game-command-card:has(.game-unit-ratings) .game-command-card__copy { gap: 1px !important; padding-top: 3px; padding-bottom: 2px; }
+
+.game-unit-rating-tooltip {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  box-sizing: border-box;
+  width: min(260px, calc(100vw - 16px));
+  padding: 10px 12px;
+  border: 1px solid #597568;
+  border-radius: 7px;
+  background: #101d19;
+  color: #d9e5de;
+  box-shadow: 0 5px 20px #0009;
+  font: 12px/1.45 system-ui, sans-serif;
+}
+.game-unit-rating-tooltip strong { display: block; color: #a8ecd0; margin-bottom: 4px; font-size: 12px; }
