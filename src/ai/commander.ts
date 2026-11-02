@@ -145,7 +145,9 @@ export class EnemyCommander {
     }
 
     const remoteEconomy = this.advancedTactics && this.needsResourceExpansion();
-    let next: StructureKind | undefined = remoteEconomy && this.count('power-plant') > 0 ? 'refinery' : this.buildQueue[0];
+    let next: StructureKind | undefined = remoteEconomy && this.count('power-plant') > 0
+      ? this.economy.powerProduced < this.economy.powerUsed + 10 ? 'power-plant' : 'refinery'
+      : this.buildQueue[0];
     let rebuilding = false;
     if (!next) {
       if (this.economy.powerProduced < this.economy.powerUsed + 10) next = 'power-plant';
