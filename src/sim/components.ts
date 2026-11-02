@@ -280,7 +280,7 @@ export interface Entity {
   builder?: Builder;
   possessable?: Possessable;
   playerControlled?: PlayerControlled;
-  infantryStance?: { height: number; velocity: number; jumpHeld: boolean; crouch: number };
+  infantryStance?: { height: number; velocity: number; jumpHeld: boolean; crouch: number; bikePitch?: number; bikeSpin?: number };
   collider?: Collider;
   armor?: Armor;
   destroyed?: Destroyed;

@@ -1175,7 +1175,7 @@ export class UnitView {
         const attitude = this.updateGroundAttitude(entity, x, z, rot, dt);
         y = attitude.y + 0.35;
       }
-      if (entity.infantryStance) y += entity.infantryStance.height - entity.infantryStance.crouch * 0.6;
+      if (entity.infantryStance) y += lerp(entity.previousTransform.y ?? groundY, entity.transform.y ?? groundY, alpha) - groundY - entity.infantryStance.crouch * 0.6;
       obj.position.set(x, y, z);
       this.updateInfantryMarker(entity, x, y, z, camera);
       obj.rotation.y = rot;
@@ -1339,7 +1339,7 @@ export class UnitView {
       if (keepDetailed) {
         obj.visible = !(entity.playerControlled && entity.selectable?.type === 'infantry' && Math.hypot(entity.transform.x - camera.position.x, entity.transform.z - camera.position.z) < 0.9);
         this.updateUpgradeVisuals(entity);
-        if (entity.infantryStance) y += entity.infantryStance.height - entity.infantryStance.crouch * 0.6;
+        if (entity.infantryStance) y += lerp(entity.previousTransform.y ?? groundY, entity.transform.y ?? groundY, alpha) - groundY - entity.infantryStance.crouch * 0.6;
       obj.position.set(x, y, z);
         if (terrainAttitude) obj.rotation.order = 'YXZ';
         obj.rotation.y = rot;
@@ -1825,8 +1825,10 @@ export class UnitView {
     const anim = this.anims.get(entity);
     if (!rig || !anim) return;
     const bikeTerrain = hasUnitUpgrade(entity, 'combat-bike') ? this.groundAttitudes.get(entity) : undefined;
-    obj.rotation.x = bikeTerrain?.pitch ?? 0;
-    obj.rotation.z = bikeTerrain?.roll ?? 0;
+    // Contact alignment fades away as the rider leaves the ground.
+    const bikeContact = 1 - Math.min(1, Math.max(0, entity.infantryStance?.height ?? 0) / 0.65);
+    obj.rotation.x = (bikeTerrain?.pitch ?? 0) * bikeContact;
+    obj.rotation.z = (bikeTerrain?.roll ?? 0) * bikeContact;
     const speed = entity.velocity ? Math.hypot(entity.velocity.x, entity.velocity.z) : 0;
     const onCombatBike = hasUnitUpgrade(entity, 'combat-bike');
     setOptionalPartActive(rig.combatBike, onCombatBike);
@@ -1900,7 +1902,7 @@ export class UnitView {
     }
     // gait bob + a touch of forward lean when running
     obj.position.y += onCombatBike ? 0.34 : (Math.abs(Math.sin(anim.phase * 2)) * 0.05 - 0.02) * anim.swing - anim.crouch * 0.12 - rocketKneel * 0.08;
-    rig.root.rotation.x = onCombatBike ? -0.08 + anim.bikePitch : 0.04 + 0.1 * speedT * anim.swing - anim.crouch * 0.05;
+    rig.root.rotation.x = onCombatBike ? (bikeTerrain?.pitch ?? 0) * bikeContact - 0.08 + anim.bikePitch + (entity.infantryStance?.bikePitch ?? 0) : 0.04 + 0.1 * speedT * anim.swing - anim.crouch * 0.05;
     // idle breathing
     rig.torso.position.y = 1.12 * 1.22 - anim.crouch * 0.08 + Math.sin(anim.phase * 0.35 + entity.id) * 0.008 * (1 - anim.swing);
     rig.torso.rotation.x = -anim.crouch * 0.08 - (anim.recoil > 0 ? 0.035 : 0);

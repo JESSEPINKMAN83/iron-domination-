@@ -2978,6 +2978,9 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         aircraft.mover!.aggressive = true;
         aircraft.health!.current = aircraft.health!.max = 5000;
       }
+      if (infantryCombatTest && params.get('bike-test') === '1') {
+        purchaseUnitUpgrade(sim, economy, [aircraft.id], 'combat-bike', localTeam);
+      }
       aircraftRouteUnits.push(aircraft);
       if (tankCombatTest) {
         // Park a rifleman beside each tank for an immediate scale comparison.
