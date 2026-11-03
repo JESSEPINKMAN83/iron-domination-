@@ -21,6 +21,21 @@ export function codeRedStructure(entity:Entity,w:number,d:number,h:number,accent
   }
   const b=(g:Group,n:string,mat:Material,bw:number,bh:number,bd:number,x=0,y=0,z=0)=>modelBox(g,n,mat,bw,bh,bd,x,y,z);
   const c=(g:Group,n:string,mat:Material,r:number,ch:number,x=0,y=0,z=0)=>modelCylinder(g,n,mat,r,ch,x,y,z);
+  if(kind==='guard-tower') {
+    const head=new Group();head.name='concrete-watchtower-head';head.position.y=h;
+    b(head,'watchtower-observation-room',armor,w*.88,2.4,d*.82,0,.8,0);
+    b(head,'watchtower-flat-cap',armor,w*.98,.3,d*.92,0,2.15,0);
+    for(const side of [-1,1]) {
+      b(head,'watchtower-front-glass',glass,w*.29,.65,.08,side*w*.22,1.1,d*.42);
+      b(head,'watchtower-side-glass',glass,.08,.65,d*.48,side*w*.45,1.1,0);
+    }
+    c(head,'watchtower-antenna',steel,.045,2,-w*.32,3.3,-d*.28);
+    compactAssembly(head);add(head,8);
+    const turret=new Group();turret.name='watchtower-defense-pivot';turret.position.set(0,h+2.4,0);
+    b(turret,'watchtower-weapon-mount',dark,w*.24,.4,d*.22);
+    const barrel=c(turret,'watchtower-defense-barrel',steel,.08,d*.45,0,.15,d*.3);barrel.rotation.x=Math.PI/2;
+    compactAssembly(turret);add(turret,5);return {handled:true,turret};
+  }
   if(kind==='aa-tower'||kind==='missile-defense'||kind==='skylance-ciws'){
     const baseHeight=h; h=5.8;
     const pivot=new Group();pivot.name=`code-red-${kind}-pivot`;pivot.position.y=baseHeight+.25;
@@ -29,6 +44,7 @@ export function codeRedStructure(entity:Entity,w:number,d:number,h:number,accent
       c(pivot,'phalanx-pedestal',armor,w*.2,h*.45,0,h*.2,0);
       const dome=new Mesh(domeGeometry,radome);dome.name='phalanx-radome';dome.scale.set(w*.23,h*.48,w*.23);dome.position.y=h*.5;pivot.add(dome);
       b(pivot,'gun-housing',armor,w*.35,h*.3,d*.24,0,h*.23,d*.2);
+      c(pivot,'radome-upper-body',radome,w*.23,h*.45,0,h*.44,0);
       for(let i=0;i<6;i++){const a=i*Math.PI/3;c(pivot,'gatling-barrel',steel,w*.018,d*.44,Math.cos(a)*w*.065,h*.22+Math.sin(a)*w*.065,d*.46,).rotation.x=Math.PI/2;}
     } else if(east && kind==='aa-tower'){
       b(pivot,'khordad-truck',armor,w*.7,h*.25,d*.72,0,.35,0);
@@ -49,7 +65,7 @@ export function codeRedStructure(entity:Entity,w:number,d:number,h:number,accent
       c(pivot,'radar-mast',steel,.13,h*.9,-w*.4,h*.45,-d*.32);
       b(pivot,'iron-dome-radar',armor,w*.24,h*.3,.18,-w*.4,h*.95,-d*.32).rotation.x=-.2;
     } else {
-      for(const x of [-w*.18,w*.18]){
+      for(const x of [-w*.24,0,w*.24]){
         const canister=c(pivot,'arrow-elevated-canister',armor,w*.105,h*1.05,x,h*.52,0);canister.rotation.x=-.2;
         c(pivot,'canister-cap',dark,w*.11,.1,x,h*1.04,-h*.1);
       }
