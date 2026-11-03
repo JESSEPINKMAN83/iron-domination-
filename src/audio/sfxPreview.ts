@@ -85,8 +85,8 @@ const SOUND_GROUPS: PreviewGroup[] = [
     title: 'Interface',
     description: 'The active pair uses one consistent hover and click across the home page, setup, HUD, and match menus. Other supplied candidates remain available here for comparison.',
     sounds: [
-      sound('ui-hover-active-2', 'Active interface hover', 'All enabled buttons across the game interface', 'ui-button-hover-active-02.wav', {
-        gain: 0.06,
+      sound('ui-hover-active-3', 'Active interface hover', 'All enabled buttons across the game interface', 'ui-button-hover-active-03.mp3', {
+        gain: 0.5,
         near: 0,
         far: 1,
       }, false, false),
