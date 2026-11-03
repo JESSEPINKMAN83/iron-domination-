@@ -16,9 +16,9 @@ export const UI_GAME_HOVER_SAMPLES: readonly UiMenuHoverSample[] = [
 ];
 
 export const ACTIVE_UI_GAME_HOVER: UiMenuHoverSample = {
-  url: '/assets/sfx/ui-button-hover-active-02.wav',
-  gain: 0.06,
-  maxDuration: 0.58,
+  url: '/assets/sfx/ui-button-hover-active-03.mp3',
+  gain: 0.5,
+  maxDuration: 0.48,
 };
 export const ACTIVE_UI_GAME_CLICK: UiMenuHoverSample = {
   url: '/assets/sfx/ui-button-click-active-02.wav',
