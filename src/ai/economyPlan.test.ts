@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { Entity } from '../sim/components';
-import { needsForwardRefinery } from './economyPlan';
+import { needsEconomyScale, needsForwardRefinery } from './economyPlan';
 const refinery = (x:number) => ({transform:{x,z:0,rot:0}} as Entity);
 const ore = (x:number,remaining=1000) => ({x,z:0,radius:20,remaining,capacity:1000});
 it('continues resource expansion after the normal refinery quota when ore is distant',()=>{
@@ -14,4 +14,12 @@ it('moves away from depleted fields but does not expand without useful ore',()=>
 it('bounds expansion count and lets the opening build create the first refinery',()=>{
  expect(needsForwardRefinery([], [ore(500)],8)).toBe(false);
  expect(needsForwardRefinery(Array.from({length:8},()=>refinery(0)),[ore(500)],8)).toBe(false);
+});
+
+it('scales collector throughput despite an existing refinery near ore, with bounded growth',()=>{
+ expect(needsEconomyScale(1,120,30000)).toBe(true);
+ expect(needsEconomyScale(3,120,30000)).toBe(false);
+ expect(needsEconomyScale(3,360,30000)).toBe(true);
+ expect(needsEconomyScale(6,900,30000)).toBe(false);
+ expect(needsEconomyScale(3,360,1000)).toBe(false);
 });

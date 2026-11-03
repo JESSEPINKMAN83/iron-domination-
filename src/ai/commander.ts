@@ -1,5 +1,5 @@
 import { baseLayoutPreference } from './baseLayout';
-import { needsForwardRefinery } from './economyPlan';
+import { needsEconomyScale, needsForwardRefinery } from './economyPlan';
 import { canCapture } from '../sim/objectives';
 // Phase 6 — utility-based enemy commander. Runs inside the deterministic sim
 // tick (no randomness beyond sim state, stable iteration orders). Honesty rule:
@@ -73,6 +73,8 @@ export class EnemyCommander {
   private readonly extraHard: boolean;
   private airOrdersAt=0;
   private aircraftBuiltSequence=0;
+  private vehicleBuiltSequence=0;
+  private infantryBuiltSequence=0;
   private readonly proactiveTactics: boolean;
 
   constructor(
@@ -227,8 +229,12 @@ export class EnemyCommander {
     const refineries = this.aliveBuildings().filter((entity) => entity.building?.kind === 'refinery');
     const nodes = this.sim.resourceNodes
       .filter((node) => node.remaining > node.capacity * 0.08)
-      .filter((node) => refineries.every((refinery) => Math.hypot(refinery.transform.x - node.x, refinery.transform.z - node.z) > node.radius + 52))
-      .sort((a, b) => Math.hypot(a.x - base.transform.x, a.z - base.transform.z) - Math.hypot(b.x - base.transform.x, b.z - base.transform.z));
+      .sort((a, b) => {
+        // Spread collectors across fields; a rich nearby field can support more than one refinery.
+        const score = (node: typeof a) => Math.hypot(node.x-base.transform.x,node.z-base.transform.z)
+          + refineries.filter(r => Math.hypot(r.transform.x-node.x,r.transform.z-node.z) < node.radius+95).length * 160;
+        return score(a) - score(b) || a.id - b.id;
+      });
     const anchors = this.aliveBuildings().sort((a, b) => a.id - b.id);
     for (const node of nodes) {
       for (const angleStep of [0, 2, 4, 6, 1, 3, 5, 7]) {
@@ -254,7 +260,9 @@ export class EnemyCommander {
 
   private needsResourceExpansion(): boolean {
     const refineries = this.aliveBuildings().filter(b => b.building?.kind === 'refinery');
-    return needsForwardRefinery(refineries, this.sim.resourceNodes, this.extraHard ? 8 : 5);
+    return needsForwardRefinery(refineries, this.sim.resourceNodes, this.extraHard ? 8 : 5)
+      || (this.extraHard && this.count('factory') > 0 && this.elapsed >= 90
+        && needsEconomyScale(refineries.length, this.elapsed, this.sim.resourceNodes.reduce((sum, node) => sum + node.remaining, 0)));
   }
 
   private maintainProduction(): void {
@@ -274,13 +282,14 @@ export class EnemyCommander {
     const needsAirTech=this.proactiveTactics && this.economy.doctrine==='iron-legion' && !this.aliveBuildings().some(b=>b.building?.kind==='helipad'&&b.building.complete);
     // Fund the air base before spending the same credits on another tank queue.
     if(needsAirTech && this.buildQueue.includes('helipad') && this.economy.credits<1100) return;
-    if((aircraft===0 || tanks>=this.assaultSize()+this.homeGuardSize()) && this.economy.doctrine==='iron-legion' && aircraft<this.difficulty.aircraftCap && this.count('helipad')>0 && (this.proactiveTactics || tanks>=this.difficulty.tankCap)){
+    if((aircraft===0 || (this.extraHard && aircraft < Math.max(3, Math.ceil(tanks / 3))) || tanks>=this.assaultSize()+this.homeGuardSize()) && this.economy.doctrine==='iron-legion' && aircraft<this.difficulty.aircraftCap && this.count('helipad')>0 && (this.proactiveTactics || tanks>=this.difficulty.tankCap)){
       const kind=this.nextAircraftKind(this.aircraftBuiltSequence);
       if(queueUnit(this.sim,this.economy,kind)) this.aircraftBuiltSequence++;
       else if(this.proactiveTactics && aircraft<4 && this.economy.credits<UNITS[kind].cost) return;
     }
-    if(tanks<this.difficulty.tankCap) queueUnit(this.sim,this.economy,this.nextVehicleKind(tanks));
-    if(infantry<this.difficulty.infantryCap && (this.proactiveTactics || tanks>=this.difficulty.tankCap)) queueUnit(this.sim,this.economy,this.nextInfantryKind(infantry));
+    if(tanks<this.difficulty.tankCap && queueUnit(this.sim,this.economy,this.nextVehicleKind(this.vehicleBuiltSequence))) this.vehicleBuiltSequence++;
+    if(infantry<this.difficulty.infantryCap && (this.proactiveTactics || tanks>=this.difficulty.tankCap)
+      && queueUnit(this.sim,this.economy,this.nextInfantryKind(this.infantryBuiltSequence))) this.infantryBuiltSequence++;
   }
 
   private nextVehicleKind(count: number): UnitKind {
