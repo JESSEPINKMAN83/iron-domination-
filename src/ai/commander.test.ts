@@ -394,6 +394,52 @@ describe('phase 6 enemy commander', () => {
     vi.restoreAllMocks();
   });
 
+  it.each(['iron-legion', 'missile-command'] as const)('Extra Hard scales nearby ore collection then resumes %s tech', (doctrine) => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const hf = generateHeightfield({ cells: 192, cellSize: 2, waterLevel: -100, seed: 41, oreFieldCount: 0 });
+    hf.heights.fill(10);
+    hf.walkable.fill(1);
+    const sim = createGameSim(hf);
+    const economy = createEconomy(2, 20000, doctrine);
+    createInitialBase(sim, hf, economy, -60, -60);
+    const addBuilding = (kind: PlacementState['kind'], x: number, z: number) => {
+      const spot = validPlacement(sim, hf, kind, x, z, economy.team);
+      economy.readyStructure = kind;
+      const building = placeStructure(sim, hf, economy, spot);
+      expect(building).toBeDefined();
+      return building!;
+    };
+    addBuilding('power-plant', -95, -60);
+    const refinery = addBuilding('refinery', -20, -60);
+    addBuilding('factory', -60, -15);
+    sim.resourceNodes = [{ id: 99, kind: 'oil', x: refinery.transform.x + 32, z: refinery.transform.z, radius: 20, capacity: 30000, remaining: 30000 }];
+    const commander = new EnemyCommander(sim, hf, economy, new VisibilityGrid(hf, 2), 'balanced', 'extra-hard');
+    const control = commander as unknown as { elapsed: number; buildQueue: PlacementState['kind'][]; maintainBase(): void; needsResourceExpansion(): boolean };
+    control.elapsed = 120;
+    const nextTech = doctrine === 'iron-legion' ? 'helipad' : 'intelligence-center';
+    control.buildQueue.splice(0, control.buildQueue.length, nextTech);
+    economy.powerProduced = 500;
+    economy.powerUsed = 0;
+
+    // One collector beside a rich field must not suppress further economy investment.
+    expect(control.needsResourceExpansion()).toBe(true);
+    control.maintainBase();
+    expect(economy.structureLine?.kind).toBe('refinery');
+    stepEconomy(sim, hf, economy, 10);
+    expect(economy.readyStructure).toBe('refinery');
+    control.maintainBase();
+    expect(buildings(sim, economy.team).filter(b => b.building?.kind === 'refinery')).toHaveLength(2);
+
+    // At this time's three-refinery quota, construction must yield back to military tech.
+    addBuilding('refinery', 35, -60);
+    economy.powerProduced = 500;
+    economy.powerUsed = 0;
+    expect(control.needsResourceExpansion()).toBe(false);
+    control.maintainBase();
+    expect(economy.structureLine?.kind).toBe(nextTech);
+    vi.restoreAllMocks();
+  });
+
   it('places new refineries toward live resource nodes', () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     const hf = generateHeightfield(MAP01);

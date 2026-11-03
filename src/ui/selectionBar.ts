@@ -863,7 +863,24 @@ export class SelectionBar {
     const capabilities = document.createElement('p');
     capabilities.textContent = `${UNITS[group.unitKind].role}. ${arsenal.designation}. Primary damage ${weapon.damage} · range ${weapon.range}.`;
     const upgrades = document.createElement('div'); upgrades.className = 'iron-tactic__profile-upgrades';
-    profile.append(image, heading, count, capabilities, upgrades);
+    const record = document.createElement('details');
+    const summary = document.createElement('summary');
+    const unitKills = group.entities.reduce((sum, unit) => sum + (unit.combatRank?.unitKills ?? 0), 0);
+    const buildingKills = group.entities.reduce((sum, unit) => sum + (unit.combatRank?.buildingKills ?? 0), 0);
+    summary.textContent = `Combat record · ${unitKills} units · ${buildingKills} buildings destroyed`;
+    const note = document.createElement('p');
+    note.textContent = 'Credited finishing hits this match. Recent history, up to 20 per unit.';
+    const list = document.createElement('ol');
+    const history = group.entities.flatMap((unit) => (unit.combatRank?.killHistory ?? []).map((entry) => ({ ...entry, unitId: unit.id })))
+      .sort((a, b) => b.tick - a.tick || a.unitId - b.unitId).slice(0, 40);
+    for (const entry of history) {
+      const row = document.createElement('li');
+      row.textContent = `${entry.label}${group.entities.length > 1 ? ` · Unit #${entry.unitId}` : ''}`;
+      list.appendChild(row);
+    }
+    if (!history.length) note.textContent = 'No credited kills yet. Records start with this version; finishing hits receive credit.';
+    record.append(summary, note, list);
+    profile.append(image, heading, count, capabilities, record, upgrades);
     const refresh = () => {
       upgrades.replaceChildren();
       this.populateUpgradePopover(upgrades, group, refresh);

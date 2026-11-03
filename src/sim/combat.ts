@@ -2106,7 +2106,7 @@ function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: Dama
     stopEntities([target]);
     if (target.building) sim.nav.removeDynamicBlocker(target.id);
     if (source) {
-      const promoted = creditCombatKill(source, target);
+      const promoted = creditCombatKill(source, target, sim.tick);
       if (promoted !== undefined) {
         sim.events.push({
           kind: 'rank-up',

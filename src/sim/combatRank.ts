@@ -1,5 +1,5 @@
 import { UNITS, type UnitKind } from '../content/phase3';
-import type { Entity } from './components';
+import type { CombatRank, Entity } from './components';
 import { unitKindForUpgrade } from './upgrades';
 
 /** Recruit = 0 (no badge). Veteran / Elite / Ace are earned in combat. */
@@ -8,14 +8,7 @@ export type CombatRankLevel = 0 | 1 | 2 | 3;
 export const COMBAT_RANK_NAMES = ['Recruit', 'Veteran', 'Elite', 'Ace'] as const;
 export type CombatRankName = (typeof COMBAT_RANK_NAMES)[number];
 
-export interface CombatRankState {
-  /** Current earned rank (0–3). */
-  rank: CombatRankLevel;
-  /** Accumulated kill value (enemy unit costs) credited to this unit. */
-  killValue: number;
-  /** Cost used for promotion thresholds (frozen at spawn). */
-  unitCost: number;
-}
+export type CombatRankState = CombatRank;
 
 const RANK_DAMAGE: readonly number[] = [1, 1.12, 1.24, 1.4];
 const RANK_COOLDOWN: readonly number[] = [1, 0.88, 0.78, 0.68];
@@ -93,10 +86,16 @@ export function rankThreshold(unitCost: number, rank: CombatRankLevel): number {
  * Credit a kill (or last-hit destruction) toward the attacker's combat rank.
  * Returns the new rank when a promotion happened, otherwise undefined.
  */
-export function creditCombatKill(attacker: Entity, target: Entity): CombatRankLevel | undefined {
+export function creditCombatKill(attacker: Entity, target: Entity, tick = 0): CombatRankLevel | undefined {
   if (attacker.team && target.team && attacker.team.id === target.team.id) return undefined;
   const state = ensureCombatRank(attacker);
-  if (!state || state.rank >= 3) return undefined;
+  if (!state) return undefined;
+  if (target.building) state.buildingKills = (state.buildingKills ?? 0) + 1;
+  else state.unitKills = (state.unitKills ?? 0) + 1;
+  const history = state.killHistory ?? (state.killHistory = []);
+  history.push({ label: target.building?.label ?? target.name ?? 'Enemy unit', building: Boolean(target.building), tick });
+  if (history.length > 20) history.shift();
+  if (state.rank >= 3) return undefined;
 
   state.killValue += killValueForTarget(target);
   const before = state.rank;

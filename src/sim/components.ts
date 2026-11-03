@@ -151,6 +151,10 @@ export interface CombatRank {
   rank: 0 | 1 | 2 | 3;
   killValue: number;
   unitCost: number;
+  unitKills?: number;
+  buildingKills?: number;
+  /** Recent credited destructions, capped at 20 per unit. */
+  killHistory?: { label: string; building: boolean; tick: number }[];
 }
 
 export interface Turret {

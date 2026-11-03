@@ -1,4 +1,5 @@
 import {describe,expect,it,vi,afterEach} from 'vitest';
+import * as economyApi from '../sim/economy';
 import {EnemyCommander} from './commander';
 import {generateHeightfield} from '../sim/heightfield';
 import {createGameSim,spawnWaspAt,spawnVultureAt,spawnTankAt} from '../sim/world';
@@ -19,6 +20,25 @@ afterEach(()=>vi.restoreAllMocks());
 describe('enemy air command',()=>{
   it.each(['normal','hard','extra-hard'] as const)('funds an early air base on %s instead of leaving air tech until after ground expansion',difficulty=>{
     const {control}=fixture(difficulty);expect(control.buildQueue.indexOf('helipad')).toBe(control.buildQueue.indexOf('factory')+1);
+  });
+  it.each(['iron-legion','missile-command'] as const)('keeps replacement production varied after losses for %s',doctrine=>{
+    const {control}=fixture('extra-hard',doctrine);
+    const queued:string[]=[];
+    vi.spyOn(economyApi,'queueUnit').mockImplementation((_sim,_economy,kind)=>{queued.push(kind);return true;});
+    for(let i=0;i<6;i++) control.maintainProduction();
+    expect(queued).toContain('artillery');
+    expect(queued).toContain('siege-tank');
+    expect(queued).toContain('rocket-infantry');
+    expect(queued).toContain('sniper');
+  });
+  it('rebuilds a small air wing before waiting for a full ground assault',()=>{
+    const {hf,sim,base,control}=fixture('extra-hard');
+    sim.world.add({...base,id:sim.nextEntityId++,building:{...base.building!,kind:'helipad'}});
+    spawnWaspAt(sim,hf,-40,-40,'Surviving fighter',2);
+    const queued:string[]=[];
+    vi.spyOn(economyApi,'queueUnit').mockImplementation((_sim,_economy,kind)=>{queued.push(kind);return true;});
+    control.maintainProduction();
+    expect(queued).toContain('wasp');
   });
   it('sends a fighter to intercept visible hostile aircraft and engages its air-to-air weapon',()=>{
     const {hf,sim,vision,control,commander}=fixture();

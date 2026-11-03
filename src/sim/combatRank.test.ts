@@ -14,6 +14,7 @@ import type { Entity } from './components';
 function makeUnit(partial: Partial<Entity> & Pick<Entity, 'id'>): Entity {
   return {
     id: partial.id,
+    building: partial.building,
     name: partial.name ?? 'M-17 Test',
     transform: partial.transform ?? { x: 0, z: 0, rot: 0 },
     previousTransform: partial.previousTransform ?? { x: 0, z: 0, rot: 0 },
@@ -62,6 +63,18 @@ describe('combat ranks', () => {
     expect(combatRankDamageMultiplier(attacker)).toBeCloseTo(1.4);
     expect(combatRankSpeedMultiplier(attacker)).toBeCloseTo(1.24);
     expect(creditCombatKill(attacker, makeUnit({ id: 11, team: { id: 2 }, name: 'M-17 Enemy' }))).toBeUndefined();
+  });
+
+  it('keeps bounded kill records after reaching Ace and excludes friendly kills', () => {
+    const attacker = makeUnit({ id: 1, combatRank: { rank: 3, killValue: 9999, unitCost: 550 } });
+    for (let id = 2; id < 27; id++) creditCombatKill(attacker, makeUnit({ id, team: { id: 2 } }), id);
+    creditCombatKill(attacker, makeUnit({ id: 30, team: { id: 2 }, building: { kind: 'power-plant', label: 'Power Plant' } as Entity['building'] }), 30);
+    creditCombatKill(attacker, makeUnit({ id: 31 }), 31);
+    expect(attacker.combatRank?.unitKills).toBe(25);
+    expect(attacker.combatRank?.buildingKills).toBe(1);
+    expect(attacker.combatRank?.killHistory).toHaveLength(20);
+    expect(attacker.combatRank?.killHistory?.at(-1)?.label).toBe('Power Plant');
+    expect(attacker.combatRank?.rank).toBe(3);
   });
 
   it('summarizes rank shares for Wix match-end telemetry', () => {
