@@ -17,6 +17,7 @@ import {
   IcosahedronGeometry,
   InstancedMesh,
   LinearFilter,
+  LatheGeometry,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -485,6 +486,10 @@ export class BuildingView {
     const kind = entity.building?.kind;
     const sharedBaseMaterial = this.materials[kind ?? 'command-yard'] ?? this.materials['command-yard'];
     const baseMaterial = createFactionBuildingMaterial(sharedBaseMaterial, factionId(entity.team?.id));
+    if (baseMaterial instanceof MeshStandardMaterial && ['power-plant','refinery','barracks','factory','helipad','guard-tower','aa-tower','missile-defense','skylance-ciws','wall'].includes(kind ?? '')) {
+      baseMaterial.color.setHex(kind === 'helipad' ? 0x575951 : 0x8b8a7d);
+      baseMaterial.emissive.setHex(0x000000);
+    }
     const buildingHeight = heightForStructure(kind);
     const fullW = (entity.building?.footprint.w ?? 4) * this.hf.cellSize * 2;
     const fullD = (entity.building?.footprint.h ?? 4) * this.hf.cellSize * 2;
@@ -648,7 +653,7 @@ export class BuildingView {
     }
 
     for (const accent of object.accents) accent.visible = level < 9 && !entity.destroyed;
-    updateBuildingDetails(object.details, damage, level, Boolean(entity.destroyed));
+    updateBuildingDetails(object.details, damage, level, Boolean(entity.destroyed), entity.destroyed ? Math.max(0, Math.min(1, (DESTROYED_TOTAL - entity.destroyed.remaining) / COLLAPSE_SECONDS)) : 0);
 
     const hasLocalizedDamage = worst.some((cell) => cell.value > 0);
     const scarCount = !hasLocalizedDamage ? 0 : Math.min(worst.length, level >= 7 ? 6 : level >= 3 ? 3 : 1);
@@ -1136,13 +1141,13 @@ function bodyProfileFor(kind?: string): BodyTierProfile[] | undefined {
   if (kind === 'barracks') {
     return [
       { widthScale: 0.9, depthScale: 0.82, heightShare: 0.8 },
-      { widthScale: 0.68, depthScale: 0.82, heightShare: 0.2 },
+      { widthScale: 0.9, depthScale: 0.82, heightShare: 0.2 },
     ];
   }
   if (kind === 'factory') {
     return [
       { widthScale: 1, depthScale: 1, heightShare: 0.52 },
-      { widthScale: 0.72, depthScale: 0.78, heightShare: 0.48 },
+      { widthScale: 1, depthScale: 1, heightShare: 0.48 },
     ];
   }
   if (kind === 'refinery') {
@@ -1409,17 +1414,17 @@ function facadeOutward(block: DamageBlock, damage: StructureDamage): { x: number
 export function heightForStructure(kind?: string): number {
   if (kind === 'wall') return WALL_HEIGHT;
   if (kind === 'guard-tower') return 10.5;
-  if (kind === 'aa-tower') return legacyModelPreview ? 10.5 : 2.4;
-  if (kind === 'missile-defense') return legacyModelPreview ? 8.4 : 2.4;
-  if (kind === 'skylance-ciws') return legacyModelPreview ? 5.6 : 2.4;
+  if (kind === 'aa-tower') return legacyModelPreview ? 10.5 : 1.0;
+  if (kind === 'missile-defense') return legacyModelPreview ? 8.4 : 1.0;
+  if (kind === 'skylance-ciws') return legacyModelPreview ? 5.6 : 1.0;
   if (kind === 'intelligence-center') return 6.6;
   if (kind === 'strategic-silo') return 4.4;
-  if (kind === 'helipad') return 4.8;
-  if (kind === 'refinery') return 6.8;
+  if (kind === 'helipad') return 0.65;
+  if (kind === 'refinery') return 1.8;
   if (kind === 'factory') return 7.0;
   if (kind === 'command-yard') return 7.2;
-  if (kind === 'barracks') return 4.2;
-  if (kind === 'power-plant') return 6.0;
+  if (kind === 'barracks') return 6.4;
+  if (kind === 'power-plant') return 1.8;
   return DEFAULT_BUILDING_HEIGHT;
 }
 
@@ -1594,72 +1599,85 @@ export function createBuildingDetails(entity: Entity, width: number, depth: numb
     cyl('hq-radio-mast', 0.08, 0.12, height * 0.9, width * 0.3, height * 1.45, -depth * 0.24, metal, 4, 8);
     box('hq-radio-crossbar', width * 0.3, 0.1, 0.1, width * 0.3, height * 1.83, -depth * 0.24, metal, 4);
   } else if (kind === 'power-plant') {
-    // Twin cooling towers replace the elaborate animated reactor assembly.
+    // Thumbnail study: tall hyperboloid cooling shells over a low service deck.
+    const towerHeight = width * 0.78;
+    const towerRadius = width * 0.19;
+    const shell = detailMaterial(0xb4afa1, 0.94, 0.02);
+    const profile = [
+      [1,0],[0.91,0.12],[0.76,0.32],[0.65,0.54],
+      [0.64,0.66],[0.68,0.83],[0.74,1],
+    ].map(([r,y]) => new Vector2(r * towerRadius, y * towerHeight));
+    const shellGeometry = new LatheGeometry(profile, 16);
+    // Both towers share one low-resolution shell geometry within the building.
     for (const x of [-width * 0.24, width * 0.24]) {
-      cyl('power-cooling-tower', width * 0.16, width * 0.22, height * 0.9, x, height * 1.35, 0, concrete, 7, 10);
-      cyl('power-tower-opening', width * 0.13, width * 0.13, 0.08, x, height * 1.805, 0, dark, 5, 10);
-      cyl('power-tower-collar', width * 0.175, width * 0.175, 0.16, x, height * 1.77, 0, metal, 6, 10);
+      const tower = new Mesh(shellGeometry, shell);
+      tower.name = 'power-cooling-shell';
+      tower.position.set(x, height * 0.75, -depth * 0.12);
+      tower.castShadow = true; tower.receiveShadow = true;
+      add(tower, 8);
+      cyl('power-tower-dark-interior', towerRadius * 0.68, towerRadius * 0.68, 0.08,
+        x, height * 0.75 + towerHeight - 0.28, -depth * 0.12, dark, 7, 16);
+      const lip = new Mesh(new RingGeometry(towerRadius * 0.69, towerRadius * 0.76, 16), shell);
+      lip.name = 'power-tower-concrete-rim'; lip.rotation.x = -Math.PI / 2;
+      lip.position.set(x, height * 0.75 + towerHeight, -depth * 0.12); add(lip, 8);
+      for (const band of [0.18,0.42,0.68]) {
+        const r = band === 0.18 ? 0.87 : band === 0.42 ? 0.7 : 0.645;
+        cyl('power-shell-construction-seam', towerRadius*r+0.025, towerRadius*r+0.025, 0.05,
+          x,height*0.75+towerHeight*band,-depth*0.12,concrete,8,16);
+      }
     }
-    frontPanel('power-turbine-grille', width * 0.65, height * 0.45, 0, height * 0.45, dark, 7);
-    for (const x of [-width * 0.24, -width * 0.08, width * 0.08, width * 0.24]) {
-      frontPanel('power-intake-slat', width * 0.025, height * 0.4, x, height * 0.45, metal, 5);
+    box('power-turbine-hall',width*0.65,height*1.25,depth*0.23,-width*0.1,height*1.3,depth*0.34,concrete,7);
+    box('power-turbine-roof',width*0.7,0.18,depth*0.26,-width*0.1,height*1.98,depth*0.34,roof,7);
+    for (const x of [-0.3,-0.12,0.06]) {
+      box('power-service-window',width*0.1,height*0.33,0.09,width*x,height*1.45,depth*0.46,glass,6);
     }
-    box('power-service-cap', width * 0.9, 0.22, depth * 0.18, 0, height, depth * 0.36, warning, 6);
+    cyl('power-service-chimney',width*0.025,width*0.035,width*0.48,width*0.41,width*0.24+height,depth*0.32,concrete,7,8);
+    for (const x of [-width*0.24,width*0.24]) {
+      const pipe = cyl('power-cooling-pipe',width*0.025,width*0.025,depth*0.38,x,height*1.15,depth*0.19,metal,6,8);
+      pipe.rotation.x=Math.PI/2;
+    }
   } else if (kind === 'refinery') {
-    // Storage drums and exposed process pipes read as a resource facility.
-    for (const x of [-width * 0.26, width * 0.22]) {
-      cyl('refinery-storage-tank', width * 0.19, width * 0.19, height * 0.65, x, height * 1.32, -depth * 0.1, metal, 7, 12);
-      cyl('refinery-tank-cap', width * 0.2, width * 0.2, 0.18, x, height * 1.66, -depth * 0.1, roof, 6, 12);
-      cyl('refinery-team-band', width * 0.192, width * 0.192, 0.22, x, height * 1.4, -depth * 0.1, accentMaterial, 5, 12);
+    for (const [x, r, h] of [[-0.27,0.14,0.5],[0.06,0.18,0.65],[0.35,0.07,0.85]]) {
+      const towerH=width*h;
+      cyl('refinery-process-vessel',width*r,width*r,towerH,width*x,height+towerH/2,-depth*0.12,metal,8,12);
+      cyl('refinery-vessel-cap',width*r,width*r*0.82,width*0.06,width*x,height+towerH+width*0.03,-depth*0.12,concrete,7,12);
+      for (const band of [0.35,0.75]) cyl('refinery-service-ring',width*r*1.04,width*r*1.04,0.12,width*x,height+towerH*band,-depth*0.12,brass,6,12);
     }
-    box('refinery-pipe-bridge', width * 0.64, 0.3, 0.3, 0, height * 1.15, depth * 0.24, brass, 5);
-    cyl('refinery-distillation-stack', width * 0.065, width * 0.08, height * 1.25, width * 0.36, height * 1.6, depth * 0.26, metal, 5, 8);
-    frontPanel('refinery-collector-dock', width * 0.52, height * 0.55, -width * 0.12, height * 0.32, dark, 8);
-    box('refinery-dock-header', width * 0.58, 0.22, 0.28, -width * 0.12, height * 0.64, depth * 0.52, warning, 5);
+    box('refinery-pipe-rack',width*0.83,0.24,0.35,0,height*2.2,depth*0.28,metal,7);
+    for(const x of [-0.3,0,0.3]) {
+      cyl('refinery-upright-pipe',0.14,0.14,height*2.1,width*x,height*1.2,depth*0.28,brass,6,6);
+    }
+    frontPanel('refinery-collector-dock',width*0.46,height*0.8,0,height*0.45,dark,8);
   } else if (kind === 'barracks') {
-    // Low troop quarters: a full pitched roof and a clearly human-sized entry.
-    // Fixed primitive meshes only; no new effects or animation work.
-    for (const side of [-1, 1]) {
-      box('barracks-pitched-roof', width * 0.52, 0.24, depth * 0.94,
-        side * width * 0.23, height + width * 0.055, 0, roof, 5).rotation.z = -side * 0.24;
+    box('barracks-flat-roof',width*0.94,0.25,depth*0.9,0,height+0.12,0,concrete,8);
+    for (const floor of [0.3,0.72]) {
+      for (const x of [-0.32,-0.1,0.12,0.34]) frontPanel('barracks-window',width*0.09,height*0.18,width*x,height*floor,dark,6);
+      for (const z of [-0.28,0,0.28]) sidePanel('barracks-side-window',depth*0.1,height*0.18,depth*z,height*floor,dark,6);
     }
-    box('barracks-ridge', 0.18, 0.2, depth * 0.96, 0, height + width * 0.115, 0, metal, 5);
-    frontPanel('barracks-personnel-entry', width * 0.14, height * 0.62, -width * 0.24, height * 0.32, dark, 6);
-    box('barracks-entry-porch', width * 0.24, 0.18, depth * 0.24, -width * 0.24, height * 0.7, depth * 0.48, accentMaterial, 4);
-    for (const x of [0, width * 0.16, width * 0.32]) {
-      frontPanel('barracks-window', width * 0.1, height * 0.2, x, height * 0.6, glass, 4);
-    }
-    box('barracks-step', width * 0.24, 0.24, depth * 0.18, -width * 0.24, 0.12, depth * 0.5, concrete, 6);
-    cyl('barracks-flagpole', 0.055, 0.055, height * 1.9, width * 0.4, height * 0.95, depth * 0.38, metal, 4, 6);
-    box('barracks-unit-banner', width * 0.2, height * 0.36, 0.06, width * 0.3, height * 1.7, depth * 0.38, accentMaterial, 4);
+    frontPanel('barracks-personnel-entry',width*0.12,height*0.35,-width*0.1,height*0.18,dark,7);
+    box('barracks-entry-canopy',width*0.22,0.16,depth*0.15,-width*0.1,height*0.4,depth*0.5,metal,6);
+    box('barracks-entry-steps',width*0.2,0.2,depth*0.15,-width*0.1,0.12,depth*0.53,concrete,8);
+    box('barracks-roof-service',width*0.13,height*0.18,depth*0.18,width*0.32,height*1.1,-depth*0.2,metal,7);
   } else if (kind === 'factory') {
-    // Vehicle assembly hall: broad loading bay, sawtooth roof and twin exhausts.
-    frontPanel('factory-vehicle-bay', width * 0.7, height * 0.7, 0, height * 0.38, dark, 8);
-    for (const x of [-width * 0.37, width * 0.37]) {
-      box('factory-bay-jamb', width * 0.045, height * 0.76, 0.3, x, height * 0.4, depth * 0.515, warning, 6);
+    box('factory-flat-ribbed-roof',width*1.02,0.3,depth*1.02,0,height+0.15,0,roof,8);
+    for (const x of [-0.25,0.25]) {
+      frontPanel('factory-vehicle-bay',width*0.38,height*0.68,width*x,height*0.37,dark,8);
+      box('factory-bay-header',width*0.4,0.2,0.28,width*x,height*0.75,depth*0.52,concrete,7);
+      box('factory-roof-vent',width*0.16,0.6,depth*0.16,width*x,height+0.55,-depth*0.18,concrete,7);
+      box('factory-hazard-jamb',width*0.025,height*0.65,0.3,width*(x-0.19),height*0.36,depth*0.52,warning,6);
     }
-    box('factory-bay-header', width * 0.78, 0.3, 0.32, 0, height * 0.8, depth * 0.515, warning, 6);
-    for (const z of [-depth * 0.26, 0, depth * 0.26]) {
-      box('factory-sawtooth-roof', width * 0.82, 0.22, depth * 0.3, 0, height + 0.6, z, roof, 5).rotation.x = -0.25;
-      box('factory-clerestory', width * 0.72, 0.65, 0.12, 0, height + 0.45, z - depth * 0.14, glass, 4);
-    }
-    for (const z of [-depth * 0.28, depth * 0.05]) {
-      cyl('factory-exhaust-stack', width * 0.045, width * 0.06, height * 0.85, width * 0.4, height * 1.35, z, metal, 5, 8);
-    }
-    box('factory-loading-apron', width * 0.7, 0.14, depth * 0.25, 0, 0.07, depth * 0.5, metal, 7);
-    for (const x of [-width * 0.22, width * 0.22]) {
-      box('factory-track-guide', width * 0.04, 0.04, depth * 0.25, x, 0.16, depth * 0.5, warning, 4);
-    }
+    for(const z of [-0.33,0,0.33]) box('factory-roof-rib',width*0.94,0.08,0.12,0,height+0.35,depth*z,metal,7);
+    box('factory-center-pier',width*0.045,height*0.8,0.35,0,height*0.4,depth*0.52,concrete,8);
+    box('factory-loading-apron',width*0.92,0.1,depth*0.2,0,0.06,depth*0.5,concrete,8);
   } else if (kind === 'helipad') {
-    box('helipad-flight-deck', width * 1.02, 0.3, depth * 1.02, 0, height + 0.15, 0, roof, 7);
-    box('helipad-h-left', width * 0.08, 0.04, depth * 0.48, -width * 0.16, height + 0.32, 0, warning, 4);
-    box('helipad-h-right', width * 0.08, 0.04, depth * 0.48, width * 0.16, height + 0.32, 0, warning, 4);
-    box('helipad-h-middle', width * 0.4, 0.04, depth * 0.07, 0, height + 0.32, 0, warning, 4);
-    box('helipad-control-cabin', width * 0.25, height * 0.48, depth * 0.23, -width * 0.32, height * 1.28, -depth * 0.32, concrete, 6);
-    box('helipad-control-glass', width * 0.23, height * 0.16, 0.1, -width * 0.32, height * 1.36, -depth * 0.2, glass, 4);
-    box('helipad-cabin-roof', width * 0.29, 0.16, depth * 0.27, -width * 0.32, height * 1.54, -depth * 0.32, accentMaterial, 5);
-    for (const x of [-width * 0.44, width * 0.44]) {
-      box('helipad-edge-marker', width * 0.045, 0.04, depth * 0.7, x, height + 0.32, 0, warning, 4);
+    box('helipad-flight-deck',width*1.02,0.24,depth*1.02,0,height+0.12,0,roof,8);
+    const marking = new Mesh(new RingGeometry(width*0.34,width*0.36,32),concrete);
+    marking.name='helipad-landing-circle';marking.rotation.x=-Math.PI/2;marking.position.y=height+0.25;add(marking,8);
+    box('helipad-h-left',width*0.045,0.03,depth*0.29,-width*0.085,height+0.26,0,concrete,8);
+    box('helipad-h-right',width*0.045,0.03,depth*0.29,width*0.085,height+0.26,0,concrete,8);
+    box('helipad-h-middle',width*0.2,0.03,depth*0.045,0,height+0.26,0,concrete,8);
+    for(const [x,z] of [[-0.43,-0.43],[0.43,-0.43],[-0.43,0.43],[0.43,0.43]]) {
+      cyl('helipad-perimeter-lamp',0.16,0.2,0.22,width*x,height+0.3,depth*z,warning,7,6);
     }
   } else if (kind === 'wall') {
     for (const x of [-width * 0.42, -width * 0.14, width * 0.14, width * 0.42]) {
@@ -2064,7 +2082,7 @@ function updateBuildingActivity(root: Group, tick: number, entityId: number, act
   }
 }
 
-function updateBuildingDetails(root: Group, damage: StructureDamage, level: number, destroyed: boolean): void {
+function updateBuildingDetails(root: Group, damage: StructureDamage, level: number, destroyed: boolean, collapse = 1): void {
   const parts = (root.userData.detailParts ?? []) as DetailPart[];
   const hull = root.userData.hullSize as { fullW: number; fullD: number; height: number } | undefined;
   for (const part of parts) {
@@ -2078,6 +2096,18 @@ function updateBuildingDetails(root: Group, damage: StructureDamage, level: numb
     part.object.position.y = part.y - t * (0.7 + part.y * 0.38);
     part.object.scale.set(part.sx * (1 - t * 0.28), part.sy * (1 - t * 0.52), part.sz * (1 - t * 0.28));
     part.object.rotation.set(part.rx + t * 0.16, part.ry + t * 0.22, part.rz + t * 0.26);
+    if (destroyed) {
+      const q = collapse * collapse * (3 - 2 * collapse);
+      const name = part.object.name;
+      const tower = /cooling-shell|process-vessel|distillation|chimney|watchtower/.test(name);
+      const flat = /roof|deck|apron|landing|foundation/.test(name);
+      const launcher = /pivot|launcher|radar|radome/.test(name);
+      const sign = part.object.position.x < 0 ? -1 : 1;
+      part.object.visible = part.fragility >= 6 || q < 0.8;
+      part.object.position.y = Math.max(0.12, part.y * (1 - q * (tower ? 0.45 : 0.86)));
+      part.object.scale.set(part.sx*(1-q*(tower?0.12:0.2)), part.sy*(1-q*(tower?0.55:flat?0.12:0.6)), part.sz*(1-q*0.15));
+      part.object.rotation.set(part.rx+q*(launcher?0.55:flat?0.08:0.18),part.ry+q*(launcher?0.35:0.08),part.rz+q*sign*(tower?0.48:launcher?0.25:0.12));
+    }
   }
 }
 
