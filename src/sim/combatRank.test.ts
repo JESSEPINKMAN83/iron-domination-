@@ -14,6 +14,7 @@ import type { Entity } from './components';
 function makeUnit(partial: Partial<Entity> & Pick<Entity, 'id'>): Entity {
   return {
     id: partial.id,
+    building: partial.building,
     name: partial.name ?? 'M-17 Test',
     transform: partial.transform ?? { x: 0, z: 0, rot: 0 },
     previousTransform: partial.previousTransform ?? { x: 0, z: 0, rot: 0 },
