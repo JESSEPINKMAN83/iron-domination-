@@ -2,7 +2,7 @@ import type { MatchSnapshot, BattleTimelinePoint } from '../match/battleDebrief'
 
 const COLORS = ['#6da9ff', '#ff9875', '#c29bff', '#f4d674', '#69d9b1', '#f093d0', '#9bd65a', '#68d6e5'];
 const METRICS = [
-  { key: 'unitsSurviving', label: 'Estimated win chance', detail: 'Heuristic estimate from living forces, available credits and recent income. Setup-aware: allied armies combine their forces and economy and share one side’s chance. A balanced 1-vs-4 starts near 20% vs 80%; a three-way free-for-all near 33% each. Not a calibrated prediction. The confirmed winning side ends at 100%.' },
+  { key: 'unitsSurviving', label: 'Estimated win chance', detail: 'Heuristic estimate from health-weighted fighting forces, surviving production, usable reserves and recent income. Setup-aware: allied armies combine their forces and economy and share one side’s chance. A balanced 1-vs-4 starts near 20% vs 80%; a three-way free-for-all near 33% each. Not a calibrated prediction. The confirmed winning side ends at 100%.' },
   { key: 'credits', label: 'Credits available', detail: 'Credits held at each moment, after purchases and income.' },
   { key: 'income', label: 'Money earned', detail: 'Cumulative income recorded during the match.' },
   { key: 'unitKills', label: 'Units destroyed', detail: 'Cumulative enemy unit kills. Buildings excluded.' },
@@ -12,13 +12,21 @@ const METRICS = [
 const fmt = (n: number) => new Intl.NumberFormat('en-US', { notation: n >= 10000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(n);
 const clock = (n: number) => `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2, '0')}`;
 export function estimatedWinShares(snapshot: MatchSnapshot, point: BattleTimelinePoint): Map<number, number> {
-  const previous = [...(snapshot.timeline ?? [])].reverse().find(p => p.seconds < point.seconds);
+  const history=(snapshot.timeline ?? []).filter(p=>p.seconds<point.seconds);
+  const previous = [...history].reverse().find(p=>p.seconds<=point.seconds-45) ?? history[0];
   const scores = new Map<number, number>();
   for (const army of snapshot.armies) {
     const current = point.armies.find(a => a.team === army.team);
     const old = previous?.armies.find(a => a.team === army.team);
     const incomeRate = current && old ? Math.max(0, current.income - old.income) / Math.max(1, point.seconds - previous!.seconds) : 0;
-    const score = current ? current.unitsSurviving * 550 + Math.max(0, current.credits) * 0.25 + incomeRate * 60 + 100 : 0;
+    const production = current?.productionCapacity;
+    // Cash cannot fight when there are no working production facilities. Cap
+    // deployable reserves so an eliminated ally's bank never props up its side.
+    const reserves = production === undefined ? Math.max(0,current?.credits ?? 0)*0.25
+      : Math.min(Math.max(0,current?.credits ?? 0),production*2400)*0.25;
+    const income = production === undefined ? incomeRate*30 : Math.min(incomeRate*30,production*1200);
+    const score = !current || current.buildingsAlive===0 ? 0
+      : (current.combatPower ?? current.unitsSurviving*550)+reserves+income+(production ?? 0)*500+100;
     scores.set(army.side, (scores.get(army.side) ?? 0) + score);
   }
   const finalPoint = snapshot.timeline?.at(-1);
@@ -26,6 +34,10 @@ export function estimatedWinShares(snapshot: MatchSnapshot, point: BattleTimelin
   if (point === finalPoint && survivingSides.size === 1) {
     return new Map(snapshot.armies.map(a => [a.team, survivingSides.has(a.side) ? 100 : 0]));
   }
+  // A decisive force advantage should read as a strong lead rather than a
+  // literal share of assets. Keep opening setup odds proportional to armies.
+  const exponent=1+Math.min(0.5,Math.max(0,point.seconds)/240*0.5);
+  for(const [side,score] of scores) scores.set(side,Math.pow(score,exponent));
   const total = [...scores.values()].reduce((a, b) => a + b, 0);
   return new Map(snapshot.armies.map(a => [a.team, total > 0 ? (scores.get(a.side) ?? 0) / total * 100 : 100 / Math.max(1, scores.size)]));
 }

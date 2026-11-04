@@ -540,7 +540,7 @@ describe('phase 3 economy and production', () => {
     }
   });
 
-  it('parks sequentially produced aircraft separately without a custom rally', () => {
+  it.each(['tank','wasp'] as const)('parks sequentially produced %s units separately without a custom rally', (kind) => {
     const hf = generateHeightfield(MAP01);
     const sim = createGameSim(hf);
     const economy = createEconomy(1, 18000);
@@ -557,14 +557,14 @@ describe('phase 3 economy and production', () => {
     buildReady('factory', 80, 50);
     const helipad = buildReady('helipad', 82, -28);
     for (let unit = 0; unit < 3; unit++) {
-      expect(queueUnit(sim, economy, 'wasp', helipad)).toBe(true);
+      expect(queueUnit(sim, economy, kind, kind === 'wasp' ? helipad : buildings(sim, economy.team).find(b=>b.building?.kind==='factory'))).toBe(true);
       for (let tick = 0; tick < 900; tick++) { stepEconomy(sim, hf, economy, 1 / 30); stepSim(sim, hf, 1 / 30); }
     }
-    const aircraft = Array.from(sim.world.entities).filter((u) => u.flight && u.team?.id === 1);
+    const aircraft = Array.from(sim.world.entities).filter((u) => (kind === 'wasp' ? Boolean(u.flight) : u.selectable?.type === 'tank') && u.team?.id === 1);
     expect(aircraft).toHaveLength(3);
     aircraft.forEach((u) => { expect(u.mover!.target).toBeUndefined(); expect(u.mover!.holdPosition).toBeDefined(); });
     for (let i = 0; i < aircraft.length; i++) for (let j = i + 1; j < aircraft.length; j++) {
-      expect(Math.hypot(aircraft[i].transform.x - aircraft[j].transform.x, aircraft[i].transform.z - aircraft[j].transform.z)).toBeGreaterThan(6.9);
+      expect(Math.hypot(aircraft[i].transform.x - aircraft[j].transform.x, aircraft[i].transform.z - aircraft[j].transform.z)).toBeGreaterThan(kind === 'wasp' ? 6.9 : 4);
     }
   });
 
@@ -597,6 +597,7 @@ describe('phase 3 economy and production', () => {
     expect(tank).toBeDefined();
     const distFromFactory = Math.hypot(tank!.transform.x - factory.transform.x, tank!.transform.z - factory.transform.z);
     expect(distFromFactory).toBeGreaterThan(Math.max(factory.building!.footprint.w, factory.building!.footprint.h) * hf.cellSize);
-    expect(tank!.mover?.target).toBeDefined();
+    // A clear exit can already be parked at its reserved slot after ten seconds.
+    expect(tank!.mover?.target ?? tank!.mover?.holdPosition).toBeDefined();
   });
 });

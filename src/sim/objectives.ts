@@ -5,6 +5,7 @@ import { allianceSide, type GameSim } from './world';
 
 export const CAPTURE_RADIUS = 25;
 export const CAPTURE_TICKS = 240;
+export const OBJECTIVE_INCOME_PER_SECOND = 100;
 /** Physical pad plus clearance for ground-unit hulls; the surrounding ring stays open. */
 export const OBJECTIVE_FOOTPRINT = { halfWidth: 9, halfDepth: 8 } as const;
 
@@ -16,9 +17,9 @@ export function outsideObjectiveFootprint(unit: Entity, site: Entity): boolean {
   return Math.abs(unit.transform.x-site.transform.x) > OBJECTIVE_FOOTPRINT.halfWidth || Math.abs(unit.transform.z-site.transform.z) > OBJECTIVE_FOOTPRINT.halfDepth;
 }
 export const OBJECTIVE_INFO = {
-  radar: { label: 'Radar station', symbol: 'R', benefit: 'Reveals nearby terrain and enemies' },
-  supply: { label: 'Supply depot', symbol: 'S', benefit: 'Repairs parked ground combat units nearby' },
-  oil: { label: 'Oil field', symbol: 'O', benefit: '+100 credits every 10 seconds' },
+  radar: { label: 'Radar station', symbol: 'R', benefit: '+100 credits per second; reveals nearby terrain and enemies' },
+  supply: { label: 'Supply depot', symbol: 'S', benefit: '+100 credits per second; repairs parked ground combat units nearby' },
+  oil: { label: 'Oil field', symbol: 'O', benefit: '+100 credits per second' },
 } as const;
 
 /** Public landmarks, never targetable structures or victory-condition assets. */
@@ -64,6 +65,7 @@ export function stepObjectives(sim: GameSim, economies: EconomyState[]): void {
         site.team = { id: team };
         site.vision = { radius: o.kind === 'radar' ? 180 : 45 };
         o.captureTicks = 0; o.capturingTeam = undefined; o.rewardTicks = 0;
+        continue; // The first payment requires a full second after capture.
       }
     } else {
       // Capture requires continuous occupation; an abandoned neutral site flies white.
@@ -72,18 +74,20 @@ export function stepObjectives(sim: GameSim, economies: EconomyState[]): void {
     }
     if (o.ownerTeam === undefined || o.capturingTeam !== undefined) continue;
     o.rewardTicks += 3;
-    if (o.kind === 'oil' && o.rewardTicks >= 300) {
+    if (o.rewardTicks >= 30) {
       const economy = economies.find(e => e.team === o.ownerTeam);
-      if (economy) { economy.credits += 100; economy.ledger.push({ tick: sim.tick, type: 'income', label: 'Captured oil field', amount: 100 }); }
-      o.rewardTicks -= 300;
+      if (economy) {
+        economy.credits += OBJECTIVE_INCOME_PER_SECOND;
+        economy.ledger.push({ tick: sim.tick, type: 'income', label: `Controlled ${OBJECTIVE_INFO[o.kind].label}`, amount: OBJECTIVE_INCOME_PER_SECOND });
+        o.lastIncomeTick = sim.tick;
+      }
+      o.rewardTicks -= 30;
     }
-    if (o.kind === 'supply' && o.rewardTicks >= 30) {
+    if (o.kind === 'supply' && o.lastIncomeTick === sim.tick) {
       for (const unit of ground) {
         if (allianceSide(sim, unit.team!.id) !== allianceSide(sim, o.ownerTeam) || unit.mover!.target || Math.hypot(unit.transform.x-site.transform.x, unit.transform.z-site.transform.z) > 36) continue;
         unit.health!.current = Math.min(unit.health!.max, unit.health!.current + unit.health!.max * 0.02);
       }
-      o.rewardTicks -= 30;
     }
-    if (o.kind === 'radar') o.rewardTicks = 0;
   }
 }

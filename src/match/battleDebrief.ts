@@ -1,3 +1,4 @@
+import { unitCombatCost } from '../sim/combatRank';
 import { armyTag } from '../content/nations';
 import type { EnemyCommander } from '../ai/commander';
 import type { Entity } from '../sim/components';
@@ -34,7 +35,7 @@ export interface ArmyDebriefStats {
 
 export interface BattleTimelinePoint {
   seconds: number;
-  armies: Pick<ArmyDebriefStats, 'team' | 'credits' | 'income' | 'unitKills' | 'unitLosses' | 'unitsSurviving' | 'damageDealt'>[];
+  armies: (Pick<ArmyDebriefStats, 'team' | 'credits' | 'income' | 'unitKills' | 'unitLosses' | 'unitsSurviving' | 'damageDealt'> & { combatPower?: number; productionCapacity?: number; buildingsAlive?: number })[];
 }
 
 export interface MatchSnapshot {
@@ -167,7 +168,14 @@ export class BattleDebriefTracker {
     const armies = this.armies.map((army) => {
       const report = this.armySnapshot(army);
       const { team, credits, income, unitKills, unitLosses, unitsSurviving, damageDealt } = report;
-      return { team, credits, income, unitKills, unitLosses, unitsSurviving, damageDealt };
+      let combatPower=0, productionCapacity=0;
+      for(const entity of this.sim.world.entities) {
+        if(entity.team?.id!==team || entity.destroyed) continue;
+        const health = Math.max(0,Math.min(1,(entity.health?.current ?? 1)/(entity.health?.max ?? 1)));
+        if(!entity.harvester && (entity.weapon || entity.weapons)) combatPower += unitCombatCost(entity)*health*(entity.building ? 0.4 : 1);
+        if(entity.building?.complete && (entity.producer || entity.building.kind==='strategic-silo')) productionCapacity++;
+      }
+      return { team, credits, income, unitKills, unitLosses, unitsSurviving, damageDealt, combatPower, productionCapacity, buildingsAlive: report.buildingsSurviving };
     });
     this.timeline.push({ seconds, armies });
     if (this.timeline.length > 720) {

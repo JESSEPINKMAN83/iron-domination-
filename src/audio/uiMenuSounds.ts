@@ -26,14 +26,11 @@ export const ACTIVE_UI_GAME_CLICK: UiMenuHoverSample = {
   maxDuration: 0.1,
 };
 
-const BUTTON_HOVER_COOLDOWN_MS = 75;
-
 export function installStandaloneButtonSounds(root: HTMLElement): void {
-  let lastPlayedAt = -Infinity;
   let active: HTMLAudioElement | undefined;
   let stopTimer: number | undefined;
 
-  for (const sample of [ACTIVE_UI_GAME_HOVER, ACTIVE_UI_GAME_CLICK]) {
+  for (const sample of [ACTIVE_UI_GAME_CLICK]) {
     const preload = new Audio(sample.url);
     preload.preload = 'auto';
   }
@@ -66,16 +63,6 @@ export function installStandaloneButtonSounds(root: HTMLElement): void {
     }
   };
 
-  root.addEventListener('pointerover', (event) => {
-    if (!(event instanceof PointerEvent) || event.pointerType === 'touch') return;
-    const button = enabledButton(event.target);
-    if (!button) return;
-    if (event.relatedTarget instanceof Node && button.contains(event.relatedTarget)) return;
-    const now = performance.now();
-    if (now - lastPlayedAt < BUTTON_HOVER_COOLDOWN_MS) return;
-    lastPlayedAt = now;
-    play(ACTIVE_UI_GAME_HOVER);
-  });
   root.addEventListener('pointerdown', (event) => {
     if (!(event instanceof PointerEvent) || event.button !== 0 || !enabledButton(event.target)) return;
     play(ACTIVE_UI_GAME_CLICK);

@@ -4,7 +4,7 @@ import { unitKindForUpgrade } from '../sim/upgrades';
 import type { CombatEvent } from '../sim/world';
 import { impactForceFromEvent, possessionHitGain } from '../modes/vModeHitJuice';
 import { explosionSoundProfile, missileSoundProfile, positionalGain, type SoundProfile } from './positionalMix';
-import { ACTIVE_UI_GAME_CLICK, ACTIVE_UI_GAME_HOVER } from './uiMenuSounds';
+import { ACTIVE_UI_GAME_CLICK } from './uiMenuSounds';
 
 interface SoundBus {
   input: GainNode;
@@ -224,7 +224,6 @@ export class AudioDirector {
     void this.preloadSample(STRATEGIC_MISSILE_IMPACT_SAMPLE);
     void this.preloadSample(STRATEGIC_MISSILE_INTERCEPTED_SAMPLE);
     void this.preloadSample(UI_UPGRADE_SAMPLE);
-    void this.preloadSample(ACTIVE_UI_GAME_HOVER.url);
     void this.preloadSample(ACTIVE_UI_GAME_CLICK.url);
     for (const sample of HEAVY_GUNSHIP_ENGINE_SAMPLES) void this.preloadSample(sample);
     for (const sample of LIGHT_AIRCRAFT_ENGINE_SAMPLES) void this.preloadSample(sample);
@@ -813,19 +812,6 @@ export class AudioDirector {
         ? button
         : undefined;
     };
-    root.addEventListener('pointerover', (event) => {
-      if (!(event instanceof PointerEvent) || event.pointerType === 'touch') return;
-      const button = enabledButton(event.target);
-      if (!button) return;
-      if (event.relatedTarget instanceof Node && button.contains(event.relatedTarget)) return;
-      this.playUiRecordedSample(
-        ACTIVE_UI_GAME_HOVER.url,
-        ACTIVE_UI_GAME_HOVER.gain,
-        'ui-game-hover',
-        0.075,
-        ACTIVE_UI_GAME_HOVER.maxDuration,
-      );
-    });
     root.addEventListener('pointerdown', (event) => {
       if (!(event instanceof PointerEvent) || event.button !== 0) return;
       const button = enabledButton(event.target);

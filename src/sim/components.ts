@@ -291,7 +291,7 @@ export interface Entity {
   building?: Building;
   structureDamage?: StructureDamage;
   producer?: Producer;
-  objective?: { kind: 'radar' | 'supply' | 'oil'; ownerTeam?: number; capturingTeam?: number; captureTicks: number; contested: boolean; rewardTicks: number };
+  objective?: { kind: 'radar' | 'supply' | 'oil'; ownerTeam?: number; capturingTeam?: number; captureTicks: number; contested: boolean; rewardTicks: number; lastIncomeTick?: number };
 }
 
 export function copyTransform(t: Transform): Transform {
