@@ -6,12 +6,13 @@ import { createEconomy, createInitialBase, spawnInfantryAt } from './economy';
 import { adjustAircraftAltitude, attackStandoffPoint, createGameSim, hashSim, issueMoveOrder, selectedEntities, setSelected, spawnDebugTanks, spawnHammerheadAt, spawnScoutTankAt, spawnSiegeTankAt, spawnTankAt, spawnVultureAt, spawnWaspAt, stepSim } from './world';
 
 describe('phase 2 movement simulation', () => {
-  it('separates exactly overlapping ground units without random movement state', () => {
+  it.each([false,true])('separates exactly overlapping ground units (parked: %s) deterministically', (parked) => {
     const run = () => {
       const hf = generateHeightfield({cells:64,cellSize:2,waterLevel:-100,seed:41,oreFieldCount:0});
       hf.heights.fill(0); hf.walkable.fill(1);
       const sim = createGameSim(hf);
       const a = spawnTankAt(sim,0,0,'A',2), b = spawnTankAt(sim,0,0,'B',2);
+      if(parked) {a.mover!.holdPosition={x:0,z:0};b.mover!.holdPosition={x:0,z:0};}
       for(let i=0;i<60;i++) stepSim(sim,hf,1/30);
       expect(Math.hypot(a.transform.x-b.transform.x,a.transform.z-b.transform.z)).toBeGreaterThan(2);
       return hashSim(sim);

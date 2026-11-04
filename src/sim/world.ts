@@ -899,6 +899,20 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       continue;
     }
 
+    // Repair old parked pileups on a staggered one-second pulse. Normal
+    // formation spacing and actively executing routes are left alone.
+    if (mover.holdPosition && !mover.target && !entity.playerControlled && (sim.tick+entity.id)%30===0) {
+      let overlapping=false;
+      sim.spatial.visitNearby(transform.x,transform.z,mover.radius+maxMoverRadius,other=>{
+        if(other===entity || other.destroyed || other.flight || !other.mover) return;
+        if(Math.hypot(transform.x-other.transform.x,transform.z-other.transform.z)<(mover.radius+other.mover.radius)*0.5) overlapping=true;
+      });
+      if(overlapping) {
+        const parking=reserveUnitPosition(sim,entity,transform);
+        if(Math.hypot(parking.x-transform.x,parking.z-transform.z)>1) issueMoveOrder(sim,[entity],parking.x,parking.z,false);
+      }
+    }
+
     // A new foundation (or an older saved match) may enclose a ground unit.
     // Move it to the nearest free cell rather than trapping it inside the mesh.
     const occupiedCell = sim.nav.worldToCell(transform.x, transform.z);
