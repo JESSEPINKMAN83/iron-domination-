@@ -597,6 +597,7 @@ describe('phase 3 economy and production', () => {
     expect(tank).toBeDefined();
     const distFromFactory = Math.hypot(tank!.transform.x - factory.transform.x, tank!.transform.z - factory.transform.z);
     expect(distFromFactory).toBeGreaterThan(Math.max(factory.building!.footprint.w, factory.building!.footprint.h) * hf.cellSize);
-    expect(tank!.mover?.target).toBeDefined();
+    // A clear exit can already be parked at its reserved slot after ten seconds.
+    expect(tank!.mover?.target ?? tank!.mover?.holdPosition).toBeDefined();
   });
 });
