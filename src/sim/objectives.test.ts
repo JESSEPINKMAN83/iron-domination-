@@ -34,10 +34,22 @@ describe('contested objectives',()=>{
     unit.transform.x=site.transform.x+16;tick(240);sim.rules.allianceSides[2]=1;
     spawnTankAt(sim,site.transform.x+16,site.transform.z,'Ally',2);tick(240);expect(site.team?.id).toBe(1);expect(site.objective!.contested).toBe(false);
   });
-  it('oil pays exactly 100 credits per ten seconds and pauses while contested',()=>{
+  it('oil pays exactly 100 credits per second and pauses while contested',()=>{
     const {sim,sites,unit,economies,tick}=setup();const oil=sites[2];unit.transform.x=oil.transform.x+16;unit.transform.z=oil.transform.z;
-    tick(240);tick(297);expect(economies[0].credits).toBe(1100);
+    tick(240);tick(27);expect(economies[0].credits).toBe(1000);tick(3);expect(economies[0].credits).toBe(1100);
     spawnTankAt(sim,oil.transform.x+16,oil.transform.z,'Contest',2);tick(600);expect(economies[0].credits).toBe(1100);
+  });
+  it('holding all three sites pays 300 per second only to the owner and records the source',()=>{
+    const {sim,sites,economies,tick}=setup();
+    for(const site of sites){site.objective!.ownerTeam=1;site.team={id:1};}
+    tick(27);expect(economies[0].credits).toBe(1000);
+    tick(3);expect(economies[0].credits).toBe(1300);expect(economies[1].credits).toBe(1000);
+    expect(economies[0].ledger.map(e=>e.label)).toContain('Controlled Supply depot');
+    tick(30);expect(economies[0].credits).toBe(1600);
+    for(const site of sites) {site.objective!.ownerTeam=2;site.team={id:2};}
+    // Move the original capturing unit away so no hostile recapture is in progress.
+    for(const unit of sim.movers) unit.transform.x+=500;
+    tick(30);expect(economies[0].credits).toBe(1600);expect(economies[1].credits).toBe(1300);
   });
   it('supply repairs parked ground units without healing aircraft or moving units',()=>{
     const {sim,hf,sites,unit,tick}=setup();const supply=sites[1];unit.transform.x=supply.transform.x+16;unit.transform.z=supply.transform.z;tick(240);

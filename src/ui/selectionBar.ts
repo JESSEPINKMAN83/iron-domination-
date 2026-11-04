@@ -175,7 +175,7 @@ export class SelectionBar {
     header.append(title,state,close);
     const content=document.createElement('div');content.className='objective-info__columns';
     const block=(label:string,text:string)=>{const item=document.createElement('div');const heading=document.createElement('b');heading.textContent=label;const copy=document.createElement('p');copy.textContent=text;item.append(heading,copy);content.append(item);};
-    const benefits={radar:'Reveals terrain and enemies within 180 m. Vision is shared with allies.',supply:'Repairs parked ground combat units nearby by 2% health per second. It does not produce credits or extra units.',oil:'Earn 100 credits every 10 seconds while you control the field.'};
+    const benefits={radar:'Earn 100 credits per second. Reveals terrain and enemies within 180 m. Vision is shared with allies.',supply:'Earn 100 credits per second and repair parked ground combat units nearby by 2% health per second.',oil:'Earn 100 credits per second while you control the field. Holding all three sites earns 300 credits per second.'};
     block('WHAT YOU GET',benefits[o.kind]);
     block('HOW TO CAPTURE','Stand tanks or infantry beside the structure, inside the 25 m ring. Hold for 8 seconds. Aircraft cannot capture. Leaving before completion resets progress.');
     block('CONTROL',controlText);

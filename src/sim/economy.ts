@@ -557,8 +557,13 @@ export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState
     job.remaining -= dt * productionScale;
     if (job.remaining <= 0) {
       const unit = spawnProducedUnit(sim, hf, producer, job.kind as UnitKind);
-      if (unit) spawned.push(unit);
-      producer.producer.active = undefined;
+      if (unit) {
+        spawned.push(unit);
+        producer.producer.active = undefined;
+      } else {
+        // Keep the paid unit queued until its exit clears; never spawn into a pileup.
+        job.remaining = 1;
+      }
     }
   }
 
@@ -1053,6 +1058,9 @@ function productionExitPlan(
     const cell = sim.nav.nearestWalkableCell(sx, sz, 18);
     if (!cell) continue;
     const spawn = sim.nav.cellCenter(cell.x, cell.y);
+    const airborne = UNITS[kind].tab === 'aircraft';
+    if (!airborne && [...sim.movers].some(other => !other.destroyed && !other.flight
+      && Math.hypot(other.transform.x-spawn.x,other.transform.z-spawn.z) < unitRadius+other.mover.radius+2)) continue;
     const target = clampProductionPoint(
       sim,
       spawn.x + dir.x * 24,
@@ -1090,8 +1098,8 @@ function productionUnitRadius(kind: UnitKind): number {
 
 function orderToRally(sim: GameSim, producer: Entity, entity: Entity, defaultTarget: { x: number; z: number }): void {
   const rally = producer.producer?.rally;
-  // Aircraft reserve separate parking slots; ground units retain the authored exit lane.
-  const target = rally ? productionRallyTarget(sim, producer, entity, rally) : entity.flight ? reserveUnitPosition(sim, entity, defaultTarget) : defaultTarget;
+  // Reserve distinct ground parking too: otherwise every factory repeats the same destination.
+  const target = rally ? productionRallyTarget(sim, producer, entity, rally) : entity.flight ? reserveUnitPosition(sim, entity, defaultTarget) : productionRallyTarget(sim, producer, entity, defaultTarget);
   issueMoveOrder(sim, [entity], target.x, target.z, false);
 }
 

@@ -26,3 +26,14 @@ it('respects one versus four allied opponents and free-for-all setups', () => {
  snapshot.armies.forEach(a=>a.side=a.team);
  for(const chance of estimatedWinShares(snapshot,point).values()) expect(chance).toBeCloseTo(20);
 });
+
+it('ignores stranded reserves and eliminated allies late in a battle',()=>{
+ const point={seconds:1800,armies:[
+  {team:1,unitsSurviving:20,combatPower:18000,productionCapacity:3,buildingsAlive:8,credits:30000,income:100000},
+  {team:2,unitsSurviving:5,combatPower:1800,productionCapacity:0,buildingsAlive:1,credits:100000,income:100000},
+  {team:3,unitsSurviving:0,combatPower:0,productionCapacity:0,buildingsAlive:0,credits:180000,income:200000},
+ ]} as BattleTimelinePoint;
+ const snapshot={armies:[{team:1,side:1,eliminated:false},{team:2,side:2,eliminated:false},{team:3,side:2,eliminated:true}],timeline:[point]} as MatchSnapshot;
+ expect(estimatedWinShares(snapshot,point).get(1)).toBeGreaterThan(90);
+ expect(estimatedWinShares(snapshot,point).get(2)).toBe(estimatedWinShares(snapshot,point).get(3));
+});

@@ -1051,11 +1051,19 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
       (other) => {
         if (entity === other || !other.mover) return;
         if (!!entity.flight !== !!other.flight) return;
-        const dx = transform.x - other.transform.x;
-        const dz = transform.z - other.transform.z;
+        if (other.destroyed) return;
+        let dx = transform.x - other.transform.x;
+        let dz = transform.z - other.transform.z;
         const minD = mover.radius + other.mover.radius + 1.2;
-        const d2 = dx * dx + dz * dz;
-        if (d2 <= 0.0001 || d2 > minD * minD) return;
+        let d2 = dx * dx + dz * dz;
+        // Exact overlaps used to be ignored forever. Give each pair opposing,
+        // deterministic escape directions without introducing random sim state.
+        if (d2 <= 0.0001) {
+          const angle = ((Math.min(entity.id,other.id) * 73856093 ^ Math.max(entity.id,other.id) * 19349663) >>> 0) / 4294967296 * Math.PI * 2;
+          const sign = entity.id < other.id ? -1 : 1;
+          dx = Math.cos(angle) * 0.01 * sign; dz = Math.sin(angle) * 0.01 * sign; d2 = 0.0001;
+        }
+        if (d2 > minD * minD) return;
         const d = Math.sqrt(d2);
         const push = (minD - d) / minD;
         desiredX += (dx / d) * push * 1.35;
@@ -1918,7 +1926,7 @@ export function hashSim(sim: GameSim): number {
       const o = entity.objective;
       mix(o.kind === 'radar' ? 1 : o.kind === 'oil' ? 2 : 3);
       mix(o.ownerTeam ?? 0); mix(o.capturingTeam ?? 0);
-      mix(o.captureTicks); mix(o.contested ? 1 : 0); mix(o.rewardTicks);
+      mix(o.captureTicks); mix(o.contested ? 1 : 0); mix(o.rewardTicks); mix(o.lastIncomeTick ?? -1);
     }
     mix(entity.team?.id ?? 0);
     if (entity.artillery) { mixText(entity.artillery.phase); mix(Math.round(entity.artillery.elapsed*1000)); mix(entity.artillery.deploy?1:0); }
@@ -2153,7 +2161,7 @@ export function hashCriticalSimState(sim: GameSim): number {
       const o = entity.objective;
       mix(o.kind === 'radar' ? 1 : o.kind === 'oil' ? 2 : 3);
       mix(o.ownerTeam ?? 0); mix(o.capturingTeam ?? 0);
-      mix(o.captureTicks); mix(o.contested ? 1 : 0); mix(o.rewardTicks);
+      mix(o.captureTicks); mix(o.contested ? 1 : 0); mix(o.rewardTicks); mix(o.lastIncomeTick ?? -1);
     }
     mix(entity.team?.id ?? 0);
     mix(entity.health ? Math.round(entity.health.current * 100) : -1);

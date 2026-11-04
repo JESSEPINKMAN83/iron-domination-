@@ -1,7 +1,8 @@
+import { FACTION, factionId } from './palette';
 import { nationForTeam } from '../content/nations';
 import { nationFlagMaterial } from './codeRedFlags';
 import { objectiveStatus } from '../ui/objectiveStatus';
-import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, MeshLambertMaterial, RingGeometry, DoubleSide, PlaneGeometry, Raycaster, Vector2, type PerspectiveCamera } from 'three';
+import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, MeshLambertMaterial, RingGeometry, DoubleSide, PlaneGeometry, Raycaster, Vector2, Sprite, SpriteMaterial, CanvasTexture, type PerspectiveCamera } from 'three';
 import type { GameSim } from '../sim/world';
 import { allianceSide } from '../sim/world';
 import { CAPTURE_RADIUS, CAPTURE_TICKS, OBJECTIVE_INFO } from '../sim/objectives';
@@ -12,13 +13,18 @@ export class ObjectiveView {
   onInspect?: (site: import('../sim/components').Entity) => void;
   private readonly picker = new Raycaster();
   private readonly pointer = new Vector2();
-  private readonly sites = new Map<number, { ring: Mesh; material: MeshBasicMaterial; flag: Mesh; progress: HTMLElement; button: HTMLButtonElement }>();
+  private readonly sites = new Map<number, { ring: Mesh; material: MeshBasicMaterial; flag: Mesh; progress: HTMLElement; button: HTMLButtonElement; income: Sprite }>();
   readonly panel = document.createElement('div');
   private readonly neutralFlagMaterial = new MeshBasicMaterial({color:0xffffff,side:DoubleSide});
   constructor(private readonly sim: GameSim, private readonly localTeam: number, focus: (x:number,z:number)=>void, private readonly visible: (x:number,z:number)=>boolean) {
     this.panel.className = 'battle-objectives';
     this.panel.setAttribute('aria-label', 'Contested battlefield objectives');
     this.panel.addEventListener('pointerdown', event => event.stopPropagation());
+    const canvas = document.createElement('canvas'); canvas.width=256; canvas.height=80;
+    const ink = canvas.getContext('2d')!;
+    ink.fillStyle='rgba(8,24,18,0.85)'; ink.fillRect(0,0,256,80);
+    ink.font='bold 48px system-ui'; ink.textAlign='center'; ink.fillStyle='#ffffff'; ink.fillText('+$100',128,58);
+    const incomeTexture = new CanvasTexture(canvas);
     const box = new BoxGeometry(1,1,1);
     const flagGeometry = new PlaneGeometry(6,4);
     const neutralFlag = this.neutralFlagMaterial;
@@ -37,6 +43,8 @@ export class ObjectiveView {
       if(site.objective.kind==='radar') {const dish=add(0,8,0,9,5,0.7);dish.rotation.x=-0.5;add(0,4,0,1.2,7,1.2);}
       else if(site.objective.kind==='oil') {add(-2,4,0,1.4,7,2);const beam=add(0,7,0,11,1.2,1.5);beam.rotation.z=-0.3;add(4,3,0,0.5,6,0.5);}
       else {for(let i=0;i<3;i++)add(i*3-3,2.6,0,2.6,3.8,5);add(0,5,0,6,0.5,1);add(0,5,0,1,0.5,5);}
+      const income = new Sprite(new SpriteMaterial({map:incomeTexture,transparent:true,depthWrite:false}));
+      income.scale.set(17,5.3,1); income.visible=false; root.add(income);
       root.userData.objectiveId = site.id;
       ring.userData.captureRing = true;
       this.group.add(root);
@@ -45,7 +53,7 @@ export class ObjectiveView {
       const text=document.createElement('span');button.append(text);
       const progress=document.createElement('i');button.append(progress);
       button.onclick=()=>{ focus(site.transform.x,site.transform.z); this.onInspect?.(site); };
-      this.panel.append(button);this.sites.set(site.id,{ring,material,flag,button,progress});
+      this.panel.append(button);this.sites.set(site.id,{ring,material,flag,button,progress,income});
     }
     if(this.sites.size)document.body.append(this.panel);
     this.update();
@@ -66,6 +74,13 @@ export class ObjectiveView {
     for(const site of this.sim.objectivesQuery) {
       const view=this.sites.get(site.id);if(!view)continue;
       const o=site.objective;
+      const incomeAge = o.lastIncomeTick === undefined ? Infinity : this.sim.tick-o.lastIncomeTick;
+      view.income.visible = o.ownerTeam!==undefined && (this.visible(site.transform.x,site.transform.z) || o.ownerTeam===this.localTeam) && incomeAge>=0 && incomeAge<24;
+      if(view.income.visible) {
+        view.income.position.set(0,18+incomeAge*0.24,0);
+        (view.income.material as SpriteMaterial).opacity=1-incomeAge/24;
+        (view.income.material as SpriteMaterial).color.setHex(FACTION[factionId(o.ownerTeam)].accent);
+      }
       const friendly=o.ownerTeam!==undefined&&allianceSide(this.sim,o.ownerTeam)===allianceSide(this.sim,this.localTeam);
       const known=this.visible(site.transform.x,site.transform.z)||friendly;
       const color=o.ownerTeam===undefined?'#95a69c':friendly?'#9de5c4':'#ed8674';
