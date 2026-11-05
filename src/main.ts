@@ -208,7 +208,8 @@ import { MissionComms } from './ui/missionComms';
 import { showOutcomeScreen } from './ui/outcomeScreen';
 import { SelectionBar } from './ui/selectionBar';
 import { Sidebar } from './ui/sidebar';
-import { TacticPlanner } from './ui/tacticPlanner';
+import { TacticPlanner, type TacticExecutePayload } from './ui/tacticPlanner';
+import { QuickTactic } from './ui/quickTactic';
 import { renderTacticalMap, type TacticalMapDeployment } from './ui/tacticalMap';
 import { unitDisplayName } from './ui/unitDisplayName';
 import { defenseLevel, purchaseDefenseUpgrade } from './sim/defenseUpgrades';
@@ -3712,6 +3713,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       if (lockstep) lockstep.issue({ type: 'set-formation', ids: entities.map((unit) => unit.id), preset, facing: rig.yawRadians + Math.PI });
       else setFormationPreset(sim, entities, preset, rig.yawRadians + Math.PI);
     },
+    openQuickTactic: entities => quickTactic.open(entities.map(entity => entity.id)),
     openTacticPlanner: (entities, profile) => {
       audio.playUi('select');
       tacticPlanner.open(entities, profile);
@@ -3788,10 +3790,60 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       activeTargeting: () => strategicMissileTargeting?.weapon,
     },
   }, localTeam, ctx.camera, hf);
+  const executeTactic = (payload: TacticExecutePayload) => {
+    controller.setEnabled(true);
+    const units = payload.entityIds
+      .map((id) => entityById(sim, id))
+      .filter((entity): entity is Entity => !!entity && !entity.destroyed && entity.team?.id === localTeam);
+    const unitKinds = summarizeUnitKinds(
+      units.map((entity) => unitKindForUpgrade(entity) ?? entity.selectable?.type ?? 'unit'),
+    );
+    const feature = {
+      unitCount: units.length,
+      selectionCount: payload.selectionCount,
+      unitKinds,
+      waypointCount: payload.waypoints.length,
+      pathLengthApprox: approximatePathLength(payload.waypoints),
+      endAction: payload.endAction.kind,
+      plannerDurationMs: payload.plannerDurationMs,
+      subsetOfSelection: units.length < payload.selectionCount,
+      highSpeed: payload.highSpeed,
+    };
+    const issued = lockstep
+      ? lockstep.issue({
+          type: 'tactic',
+          ids: units.map((entity) => entity.id),
+          waypoints: payload.waypoints,
+          endAction: payload.endAction.kind,
+          endTargetId: payload.endAction.kind === 'attack' ? payload.endAction.targetId : undefined,
+          sprint: payload.highSpeed,
+          variation: payload.variation,
+          targetPriorities: payload.targetPriorities,
+        })
+      : issueTacticOrder(sim, units, payload.waypoints, payload.endAction, payload.highSpeed, payload.variation, payload.targetPriorities);
+    if (!issued) {
+      audio.playUi('error');
+      return;
+    }
+    sendTelemetryEvent('tactic-execute', matchTelemetryMetadata(), feature);
+    audio.playUi('order');
+    unitVoices.acknowledge(units, 'tactic');
+    const last = payload.waypoints[payload.waypoints.length - 1];
+    orderMarkers.push(
+      last.x,
+      last.z,
+      payload.endAction.kind === 'hold' ? 'move' : payload.endAction.kind === 'attack-move' || payload.endAction.kind === 'attack-through' ? 'attack-move' : 'attack',
+    );
+  };
+  const quickTactic = new QuickTactic(ctx.camera, hf, active => {
+    controller.setEnabled(!active);
+    input.resetTransientInputs();
+  }, executeTactic);
   const tacticPlanner = new TacticPlanner(
     sim,
     localTeam,
     {
+      heightfield: hf,
       mapId: settings.mapId,
       mapSize: settings.mapSize,
       seed: settings.seed,
@@ -3812,51 +3864,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         controller.setEnabled(true);
         sendTelemetryEvent('tactic-cancel', matchTelemetryMetadata(), { plannerDurationMs, selectionCount });
       },
-      onExecute: (payload) => {
-        controller.setEnabled(true);
-        const units = payload.entityIds
-          .map((id) => entityById(sim, id))
-          .filter((entity): entity is Entity => !!entity && !entity.destroyed && entity.team?.id === localTeam);
-        const unitKinds = summarizeUnitKinds(
-          units.map((entity) => unitKindForUpgrade(entity) ?? entity.selectable?.type ?? 'unit'),
-        );
-        const feature = {
-          unitCount: units.length,
-          selectionCount: payload.selectionCount,
-          unitKinds,
-          waypointCount: payload.waypoints.length,
-          pathLengthApprox: approximatePathLength(payload.waypoints),
-          endAction: payload.endAction.kind,
-          plannerDurationMs: payload.plannerDurationMs,
-          subsetOfSelection: units.length < payload.selectionCount,
-          highSpeed: payload.highSpeed,
-        };
-        const issued = lockstep
-          ? lockstep.issue({
-              type: 'tactic',
-              ids: units.map((entity) => entity.id),
-              waypoints: payload.waypoints,
-              endAction: payload.endAction.kind,
-              endTargetId: payload.endAction.kind === 'attack' ? payload.endAction.targetId : undefined,
-              sprint: payload.highSpeed,
-              variation: payload.variation,
-              targetPriorities: payload.targetPriorities,
-            })
-          : issueTacticOrder(sim, units, payload.waypoints, payload.endAction, payload.highSpeed, payload.variation, payload.targetPriorities);
-        if (!issued) {
-          audio.playUi('error');
-          return;
-        }
-        sendTelemetryEvent('tactic-execute', matchTelemetryMetadata(), feature);
-        audio.playUi('order');
-        unitVoices.acknowledge(units, 'tactic');
-        const last = payload.waypoints[payload.waypoints.length - 1];
-        orderMarkers.push(
-          last.x,
-          last.z,
-          payload.endAction.kind === 'hold' ? 'move' : payload.endAction.kind === 'attack-move' || payload.endAction.kind === 'attack-through' ? 'attack-move' : 'attack',
-        );
-      },
+      onExecute: executeTactic,
     },
   );
   const durabilityPanel = durabilityPreview && durabilityScene
