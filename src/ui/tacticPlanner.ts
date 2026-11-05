@@ -1,13 +1,14 @@
 import { matchesTargetPriorities, TARGET_PRIORITY_OPTIONS, type TargetPriority } from '../sim/targetPriorities';
-import type { TerrainLayout } from '../sim/heightfield';
+import type { Heightfield, TerrainLayout } from '../sim/heightfield';
 import './tacticPlanner.css';
 import type { MapId, MapSize } from '../content/maps';
 import type { Entity, TacticEndAction } from '../sim/components';
 import { areTeamsHostile, type GameSim } from '../sim/world';
 import { MAX_TACTIC_WAYPOINTS, tacticEligibleEntities } from '../sim/tactics';
-import { createTacticalMapRaster, mapPercentToWorld, worldToMapPercent } from './tacticalMap';
+import { createTacticalMapRaster, tacticalMapRasterForHeightfield, type TacticalMapRaster, mapPercentToWorld, worldToMapPercent } from './tacticalMap';
 
 export type TacticPlannerMapContext = {
+  heightfield?: Heightfield;
   mapId: MapId;
   mapSize: MapSize;
   seed: number;
@@ -58,6 +59,7 @@ export class TacticPlanner {
   private highSpeed = true;
   private onKeyDown?: (event: KeyboardEvent) => void;
   private lastDynamicRefreshAt = 0;
+  private terrainRaster?: TacticalMapRaster;
 
   constructor(
     private readonly sim: GameSim,
@@ -94,7 +96,9 @@ export class TacticPlanner {
     this.lastDynamicRefreshAt = 0;
     this.callbacks.onOpen?.();
 
-    const raster = createTacticalMapRaster(
+    const raster = this.terrainRaster ??= this.map.heightfield
+      ? tacticalMapRasterForHeightfield(this.map.mapId,this.map.heightfield,384)
+      : createTacticalMapRaster(
       this.map.mapId,
       this.map.mapSize,
       this.map.seed,
@@ -301,6 +305,11 @@ export class TacticPlanner {
     document.body.classList.add('iron-tactic-open');
     this.syncChrome();
     this.redrawOverlay();
+    if(import.meta.env.DEV) {
+      overlay.dataset.openDurationMs=(performance.now()-this.openedAt).toFixed(2);
+      performance.clearMeasures('tactic-planner-open');
+      performance.measure('tactic-planner-open',{start:this.openedAt,end:performance.now()});
+    }
   }
 
   update(): void {
@@ -313,14 +322,15 @@ export class TacticPlanner {
     const previousCandidateCount = this.candidates.length;
     this.candidates = this.candidates.filter((entity) => !entity.destroyed && this.sim.world.has(entity));
     let chromeChanged = this.candidates.length !== previousCandidateCount;
-    for (const id of [...this.selectedIds]) {
-      if (!this.candidates.some((entity) => entity.id === id)) {
+    const livingIds=new Set(this.candidates.map(entity=>entity.id));
+    for (const id of this.selectedIds) {
+      if (!livingIds.has(id)) {
         this.selectedIds.delete(id);
         chromeChanged = true;
       }
     }
     if (this.attackTargetId !== undefined) {
-      const target = [...this.sim.world.entities].find((entity) => entity.id === this.attackTargetId);
+      const target = this.sim.byId.get(this.attackTargetId);
       if (!target || target.destroyed || !this.isEntityVisible(target)) {
         this.attackTargetId = undefined;
         chromeChanged = true;

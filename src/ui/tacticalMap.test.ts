@@ -1,5 +1,7 @@
+import {generateHeightfield} from '../sim/heightfield';
+import {mapConfig} from '../content/maps';
 import { describe, expect, it } from 'vitest';
-import { createTacticalMapRaster, worldToMapPercent } from './tacticalMap';
+import { createTacticalMapRaster, tacticalMapRasterForHeightfield, worldToMapPercent } from './tacticalMap';
 
 describe('tactical map', () => {
   it('uses the exact selected battlefield dimensions and generated features', () => {
@@ -36,4 +38,14 @@ describe('tactical map', () => {
     expect(extreme.maxHeight).toBeGreaterThan(gentle.maxHeight * 2);
     expect(Array.from(extreme.pixels)).not.toEqual(Array.from(gentle.pixels));
   });
+});
+
+it('reuses the live match terrain raster without regenerating or mutating terrain',()=>{
+ const hf=generateHeightfield({...mapConfig('highlands','small'),seed:41});
+ const before=hf.heights.slice();
+ const raster=tacticalMapRasterForHeightfield('highlands',hf,48);
+ expect(tacticalMapRasterForHeightfield('highlands',hf,48)).toBe(raster);
+ expect(raster.pixels).toEqual(createTacticalMapRaster('highlands','small',41,48).pixels);
+ expect(hf.heights).toEqual(before);
+ expect(tacticalMapRasterForHeightfield('highlands',hf,64)).not.toBe(raster);
 });

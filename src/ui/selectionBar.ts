@@ -85,6 +85,7 @@ export class SelectionBar {
       setFormation?: (entities: Entity[], preset: FormationPreset) => void;
       setAggressive?: (entities: Entity[], enabled: boolean) => void;
       deployArtillery?: (entities:Entity[], deploy:boolean)=>void;
+      openQuickTactic?: (entities: Entity[]) => void;
       openTacticPlanner?: (entities: Entity[], profile?: HTMLElement) => void;
       strategic?: {
         economy: EconomyState;
@@ -507,6 +508,18 @@ export class SelectionBar {
         event.stopPropagation();
         this.actions.openTacticPlanner?.(tacticalUnits);
       };
+      if (this.actions.openQuickTactic) {
+        const quick = document.createElement('button');
+        quick.type = 'button';
+        quick.className = 'game-primary-action';
+        quick.style.cssText = tacticBtn.style.cssText + 'padding:7px 9px;';
+        quick.title = 'Draw a quick tactic on the battlefield';
+        quick.setAttribute('aria-label', 'Draw quick tactic');
+        quick.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 3l6 17 3-7 7-3L4 3z"/><path d="M14 15l5 5"/></svg>';
+        quick.onpointerdown = event => { event.preventDefault(); event.stopPropagation(); };
+        quick.onclick = event => { event.preventDefault(); event.stopPropagation(); this.actions.openQuickTactic?.(tacticalUnits); };
+        actions.appendChild(quick);
+      }
       actions.appendChild(tacticBtn);
     }
     if (actions.childElementCount) this.root.appendChild(actions);

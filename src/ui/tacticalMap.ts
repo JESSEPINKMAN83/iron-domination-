@@ -1,4 +1,4 @@
-import { oreFieldCapacity, type TerrainLayout } from '../sim/heightfield';
+import { oreFieldCapacity, type Heightfield, type TerrainLayout } from '../sim/heightfield';
 import {
   DEFAULT_ORE_AMOUNT,
   MAP_PRESETS,
@@ -373,6 +373,24 @@ export function createTacticalMapRaster(
 ): TacticalMapRaster {
   const config = { ...mapConfig(mapId, mapSize, oreAmount, terrainRelief, terrainLayout), seed: Math.max(1, Math.floor(seed) || 1) };
   const hf = generateHeightfield(config);
+  return rasterizeHeightfield(mapId,hf,resolution);
+}
+
+// One static raster per match terrain/resolution. Weak ownership releases the
+// cache when the match is discarded instead of keeping large terrains alive.
+const liveTerrainRasters=new WeakMap<Heightfield,Map<string,TacticalMapRaster>>();
+export function tacticalMapRasterForHeightfield(mapId:MapId,hf:Heightfield,resolution=384):TacticalMapRaster {
+  let entries=liveTerrainRasters.get(hf);
+  if(!entries) {entries=new Map();liveTerrainRasters.set(hf,entries);}
+  const key=`${mapId}:${resolution}`;
+  const cached=entries.get(key);
+  if(cached) return cached;
+  const raster=rasterizeHeightfield(mapId,hf,resolution);
+  entries.set(key,raster);
+  return raster;
+}
+
+function rasterizeHeightfield(mapId:MapId,hf:Heightfield,resolution:number):TacticalMapRaster {
   const width = Math.max(32, Math.floor(resolution));
   const pixels = new Uint8ClampedArray(width * width * 4);
   const palette = PALETTES[mapId];
