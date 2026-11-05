@@ -1,3 +1,4 @@
+import { applyUkraineProfile } from '../content/ukraine';
 import {describe,expect,it,vi,afterEach} from 'vitest';
 import * as economyApi from '../sim/economy';
 import {EnemyCommander} from './commander';
@@ -7,7 +8,7 @@ import {createEconomy,createInitialBase} from '../sim/economy';
 import {VisibilityGrid} from '../sim/visibility';
 import type {Difficulty} from '../content/phase6';
 
-function fixture(difficulty:Difficulty='hard',doctrine:'iron-legion'|'missile-command'='iron-legion'){
+function fixture(difficulty:Difficulty='hard',doctrine:'iron-legion'|'missile-command'|'drone-network'='iron-legion'){
   vi.spyOn(console,'info').mockImplementation(()=>{});
   const hf=generateHeightfield({cells:128,cellSize:2,waterLevel:-100,seed:41,oreFieldCount:0});hf.heights.fill(10);hf.walkable.fill(1);
   const sim=createGameSim(hf),economy=createEconomy(2,10000,doctrine);
@@ -66,6 +67,16 @@ describe('enemy air command',()=>{
     for(const kind of ['intelligence-center','strategic-silo']) sim.world.add({...base,id:sim.nextEntityId++,transform:{...base.transform},building:{...base.building!,kind}});
     control.elapsed=200;const credits=economy.credits;control.commandStrategicStrike();
     expect(economy.strategicAccuracyLevel).toBe(1);expect(economy.credits).toBeLessThan(credits);
+  });
+  it('Ukraine builds aviation, avoids unavailable Arrow tech and directs its UAV primary seeker at enemy aircraft',()=>{
+    const {hf,sim,vision,control}=fixture('extra-hard','drone-network');
+    expect(control.buildQueue).toContain('helipad');
+    expect(control.buildQueue).not.toContain('missile-defense');
+    const drone=spawnWaspAt(sim,hf,-40,0,'Wasp',2);applyUkraineProfile(drone,'wasp');
+    const enemy=spawnVultureAt(sim,hf,50,0,'Enemy',1);
+    vision.update(sim);control.commandAirWings();
+    expect(drone.weapon!.targetId).toBe(enemy.id);
+    expect(drone.mover!.target).toBeDefined();
   });
   it('keeps Iran doctrine-specific and gives Extra Hard coordinated ground assaults',()=>{
     const {sim,control,commander}=fixture('extra-hard','missile-command');

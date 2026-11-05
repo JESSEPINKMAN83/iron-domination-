@@ -29,7 +29,7 @@ export class QuickTactic {
     const bar = document.createElement('div');
     bar.style.cssText = 'position:absolute;left:50%;top:16px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:10px;background:#101e24f5;border:1px solid #78b99e;border-radius:6px;color:#d9f4e7;font:12px system-ui;max-width:95vw;';
     const label = document.createElement('span');
-    label.textContent = 'Drag to draw · Fast · 50% variation · Attack while moving';
+    label.textContent = 'Draw a path · Release to execute · Fast · 50% variation · Attack while moving';
     bar.append(label);
     const button = (text: string, action: () => void) => {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = text;
@@ -45,20 +45,17 @@ export class QuickTactic {
       this.onActive(false);
     };
     this.cancel = close;
-    const confirm = button('Confirm route', () => {
+    const executeRoute = () => {
       if (!points.length) return;
       const waypoints = quickRoutePoints(points);
       close();
       this.execute({ entityIds, waypoints, endAction: { kind: 'attack-through' }, selectionCount: entityIds.length,
         plannerDurationMs: performance.now() - started, highSpeed: true, variation: 0.5 });
-    });
-    confirm.disabled = true;
-    button('Clear', () => { points = []; confirm.disabled = true; });
+    };
     button('Cancel', close);
     const key = (event: KeyboardEvent) => {
       event.preventDefault(); event.stopImmediatePropagation();
       if (event.code === 'Escape') close();
-      else if (event.code === 'Enter' && points.length) confirm.click();
     };
     window.addEventListener('keydown', key, true);
     for (const name of ['pointerdown', 'pointerup', 'click', 'wheel', 'contextmenu']) root.addEventListener(name, e => { e.stopPropagation(); if (name === 'contextmenu' || name === 'wheel') e.preventDefault(); }, { passive: false });
@@ -88,12 +85,16 @@ export class QuickTactic {
       const point = pointAt(e.clientX, e.clientY);
       if (!point) return;
       points.push(point); if (points.length > 2048) points = quickRoutePoints(points);
-      lastX = e.clientX; lastY = e.clientY; confirm.disabled = false;
+      lastX = e.clientX; lastY = e.clientY;
     };
-    canvas.onpointerdown = e => { if (e.button !== 0) return; pointer = e.pointerId; canvas.setPointerCapture(pointer); add(e, true); };
+    canvas.onpointerdown = e => { if (e.button !== 0) return; points = []; pointer = e.pointerId; canvas.setPointerCapture(pointer); add(e, true); };
     canvas.onpointermove = e => { if (pointer === e.pointerId) add(e); };
-    canvas.onpointerup = e => { if (pointer === e.pointerId) { add(e, true); pointer = undefined; } };
-    canvas.onpointercancel = () => { pointer = undefined; };
+    canvas.onpointerup = e => {
+      if (pointer !== e.pointerId) return;
+      e.preventDefault(); e.stopPropagation();
+      add(e, true); pointer = undefined; executeRoute();
+    };
+    canvas.onpointercancel = () => { pointer = undefined; points = []; };
     root.append(bar); document.body.append(root); this.onActive(true);
     const draw = () => {
       if (!root.isConnected) return;

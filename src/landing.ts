@@ -232,12 +232,12 @@ export function showLandingScreen(options: LandingOptions = {}): Promise<Landing
           <span data-text="Red">Red</span>
         </h1>
         <p class="iron-landing__copy">
-          ${inviteRoom ? 'Your friend is waiting in the battle room.' : 'Israel vs Iran. Command from above, then drop into the fight.'}
+          ${inviteRoom ? 'Your friend is waiting in the battle room.' : 'Choose your army. Command from above, then drop into the fight.'}
         </p>
         <p class="iron-landing__detail">
           ${inviteRoom
             ? 'Open the room, choose your army, and play. No account needed.'
-            : 'Lead Israel’s air force behind Iron Dome and Arrow 3, or Iran’s Fattah missiles and Shahed swarms. Build your base, deploy armies, and switch into first-person to fight alongside your troops.'}
+            : 'Choose Israel’s air power, Iran’s missile pressure, or Ukraine’s reconnaissance and precision UAVs. Build your base, deploy armies, and switch into first-person to fight alongside your troops.'}
         </p>
         ${splitActions}
         ${fullscreenHint}

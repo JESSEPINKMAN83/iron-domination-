@@ -1,4 +1,4 @@
-export const ARMY_DOCTRINE_IDS = ['iron-legion', 'missile-command'] as const;
+export const ARMY_DOCTRINE_IDS = ['iron-legion', 'missile-command', 'drone-network'] as const;
 
 export type ArmyDoctrineId = (typeof ARMY_DOCTRINE_IDS)[number];
 export type ArmyDoctrineAssignments = ArmyDoctrineId[];
@@ -20,6 +20,12 @@ export const ARMY_DOCTRINES: Record<ArmyDoctrineId, ArmyDoctrineDef> = {
     description: 'Control the sky with Cobra, Apache and Yasur gunships behind Iron Dome and Arrow 3 interceptors.',
     strength: 'Aircraft and strategic missile interception',
     limitation: 'No strategic missile program',
+  },
+  'drone-network': {
+    id: 'drone-network', label: 'Ukraine', specialty: 'Recon drones & mobile precision',
+    description: 'Scout with agile interceptor UAVs, strike armor with Bayraktar TB2s and reposition mobile artillery. Keep fragile aircraft away from concentrated air defense.',
+    strength: 'Wide drone vision, agile interception and mobile ground forces',
+    limitation: 'Fragile UAVs, lighter armor and no strategic missile or Arrow 3 program',
   },
   'missile-command': {
     id: 'missile-command',
@@ -52,4 +58,9 @@ export function sanitizeArmyDoctrines(value: unknown, legacyPrimary?: unknown): 
   if (!primary) return undefined;
   const opponent = opposingArmyDoctrine(primary);
   return [primary, opponent, opponent, opponent];
+}
+
+/** Ukraine shares conventional air production, but not Israel's strategic interceptors. */
+export function doctrineAllows(required: ArmyDoctrineId | undefined, actual: ArmyDoctrineId, kind: string): boolean {
+  return !required || required === actual || (actual === 'drone-network' && required === 'iron-legion' && (kind === 'helipad' || kind === 'skylance-ciws' || kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead'));
 }

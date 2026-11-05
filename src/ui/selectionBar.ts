@@ -1,3 +1,5 @@
+import { UKRAINE_ROLES, ukraineArsenal } from '../content/ukraine';
+import { nationForTeam } from '../content/nations';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
 import { WEAPONS } from '../content/phase4';
 import { terrainAdvantagesLabel } from '../sim/terrainAdvantages';
@@ -871,10 +873,11 @@ export class SelectionBar {
     image.alt = group.label;
     const heading = document.createElement('h3'); heading.textContent = group.label;
     const count = document.createElement('p'); count.textContent = `${group.entities.length} units in this plan · ${group.healthPct ?? 100}% average health`;
-    const arsenal = UNIT_ARSENALS[group.unitKind];
+    const ukrainian = nationForTeam(group.entities[0]?.team?.id)?.doctrine === 'drone-network';
+    const arsenal = ukrainian ? ukraineArsenal(group.unitKind) : UNIT_ARSENALS[group.unitKind];
     const weapon = WEAPONS[arsenal.primary];
     const capabilities = document.createElement('p');
-    capabilities.textContent = `${UNITS[group.unitKind].role}. ${arsenal.designation}. Primary damage ${weapon.damage} · range ${weapon.range}.`;
+    capabilities.textContent = `${ukrainian ? UKRAINE_ROLES[group.unitKind] ?? UNITS[group.unitKind].role : UNITS[group.unitKind].role}. ${arsenal.designation}. Primary damage ${weapon.damage} · range ${weapon.range}.`;
     const upgrades = document.createElement('div'); upgrades.className = 'iron-tactic__profile-upgrades';
     const record = document.createElement('details');
     const summary = document.createElement('summary');

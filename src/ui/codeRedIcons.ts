@@ -14,6 +14,7 @@ const kinds = new Set<string>(CODE_RED_ICON_KINDS);
 export function codeRedIconPath(kind: string, team?: number): string {
   if (!kinds.has(kind) && kind !== 'artillery') return `/assets/ui/command-icons/${kind}.png`;
   const nation = nationForTeam(team);
-  const side = nation?.doctrine === 'missile-command' ? 'iran' : 'israel';
+  const ukraineUnit = ['infantry','sniper','grenadier','rocket-infantry','scout-tank','tank','siege-tank','artillery','wasp','vulture','hammerhead'].includes(kind);
+  const side = nation?.doctrine === 'drone-network' && ukraineUnit ? 'ukraine' : nation?.doctrine === 'missile-command' ? 'iran' : 'israel';
   return `/assets/ui/cinematic/${side}-${kind}.webp`;
 }

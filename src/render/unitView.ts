@@ -805,7 +805,9 @@ export class UnitView {
       });
       built = { root: rig.root, refs: { turretPivot: rig.torso, antenna: rig.antenna } };
     } else if (kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead') {
-      built = createAircraftObject(kind, materials, this.gunmetalMaterial);
+      built = nationForTeam(entity.team?.id)?.doctrine === 'drone-network' && kind !== 'vulture'
+        ? createUkraineAircraft(kind, materials, this.gunmetalMaterial)
+        : createAircraftObject(kind, materials, this.gunmetalMaterial, nationForTeam(entity.team?.id)?.doctrine === 'drone-network');
       const shadow = new Mesh(AIR_SHADOW_GEOM, this.airShadowMaterial);
       shadow.rotation.x = -Math.PI / 2;
       shadow.renderOrder = 18;
@@ -827,7 +829,7 @@ export class UnitView {
     } else if (kind === 'harvester') {
       built = createHarvesterObject(materials, this.gunmetalMaterial);
     } else {
-      built = legacyModelPreview ? createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial) : createCodeRedVehicle(kind, nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion', materials, this.gunmetalMaterial, this.muzzleMaterial);
+      built = legacyModelPreview ? createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial) : createCodeRedVehicle(entity.artillery && nationForTeam(entity.team?.id)?.doctrine === 'drone-network' ? 'bohdana' : kind, nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion', materials, this.gunmetalMaterial, this.muzzleMaterial);
     }
     const unit = built.root;
     if (entity.artillery) {
@@ -3245,8 +3247,8 @@ function createHarvesterObject(materials: TeamMaterials, gunmetal: Material): Bu
   };
 }
 
-export function createAircraftObject(kind: UnitVisualKind, materials: TeamMaterials, rotorMaterial: Material): BuiltUnit {
-  if(kind==='vulture' && !legacyModelPreview) return createThumbnailApache(materials,rotorMaterial);
+export function createAircraftObject(kind: UnitVisualKind, materials: TeamMaterials, rotorMaterial: Material, ukraine = false): BuiltUnit {
+  if(kind==='vulture' && !legacyModelPreview && !ukraine) return createThumbnailApache(materials,rotorMaterial);
   const group = new Group();
   const mainRotors: Object3D[] = [];
   const tailRotors: Object3D[] = [];
@@ -3405,4 +3407,44 @@ function deterministicUnit(id: number, seed: number): number {
 
 function deterministicUnitSigned(id: number, seed: number): number {
   return deterministicUnit(id, seed) * 2 - 1;
+}
+
+/** Low-poly UAV silhouettes reuse cached primitives and existing rotor animation. */
+export function createUkraineAircraft(kind: UnitVisualKind, m: TeamMaterials, metal: Material): BuiltUnit {
+  const root = new Group(); root.name = kind === 'wasp' ? 'ukraine-interceptor-uav' : 'ukraine-bayraktar-tb2';
+  const mainRotors: Object3D[] = [], tailRotors: Object3D[] = [];
+  if (kind === 'wasp') {
+    root.add(box(.8,.45,1.7,m.hull,0,0,0), box(.45,.3,.5,metal,0,-.3,.7));
+    for (const side of [-1,1]) for (const z of [-1,1]) {
+      const arm = box(.16,.14,2.4,metal,side*.65,0,z*.55); arm.rotation.y = side*z*.8; root.add(arm);
+      mainRotors.push(addRotor(root,metal,1.6,side*1.5,.2,z*1.4));
+    }
+    root.add(box(.9,.08,.2,m.accent,0,.26,0));
+  } else {
+    root.add(box(.65,.6,5.4,m.hull,0,0,0),box(11,.13,1.1,m.hull,0,.25,.2));
+    for(const side of [-1,1]) {
+      root.add(box(.12,.12,2.7,metal,side*1.2,-.1,-2));
+      const tail=box(.12,1.3,1.3,m.hull,side*.8,.7,-2.9);tail.rotation.z=-side*.55;root.add(tail);
+      root.add(box(.2,.25,1.25,metal,side*1.8,-.3,.35));
+    }
+    root.add(box(.4,.4,.6,metal,0,-.45,1.8));
+    tailRotors.push(addTailRotor(root,metal,0,0,-2.9));
+  }
+  for (const [role, material] of [['hull',m.hull],['accent',m.accent],['metal',metal]] as const) mergeUkraineParts(root, material, `${kind}:${role}`);
+  for (const rotor of [...mainRotors,...tailRotors]) mergeUkraineParts(rotor, metal, 'rotor:'+kind+':'+(rotor.children[0] as Mesh)?.geometry?.uuid);
+  return {root,refs:{mainRotors,tailRotors}};
+}
+
+const ukraineAircraftGeometry = new Map<string, BufferGeometry>();
+function mergeUkraineParts(parent: Object3D, material: Material, key: string): void {
+  const parts = parent.children.filter((part): part is Mesh => part instanceof Mesh && part.material === material);
+  if (parts.length < 2) return;
+  let geometry = ukraineAircraftGeometry.get(key);
+  if (!geometry) {
+    const pieces = parts.map(part => { part.updateMatrix(); return part.geometry.clone().applyMatrix4(part.matrix); });
+    geometry = mergeGeometries(pieces,false)!; pieces.forEach(piece => piece.dispose());
+    geometry.userData.ironDominionSharedUnitGeometry = true;
+    ukraineAircraftGeometry.set(key,geometry);
+  }
+  parts.forEach(part => parent.remove(part)); parent.add(new Mesh(geometry,material));
 }

@@ -16,6 +16,7 @@ export type WeaponKind =
   | 'tankBomb'
   | 'bomb'
   | 'rocketPod'
+  | 'precisionMissile'
   | 'agMissile'
   | 'aaMissile'
   | 'skylanceGun'
@@ -52,6 +53,12 @@ export interface WeaponDef {
 }
 
 export const WEAPONS: Record<WeaponKind, WeaponDef> = {
+  precisionMissile: {
+    kind:'precisionMissile',label:'Lightweight precision munition',damage:44,cooldown:5.5,range:196,
+    canTargetAir:false,splashRadius:3,targetTypes:['infantry','light','heavy','building'],
+    vs:{infantry:.7,light:1.2,heavy:1.25,building:1,air:0},
+    projectile:{kind:'agMissile',speed:88,trajectory:'homing',impactRadius:3},
+  },
   microLaser: {
     kind: 'microLaser',
     label: 'Escort Micro-Laser',

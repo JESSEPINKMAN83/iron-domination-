@@ -257,6 +257,8 @@ export interface ProductionJob {
 }
 
 export interface Entity {
+  rosterKind?: import('../content/phase3').UnitKind;
+  ukraineProfile?: boolean;
   terrainRevealedUntilTick?: number;
   artillery?: { phase:'mobile'|'deploying'|'deployed'|'packing'; elapsed:number; deploy:boolean };
   campaign?: import('../campaign/firstLight').CampaignState;

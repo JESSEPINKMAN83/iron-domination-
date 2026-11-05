@@ -29,8 +29,8 @@ interface ArmorMaterials { hull: Material; dark: Material; accent: Material; lig
 export function createCodeRedVehicle(kind: string, doctrine: ArmyDoctrineId, m: ArmorMaterials, gunmetal: Material, muzzleMaterial: Material) {
   const root = new Group(); const turretPivot = new Group(); const barrelPivot = new Group();
   root.name = `${doctrine}:${kind}`;
-  const east = doctrine === 'missile-command'; const scout = kind === 'jackal'; const artillery = kind === 'mauler';
-  const truck = scout || (east && artillery); const wide = artillery ? 3.9 : scout ? 2.9 : 3.6; const length = artillery ? 6.6 : scout ? 4.7 : 5.5;
+  const east = doctrine === 'missile-command'; const ukraine = doctrine === 'drone-network'; const scout = kind === 'jackal'; const artillery = kind === 'mauler' || kind === 'bohdana';
+  const truck = scout || kind === 'bohdana' || (east && artillery); const wide = artillery ? 3.9 : scout ? 2.9 : 3.6; const length = artillery ? 6.6 : scout ? 4.7 : 5.5;
   const b = (p: Group,n:string,w:number,h:number,d:number,x:number,y:number,z:number,mat:Material=m.hull) => modelBox(p,n,mat,w,h,d,x,y,z);
   if(kind==='m17' && !east) modelArmor(root,'merkava-sloped-hull',m.hull,wide,.9,length,0,.75,0);
   else b(root,'armored-hull',wide,.8,length,0,.72,0);
@@ -54,6 +54,11 @@ export function createCodeRedVehicle(kind: string, doctrine: ArmyDoctrineId, m: 
     b(root,'split-windshield',wide*.65,.3,.07,0,1.5,1.73,m.lightBar);
     b(turretPivot,'remote-weapon-station',.9,.4,1.1,0,.7,0,m.dark);
     barrelPivot.position.set(0,.8,.2);
+  } else if (kind === 'bohdana') {
+    b(root,'bohdana-truck-cab',wide*.85,1.25,1.8,0,1.3,2.3);
+    b(root,'bohdana-windshield',wide*.7,.4,.08,0,1.65,3.22,m.lightBar);
+    b(turretPivot,'bohdana-gun-cradle',2.1,.6,2.4,0,.3,-.6,m.dark);
+    barrelPivot.position.set(0,.9,.7);
   } else if (east && artillery) {
     b(root,'truck-cab',wide*.88,1.3,1.6,0,1.3,2.35);
     b(root,'cab-windows',wide*.76,.43,.08,0,1.65,3.19,m.lightBar);
@@ -63,6 +68,14 @@ export function createCodeRedVehicle(kind: string, doctrine: ArmyDoctrineId, m: 
       modelCylinder(barrelPivot,'fajr-launch-tube',m.hull,.32,3.8,x,y,0,12).rotation.x=Math.PI/2;
       modelCylinder(barrelPivot,'tube-mouth',m.dark,.27,.08,x,y,1.94,12).rotation.x=Math.PI/2;
     }
+  } else if (ukraine && !artillery) {
+    modelArmor(turretPivot,'leopard-wedge-turret',m.hull,3.1,.8,3.3,0,.35,0);
+    for(const side of [-1,1]) {
+      b(turretPivot,'leopard-wedge-cheek',1.1,.65,1.8,side*.85,.4,.9).rotation.y=side*.3;
+      b(turretPivot,'rear-stowage',.3,.6,1.2,side*1.4,.4,-1.1,m.canvas);
+    }
+    b(turretPivot,'commander-optic',.4,.35,.45,-.5,1,-.4,m.dark);
+    barrelPivot.position.set(0,.4,1.4);
   } else if (east) {
     modelCylinder(turretPivot,'karrar-rounded-turret',m.hull,1.4,.7,0,.3,0,12).scale.set(1,.85,1.02);
     for (const side of [-1,1]) for(let i=0;i<4;i++) {
@@ -84,7 +97,7 @@ export function createCodeRedVehicle(kind: string, doctrine: ArmyDoctrineId, m: 
     } else b(turretPivot,'rochev-turret',2.8,1.15,2.5,0,.3,0);
     for(const side of [-1,1]) {
       b(turretPivot,'wedge-cheek',1.2,.4,1.6,side*.8,.45,.55).rotation.y=side*.28;
-      b(turretPivot,'trophy-radar',.32,.38,.42,side*1.43,.5,-.65,m.dark);
+      if(!ukraine) b(turretPivot,'trophy-radar',.32,.38,.42,side*1.43,.5,-.65,m.dark);
       if(!artillery) for(let i=0;i<4;i++) modelCylinder(turretPivot,'chain-ball-skirt',gunmetal,.09,.3,side*(.35+i*.27),-.18,-1.35,6);
     }
     for(let i=0;i<5;i++) b(root,'front-engine-grille',.28,.06,1.2,-.8+i*.4,1.24,1.5,gunmetal);

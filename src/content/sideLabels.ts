@@ -6,6 +6,12 @@ import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from './phase3';
 // unit kind reads as the Israeli or Iranian equivalent depending on its army.
 // Ids, entity names and gameplay are untouched — this is presentation only.
 const UNIT_LABELS: Record<ArmyDoctrineId, Partial<Record<UnitKind, string>>> = {
+  'drone-network': {
+    infantry: 'Mechanized Infantry', sniper: 'Recon Marksman', grenadier: 'Assault Infantry',
+    'rocket-infantry': 'Stugna-P ATGM Team', 'scout-tank': 'BTR-4 Bucephalus', tank: 'Leopard 2A6',
+    'siege-tank': 'PzH 2000', artillery: 'Bohdana Field Gun', wasp: 'Interceptor UAV',
+    vulture: 'Mi-24 Hind', hammerhead: 'Bayraktar TB2',
+  },
   'iron-legion': {
     infantry: 'Golani Infantry',
     sniper: 'Sayeret Sniper',
@@ -32,6 +38,11 @@ const UNIT_LABELS: Record<ArmyDoctrineId, Partial<Record<UnitKind, string>>> = {
 };
 
 const STRUCTURE_LABELS: Record<ArmyDoctrineId, Partial<Record<StructureKind, string>>> = {
+  'drone-network': {
+    barracks: 'Mechanized Barracks', factory: 'Armor Workshop', helipad: 'UAV & Aviation Hub',
+    'guard-tower': 'Frontier Strongpoint', 'aa-tower': 'Mobile SAM Battery',
+    'skylance-ciws': 'Counter-UAS Battery', wall: 'Concrete Barrier',
+  },
   'iron-legion': {
     barracks: 'IDF Barracks',
     factory: 'Armor Works',
@@ -78,3 +89,5 @@ export function applyLocalSideLabels(doctrine: ArmyDoctrineId): void {
   for (const kind of Object.keys(UNITS) as UnitKind[]) UNITS[kind].label = unitLabel(kind);
   for (const kind of Object.keys(STRUCTURES) as StructureKind[]) STRUCTURES[kind].label = structureLabel(kind);
 }
+
+export function localArmyDoctrine(): ArmyDoctrineId { return localDoctrine; }

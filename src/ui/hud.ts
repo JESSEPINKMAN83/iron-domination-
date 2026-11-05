@@ -1,3 +1,4 @@
+import { ukraineArsenal } from '../content/ukraine';
 import type { Entity } from '../sim/components';
 import { unitKindForUpgrade } from '../sim/upgrades';
 import { UNIT_ARSENALS, type WeaponHudFamily } from '../content/unitArsenal';
@@ -175,7 +176,7 @@ export class Hud {
     this.firstPersonEntity = active ? entity : undefined;
     const mobileTouch = typeof document !== 'undefined' && document.documentElement.classList.contains('mobile-touch-device');
     const unitKind = entity ? unitKindForUpgrade(entity) : undefined;
-    const arsenal = unitKind ? UNIT_ARSENALS[unitKind] : undefined;
+    const arsenal = unitKind ? entity?.ukraineProfile ? ukraineArsenal(unitKind) : UNIT_ARSENALS[unitKind] : undefined;
     this.reticleFamily = arsenal?.hud ?? 'rifle';
     const primary = weaponLabel(entity?.weapons?.primary.kind ?? entity?.weapon?.kind);
     const secondary = weaponLabel(entity?.weapons?.secondary?.kind);

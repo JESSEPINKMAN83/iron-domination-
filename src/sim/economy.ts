@@ -1,3 +1,4 @@
+import { applyUkraineProfile } from '../content/ukraine';
 import { INFANTRY_MOVE_SPEEDS } from '../content/phase3';
 import { structureLabel } from '../content/sideLabels';
 import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from '../content/phase3';
@@ -5,7 +6,7 @@ import { createFortressWeapons, FORTRESS_TOWER, FORTRESS_TOWER_KINDS, type Fortr
 import { startPosition } from '../content/startPositions';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
 import { WEAPONS } from '../content/phase4';
-import { ARMY_DOCTRINES, type ArmyDoctrineId } from '../content/armyDoctrines';
+import { ARMY_DOCTRINES, doctrineAllows, type ArmyDoctrineId } from '../content/armyDoctrines';
 import type { Entity, ProductionJob } from './components';
 import type { Heightfield } from './heightfield';
 import { sampleHeight } from './heightfield';
@@ -216,7 +217,7 @@ function clearReadyStructure(economy: EconomyState, kind: StructureKind): void {
 
 export function canBuildStructure(sim: GameSim, economy: EconomyState, kind: StructureKind): { ok: boolean; reason: string } {
   const def = STRUCTURES[kind];
-  if (def.doctrine && def.doctrine !== economy.doctrine) return { ok: false, reason: `${ARMY_DOCTRINES[def.doctrine].label} only` };
+  if (!doctrineAllows(def.doctrine, economy.doctrine, kind)) return { ok: false, reason: `${ARMY_DOCTRINES[def.doctrine!].label} only` };
   if (structureLineInLane(economy, def.tab) || readyStructureInLane(economy, def.tab)) {
     return { ok: false, reason: `${def.tab === 'defense' ? 'Defense' : 'Building'} line busy` };
   }
@@ -230,8 +231,8 @@ export function canQueueUnit(sim: GameSim, economy: EconomyState, kind: UnitKind
   const producers = buildings(sim, economy.team).filter(
     (entity) => entity.building?.complete && STRUCTURES[entity.building.kind as StructureKind]?.producer === def.producer,
   );
-  if (def.doctrine && def.doctrine !== economy.doctrine) {
-    return { ok: false, reason: `${ARMY_DOCTRINES[def.doctrine].label} only`, producers: [] };
+  if (!doctrineAllows(def.doctrine, economy.doctrine, kind)) {
+    return { ok: false, reason: `${ARMY_DOCTRINES[def.doctrine!].label} only`, producers: [] };
   }
   if (!hasStructure(sim, def.requires, economy.team)) return { ok: false, reason: `Requires ${STRUCTURES[def.requires].label}`, producers };
   if (producers.length === 0) return { ok: false, reason: 'No producer', producers };
@@ -556,7 +557,7 @@ export function stepEconomy(sim: GameSim, hf: Heightfield, economy: EconomyState
     if (!job) continue;
     job.remaining -= dt * productionScale;
     if (job.remaining <= 0) {
-      const unit = spawnProducedUnit(sim, hf, producer, job.kind as UnitKind);
+      const unit = spawnProducedUnit(sim, hf, producer, job.kind as UnitKind, economy.doctrine);
       if (unit) {
         spawned.push(unit);
         producer.producer.active = undefined;
@@ -721,7 +722,7 @@ function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
   return -1;
 }
 
-function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind: UnitKind): Entity | undefined {
+function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind: UnitKind, doctrine: ArmyDoctrineId): Entity | undefined {
   const team = producer.team?.id ?? 1;
   const exit = productionExitPlan(sim, hf, producer, kind);
   if (!exit) return undefined;
@@ -737,6 +738,7 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
   else if (kind === 'hammerhead') entity = spawnHammerheadAt(sim, hf, pos.x, pos.z, `${team === 2 ? 'Ash Hammerhead' : 'Hammerhead'} ${suffix}`, team);
   else entity = spawnInfantryAt(sim, pos.x, pos.z, team, kind);
   if (!entity) return undefined;
+  if (doctrine === 'drone-network') applyUkraineProfile(entity, kind);
   if (producer.producer) producer.producer.lastDepartureTick = sim.tick;
   if (entity.flight) {
     const pad = reserveUnitPosition(sim, entity, producer.transform);

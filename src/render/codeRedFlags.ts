@@ -8,7 +8,8 @@ export function nationFlagMaterial(id: NationId): MeshBasicMaterial {
   const c=canvas.getContext('2d')!;
   const fill=(color:string,x=0,y=0,w=192,h=128)=>{c.fillStyle=color;c.fillRect(x,y,w,h);};
   fill('#f4f2e5');
-  if(id==='israel') {
+  if(id==='ukraine') { fill('#0057b7',0,0,192,64);fill('#ffd700',0,64,192,64); }
+  else if(id==='israel') {
     fill('#1756ad',0,18,192,15); fill('#1756ad',0,95,192,15); c.strokeStyle='#1756ad';c.lineWidth=5;
     for(const sign of [-1,1]) {c.beginPath();for(let i=0;i<3;i++){const a=sign*Math.PI/2+i*Math.PI*2/3;c.lineTo(96+28*Math.cos(a),64+28*Math.sin(a));}c.closePath();c.stroke();}
   } else if(id==='usa') {

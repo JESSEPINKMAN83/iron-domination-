@@ -1,3 +1,4 @@
+import { applyUkraineProfile } from './content/ukraine';
 import { stageTerrainPreview } from './sim/terrainPreview';
 import { createConnectionRecovery, promptToRejoin } from './net/recoveryUi';
 import { setArtilleryDeployment } from './sim/artillery';
@@ -74,6 +75,8 @@ import {
 import { STRUCTURES, type StructureKind, type UnitKind } from './content/phase3';
 import {
   ARMY_DOCTRINE_IDS,
+  ARMY_DOCTRINES,
+  doctrineAllows,
   defaultArmyDoctrines,
   sanitizeArmyDoctrine,
   sanitizeArmyDoctrines,
@@ -1366,6 +1369,8 @@ function createArmySetupControl(
         doctrineSelect.value = doctrines[army - 1];
         doctrineSelect.disabled = disabled;
         doctrineSelect.dataset.doctrine = doctrines[army - 1];
+        const info = ARMY_DOCTRINES[doctrines[army - 1]];
+        doctrineSelect.title = `${info.specialty}. ${info.description} Strength: ${info.strength}. Tradeoff: ${info.limitation}.`;
       }
     }
     matchup.textContent = formatArmyMatchup(count, sides, (army) => NATIONS[setupNations[army - 1]].tag);
@@ -1427,7 +1432,7 @@ function createArmySetupControl(
     for (const doctrine of ARMY_DOCTRINE_IDS) {
       const option = document.createElement('option');
       option.value = doctrine;
-      option.textContent = doctrine === 'iron-legion' ? 'ISRAEL · AIR FORCE' : 'IRAN · MISSILES';
+      option.textContent = doctrine === 'drone-network' ? 'UKRAINE · DRONES' : doctrine === 'iron-legion' ? 'ISRAEL · AIR FORCE' : 'IRAN · MISSILES';
       doctrineSelect.appendChild(option);
     }
     doctrineSelect.onchange = () => {
@@ -3103,6 +3108,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const workingBasePreview=import.meta.env.DEV && params.get('base-activity-test')==='1';
   if(workingBasePreview) seedWorkingBasePreview(sim,hf,armies,localTeam);
+  for (const entity of sim.world.entities) {
+    const kind = unitKindForUpgrade(entity);
+    if (kind && settings.armyDoctrines[(entity.team?.id ?? 1) - 1] === 'drone-network') applyUkraineProfile(entity, kind);
+  }
   const unitView = new UnitView([...lineupUnits, ...startingUnits, ...performanceUnits], hf, ctx, isVisibleToPlayer, localTeam);
   unitView.attach(ctx.scene);
   const groundTrails = mobileTouch || !groundRealism ? undefined : new GroundTrailView(hf, isVisibleToPlayer);
@@ -3392,6 +3401,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     const x=lineupUnits.reduce((sum,e)=>sum+e.transform.x,0)/lineupUnits.length;
     const z=lineupUnits.reduce((sum,e)=>sum+e.transform.z,0)/lineupUnits.length;
     rig.focusOn(x,z,{x:x+80,z:z+115},115,-6);
+  } else if (lineupStart && economy.doctrine === 'drone-network' && lineupUnits.length) {
+    const x = lineupUnits.reduce((sum,e)=>sum+e.transform.x,0)/lineupUnits.length;
+    const z = lineupUnits.reduce((sum,e)=>sum+e.transform.z,0)/lineupUnits.length;
+    rig.focusOn(x,z,{x:x-55,z:z+120},140,-6);
   } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else {
     rig.jumpToOpeningView(
@@ -5217,6 +5230,7 @@ function spawnLineupUnits(
       units.push(enemy);
     }
   }
+  if (economy.doctrine === 'drone-network') units.push(spawnArtilleryAt(sim, startX + kinds.length * 8.4, playerZ, 'Bohdana trial', economy.team));
   return units;
 }
 
@@ -6335,7 +6349,7 @@ function seedTestStartBase(sim: ReturnType<typeof createGameSim>, hf: ReturnType
   ];
   for (const item of placements) {
     const definition = STRUCTURES[item.kind];
-    if (definition.doctrine && definition.doctrine !== economy.doctrine) continue;
+    if (!doctrineAllows(definition.doctrine, economy.doctrine, item.kind)) continue;
     economy.readyStructure = item.kind;
     const placement = findValidTestPlacement(sim, hf, economy, base.transform.x, base.transform.z, item.kind, item.offsets);
     if (!placement) {
