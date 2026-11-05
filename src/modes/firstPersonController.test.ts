@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Entity } from '../sim/components';
 import {
   directControlFollowerAnchor,
+  vehicleFirstPersonBlend,
   fortressOpticalFov,
   fortressTargetScanConeRatio,
   fortressTargetScanRingSize,
@@ -197,4 +198,13 @@ describe('fortress optical zoom', () => {
     expect(fortressOpticalFov(-5)).toBe(68);
     expect(fortressOpticalFov(5)).toBe(18);
   });
+});
+
+describe('vehicle onboard zoom',()=>{
+ it('keeps chase zoom external and reaches full onboard at the closest stop',()=>{
+  expect(vehicleFirstPersonBlend(0)).toBe(0);
+  expect(vehicleFirstPersonBlend(-1)).toBe(0);
+  expect(vehicleFirstPersonBlend(-2)).toBeGreaterThan(0.5);
+  expect(vehicleFirstPersonBlend(-3)).toBe(1);
+ });
 });

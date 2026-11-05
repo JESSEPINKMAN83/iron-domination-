@@ -3387,7 +3387,11 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     const { focus, forward } = coordinationStage;
     rig.focusOn(focus.x, focus.z, { x: focus.x - forward.x * 140, z: focus.z - forward.z * 140 }, 250, -6);
   } else if (aircraftRouteTest) rig.focusOn(routeStage.x, routeStage.z, { x: routeStage.x - 110, z: routeStage.z - 150 }, 190, -6);
-  else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
+  else if (lineupStart && import.meta.env.DEV && params.get('unit-model-trial')==='1' && lineupUnits.length) {
+    const x=lineupUnits.reduce((sum,e)=>sum+e.transform.x,0)/lineupUnits.length;
+    const z=lineupUnits.reduce((sum,e)=>sum+e.transform.z,0)/lineupUnits.length;
+    rig.focusOn(x,z,{x:x+80,z:z+115},115,-6);
+  } else if (lineupStart) rig.jumpTo(localBase.transform.x + 26, localBase.transform.z + 12);
   else {
     rig.jumpToOpeningView(
       localBase.transform.x,
@@ -4343,7 +4347,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       combatView.setVisualQuality(ctx.visualQuality);
       scatter.updateGroundEffects(time, ctx.visualQuality, (sim.tick + alpha) / SIM_HZ);
       groundTrails?.update(sim.tick / SIM_HZ + alpha / SIM_HZ, ctx.visualQuality);
-      if (firstPerson.active) firstPerson.update(dt, alpha);
+      if (firstPerson.active) {
+        firstPerson.update(dt, alpha);
+        unitView.setHiddenEntity(firstPerson.hidePossessedHull ? firstPerson.possessedEntity : undefined);
+      }
       else {
         rig.setGrabSuppressed(controller.isRightOrderGestureActive());
         rig.setEmptyRightDragLook(controller.isEmptyRightLookActive());
@@ -5172,7 +5179,8 @@ function spawnLineupUnits(
   baseZ: number,
 ): Array<ReturnType<typeof spawnTankAt>> {
   const units = [];
-  const kinds = [
+  const modelTrial=import.meta.env.DEV && new URLSearchParams(location.search).get('unit-model-trial')==='1';
+  const kinds = modelTrial ? ['rifle','m17','vulture'] as const : [
     'rifle',
     'grenadier',
     'rocket',
@@ -5185,11 +5193,11 @@ function spawnLineupUnits(
     'hammerhead',
     'harvester',
   ] as const;
-  const startX = baseX - 42;
-  const playerZ = baseZ + 34;
-  const enemyZ = baseZ + 52;
+  const startX = modelTrial ? baseX*.45-18 : baseX-42;
+  const playerZ = modelTrial ? baseZ*.45 : baseZ+34;
+  const enemyZ = modelTrial ? playerZ+28 : baseZ+52;
   for (let i = 0; i < kinds.length; i++) {
-    const x = startX + i * 8.4;
+    const x = startX + i * (modelTrial ? 18 : 8.4);
     const player = spawnLineupKind(sim, hf, economy, kinds[i], x, playerZ, 1);
     const enemy = spawnLineupKind(sim, hf, economy, kinds[i], x, enemyZ, 2);
     if (player) {

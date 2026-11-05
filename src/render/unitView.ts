@@ -1,3 +1,4 @@
+import { createThumbnailApache } from './thumbnailApache';
 import { legacyModelPreview } from './codeRedPreview';
 import { artilleryProbeProgress, ARTILLERY_PROBE_HEIGHT, ARTILLERY_DEPLOY_SECONDS, ARTILLERY_PACK_SECONDS } from '../sim/artillery';
 import { nationForTeam } from '../content/nations';
@@ -3245,6 +3246,7 @@ function createHarvesterObject(materials: TeamMaterials, gunmetal: Material): Bu
 }
 
 export function createAircraftObject(kind: UnitVisualKind, materials: TeamMaterials, rotorMaterial: Material): BuiltUnit {
+  if(kind==='vulture' && !legacyModelPreview) return createThumbnailApache(materials,rotorMaterial);
   const group = new Group();
   const mainRotors: Object3D[] = [];
   const tailRotors: Object3D[] = [];

@@ -4,7 +4,7 @@ import type { ArmyDoctrineId } from '../content/armyDoctrines';
 // turretPivot contract, but now reads as a small soldier: human proportions,
 // helmet/goggles, camo uniform, kit silhouettes, held weapons, and cached refs
 // for aim/recoil/death animation.
-import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Material } from 'three';
+import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SphereGeometry, type BufferGeometry, type Material } from 'three';
 import type { UnitVisualKind } from './unitKinds';
 
 export interface SoldierMaterials {
@@ -45,6 +45,8 @@ export interface SoldierRig {
 type SoldierKit = Extract<UnitVisualKind, 'rifle' | 'grenadier' | 'rocket' | 'sniper'>;
 
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
+const helmetShell = new SphereGeometry(1,10,5,0,Math.PI*2,0,Math.PI*.58);
+helmetShell.userData[sharedGeometryTag]=true;
 const boxGeometryCache = new Map<string, BoxGeometry>();
 const cylinderGeometryCache = new Map<string, CylinderGeometry>();
 
@@ -135,10 +137,12 @@ function buildRifle(m: SoldierMaterials): { rifle: Group; muzzleFlash: Mesh } {
 function addSoldierBody(torso: Group, m: SoldierMaterials): { chest: Mesh; abdomen: Mesh } {
   const abdomen = cyl(0.21, 0.17, 0.34, 8, m.uniform, 0, 0.19, 0);
   abdomen.scale.z = 0.65;
-  const chest = box(0.44, 0.42, 0.25, m.uniform, 0, 0.52, 0.005);
+  const chest = cyl(.235,.2,.42,8,m.uniform,0,.52,.005); chest.scale.z=.6;
   chest.rotation.x = -0.05;
   torso.add(abdomen, chest);
-  torso.add(box(0.48, 0.3, 0.28, m.gear, 0, 0.42, 0.02)); // plate carrier
+  const carrier=cyl(.255,.22,.34,8,m.gear,0,.44,.02);carrier.scale.z=.62;torso.add(carrier);
+  for(const x of [-.145,-.048,.048,.145]) torso.add(box(.065,.14,.055,m.canvas,x,.43,.18));
+  for(const side of [-1,1]) torso.add(box(.045,.28,.055,m.canvas,side*.16,.66,.11));
   torso.add(box(0.12, 0.035, 0.08, m.accent, 0, 0.62, 0.17)); // chest team strip
   torso.add(box(0.42, 0.055, 0.06, m.gear, 0, 0.12, 0.13)); // belt
   for (const x of [-0.14, 0, 0.14]) torso.add(box(0.075, 0.105, 0.055, m.gear, x, 0.02, 0.16));
@@ -152,8 +156,8 @@ function addHead(torso: Group, m: SoldierMaterials): void {
   face.scale.z = 0.9; torso.add(face); // smaller head
   torso.add(box(0.185, 0.055, 0.17, m.visor, 0, 0.955, 0.095)); // goggles
   torso.add(box(0.16, 0.035, 0.155, m.gear, 0, 0.895, 0.102)); // face shadow
-  const helmet = cyl(0.135, 0.155, 0.125, 8, m.uniform, 0, 1.07, 0);
-  helmet.scale.y = 0.72;
+  const helmet = new Mesh(helmetShell,m.uniform); helmet.position.set(0,1.025,0);
+  helmet.scale.set(.157,.15,.17);
   torso.add(helmet);
   torso.add(box(0.25, 0.035, 0.09, m.uniform, 0, 1.03, 0.105)); // brim
   torso.add(box(0.055, 0.1, 0.09, m.uniform, -0.13, 1.0, 0.005));
