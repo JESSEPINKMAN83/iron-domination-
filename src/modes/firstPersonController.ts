@@ -20,7 +20,11 @@ import {
 } from './vModeHitJuice';
 
 type PossessionMode = 'rts' | 'entering' | 'fps' | 'exiting';
-const CHASE_ZOOM_MIN = -1;
+const CHASE_ZOOM_MIN = -3;
+/** Smoothly replace the chase view with an unobstructed onboard eye point. */
+export function vehicleFirstPersonBlend(zoom:number):number {
+  return 1-MathUtils.smoothstep(zoom,-2.65,-1.05);
+}
 const CHASE_ZOOM_MAX = 3.15;
 const ORBIT_PITCH_MIN = MathUtils.degToRad(-18);
 const ORBIT_PITCH_MAX = MathUtils.degToRad(48);
@@ -384,6 +388,11 @@ export class FirstPersonController {
     return this.possessed;
   }
 
+  get hidePossessedHull():boolean {
+    return this.active && !!this.possessed && !this.isFootSoldier() && !this.fortress
+      && !hasUnitUpgrade(this.possessed,'combat-bike') && vehicleFirstPersonBlend(this.renderChaseZoom)>0.5;
+  }
+
   get targetedEntity(): Entity | undefined {
     const id = this.targetScanCandidateId ?? this.lockedTargetId ?? this.lockCandidateId;
     if (id === undefined || id < 0) return undefined;
@@ -591,7 +600,7 @@ export class FirstPersonController {
     const infantryAiming = this.isFootSoldier() && !this.isSniper(this.possessed) && this.input.isButton(2);
     this.infantryDistance += (this.infantryDistanceTarget - this.infantryDistance) * (1 - Math.exp(-dt * 12));
     this.infantryKick *= Math.exp(-dt * 18);
-    const near = this.isFootSoldier() ? 0.08 : 2;
+    const near = this.isFootSoldier() || this.hidePossessedHull ? 0.08 : 2;
     if (this.camera.near !== near) { this.camera.near = near; this.camera.updateProjectionMatrix(); }
     this.infantryWeapon.visible = this.mode === 'fps' && this.isFootSoldier() && !hasUnitUpgrade(this.possessed, 'combat-bike') && this.infantryDistance < 0.65 && !this.isSniperScoped();
     const footSpeed = Math.hypot(this.possessed.velocity?.x ?? 0, this.possessed.velocity?.z ?? 0);
@@ -752,6 +761,8 @@ export class FirstPersonController {
     const chaseHeight = Math.max(2.8, chaseDistance * Math.sin(cameraPitch) + 1.2);
     const position = tankCenter.clone().addScaledVector(this.tmpHorizontal, -horizontalDistance);
     position.y += chaseHeight;
+    const onboard=vehicleFirstPersonBlend(this.renderChaseZoom);
+    position.lerp(tankCenter.clone().addScaledVector(this.tmpForward,.8),onboard);
     // The camera always follows the raw yaw/pitch vector. A terrain hit only
     // chooses where the weapon converges; it must never steer the camera or the
     // center reticle jumps when the ray crosses a ridge or the horizon.
@@ -862,8 +873,11 @@ export class FirstPersonController {
     const chaseHeight = MathUtils.lerp(5.2, 6.4, speedT) + Math.sin(flightOrbitPitch) * chaseDistance * 0.72;
     const position = this.tmpFlightPosition.copy(center).addScaledVector(this.tmpVelocityDir, -horizontalDistance);
     position.y += Math.max(2.6, chaseHeight);
+    const onboard=vehicleFirstPersonBlend(this.renderChaseZoom);
+    position.lerp(center.clone().addScaledVector(this.tmpForward,1.2),onboard);
     this.tmpAimTarget.copy(center).addScaledVector(this.tmpForward, 170);
     this.tmpCameraTarget.copy(center).addScaledVector(this.tmpForward, 80);
+    this.tmpCameraTarget.lerp(position.clone().addScaledVector(this.tmpForward,80),onboard);
     const roll = MathUtils.lerp(entity.flight!.previousRollAttitude, entity.flight!.rollAttitude, alpha);
     const cameraRoll = MathUtils.clamp(roll * 0.4, MathUtils.degToRad(-10), MathUtils.degToRad(10));
     return this.lookPose(position, this.tmpCameraTarget, this.zoomedFov(MathUtils.lerp(64, 78, speedT)), -cameraRoll);
