@@ -300,7 +300,7 @@ const kitUniforms = {
 };
 
 export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle', doctrine: ArmyDoctrineId = 'iron-legion'): SoldierRig {
-  m = { ...m, uniform: !legacyModelPreview && doctrine === 'missile-command' ? woodlandUniform : kitUniforms[kit] };
+  m = { ...m, uniform: !legacyModelPreview && (doctrine === 'missile-command' || doctrine === 'drone-network') ? woodlandUniform : kitUniforms[kit] };
   const root = new Group();
   const combatBike = buildCombatBike(m);
   root.add(combatBike.root);
@@ -323,7 +323,7 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle', doc
   const weapon = buildRifle(m);
   const kitRefs = applyKit(root, torso, weapon.rifle, m, kit);
   if (!legacyModelPreview && kit === 'rifle') {
-    const east = doctrine === 'missile-command';
+    const east = doctrine !== 'iron-legion';
     // Rifle identity without changing the firing origin or animation rig.
     weapon.rifle.name = east ? 'ak-pattern-rifle' : 'tavor-bullpup';
     weapon.rifle.children.slice(0,4).forEach(child => { child.visible = false; });
@@ -338,6 +338,9 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle', doc
       torso.add(box(.12,.09,.015,m.canvas,x,.55,.14));
       torso.add(box(.09,.11,.015,m.gear,-x,.28,.145));
     }
+  }
+  if (doctrine === 'drone-network') {
+    torso.add(box(.025,.055,.12,ukrainePatchBlue,-.34,.61,0),box(.025,.055,.12,ukrainePatchYellow,-.34,.555,0));
   }
   torso.add(weapon.rifle);
   root.add(torso);
@@ -373,3 +376,6 @@ export function buildSoldier(m: SoldierMaterials, kit: SoldierKit = 'rifle', doc
     kit,
   };
 }
+
+const ukrainePatchBlue = new MeshStandardMaterial({color:0x0057b7,roughness:1});
+const ukrainePatchYellow = new MeshStandardMaterial({color:0xffd700,roughness:1});

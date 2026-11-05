@@ -246,7 +246,7 @@ describe('multiplayer relay', () => {
       type: 'settings',
       roomCode,
       playerId: hostId,
-      settings: { ai: 'extra-hard', mapId: 'crater-oasis', mapSize: 'extra-large', seed: 246810, oreAmount: 400, terrainRelief: 150, terrainLayout: 'lakes', combatMode: 'manual', armyDoctrines: ['iron-legion', 'missile-command', 'iron-legion', 'missile-command'], armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
+      settings: { ai: 'extra-hard', mapId: 'crater-oasis', mapSize: 'extra-large', seed: 246810, oreAmount: 400, terrainRelief: 150, terrainLayout: 'lakes', combatMode: 'manual', armyDoctrines: ['iron-legion', 'missile-command', 'drone-network', 'missile-command'], armyCount: 4, armySides: [1, 1, 3, 4], spawnSlots: [2, 1, 3, 4] },
     }));
     const synchronizedRoom = await synchronizedSettings;
     expect(synchronizedRoom.room.spawnSlots).toEqual([2, 1, 3, 4]);
@@ -255,7 +255,7 @@ describe('multiplayer relay', () => {
     expect(synchronizedRoom.room.terrainLayout).toBe('lakes');
     expect(synchronizedRoom.room.terrainRelief).toBe(150);
     expect(synchronizedRoom.room.combatMode).toBe('manual');
-    expect(synchronizedRoom.room.armyDoctrines).toEqual(['iron-legion', 'missile-command', 'iron-legion', 'missile-command']);
+    expect(synchronizedRoom.room.armyDoctrines).toEqual(['iron-legion', 'missile-command', 'drone-network', 'missile-command']);
     expect(synchronizedRoom.room.armySides).toEqual([1, 1, 3, 4]);
 
     const resizedSettings = nextMessage(
@@ -308,8 +308,8 @@ describe('multiplayer relay', () => {
     expect(guestStart.room.terrainRelief).toBe(150);
     expect(hostStart.room.combatMode).toBe('manual');
     expect(guestStart.room.combatMode).toBe('manual');
-    expect(hostStart.room.armyDoctrines).toEqual(['iron-legion', 'missile-command', 'iron-legion', 'missile-command']);
-    expect(guestStart.room.armyDoctrines).toEqual(['iron-legion', 'missile-command', 'iron-legion', 'missile-command']);
+    expect(hostStart.room.armyDoctrines).toEqual(['iron-legion', 'missile-command', 'drone-network', 'missile-command']);
+    expect(guestStart.room.armyDoctrines).toEqual(['iron-legion', 'missile-command', 'drone-network', 'missile-command']);
 
     const hostPing = nextMessage(host, (message) => message.type === 'tactical-ping');
     const guestPing = nextMessage(guest, (message) => message.type === 'tactical-ping');

@@ -5,6 +5,7 @@ import { defaultArmyDoctrines, type ArmyDoctrineId } from './armyDoctrines';
 // is Israel, the first missile army is Iran, and further armies of the same
 // doctrine take the next ally/proxy name in order.
 export type NationId =
+  | 'ukraine'
   | 'israel'
   | 'usa'
   | 'uk'
@@ -23,6 +24,7 @@ export interface NationDef {
 }
 
 export const NATIONS: Record<NationId, NationDef> = {
+  ukraine: { id: 'ukraine', name: 'Ukraine', tag: 'UKRAINE', doctrine: 'drone-network' },
   israel: { id: 'israel', name: 'Israel', tag: 'ISRAEL', doctrine: 'iron-legion' },
   usa: { id: 'usa', name: 'United States', tag: 'UNITED STATES', doctrine: 'iron-legion' },
   uk: { id: 'uk', name: 'United Kingdom', tag: 'UNITED KINGDOM', doctrine: 'iron-legion' },
@@ -34,13 +36,14 @@ export const NATIONS: Record<NationId, NationDef> = {
 };
 
 const NATION_ORDER: Record<ArmyDoctrineId, readonly NationId[]> = {
+  'drone-network': ['ukraine'],
   'iron-legion': ['israel', 'usa', 'uk', 'france'],
   'missile-command': ['iran', 'hezbollah', 'houthis', 'iraqi-militias'],
 };
 
 /** Nation for each army (index 0 = army 1), assigned by doctrine order. */
 export function nationsForDoctrines(doctrines: readonly ArmyDoctrineId[]): NationId[] {
-  const used: Record<ArmyDoctrineId, number> = { 'iron-legion': 0, 'missile-command': 0 };
+  const used: Record<ArmyDoctrineId, number> = { 'iron-legion': 0, 'missile-command': 0, 'drone-network': 0 };
   return doctrines.slice(0, 7).map((doctrine) => {
     const order = NATION_ORDER[doctrine];
     return order[Math.min(order.length - 1, used[doctrine]++)];

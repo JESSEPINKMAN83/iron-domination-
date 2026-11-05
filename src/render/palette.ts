@@ -86,6 +86,7 @@ const PLAYER_COLORS = {
 } as const;
 
 const NATION_COLORS: Record<NationId, FactionPalette> = {
+  ukraine: ARMY_COLOR_FAMILIES.coalitionAmber,
   israel: ARMY_COLOR_FAMILIES.israelBlue,
   usa: ARMY_COLOR_FAMILIES.coalitionViolet,
   uk: ARMY_COLOR_FAMILIES.coalitionGreen,

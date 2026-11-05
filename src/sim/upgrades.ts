@@ -150,16 +150,22 @@ export function specialUpgradeForEntity(entity: Entity | undefined): UnitUpgrade
 }
 
 export function unitKindForUpgrade(entity: Entity): UnitKind | undefined {
+  if (entity.rosterKind) return entity.rosterKind;
   if (entity.artillery) return 'artillery';
   if (entity.building) return undefined;
   const name = (entity.name ?? '').toLowerCase();
   const weapon = entity.weapon?.kind;
+  if (entity.flight) {
+    if (weapon === 'waspAutocannon' || weapon === 'aaMissile') return 'wasp';
+    if (weapon === 'agMissile') return 'hammerhead';
+    return 'vulture';
+  }
   if (weapon === 'sniperRifle') return 'sniper';
   if (weapon === 'grenade') return 'grenadier';
   if (weapon === 'rocketLauncher') return 'rocket-infantry';
   if (weapon === 'rifle') return 'infantry';
-  if (weapon === 'scoutMissile' || name.includes('jackal')) return 'scout-tank';
-  if (weapon === 'siegeMissile' || name.includes('mauler')) return 'siege-tank';
+  if (weapon === 'scoutMissile' || weapon === 'autocannon' || name.includes('jackal')) return 'scout-tank';
+  if (weapon === 'siegeMissile' || weapon === 'heavyCannon' || name.includes('mauler')) return 'siege-tank';
   if (weapon === 'tankMissile' || entity.selectable?.type === 'tank') return 'tank';
   if (name.includes('wasp')) return 'wasp';
   if (name.includes('hammerhead')) return 'hammerhead';

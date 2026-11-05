@@ -1,3 +1,4 @@
+import { doctrineAllows } from '../content/armyDoctrines';
 import { baseLayoutPreference } from './baseLayout';
 import { needsEconomyScale, needsForwardRefinery } from './economyPlan';
 import { canCapture } from '../sim/objectives';
@@ -100,10 +101,11 @@ export class EnemyCommander {
     this.buildQueue = economy.doctrine === 'missile-command'
       ? ['power-plant', 'refinery', 'power-plant', 'factory', ...(this.proactiveTactics ? ['barracks' as const] : []), 'intelligence-center', 'strategic-silo', 'guard-tower', 'aa-tower']
       : [...this.personality.buildOrder, ...(strategicDefenseNeeded ? ['skylance-ciws' as const, 'missile-defense' as const] : [])];
-    if(economy.doctrine==='iron-legion' && this.proactiveTactics){
+    if(economy.doctrine!=='missile-command' && this.proactiveTactics){
       const factory=this.buildQueue.indexOf('factory');
       this.buildQueue.splice(factory+1,0,'helipad');
     }
+    this.buildQueue = this.buildQueue.filter(kind => doctrineAllows(STRUCTURES[kind].doctrine, economy.doctrine, kind));
     this.log(`online — ${personality}/${difficulty}, build order: ${this.buildQueue.join(' → ')}`);
   }
 
@@ -153,11 +155,11 @@ export class EnemyCommander {
     let rebuilding = false;
     if (!next) {
       if (this.economy.powerProduced < this.economy.powerUsed + 10) next = 'power-plant';
-      else if (this.proactiveTactics && this.economy.doctrine === 'iron-legion' && this.count('factory') > 0 && this.count('helipad') < (this.extraHard ? 2 : 1) && this.economy.credits > 700) next = 'helipad';
+      else if (this.proactiveTactics && this.economy.doctrine !== 'missile-command' && this.count('factory') > 0 && this.count('helipad') < (this.extraHard ? 2 : 1) && this.economy.credits > 700) next = 'helipad';
       else if (this.count('refinery') < this.personality.targetRefineries + (this.advancedTactics ? 1 : 0)) next = 'refinery';
       else if (this.count('factory') < this.personality.targetFactories + (this.advancedTactics ? 1 : 0)) next = 'factory';
       else if ((this.personality.wantsBarracks || this.advancedTactics) && this.count('barracks') < 1) next = 'barracks';
-      else if (this.economy.doctrine === 'iron-legion' && this.count('factory') > 0 && this.count('helipad') < 1 && this.economy.credits > 1200) next = 'helipad';
+      else if (this.economy.doctrine !== 'missile-command' && this.count('factory') > 0 && this.count('helipad') < 1 && this.economy.credits > 1200) next = 'helipad';
       rebuilding = next !== undefined && this.everCompleted.has(next) && this.count(next) === 0;
     }
     if (!next) return;
@@ -279,10 +281,10 @@ export class EnemyCommander {
     const tanks = mine.filter(entity=>entity.selectable?.type==='tank').length+pending('vehicles');
     const infantry = mine.filter(entity=>entity.selectable?.type==='infantry').length+pending('infantry');
     const aircraft = mine.filter(entity=>entity.flight).length+pending('aircraft');
-    const needsAirTech=this.proactiveTactics && this.economy.doctrine==='iron-legion' && !this.aliveBuildings().some(b=>b.building?.kind==='helipad'&&b.building.complete);
+    const needsAirTech=this.proactiveTactics && this.economy.doctrine!=='missile-command' && !this.aliveBuildings().some(b=>b.building?.kind==='helipad'&&b.building.complete);
     // Fund the air base before spending the same credits on another tank queue.
     if(needsAirTech && this.buildQueue.includes('helipad') && this.economy.credits<1100) return;
-    if((aircraft===0 || (this.extraHard && aircraft < Math.max(3, Math.ceil(tanks / 3))) || tanks>=this.assaultSize()+this.homeGuardSize()) && this.economy.doctrine==='iron-legion' && aircraft<this.difficulty.aircraftCap && this.count('helipad')>0 && (this.proactiveTactics || tanks>=this.difficulty.tankCap)){
+    if((aircraft===0 || (this.extraHard && aircraft < Math.max(3, Math.ceil(tanks / 3))) || tanks>=this.assaultSize()+this.homeGuardSize()) && this.economy.doctrine!=='missile-command' && aircraft<this.difficulty.aircraftCap && this.count('helipad')>0 && (this.proactiveTactics || tanks>=this.difficulty.tankCap)){
       const kind=this.nextAircraftKind(this.aircraftBuiltSequence);
       if(queueUnit(this.sim,this.economy,kind)) this.aircraftBuiltSequence++;
       else if(this.proactiveTactics && aircraft<4 && this.economy.credits<UNITS[kind].cost) return;
@@ -339,7 +341,8 @@ export class EnemyCommander {
 
   private nextAircraftKind(count: number): UnitKind {
     const visibleAir=[...this.sim.world.entities].some(e=>e.flight&&!e.destroyed&&e.team&&areTeamsHostile(this.sim,this.economy.team,e.team.id)&&this.vision.isEntityVisible(e,this.sim.tick));
-    if(visibleAir && this.myUnits().filter(e=>e.flight&&e.weapon?.kind==='waspAutocannon').length<Math.ceil(this.difficulty.aircraftCap/3)) return 'wasp';
+    if(visibleAir && this.myUnits().filter(e=>e.flight&&(e.weapon?.kind==='waspAutocannon'||e.rosterKind==='wasp')).length<Math.ceil(this.difficulty.aircraftCap/3)) return 'wasp';
+    if (this.economy.doctrine === 'drone-network') return (['wasp','hammerhead','hammerhead','vulture'] as UnitKind[])[count % 4];
     return (['wasp','vulture','hammerhead','vulture'] as UnitKind[])[count%4];
   }
 
@@ -675,14 +678,14 @@ export class EnemyCommander {
   }
 
   private commandAirWings():void {
-    if(!this.proactiveTactics || this.economy.doctrine!=='iron-legion' || this.sim.tick<this.airOrdersAt) return;
+    if(!this.proactiveTactics || this.economy.doctrine==='missile-command' || this.sim.tick<this.airOrdersAt) return;
     this.airOrdersAt=this.sim.tick+90;
     const base=this.base();if(!base) return;
     const aircraft=this.myUnits().filter(e=>e.flight&&!e.playerControlled);
     const assigned=new Set(this.squads.flatMap(s=>s.units));
     const visible=[...this.sim.world.entities].filter(e=>e.team&&e.health&&!e.destroyed&&areTeamsHostile(this.sim,this.economy.team,e.team.id)&&this.vision.isEntityVisible(e,this.sim.tick));
     const enemyAir=visible.filter(e=>e.flight);
-    const interceptors=aircraft.filter(e=>e.weapons?.secondary?.kind==='aaMissile');
+    const interceptors=aircraft.filter(e=>e.weapons?.secondary?.kind==='aaMissile'||e.weapon?.kind==='aaMissile');
     for(const aircraftUnit of aircraft){
       if((aircraftUnit.health?.current??0)/(aircraftUnit.health?.max??1)<0.35){
         issueMoveOrder(this.sim,[aircraftUnit],base.transform.x,base.transform.z);continue;
@@ -691,7 +694,8 @@ export class EnemyCommander {
         const target=enemyAir.slice().sort((a,b)=>Math.hypot(a.transform.x-aircraftUnit.transform.x,a.transform.z-aircraftUnit.transform.z)-Math.hypot(b.transform.x-aircraftUnit.transform.x,b.transform.z-aircraftUnit.transform.z)||a.id-b.id)[0];
         issueMoveOrder(this.sim,[aircraftUnit],target.transform.x,target.transform.z);
         aircraftUnit.mover!.aggressive=true;
-        aircraftUnit.weapons!.secondary!.targetId=target.id;
+        const seeker = aircraftUnit.weapons?.secondary?.kind === 'aaMissile' ? aircraftUnit.weapons.secondary : aircraftUnit.weapon;
+        if (seeker) seeker.targetId=target.id;
         this.stats.airIntercepts++;continue;
       }
       if(assigned.has(aircraftUnit)) continue;
@@ -700,7 +704,7 @@ export class EnemyCommander {
         const priority=this.extraHard&&['aa-tower','skylance-ciws','missile-defense'].includes(kind??'')?0:target.harvester||kind==='refinery'?1:kind==='helipad'||kind==='factory'||kind==='power-plant'?2:target.building?3:4;
         return priority*10000+Math.hypot(target.transform.x-aircraftUnit.transform.x,target.transform.z-aircraftUnit.transform.z);
       };
-      const target=visible.filter(e=>!e.flight).sort((a,b)=>score(a)-score(b)||a.id-b.id)[0];
+      const target=visible.filter(e=>!e.flight && aircraftUnit.weapon?.kind !== 'aaMissile').sort((a,b)=>score(a)-score(b)||a.id-b.id)[0];
       const hint=target?.transform??this.scoutHints[this.aircraftBuiltSequence%Math.max(1,this.scoutHints.length)];
       if(!hint) continue;
       const destination=target?attackStandoffPoint(this.sim,[aircraftUnit],target):hint;

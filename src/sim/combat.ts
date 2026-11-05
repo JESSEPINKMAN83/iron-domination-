@@ -888,6 +888,7 @@ export function isManualTargetLockWeapon(kind: string | undefined): boolean {
     || kind === 'rocketPod'
     || kind === 'rocketLauncher'
     || kind === 'agMissile'
+    || kind === 'precisionMissile'
     || kind === 'aaMissile';
 }
 

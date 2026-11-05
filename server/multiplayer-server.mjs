@@ -35,7 +35,7 @@ const rooms = new Map();
  *   ai: string;
  *   aiStyle: string;
  *   combatMode: 'assisted' | 'manual';
- *   armyDoctrines: Array<'iron-legion' | 'missile-command'>;
+ *   armyDoctrines: Array<'iron-legion' | 'missile-command' | 'drone-network'>;
  *   inputDelay: number;
  *   createdAt: number;
  *   updatedAt: number;
@@ -757,7 +757,7 @@ function normalizeCombatMode(value) {
 }
 
 function normalizeArmyDoctrine(value, fallback = 'iron-legion') {
-  return value === 'missile-command' || value === 'iron-legion' ? value : fallback;
+  return value === 'missile-command' || value === 'iron-legion' || value === 'drone-network' ? value : fallback;
 }
 
 function normalizeArmyDoctrines(value, legacyPrimary) {
@@ -765,7 +765,7 @@ function normalizeArmyDoctrines(value, legacyPrimary) {
   if (Array.isArray(value) && value.length > 0) {
     return defaults.map((fallback, index) => normalizeArmyDoctrine(value[index], fallback));
   }
-  if (legacyPrimary === 'missile-command' || legacyPrimary === 'iron-legion') {
+  if (legacyPrimary === 'missile-command' || legacyPrimary === 'iron-legion' || legacyPrimary === 'drone-network') {
     const opponent = legacyPrimary === 'missile-command' ? 'iron-legion' : 'missile-command';
     return [legacyPrimary, opponent, opponent, opponent];
   }

@@ -1,3 +1,6 @@
+import { UKRAINE_ROLES, ukraineArsenal } from '../content/ukraine';
+import { localArmyDoctrine } from '../content/sideLabels';
+import { doctrineAllows } from '../content/armyDoctrines';
 import { codeRedIconPath } from './codeRedIcons';
 import { isDesertKind } from '../sim/heightfield';
 import { armyTag } from '../content/nations';
@@ -533,7 +536,7 @@ export class Sidebar {
 
     if (this.activeTab === 'buildings') {
       for (const def of Object.values(STRUCTURES).filter(
-        (structure) => structure.tab === 'structures' && (!structure.doctrine || structure.doctrine === this.economy.doctrine),
+        (structure) => structure.tab === 'structures' && doctrineAllows(structure.doctrine, this.economy.doctrine, structure.kind),
       )) {
         this.body.appendChild(
           this.card(def.kind, def.label, def.cost, 'STRUCTURE', this.structureCardState(def.kind), () => this.actions.buildStructure(def.kind), () =>
@@ -546,7 +549,7 @@ export class Sidebar {
 
     if (this.activeTab === 'defense') {
       for (const def of Object.values(STRUCTURES).filter(
-        (structure) => structure.tab === 'defense' && (!structure.doctrine || structure.doctrine === this.economy.doctrine),
+        (structure) => structure.tab === 'defense' && doctrineAllows(structure.doctrine, this.economy.doctrine, structure.kind),
       )) {
         this.body.appendChild(
           this.card(def.kind, def.label, def.cost, 'DEFENSE', this.structureCardState(def.kind), () => this.actions.buildStructure(def.kind), () =>
@@ -559,7 +562,7 @@ export class Sidebar {
 
     const selectedProducer = selected && this.contextTab(selected) === this.activeTab ? selected : undefined;
     const units = Object.values(UNITS).filter(
-      (unit) => unit.tab === this.activeTab && (!unit.doctrine || unit.doctrine === this.economy.doctrine),
+      (unit) => unit.tab === this.activeTab && doctrineAllows(unit.doctrine, this.economy.doctrine, unit.kind),
     );
     if (this.activeTab === 'aircraft' && this.economy.doctrine === 'missile-command') {
       this.body.appendChild(this.emptyState('NO AIR FORCE', 'Iran replaces aircraft production with Fattah missiles and Shahed drones.'));
@@ -1932,19 +1935,19 @@ function unitCardDetail(kind: string): { role: string; pips: number[] } | undefi
   const range = Math.min(1, Math.max(weapon.range, secondaryDef?.range ?? 0) / 188);
   const speed = speedScoreForUnit(unit.kind);
   const air = weapon.canTargetAir ? Math.min(1, weapon.vs.air) : secondary === 'aaMissile' ? 0.88 : 0;
-  return { role: unit.role, pips: [damage, range, speed, air] };
+  return { role: localArmyDoctrine() === 'drone-network' ? UKRAINE_ROLES[unit.kind] ?? unit.role : unit.role, pips: [damage, range, speed, air] };
 }
 
 function primaryWeaponForUnit(kind: UnitKind): WeaponKind {
-  return UNIT_ARSENALS[kind].primary;
+  return (localArmyDoctrine() === 'drone-network' ? ukraineArsenal(kind) : UNIT_ARSENALS[kind]).primary;
 }
 
 function secondaryWeaponForUnit(kind: UnitKind): WeaponKind | undefined {
-  return UNIT_ARSENALS[kind].secondary;
+  return (localArmyDoctrine() === 'drone-network' ? ukraineArsenal(kind) : UNIT_ARSENALS[kind]).secondary;
 }
 
 function bombSalvoForUnit(kind: UnitKind): number {
-  return UNIT_ARSENALS[kind].secondarySalvoCount ?? 0;
+  return (localArmyDoctrine() === 'drone-network' ? ukraineArsenal(kind) : UNIT_ARSENALS[kind]).secondarySalvoCount ?? 0;
 }
 
 function speedScoreForUnit(kind: UnitKind): number {
@@ -1961,7 +1964,9 @@ function speedScoreForUnit(kind: UnitKind): number {
     vulture: 0.76,
     hammerhead: 0.56,
   };
-  return scores[kind];
+  const ukrainian = localArmyDoctrine() === 'drone-network';
+  const multiplier = kind === 'wasp' ? 1.12 : kind === 'hammerhead' ? 1.25 : kind === 'artillery' ? 1.3 : kind === 'vulture' ? 1 : 1.1;
+  return Math.min(1, scores[kind] * (ukrainian ? multiplier : 1));
 }
 
 function statPip(value: number, active: boolean, index: number, kind: string, label: string): HTMLDivElement {
