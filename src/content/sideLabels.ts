@@ -15,7 +15,7 @@ const UNIT_LABELS: Record<ArmyDoctrineId, Partial<Record<UnitKind, string>>> = {
   'drone-network': {
     infantry: 'Mechanized Infantry', sniper: 'Recon Marksman', grenadier: 'Assault Infantry',
     'rocket-infantry': 'Stugna-P ATGM Team', 'scout-tank': 'BTR-4 Bucephalus', tank: 'Leopard 2A6',
-    'siege-tank': 'PzH 2000', artillery: 'Bohdana Field Gun', wasp: 'Interceptor UAV',
+    'siege-tank': 'PzH 2000', artillery: 'Bohdana Field Gun', wasp: 'FPV Strike Drone',
     vulture: 'Mi-24 Hind', hammerhead: 'Bayraktar TB2',
   },
   'iron-legion': {

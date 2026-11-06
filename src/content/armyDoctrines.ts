@@ -29,7 +29,7 @@ export const ARMY_DOCTRINES: Record<ArmyDoctrineId, ArmyDoctrineDef> = {
   },
   'drone-network': {
     id: 'drone-network', label: 'Ukraine', specialty: 'Recon drones & mobile precision',
-    description: 'Scout with agile interceptor UAVs, strike armor with Bayraktar TB2s and reposition mobile artillery. Keep fragile aircraft away from concentrated air defense.',
+    description: 'Scout with fragile FPVs, commit them to single-use ground strikes, support armor with Bayraktar TB2s and reposition mobile artillery. Keep fragile aircraft away from concentrated air defense.',
     strength: 'Wide drone vision, agile interception and mobile ground forces',
     limitation: 'Fragile UAVs, lighter armor and no strategic missile or Arrow 3 program',
   },

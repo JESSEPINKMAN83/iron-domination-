@@ -844,6 +844,10 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
 
   for (let i = 0; i < movers.length; i++) {
     const entity = movers[i];
+    if (entity.fpvDive && !entity.destroyed) {
+      if(entity.flight){entity.flight.previousPitchAttitude=entity.flight.pitchAttitude;entity.flight.previousRollAttitude=entity.flight.rollAttitude;}
+      entity.velocity.x=entity.velocity.z=0;continue;
+    }
     if (stepArtillery(entity, dt)) {
       entity.velocity.x=entity.velocity.z=0;
       if (entity.playerControlled && entity.turret) entity.turret.yaw=slewAngle(entity.turret.yaw,entity.playerControlled.aimYaw,entity.turret.turnRate,dt);
@@ -1942,6 +1946,7 @@ export function hashSim(sim: GameSim): number {
       mix(o.ownerTeam ?? 0); mix(o.capturingTeam ?? 0);
       mix(o.captureTicks); mix(o.contested ? 1 : 0); mix(o.rewardTicks); mix(o.lastIncomeTick ?? -1);
     }
+    if(entity.fpvDive){mix(Math.round(entity.fpvDive.x*100));mix(Math.round(entity.fpvDive.z*100));mix(entity.fpvDive.targetId??0);mix(Math.round(entity.fpvDive.remaining*1000));}
     mix(entity.team?.id ?? 0);
     if (entity.artillery) { mixText(entity.artillery.phase); mix(Math.round(entity.artillery.elapsed*1000)); mix(entity.artillery.deploy?1:0); }
     mix(Math.round(entity.transform.x * 100));

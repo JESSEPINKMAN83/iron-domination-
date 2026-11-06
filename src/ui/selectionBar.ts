@@ -844,7 +844,7 @@ export class SelectionBar {
     icon.append(fallback, img, badge(`×${group.entities.length}`, active));
     const topRank = Math.max(0, ...group.entities.map((entity) => entity.combatRank?.rank ?? 0));
     if (topRank > 0) icon.appendChild(rankChevronBadge(topRank));
-    if (group.unitKind && upgradeOptionsForKind(group.unitKind).length) icon.appendChild(this.upgradeButton(group));
+    if (group.unitKind && upgradeOptionsForKind(group.unitKind,group.entities[0]).length) icon.appendChild(this.upgradeButton(group));
 
     const copy = document.createElement('div');
     copy.className = 'game-unit-card__copy';
@@ -954,7 +954,7 @@ export class SelectionBar {
     heading.innerHTML = `<span>UPGRADE ${escapeHtml(group.label.toUpperCase())}</span><span style="color:#b8c3bf">$${Math.floor(this.actions.credits())} · ${ownedSummary} INSTALLED</span>`;
     popover.appendChild(heading);
 
-    for (const def of upgradeOptionsForKind(group.unitKind)) {
+    for (const def of upgradeOptionsForKind(group.unitKind,group.entities[0])) {
       const owned = group.entities.filter((entity) => hasUnitUpgrade(entity, def.id)).length;
       const missing = group.entities.length - owned;
       const totalCost = missing * def.cost;
@@ -1007,7 +1007,7 @@ export class SelectionBar {
   }
 
   private syncWorldUpgradeButtons(selected: Entity[]): void {
-    const upgradeable = selected.filter((entity) => { const kind=unitKindForUpgrade(entity); return kind !== undefined && upgradeOptionsForKind(kind).length>0; });
+    const upgradeable = selected.filter((entity) => { const kind=unitKindForUpgrade(entity); return kind !== undefined && upgradeOptionsForKind(kind,entity).length>0; });
     const activeIds = new Set(upgradeable.map((entity) => entity.id));
     for (const [id, button] of this.worldButtons) {
       if (activeIds.has(id)) continue;
@@ -1018,7 +1018,7 @@ export class SelectionBar {
     for (const entity of upgradeable) {
       let button = this.worldButtons.get(entity.id);
       const kind = unitKindForUpgrade(entity)!;
-      const options = upgradeOptionsForKind(kind);
+      const options = upgradeOptionsForKind(kind,entity);
       const missing = options.filter((def) => !hasUnitUpgrade(entity, def.id)).length;
       if (!button) {
         button = document.createElement('button');

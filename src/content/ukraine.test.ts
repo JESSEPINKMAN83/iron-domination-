@@ -27,11 +27,11 @@ describe('Ukraine faction', () => {
     expect(doctrineAllows('missile-command','drone-network','strategic-silo')).toBe(false);
     expect(doctrineAllows('iron-legion','missile-command','helipad')).toBe(false);
   });
-  it('gives the interceptor an air-only seeker, wide vision and fragile hull without corrupting identity', () => {
+  it('gives the FPV a single-use ground impact weapon and fragile hull without corrupting identity', () => {
     const hf = generateHeightfield(MAP01), sim = createGameSim(hf);
     const drone = spawnWaspAt(sim,hf,0,0,'Wasp',1);
     applyUkraineProfile(drone,'wasp');
-    expect(drone.weapon?.kind).toBe('aaMissile');
+    expect(drone.weapon?.kind).toBe('fpvStrike');
     expect(drone.weapons?.secondary).toBeUndefined();
     expect(drone.health?.max).toBeCloseTo(43.2);
     expect(drone.vision?.radius).toBeGreaterThan(230);
@@ -54,7 +54,7 @@ describe('Ukraine faction', () => {
     expect(queueUnit(sim,economy,'wasp')).toBe(true);
     const produced = stepEconomy(sim,hf,economy,30).find(unit=>unit.flight);
     expect(produced?.rosterKind).toBe('wasp');
-    expect(produced?.weapon?.kind).toBe('aaMissile');
+    expect(produced?.weapon?.kind).toBe('fpvStrike');
     expect(produced?.health?.max).toBeCloseTo(43.2);
   });
   it('trades strike payload and armor for reconnaissance and mobility', () => {

@@ -2638,7 +2638,7 @@ function createUnitUpgradeVisuals(
   const visuals = new Map<UnitUpgradeId, Object3D>();
   const kind = unitKindForUpgrade(entity);
   if (!kind) return visuals;
-  for (const def of upgradeOptionsForKind(kind)) {
+  for (const def of upgradeOptionsForKind(kind,entity)) {
     if (def.id === 'combat-bike') continue; // The animated bike already lives in the soldier rig.
     const visual = createUnitUpgradeModule(def.id, materials, gunmetal);
     visual.name = `upgrade-${def.id}`;
@@ -3417,7 +3417,7 @@ function deterministicUnitSigned(id: number, seed: number): number {
 
 /** Low-poly UAV silhouettes reuse cached primitives and existing rotor animation. */
 export function createUkraineAircraft(kind: UnitVisualKind, m: TeamMaterials, metal: Material): BuiltUnit {
-  const root = new Group(); root.name = kind === 'wasp' ? 'ukraine-interceptor-uav' : 'ukraine-bayraktar-tb2';
+  const root = new Group(); root.name = kind === 'wasp' ? 'ukraine-fpv-strike' : 'ukraine-bayraktar-tb2';
   const mainRotors: Object3D[] = [], tailRotors: Object3D[] = [];
   if (kind === 'wasp') {
     root.add(box(.8,.45,1.7,m.hull,0,0,0), box(.45,.3,.5,metal,0,-.3,.7));
