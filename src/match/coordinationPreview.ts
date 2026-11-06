@@ -12,7 +12,7 @@ interface PreviewArmy {
 }
 
 /** Local-only ready-made battle. Unit stats and commander decisions are unmodified. */
-export function stageCoordinationPreview(sim: GameSim, hf: Heightfield, armies: PreviewArmy[], localTeam: number) {
+export function stageCoordinationPreview(sim: GameSim, hf: Heightfield, armies: PreviewArmy[], localTeam: number, deterrence = false) {
   const player = armies.find((army) => army.team === localTeam)!;
   const enemy = armies.find((army) => areTeamsHostile(sim, localTeam, army.team));
   const units: Entity[] = [];
@@ -45,9 +45,17 @@ export function stageCoordinationPreview(sim: GameSim, hf: Heightfield, armies: 
   spawnGround(player, 80, 10);
   spawnAir(player, 70, 3);
   if (enemy) {
-    spawnGround(enemy, Math.min(330, distance * 0.55), 18);
+    spawnGround(enemy, Math.min(330, distance * 0.55), deterrence ? 7 : 18);
     spawnAir(enemy, Math.min(350, distance * 0.59), 6);
     spawnGround(enemy, distance - 65, 6);
+  }
+  if(deterrence)for(const army of armies){
+    if(army.team===localTeam||army===enemy)continue;
+    for(let i=0;i<12;i++){
+      const cell=sim.nav.nearestWalkableCellGlobal(army.base.transform.x+(i%4-1.5)*18,army.base.transform.z+45+Math.floor(i/4)*16);
+      if(!cell)continue;const p=sim.nav.cellCenter(cell.x,cell.y);
+      units.push(spawnTankAt(sim,p.x,p.z,`FFA reserve ${army.team}-${i}`,army.team));
+    }
   }
   return { units, forward, focus: point(150, 0) };
 }

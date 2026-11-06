@@ -1,3 +1,4 @@
+import {beginAssault,addAssaultMembers,failedAssault,opponentPenalty,deterrencePressure,type AssaultExperience} from './deterrence';
 import { doctrineAllows } from '../content/armyDoctrines';
 import { baseLayoutPreference } from './baseLayout';
 import { needsEconomyScale, needsForwardRefinery } from './economyPlan';
@@ -27,6 +28,7 @@ import { emberLaunchReadiness, launchEmberDroneAt, launchStrategicMissileAt } fr
 import { issueTacticOrder } from '../sim/tactics';
 
 interface Squad {
+  battle?:AssaultExperience;
   units: Entity[];
   state: 'attacking' | 'staging' | 'retreating' | 'regrouping';
   initialMaxHp?: number;
@@ -466,6 +468,15 @@ export class EnemyCommander {
   private commandSquads(): void {
     const base = this.base();
     for (const squad of this.squads) {
+      if(squad.battle){
+        const failure=failedAssault(squad.battle);
+        if(failure && areTeamsHostile(this.sim,this.economy.team,failure.team) && base){
+          base.aiDeterrence??={};const previous=base.aiDeterrence[failure.team];
+          base.aiDeterrence[failure.team]={failures:Math.min(3,(previous?.failures??0)+1),tick:this.sim.tick,requiredHp:Math.min(6000,Math.max(squad.battle.initialHp*1.6,previous?.requiredHp??0))};
+          squad.battle.reported=true;
+          this.log(`army ${failure.team} repelled an ineffective assault — changing target or assembling a larger force`);
+        }
+      }
       squad.units = squad.units.filter((unit) => !unit.destroyed && this.sim.world.has(unit));
     }
     for (let i = this.squads.length - 1; i >= 0; i--) {
@@ -479,6 +490,11 @@ export class EnemyCommander {
     const air = idle.filter((unit) => !!unit.flight);
     this.reinforceRegroupingSquads(ground, air, base);
 
+    const memories=base?.aiDeterrence??{};
+    const knownTeams=Object.keys(this.sim.rules.allianceSides).map(Number).filter(team=>areTeamsHostile(this.sim,this.economy.team,team));
+    const allDeterred=knownTeams.length>0 && knownTeams.every(team=>deterrencePressure(memories[team],this.sim.tick)>.25);
+    const launchSize=allDeterred?Math.ceil(this.assaultSize()*1.6):this.assaultSize();
+    const deterrenceWait=allDeterred && knownTeams.some(team=>this.sim.tick-memories[team].tick<30*90);
     const active = this.squads.filter((squad) => squad.state === 'attacking' || squad.state === 'staging').length;
     const capacity = this.personality.maxSquads + (this.extraHard ? 5 : this.advancedTactics ? 3 : 0);
     let waitForPartner = false;
@@ -491,20 +507,20 @@ export class EnemyCommander {
       }
     }
     if (
-      !waitForPartner &&
+      !waitForPartner && !deterrenceWait &&
       active < capacity &&
       this.elapsed >= Math.min(this.personality.attackDelay * this.difficulty.attackDelayMultiplier, this.advancedTactics ? 100 : this.proactiveTactics ? 180 : Infinity) &&
-      (ground.length - this.homeGuardSize() >= this.assaultSize() || (air.length>0 && ground.length-this.homeGuardSize()>=Math.max(3,this.assaultSize()-1)))
+      (ground.length - this.homeGuardSize() >= launchSize || (!allDeterred && air.length>0 && ground.length-this.homeGuardSize()>=Math.max(3,this.assaultSize()-1)))
     ) {
       // Probe first, then use a shared objective and rendezvous for a pincer.
-      const paired = this.advancedTactics && this.stats.attacksLaunched > 0 && active + 2 <= capacity && ground.length - this.homeGuardSize() >= this.assaultSize() * 2;
+      const paired = this.advancedTactics && this.stats.attacksLaunched > 0 && active + 2 <= capacity && ground.length - this.homeGuardSize() >= launchSize * 2;
       this.pincerWaitStartedAt = undefined;
       const count = paired ? 2 : 1;
       const created: Squad[] = [];
       for (let i = 0; i < count; i++) {
         const maneuvers = ['left', 'right', 'direct'] as const;
         const maneuver = paired ? (i === 0 ? 'left' : 'right') : this.proactiveTactics ? maneuvers[(this.stats.attacksLaunched + this.economy.team) % maneuvers.length] : 'direct';
-        const units = ground.splice(0, this.assaultSize());
+        const units = ground.splice(0, launchSize);
         const squad: Squad = { units, state: 'attacking', nextOrderAt: 0, maneuver,
           scoutIndex: this.stats.attacksLaunched % Math.max(1, this.scoutHints.length) };
         this.attachAirSupport(squad, air);
@@ -649,6 +665,7 @@ export class EnemyCommander {
   }
 
   private resetSquadStrength(squad: Squad): void {
+    squad.battle=beginAssault(squad.units);
     squad.initialMaxHp = squad.units.reduce((sum, unit) => sum + (unit.health?.max ?? 1), 0);
     squad.initialGroundCount = squad.units.filter((unit) => !unit.flight).length;
   }
@@ -656,6 +673,7 @@ export class EnemyCommander {
   private attachAirSupport(squad: Squad, available: Entity[]): void {
     if (!available.length) return;
     const escorts = available.splice(0, this.advancedTactics ? 2 : 1);
+    if(squad.battle)addAssaultMembers(squad.battle,escorts);
     squad.units.push(...escorts);
     for (const unit of escorts) if (unit.mover) unit.mover.aggressive = true;
     squad.initialMaxHp = (squad.initialMaxHp ?? squad.units.filter((unit) => !escorts.includes(unit)).reduce((sum, unit) => sum + (unit.health?.max ?? 1), 0)) + escorts.reduce((sum, unit) => sum + (unit.health?.max ?? 1), 0);
@@ -706,18 +724,21 @@ export class EnemyCommander {
       const score=(target:Entity)=>{
         const kind=target.building?.kind;
         const priority=this.extraHard&&['aa-tower','skylance-ciws','missile-defense'].includes(kind??'')?0:target.harvester||kind==='refinery'?1:kind==='helipad'||kind==='factory'||kind==='power-plant'?2:target.building?3:4;
-        return priority*10000+Math.hypot(target.transform.x-aircraftUnit.transform.x,target.transform.z-aircraftUnit.transform.z);
+        return priority*10000+Math.hypot(target.transform.x-aircraftUnit.transform.x,target.transform.z-aircraftUnit.transform.z)+opponentPenalty(base.aiDeterrence?.[target.team!.id],this.sim.tick,aircraft.reduce((n,e)=>n+(e.health?.current??0),0))*30;
       };
       const target=visible.filter(e=>!e.flight && aircraftUnit.weapon?.kind !== 'aaMissile').sort((a,b)=>score(a)-score(b)||a.id-b.id)[0];
-      const hint=target?.transform??this.scoutHints[this.aircraftBuiltSequence%Math.max(1,this.scoutHints.length)];
+      const forceHp=aircraft.reduce((n,e)=>n+(e.health?.current??0),0);
+      const saferHint=target && opponentPenalty(base.aiDeterrence?.[target.team!.id],this.sim.tick,forceHp)>1000
+        ? this.scoutHints.find(h=>h.team!==undefined && areTeamsHostile(this.sim,this.economy.team,h.team) && opponentPenalty(base.aiDeterrence?.[h.team],this.sim.tick,forceHp)<200):undefined;
+      const hint=saferHint??target?.transform??this.scoutHints[this.aircraftBuiltSequence%Math.max(1,this.scoutHints.length)];
       if(!hint) continue;
-      const destination=target?attackStandoffPoint(this.sim,[aircraftUnit],target):hint;
+      const destination=target&&!saferHint?attackStandoffPoint(this.sim,[aircraftUnit],target):hint;
       const current=aircraftUnit.mover?.target??aircraftUnit.mover?.holdPosition;
       if(!current||Math.hypot(current.x-destination.x,current.z-destination.z)>24){
         issueMoveOrder(this.sim,[aircraftUnit],destination.x,destination.z);this.stats.airRaids++;
       }
       aircraftUnit.mover!.aggressive=true;
-      if(target) for(const weapon of [aircraftUnit.weapon,aircraftUnit.weapons?.secondary]) if(weapon) weapon.targetId=target.id;
+      for(const weapon of [aircraftUnit.weapon,aircraftUnit.weapons?.secondary])if(weapon)weapon.targetId=target&&!saferHint?target.id:undefined;
     }
   }
 
@@ -772,14 +793,19 @@ export class EnemyCommander {
     if (!base) return;
     for (const squad of this.squads) {
       if (squad.state !== 'regrouping') continue;
-      for (let i = 0; i < ground.length && squad.units.filter((unit) => !unit.flight).length < this.assaultSize();) {
+      const memory=base.aiDeterrence;
+      const teams=Object.keys(this.sim.rules.allianceSides).map(Number).filter(team=>areTeamsHostile(this.sim,this.economy.team,team));
+      const cautious=teams.length>0 && teams.every(team=>deterrencePressure(memory?.[team],this.sim.tick)>.25);
+      const required=cautious?Math.ceil(this.assaultSize()*1.6):this.assaultSize();
+      if(cautious && teams.some(team=>this.sim.tick-memory![team].tick<30*90))continue;
+      for (let i = 0; i < ground.length && squad.units.filter((unit) => !unit.flight).length < required;) {
         const unit = ground[i];
         if (Math.hypot(unit.transform.x - base.transform.x, unit.transform.z - base.transform.z) > 115 || ground.length <= this.homeGuardSize()) { i++; continue; }
         squad.units.push(unit);
         ground.splice(i, 1);
       }
       if (!squad.units.some((unit) => unit.flight)) this.attachAirSupport(squad, air);
-      if (squad.units.filter((unit) => !unit.flight).length >= this.assaultSize() && this.sim.tick - (squad.regroupStartedAt ?? this.sim.tick) >= 30 * 12) {
+      if (squad.units.filter((unit) => !unit.flight).length >= required && this.sim.tick - (squad.regroupStartedAt ?? this.sim.tick) >= 30 * 12) {
         squad.state = 'attacking';
         squad.maneuver = (this.stats.attacksLaunched + this.economy.team) % 2 ? 'left' : 'right';
         squad.destination = undefined;
@@ -823,7 +849,25 @@ export class EnemyCommander {
     const lead = squad.units[0];
     const sx = lead?.transform.x ?? bx;
     const sz = lead?.transform.z ?? bz;
+    const forceHp=squad.units.reduce((sum,e)=>sum+(e.health?.current??0),0);
+    let preferredTeam:number|undefined;
+    if(Object.values(base?.aiDeterrence??{}).some(memory=>deterrencePressure(memory,this.sim.tick)>0)){
+      let best=Infinity;
+      for(const entity of this.sim.world.entities){
+        if(!entity.team || entity.destroyed || !areTeamsHostile(this.sim,this.economy.team,entity.team.id) || !this.vision.isEntityVisible(entity,this.sim.tick))continue;
+        const score=Math.hypot(entity.transform.x-sx,entity.transform.z-sz)+opponentPenalty(base?.aiDeterrence?.[entity.team.id],this.sim.tick,forceHp);
+        if(score<best){best=score;preferredTeam=entity.team.id;}
+      }
+      let scout:{x:number;z:number}|undefined;
+      for(const hint of this.scoutHints){
+        if(hint.team===undefined || !areTeamsHostile(this.sim,this.economy.team,hint.team) || Math.hypot(hint.x-sx,hint.z-sz)<50)continue;
+        const score=Math.hypot(hint.x-sx,hint.z-sz)+opponentPenalty(base?.aiDeterrence?.[hint.team],this.sim.tick,forceHp);
+        if(score<best){best=score;scout=hint;}
+      }
+      if(scout && preferredTeam!==undefined)return {x:scout.x,z:scout.z};
+    }
     for (const entity of this.sim.world.entities) {
+      if(preferredTeam!==undefined && entity.team?.id!==preferredTeam)continue;
       if (!entity.team || !areTeamsHostile(this.sim, this.economy.team, entity.team.id) || entity.destroyed) continue;
       if (!this.vision.isEntityVisible(entity,this.sim.tick)) continue;
       const d = Math.hypot(entity.transform.x - bx, entity.transform.z - bz);
@@ -864,7 +908,7 @@ export class EnemyCommander {
       return { x: chosen.transform.x, z: chosen.transform.z, entity: chosen };
     }
     // nothing seen: scout known start areas first, then ore fields (map geography, not unit intel)
-    const waypoints = [...this.scoutHints, ...this.hf.oreFields];
+    const waypoints = [...this.scoutHints, ...this.hf.oreFields].sort((a,b)=>opponentPenalty(base?.aiDeterrence?.[(a as {team?:number}).team??0],this.sim.tick,forceHp)-opponentPenalty(base?.aiDeterrence?.[(b as {team?:number}).team??0],this.sim.tick,forceHp));
     if (waypoints.length === 0) waypoints.push({ x: 0, z: 0 });
     let scoutIndex = squad.scoutIndex ?? 0;
     let waypoint = waypoints[scoutIndex % waypoints.length];

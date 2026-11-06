@@ -15,7 +15,7 @@ import { StrategicIntelFeed } from './ui/strategicIntelFeed';
 import { strategicWarningAudience } from './ui/strategicReports';
 import { createStructureDamage } from './sim/structureDamage';
 import { threatBearing } from './ui/threatBearing';
-import { applyArmyNations, armyTag, NATIONS, nationsForDoctrines } from './content/nations';
+import { applyArmyNations, armyName, armyTag, NATIONS, nationsForDoctrines } from './content/nations';
 import { applyLocalSideLabels, structureLabel } from './content/sideLabels';
 import { CodeRedAlert } from './ui/codeRedAlert';
 import { sanitizeTerrainLayout, type TerrainLayout } from './sim/heightfield';
@@ -2738,7 +2738,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const startMode = params.get('start');
   const wallPerformancePreview = params.get('wall-performance-test') === '1' && !multiplayerMode && !isPublicHost(location.hostname);
-  const aiCoordinationPreview = params.get('ai-coordination-test') === '1' && !multiplayerMode && !isPublicHost(location.hostname);
+  const deterrencePreview=import.meta.env.DEV && params.get('deterrence-test')==='1' && !multiplayerMode;
+  const aiCoordinationPreview = (params.get('ai-coordination-test') === '1' || deterrencePreview) && !multiplayerMode && !isPublicHost(location.hostname);
   const infantryCombatTest = params.get('infantry-combat-test') === '1';
   const tankCombatTest = params.get('tank-combat-test') === '1';
   const combatReadabilityTest = params.get('combat-readability-test') === '1';
@@ -3050,7 +3051,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     ? stageWallPerformancePreview(sim, hf, economy)
     : undefined;
   const coordinationStage = aiCoordinationPreview && !loadedFromSave
-    ? stageCoordinationPreview(sim, hf, armies, localTeam)
+    ? stageCoordinationPreview(sim, hf, armies, localTeam,deterrencePreview)
     : undefined;
   const startingUnits = storyMode ? (loadedFromSave ? loadedUnits : campaignUnits) : wallPerformanceStage
     ? wallPerformanceStage.units
@@ -4106,6 +4107,12 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const scaleMetrics= params.get('scale-metrics')==='1' && !isPublicHost(location.hostname) ? document.createElement('div') : undefined;
   if(scaleMetrics){scaleMetrics.style.cssText='position:fixed;top:110px;left:14px;z-index:25;padding:10px 12px;border:1px solid #729c88;border-radius:6px;background:rgba(8,20,15,.92);color:#c6e8d6;font:12px/1.5 monospace;white-space:pre;pointer-events:none';document.body.append(scaleMetrics);}
+  const deterrenceDebug=deterrencePreview?document.createElement('details'):undefined;
+  let deterrenceDebugTick=-999;
+  if(deterrenceDebug){
+    deterrenceDebug.style.cssText='position:fixed;top:110px;left:12px;z-index:25;max-width:290px;padding:8px 10px;border:1px solid #729c88;border-radius:6px;background:#0c1918ed;color:#c6e8d6;font:11px/1.5 monospace';
+    const summary=document.createElement('summary');summary.textContent='AI deterrence · local test';deterrenceDebug.append(summary,document.createElement('pre'));document.body.append(deterrenceDebug);
+  }
   let fps = 60;
   let simTicks = 0;
   let simHz = SIM_HZ;
@@ -4464,6 +4471,17 @@ async function boot(settings: SkirmishSettings): Promise<void> {
       combatView.completeFrame();
 
       fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
+      if(deterrenceDebug && sim.tick-deterrenceDebugTick>=30){
+        deterrenceDebugTick=sim.tick;
+        deterrenceDebug.querySelector('pre')!.textContent=armies.filter(a=>a.commander).map(a=>{
+          const memory=a.base.aiDeterrence??{};
+          const entries=Object.entries(memory).map(([team,m])=>{
+            const age=(sim.tick-m.tick)/30;
+            return `${armyName(+team)}: ${m.failures} setbacks · ${Math.max(0,Math.ceil(90-age))}s regroup`;
+          });
+          return `${armyName(a.team)}\n${entries.length?entries.join('\n'):'No costly repulse remembered'}`;
+        }).join('\n\n');
+      }
       if(scaleMetrics && renderFrame%30===0){
         const air=armies.reduce((sum,a)=>sum+(a.commander?.stats.airIntercepts??0),0),raids=armies.reduce((sum,a)=>sum+(a.commander?.stats.airRaids??0),0);
         scaleMetrics.textContent=`${settings.ai.toUpperCase()} · ${Math.round(fps)} FPS · game speed ${Math.round(Math.min(1, simHz / SIM_HZ) * 100)}%
