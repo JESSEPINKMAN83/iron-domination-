@@ -3,6 +3,10 @@ import type { Entity } from '../sim/components';
 export type UnitVisualKind = 'rifle' | 'grenadier' | 'rocket' | 'sniper' | 'jackal' | 'm17' | 'mauler' | 'wasp' | 'vulture' | 'hammerhead' | 'harvester';
 
 export function unitVisualKind(entity: Entity): UnitVisualKind {
+  if (entity.rosterKind === 'bradley') return 'jackal';
+  if (entity.rosterKind === 'mlrs') return 'mauler';
+  if (entity.rosterKind === 'strike-jet') return 'wasp';
+  if (entity.rosterKind === 'bomber') return 'hammerhead';
   if (entity.rosterKind === 'wasp' || entity.rosterKind === 'vulture' || entity.rosterKind === 'hammerhead') return entity.rosterKind;
   if (entity.artillery) return 'mauler';
   if (entity.harvester || entity.selectable?.type === 'harvester') return 'harvester';

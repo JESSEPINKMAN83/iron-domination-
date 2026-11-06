@@ -1,4 +1,4 @@
-export type FlightModelId = 'gunship' | 'jet' | 'drone';
+export type FlightModelId = 'gunship' | 'jet' | 'drone' | 'bomber';
 
 export interface FlightModel {
   maxSpeed: number;
@@ -82,4 +82,6 @@ export const FLIGHT_MODELS: Record<FlightModelId, FlightModel> = {
     gimbalHalfAngle: 0.18,
     mouseFollowRate: 1.0,
   },
+  bomber: {maxSpeed:48,maxReverse:0,maxStrafe:2,tiltAccel:9,strafeAccel:2,dragK:9/(48*48),maxTiltPitch:.16,maxTiltRoll:.3,attitudeLag:3,yawRateHover:.7,yawRateAtSpeed:.35,weathervane:.6,climbRate:9,climbAccel:8,hoverDamp:.15,groundEffect:.2,gimbalHalfAngle:.32,mouseFollowRate:1.1},
+
 };

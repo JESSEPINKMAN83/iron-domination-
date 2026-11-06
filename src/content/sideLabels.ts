@@ -6,6 +6,12 @@ import { STRUCTURES, UNITS, type StructureKind, type UnitKind } from './phase3';
 // unit kind reads as the Israeli or Iranian equivalent depending on its army.
 // Ids, entity names and gameplay are untouched — this is presentation only.
 const UNIT_LABELS: Record<ArmyDoctrineId, Partial<Record<UnitKind, string>>> = {
+  'expeditionary-force': {
+    infantry:'US Rifle Squad',sniper:'US Scout Sniper',grenadier:'US Assault Squad','rocket-infantry':'Javelin ATGM Team',
+    'scout-tank':'Stryker Dragoon',tank:'M1A2 Abrams','siege-tank':'M109 Paladin',artillery:'M777 Field Gun',
+    wasp:'AH-1Z Viper',vulture:'AH-64 Apache',hammerhead:'MQ-9 Reaper',
+    bradley:'M2 Bradley IFV',mlrs:'M270 MLRS','strike-jet':'F-15E Strike Eagle',bomber:'B-2 Spirit',
+  },
   'drone-network': {
     infantry: 'Mechanized Infantry', sniper: 'Recon Marksman', grenadier: 'Assault Infantry',
     'rocket-infantry': 'Stugna-P ATGM Team', 'scout-tank': 'BTR-4 Bucephalus', tank: 'Leopard 2A6',
@@ -38,6 +44,7 @@ const UNIT_LABELS: Record<ArmyDoctrineId, Partial<Record<UnitKind, string>>> = {
 };
 
 const STRUCTURE_LABELS: Record<ArmyDoctrineId, Partial<Record<StructureKind, string>>> = {
+  'expeditionary-force': {barracks:'US Infantry Barracks',factory:'Heavy Armor Plant',helipad:'Expeditionary Air Base','guard-tower':'Base Defense Tower','aa-tower':'Patriot Battery','skylance-ciws':'C-RAM Battery',wall:'Concrete Barrier'},
   'drone-network': {
     barracks: 'Mechanized Barracks', factory: 'Armor Workshop', helipad: 'UAV & Aviation Hub',
     'guard-tower': 'Frontier Strongpoint', 'aa-tower': 'Mobile SAM Battery',

@@ -71,7 +71,7 @@ export const UNIT_UPGRADES: Record<UnitUpgradeId, UnitUpgradeDef> = {
   },
   'reactive-plating': {
     id: 'reactive-plating', label: 'Escort Micro-Drone', category: 'frame', cost: 266,
-    description: 'Adds 60 maximum health and deploys an orbiting escort drone. Its rapid micro-laser intercepts nearby infantry and assists against the tank’s current target.', kinds: ['tank'], healthBonus: 60,
+    description: 'Adds 60 maximum health and deploys an orbiting escort drone. Its rapid micro-laser intercepts nearby infantry and assists against the tank’s current target.', kinds: ['bradley', 'tank'], healthBonus: 60,
   },
   'ion-spear': {
     id: 'ion-spear', label: 'Ion Spear', category: 'ability', cost: 392, hotkey: 'F',
@@ -79,7 +79,7 @@ export const UNIT_UPGRADES: Record<UnitUpgradeId, UnitUpgradeDef> = {
   },
   'siege-stabilizers': {
     id: 'siege-stabilizers', label: 'Siege Gyros', category: 'frame', cost: 329,
-    description: 'Braced suspension adds 85 health and makes the heavy turret traverse faster.', kinds: ['siege-tank'], healthBonus: 85, turretRateMultiplier: 1.45,
+    description: 'Braced suspension adds 85 health and makes the heavy turret traverse faster.', kinds: ['mlrs', 'siege-tank'], healthBonus: 85, turretRateMultiplier: 1.45,
   },
   'earthshaker-round': {
     id: 'earthshaker-round', label: 'Earthshaker', category: 'ability', cost: 504, hotkey: 'F',
@@ -87,7 +87,7 @@ export const UNIT_UPGRADES: Record<UnitUpgradeId, UnitUpgradeDef> = {
   },
   'vector-thrusters': {
     id: 'vector-thrusters', label: 'Vector Thrusters', category: 'frame', cost: 252,
-    description: 'Experimental rotors increase flight speed and climb authority.', kinds: ['wasp'], speedMultiplier: 1.22, climbMultiplier: 1.3,
+    description: 'Experimental rotors increase flight speed and climb authority.', kinds: ['strike-jet', 'wasp'], speedMultiplier: 1.22, climbMultiplier: 1.3,
   },
   'needle-storm': {
     id: 'needle-storm', label: 'Needle Storm', category: 'ability', cost: 336, hotkey: 'F',
@@ -103,7 +103,7 @@ export const UNIT_UPGRADES: Record<UnitUpgradeId, UnitUpgradeDef> = {
   },
   'titan-lift': {
     id: 'titan-lift', label: 'Titan Lift', category: 'frame', cost: 476,
-    description: 'Reinforced lift system adds 120 health and stronger vertical control.', kinds: ['hammerhead'], healthBonus: 120, climbMultiplier: 1.22,
+    description: 'Reinforced lift system adds 120 health and stronger vertical control.', kinds: ['bomber', 'hammerhead'], healthBonus: 120, climbMultiplier: 1.22,
   },
   'skyfall-warhead': {
     id: 'skyfall-warhead', label: 'Skyfall Warhead', category: 'ability', cost: 623, hotkey: 'F',
@@ -112,6 +112,7 @@ export const UNIT_UPGRADES: Record<UnitUpgradeId, UnitUpgradeDef> = {
 };
 
 const OPTIONS_BY_KIND: Record<UnitKind, UnitUpgradeId[]> = {
+  bradley:['reactive-plating'],mlrs:['siege-stabilizers'],'strike-jet':['vector-thrusters'],bomber:['titan-lift'],
   artillery:[],
   infantry: ['combat-bike', 'tesla-dart'],
   grenadier: ['combat-bike', 'cluster-satchel'],

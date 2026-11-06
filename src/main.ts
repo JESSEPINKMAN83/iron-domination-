@@ -1,3 +1,4 @@
+import { applyUSAProfile, spawnUSSpecialist, USA_SPECIALISTS } from './content/usa';
 import { applyUkraineProfile } from './content/ukraine';
 import { stageTerrainPreview } from './sim/terrainPreview';
 import { createConnectionRecovery, promptToRejoin } from './net/recoveryUi';
@@ -1432,7 +1433,7 @@ function createArmySetupControl(
     for (const doctrine of ARMY_DOCTRINE_IDS) {
       const option = document.createElement('option');
       option.value = doctrine;
-      option.textContent = doctrine === 'drone-network' ? 'UKRAINE · DRONES' : doctrine === 'iron-legion' ? 'ISRAEL · AIR FORCE' : 'IRAN · MISSILES';
+      option.textContent = doctrine === 'expeditionary-force' ? 'USA · HEAVY STRIKE' : doctrine === 'drone-network' ? 'UKRAINE · DRONES' : doctrine === 'iron-legion' ? 'ISRAEL · AIR FORCE' : 'IRAN · MISSILES';
       doctrineSelect.appendChild(option);
     }
     doctrineSelect.onchange = () => {
@@ -3111,6 +3112,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   for (const entity of sim.world.entities) {
     const kind = unitKindForUpgrade(entity);
     if (kind && settings.armyDoctrines[(entity.team?.id ?? 1) - 1] === 'drone-network') applyUkraineProfile(entity, kind);
+    if (kind && settings.armyDoctrines[(entity.team?.id ?? 1) - 1] === 'expeditionary-force') applyUSAProfile(entity, kind);
   }
   const unitView = new UnitView([...lineupUnits, ...startingUnits, ...performanceUnits], hf, ctx, isVisibleToPlayer, localTeam);
   unitView.attach(ctx.scene);
@@ -3401,7 +3403,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     const x=lineupUnits.reduce((sum,e)=>sum+e.transform.x,0)/lineupUnits.length;
     const z=lineupUnits.reduce((sum,e)=>sum+e.transform.z,0)/lineupUnits.length;
     rig.focusOn(x,z,{x:x+80,z:z+115},115,-6);
-  } else if (lineupStart && economy.doctrine === 'drone-network' && lineupUnits.length) {
+  } else if (lineupStart && (economy.doctrine === 'drone-network' || economy.doctrine === 'expeditionary-force') && lineupUnits.length) {
     const x = lineupUnits.reduce((sum,e)=>sum+e.transform.x,0)/lineupUnits.length;
     const z = lineupUnits.reduce((sum,e)=>sum+e.transform.z,0)/lineupUnits.length;
     rig.focusOn(x,z,{x:x-55,z:z+120},140,-6);
@@ -5230,6 +5232,7 @@ function spawnLineupUnits(
       units.push(enemy);
     }
   }
+  if (economy.doctrine === 'expeditionary-force') for (let i=0;i<USA_SPECIALISTS.length;i++) units.push(spawnUSSpecialist(sim,hf,startX+i*20,playerZ+35,economy.team,USA_SPECIALISTS[i]));
   if (economy.doctrine === 'drone-network') units.push(spawnArtilleryAt(sim, startX + kinds.length * 8.4, playerZ, 'Bohdana trial', economy.team));
   return units;
 }

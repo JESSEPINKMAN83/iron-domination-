@@ -286,6 +286,7 @@ export class EnemyCommander {
     if(needsAirTech && this.buildQueue.includes('helipad') && this.economy.credits<1100) return;
     if((aircraft===0 || (this.extraHard && aircraft < Math.max(3, Math.ceil(tanks / 3))) || tanks>=this.assaultSize()+this.homeGuardSize()) && this.economy.doctrine!=='missile-command' && aircraft<this.difficulty.aircraftCap && this.count('helipad')>0 && (this.proactiveTactics || tanks>=this.difficulty.tankCap)){
       const kind=this.nextAircraftKind(this.aircraftBuiltSequence);
+      if(this.economy.doctrine === 'expeditionary-force' && kind === 'bomber' && this.economy.credits < UNITS.bomber.cost) return;
       if(queueUnit(this.sim,this.economy,kind)) this.aircraftBuiltSequence++;
       else if(this.proactiveTactics && aircraft<4 && this.economy.credits<UNITS[kind].cost) return;
     }
@@ -295,6 +296,7 @@ export class EnemyCommander {
   }
 
   private nextVehicleKind(count: number): UnitKind {
+    if (this.economy.doctrine === 'expeditionary-force') return (['scout-tank','bradley','tank','mlrs','siege-tank','artillery'] as UnitKind[])[count%6];
     // Hard reinforces with armor and siege fire instead of repeatedly filling
     // the front line with scouts after casualties reduce the unit count.
     if (this.advancedTactics) return (['scout-tank', 'tank', 'siege-tank', 'tank', 'artillery', 'tank'] as UnitKind[])[count % 6];
@@ -342,6 +344,7 @@ export class EnemyCommander {
   private nextAircraftKind(count: number): UnitKind {
     const visibleAir=[...this.sim.world.entities].some(e=>e.flight&&!e.destroyed&&e.team&&areTeamsHostile(this.sim,this.economy.team,e.team.id)&&this.vision.isEntityVisible(e,this.sim.tick));
     if(visibleAir && this.myUnits().filter(e=>e.flight&&(e.weapon?.kind==='waspAutocannon'||e.rosterKind==='wasp')).length<Math.ceil(this.difficulty.aircraftCap/3)) return 'wasp';
+    if (this.economy.doctrine === 'expeditionary-force') return (['wasp','strike-jet','vulture','bomber','strike-jet'] as UnitKind[])[count%5];
     if (this.economy.doctrine === 'drone-network') return (['wasp','hammerhead','hammerhead','vulture'] as UnitKind[])[count % 4];
     return (['wasp','vulture','hammerhead','vulture'] as UnitKind[])[count%4];
   }

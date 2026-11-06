@@ -900,3 +900,5 @@
 @media(max-width:600px) { .war-armies__count { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 
 .war-army-row__select--doctrine[data-doctrine="drone-network"] { border-color:#d4b641;color:#f3d975; }
+
+.war-army-row__select--doctrine[data-doctrine="expeditionary-force"] { border-color:#a794cf;color:#d2c4f3; }

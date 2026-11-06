@@ -1,3 +1,4 @@
+import { usaArsenal } from '../content/usa';
 import { UKRAINE_ROLES, ukraineArsenal } from '../content/ukraine';
 import { nationForTeam } from '../content/nations';
 import { UNIT_ARSENALS } from '../content/unitArsenal';
@@ -874,7 +875,7 @@ export class SelectionBar {
     const heading = document.createElement('h3'); heading.textContent = group.label;
     const count = document.createElement('p'); count.textContent = `${group.entities.length} units in this plan · ${group.healthPct ?? 100}% average health`;
     const ukrainian = nationForTeam(group.entities[0]?.team?.id)?.doctrine === 'drone-network';
-    const arsenal = ukrainian ? ukraineArsenal(group.unitKind) : UNIT_ARSENALS[group.unitKind];
+    const arsenal = group.entities[0]?.usaProfile ? usaArsenal(group.unitKind) : ukrainian ? ukraineArsenal(group.unitKind) : UNIT_ARSENALS[group.unitKind];
     const weapon = WEAPONS[arsenal.primary];
     const capabilities = document.createElement('p');
     capabilities.textContent = `${ukrainian ? UKRAINE_ROLES[group.unitKind] ?? UNITS[group.unitKind].role : UNITS[group.unitKind].role}. ${arsenal.designation}. Primary damage ${weapon.damage} · range ${weapon.range}.`;

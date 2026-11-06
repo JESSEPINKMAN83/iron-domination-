@@ -1972,6 +1972,8 @@ function makeSoftSmokeTexture(): CanvasTexture {
 }
 
 function impactBlastScale(kind: string, weaponKind?: string): number {
+  if (weaponKind === 'heavyBomb') return 1.8;
+  if (weaponKind === 'mlrsRocket') return 1.25;
   if (weaponKind === 'heavyCannon') return 1.5;
   if (weaponKind === 'siegeMissile') return 1.3;
   if (weaponKind === 'emberDrone') return 1.15;

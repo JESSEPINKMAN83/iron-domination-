@@ -54,6 +54,10 @@ export function codeRedStructure(entity:Entity,w:number,d:number,h:number,accent
       const rack=new Group();rack.position.set(0,h*.35,-d*.1);rack.rotation.x=-.7;
       for(const x of [-w*.16,w*.16]){c(rack,'khordad-canister',armor,w*.115,d*.8,x,0,0,).rotation.x=Math.PI/2;c(rack,'sealed-canister-cap',dark,w*.1,.06,x,0,d*.41).rotation.x=Math.PI/2;}
       pivot.add(rack);
+    } else if(kind==='aa-tower' && nation?.doctrine==='expeditionary-force'){
+      const rack=new Group();rack.name='patriot-launcher';rack.rotation.x=-.7;rack.position.y=h*.35;
+      for(const x of [-w*.18,w*.18])for(const y of [-h*.12,h*.12]){b(rack,'patriot-canister',armor,w*.28,h*.21,d*.85,x,y,0);b(rack,'patriot-cap',dark,w*.23,h*.16,.04,x,y,d*.43);}
+      pivot.add(rack);b(pivot,'patriot-radar',armor,w*.3,h*.4,.2,-w*.4,h*.5,-d*.25);
     } else if(kind==='aa-tower'){
       for(const x of [-w*.3,0,w*.3]) {
         const rack=new Group();rack.name='iron-dome-20-cell-launcher';rack.position.set(x,h*.26,0);rack.rotation.x=-.75;

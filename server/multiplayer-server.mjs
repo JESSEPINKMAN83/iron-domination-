@@ -757,7 +757,7 @@ function normalizeCombatMode(value) {
 }
 
 function normalizeArmyDoctrine(value, fallback = 'iron-legion') {
-  return value === 'missile-command' || value === 'iron-legion' || value === 'drone-network' ? value : fallback;
+  return value === 'missile-command' || value === 'iron-legion' || value === 'drone-network' || value === 'expeditionary-force' ? value : fallback;
 }
 
 function normalizeArmyDoctrines(value, legacyPrimary) {
@@ -765,7 +765,7 @@ function normalizeArmyDoctrines(value, legacyPrimary) {
   if (Array.isArray(value) && value.length > 0) {
     return defaults.map((fallback, index) => normalizeArmyDoctrine(value[index], fallback));
   }
-  if (legacyPrimary === 'missile-command' || legacyPrimary === 'iron-legion' || legacyPrimary === 'drone-network') {
+  if (legacyPrimary === 'missile-command' || legacyPrimary === 'iron-legion' || legacyPrimary === 'drone-network' || legacyPrimary === 'expeditionary-force') {
     const opponent = legacyPrimary === 'missile-command' ? 'iron-legion' : 'missile-command';
     return [legacyPrimary, opponent, opponent, opponent];
   }

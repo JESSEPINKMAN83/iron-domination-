@@ -106,3 +106,63 @@
   .landing-guide__factions { padding: 2px; }
   .landing-guide__identity { display: none; }
 }
+
+/* The instructor remains a visual anchor; practical guidance gets more room. */
+.landing-guide__layout { grid-template-columns: minmax(280px,.78fr) minmax(0,1.22fr); }
+.landing-guide__divider { left: 39%; }
+.landing-guide__header { min-height: 64px; padding: 12px 28px; }
+.landing-guide__nav { padding: 0 24px; }
+.landing-guide__nav button { padding: 18px 4px 15px; }
+.landing-guide__lesson { padding: clamp(22px,3vw,42px); }
+.landing-guide h2 { font-size: clamp(48px,5vw,76px); }
+.landing-guide__subtitle { margin: 12px 0; font-size: clamp(19px,1.7vw,26px); }
+.landing-guide__intro { margin-bottom: 18px; line-height: 1.6; }
+.landing-guide__choose { color: #8ca79a; font-size: 9px; letter-spacing: .16em; }
+.landing-guide__goal { padding: 13px 16px; border: 1px solid #466955; border-left: 3px solid #9de5c4; background: #1a3025; }
+.landing-guide__goal > span { color: #a5d7bd; font-size: 9px; font-weight: 700; letter-spacing: .13em; }
+.landing-guide__goal p { margin: 5px 0 0; font-size: 14px; line-height: 1.5; color: #e4f1e9; }
+.landing-guide__controls { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0 22px; font-size: 11px; line-height: 1.6; color: #a5baaf; }
+.landing-guide__controls > span { display: flex; flex-wrap: wrap; gap: 7px; }
+.landing-guide__controls strong { font-weight: 600; color: #d2e3d9; }
+.landing-guide__steps { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 24px; }
+.landing-guide__steps li { gap: 12px; padding: 17px 0; }
+.landing-guide__steps p { font-size: 12px; line-height: 1.65; }
+.landing-guide h3 { font-size: 14px; }
+.landing-guide__advice { margin-top: 14px; }
+.landing-guide__advice section { padding: 14px; }
+.landing-guide__footer { padding: 12px 24px; }
+.landing-guide__paging { display: flex; gap: 22px; align-items: center; margin-left: auto; }
+.landing-guide__previous { border: 0; padding: 12px 0; background: transparent; color: #9eb6a9; font-size: 12px !important; }
+.landing-guide__previous[hidden] { display: none; }
+.landing-guide[data-faction="ukraine"] .landing-guide__portrait { background: radial-gradient(ellipse at 50% 55%,#323723 0%,#15231e 48%,#0b1412 85%); }
+.landing-guide[data-faction="ukraine"] .landing-guide__factions button[aria-pressed="true"] { border-color: #ebcf71; background: #343c26; }
+.landing-guide[data-faction="ukraine"] .landing-guide__identity { color: #dfd399; }
+@media (max-width:1000px) {
+  .landing-guide__steps { grid-template-columns: 1fr; }
+  .landing-guide__layout { grid-template-columns: minmax(240px,.7fr) minmax(0,1.3fr); }
+  .landing-guide__divider { left: 35%; }
+}
+@media (max-width:700px) {
+  .landing-guide__layout { grid-template-columns: minmax(185px,.6fr) minmax(0,1.4fr); }
+  .landing-guide__header { padding: 12px 16px; }
+  .landing-guide__factions { gap: 2px; padding: 3px; }
+  .landing-guide__factions button { width: 47px; height: 38px; padding: 6px; }
+  .landing-guide__factions svg { width: 30px; height: 20px; }
+  .landing-guide__identity { font-size: 8px; letter-spacing: .05em; }
+  .landing-guide__lesson { padding: 22px 18px; }
+  .landing-guide__divider { left: 30%; }
+}
+@media (max-width:560px) {
+  .landing-guide__layout { grid-template-columns: 1fr; grid-template-rows: minmax(180px,28vh) minmax(0,1fr); }
+  .landing-guide__portrait { flex-direction: row; padding: 10px 16px; gap: 12px; }
+  .landing-guide__choose { display: none; }
+  .landing-guide__factions { flex-direction: column; }
+  .landing-guide__figure { height: 100%; }
+  .landing-guide__commander { object-position: center top; }
+  .landing-guide__footer > span { display: none; }
+  .landing-guide__advice { grid-template-columns: 1fr; }
+}
+.landing-guide[data-faction="usa"] .landing-guide__portrait { background: radial-gradient(ellipse at 50% 55%,#2d2b40 0%,#1b2128 48%,#0b1412 85%); }
+.landing-guide[data-faction="usa"] .landing-guide__factions button[aria-pressed="true"] { border-color:#c1aee8;background:#302d43; }
+@media (min-width:561px) and (max-width:700px) { .landing-guide__factions button { width:39px;padding:4px; } .landing-guide__factions svg { width:27px; } }
+@media (min-width:701px) and (max-width:1000px) { .landing-guide__factions button { width:48px;padding:6px; } }

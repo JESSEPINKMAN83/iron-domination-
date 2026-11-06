@@ -1,4 +1,4 @@
-export const ARMY_DOCTRINE_IDS = ['iron-legion', 'missile-command', 'drone-network'] as const;
+export const ARMY_DOCTRINE_IDS = ['iron-legion', 'missile-command', 'drone-network', 'expeditionary-force'] as const;
 
 export type ArmyDoctrineId = (typeof ARMY_DOCTRINE_IDS)[number];
 export type ArmyDoctrineAssignments = ArmyDoctrineId[];
@@ -20,6 +20,12 @@ export const ARMY_DOCTRINES: Record<ArmyDoctrineId, ArmyDoctrineDef> = {
     description: 'Control the sky with Cobra, Apache and Yasur gunships behind Iron Dome and Arrow 3 interceptors.',
     strength: 'Aircraft and strategic missile interception',
     limitation: 'No strategic missile program',
+  },
+  'expeditionary-force': {
+    id:'expeditionary-force',label:'USA',specialty:'Heavy combined arms & strike aviation',
+    description:'Field Abrams armor, Bradley IFVs and M270 rocket artillery, then escort F-15E strike jets and B-2 conventional bombers. Specialist units are expensive and slow to replace.',
+    strength:'Broader armor and aircraft roster with heavy ground-strike payloads',
+    limitation:'Expensive specialist production; vulnerable bombers; no Arrow 3 or strategic missile program',
   },
   'drone-network': {
     id: 'drone-network', label: 'Ukraine', specialty: 'Recon drones & mobile precision',
@@ -62,5 +68,5 @@ export function sanitizeArmyDoctrines(value: unknown, legacyPrimary?: unknown): 
 
 /** Ukraine shares conventional air production, but not Israel's strategic interceptors. */
 export function doctrineAllows(required: ArmyDoctrineId | undefined, actual: ArmyDoctrineId, kind: string): boolean {
-  return !required || required === actual || (actual === 'drone-network' && required === 'iron-legion' && (kind === 'helipad' || kind === 'skylance-ciws' || kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead'));
+  return !required || required === actual || (actual === 'expeditionary-force' && required === 'iron-legion' && kind !== 'missile-defense') || (actual === 'drone-network' && required === 'iron-legion' && (kind === 'helipad' || kind === 'skylance-ciws' || kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead'));
 }

@@ -170,13 +170,13 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
       const defenseAim = predictiveDefenseTowerAimPoint(sim, attacker, weapon, target);
       const bearing = Math.atan2(defenseAim.x - attacker.transform.x, defenseAim.z - attacker.transform.z);
       // direct-fire weapons wait for the turret; bombs are lobbed from the hull
-      if (def.kind !== 'bomb' && attacker.turret) {
+      if (def.kind !== 'bomb' && def.kind !== 'heavyBomb' && attacker.turret) {
         turretGoalYaw ??= bearing;
         if (Math.abs(angleDelta(attacker.turret.yaw, bearing)) > AIM_TOLERANCE) continue;
       }
       if (weapon.cooldown > 0) continue;
       if (attacker.selectable?.type === 'infantry') attacker.terrainRevealedUntilTick = sim.tick + TERRAIN_REVEAL_TICKS;
-      if (def.kind === 'bomb' || def.kind === 'tankBomb') {
+      if (def.kind === 'bomb' || def.kind === 'tankBomb' || def.kind === 'heavyBomb') {
         const aim = autoAimPoint(sim, attacker, weapon, target, defenseAim.x, defenseAim.z, 'bomb');
         launchBomb(sim, attacker, weapon, aim.x, aim.z, def.range);
       } else if (def.projectile) {
@@ -227,7 +227,7 @@ export function predictiveDefenseTowerAimPoint(
   const targetSpeed = Math.hypot(velocityX, velocityZ);
   if (targetSpeed < DEFENSE_TOWER_MIN_LEAD_SPEED) return current;
 
-  const projectileSpeed = def.kind === 'bomb' || def.kind === 'tankBomb'
+  const projectileSpeed = def.kind === 'bomb' || def.kind === 'tankBomb' || def.kind === 'heavyBomb'
     ? BOMB_SPEED
     : def.projectile?.speed;
   if (!projectileSpeed || projectileSpeed <= targetSpeed * 0.35) return current;
@@ -504,11 +504,11 @@ export function manualFireAt(
     ? { x: rawDx / rayLength, y: (targetY - muzzleY) / rayLength, z: rawDz / rayLength, fromY: muzzleY }
     : undefined;
 
-  if (def.kind === 'bomb' || def.kind === 'tankBomb') {
+  if (def.kind === 'bomb' || def.kind === 'tankBomb' || def.kind === 'heavyBomb') {
     // A manually aimed artillery shot can cross the entire battlefield. The
     // V-mode reticle keeps the requested point inside the map, while this cap
     // also accepts network commands from any corner to the opposite corner.
-    const maxRange = Math.max(def.range, sim.nav.size * Math.SQRT2 + 8);
+    const maxRange = def.kind === 'heavyBomb' ? def.range : Math.max(def.range, sim.nav.size * Math.SQRT2 + 8);
     const range = attacker.flight ? Math.min(maxRange, len) : len < 8 ? 48 : Math.min(maxRange, len);
     launchBomb(sim, attacker, weapon, attacker.transform.x + ux * range, attacker.transform.z + uz * range, maxRange);
     return true;
@@ -584,7 +584,7 @@ export function manualFireAt(
       : manualGroundArc
         ? sampleHeight(sim.nav.heightfield, hitX, hitZ) + 0.4
         : clampedRayTargetY;
-    const salvo = lockedTarget && isManualTargetLockWeapon(weapon.kind) ? lockSalvoCount(lockHoldSeconds, attacker) : 1;
+    const salvo = weapon.kind === 'mlrsRocket' ? 3 : lockedTarget && isManualTargetLockWeapon(weapon.kind) ? lockSalvoCount(lockHoldSeconds, attacker) : 1;
     let salvoDelay = 0;
     for (let missile = 0; missile < salvo; missile++) {
       const before = sim.projectiles.length;
@@ -687,7 +687,7 @@ export function issueGroundAttack(sim: GameSim, attackers: Entity[], targetX: nu
  */
 function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: number, targetZ: number, maxRange: number): void {
   if (!attacker.team) return;
-  const weaponKind = weapon.kind === 'tankBomb' ? 'tankBomb' : 'bomb';
+  const weaponKind = weapon.kind === 'heavyBomb' ? 'heavyBomb' : weapon.kind === 'tankBomb' ? 'tankBomb' : 'bomb';
   const def = WEAPONS[weaponKind];
   const projectileKind = weaponKind === 'tankBomb' ? 'tankBomb' : 'bomb';
   const range = Math.hypot(targetX - attacker.transform.x, targetZ - attacker.transform.z);
@@ -750,7 +750,14 @@ function launchWeaponProjectileAtEntity(
   // value as an explicit aim height made shells dive into the soil beneath a
   // tank or building. Let the projectile resolver add the correct hull/facade
   // height whenever the accuracy model retained a direct target.
-  launchWeaponProjectile(sim, attacker, weapon, aim.directTarget, aim.x, targetYForEvent(aim.directTarget), aim.z);
+  const count = weapon.kind === 'mlrsRocket' ? 3 : 1;
+  for (let i=0;i<count;i++) {
+    launchWeaponProjectile(sim, attacker, weapon, aim.directTarget, aim.x+(i-(count-1)/2)*4, targetYForEvent(aim.directTarget), aim.z);
+    if (count > 1) {
+      sim.projectiles[sim.projectiles.length-1].launchDelay=i*.22;
+      sim.events[sim.events.length-1].launchDelay=i*.22;
+    }
+  }
 }
 
 function launchWeaponProjectile(
@@ -2216,7 +2223,7 @@ function applyImpactPhysics(sim: GameSim, target: Entity, dealt: number, impact:
 function normalizedImpactForce(target: Entity, damage: number, kind: WeaponKind): number {
   const damageRatio = damage / Math.max(1, target.health?.max ?? damage);
   const weaponEnergy =
-    kind === 'tankBomb' || kind === 'annihilatorMissile' ? 1.9
+    kind === 'heavyBomb' || kind === 'tankBomb' || kind === 'annihilatorMissile' ? 1.9
       : kind === 'bomb' || kind === 'siegeMissile' || kind === 'agMissile' ? 1.55
         : kind === 'tankMissile' || kind === 'rocketLauncher' || kind === 'swarmRocket' ? 1.18
           : kind === 'grenade' || kind === 'clusterGrenade' || kind === 'aaMissile' ? 0.92
@@ -2249,7 +2256,7 @@ function splashDamageForTarget(kind: WeaponKind, target: Entity, falloff: number
   if (!target.armor) return 0;
   const def = WEAPONS[kind];
   if (target.armor.kind === 'air' && !def.canTargetAir) return 0;
-  const multiplier = kind === 'bomb' || kind === 'tankBomb' || kind === 'agMissile' || kind === 'aaMissile' || kind === 'emberDrone' ? 1 : 0.55;
+  const multiplier = kind === 'heavyBomb' || kind === 'bomb' || kind === 'tankBomb' || kind === 'agMissile' || kind === 'aaMissile' || kind === 'emberDrone' ? 1 : 0.55;
   return damageForArmor(kind, target.armor.kind) * falloff * multiplier;
 }
 

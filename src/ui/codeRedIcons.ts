@@ -2,6 +2,7 @@ import { nationForTeam } from '../content/nations';
 
 /** Static portraits cover the complete roster; render generation is dev-only. */
 export const CODE_RED_ICON_KINDS = [
+  'bradley','mlrs','strike-jet','bomber',
   'command-yard', 'power-plant', 'refinery', 'barracks', 'factory', 'helipad',
   'intelligence-center', 'strategic-silo', 'wall', 'guard-tower', 'aa-tower',
   'missile-defense', 'skylance-ciws', 'infantry', 'sniper', 'grenadier',
@@ -15,6 +16,7 @@ export function codeRedIconPath(kind: string, team?: number): string {
   if (!kinds.has(kind) && kind !== 'artillery') return `/assets/ui/command-icons/${kind}.png`;
   const nation = nationForTeam(team);
   const ukraineUnit = ['infantry','sniper','grenadier','rocket-infantry','scout-tank','tank','siege-tank','artillery','wasp','vulture','hammerhead'].includes(kind);
-  const side = nation?.doctrine === 'drone-network' && ukraineUnit ? 'ukraine' : nation?.doctrine === 'missile-command' ? 'iran' : 'israel';
+  const usaUnit = ukraineUnit || ['bradley','mlrs','strike-jet','bomber'].includes(kind);
+  const side = nation?.doctrine === 'expeditionary-force' && usaUnit ? 'usa' : nation?.doctrine === 'drone-network' && ukraineUnit ? 'ukraine' : nation?.doctrine === 'missile-command' ? 'iran' : 'israel';
   return `/assets/ui/cinematic/${side}-${kind}.webp`;
 }

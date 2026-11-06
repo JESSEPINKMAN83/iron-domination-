@@ -1,6 +1,6 @@
 import './landingGuide.css';
 
-import { FACTION_LESSONS, GUIDE_FACTIONS, guideFlag, type GuideFaction } from './landingGuideContent';
+import { FACTION_LESSONS, GUIDE_FACTIONS, GUIDE_FACTION_IDS, guideFlag, type GuideFaction } from './landingGuideContent';
 
 export function installLandingGuides(root: HTMLElement): void {
   let selectedFaction: GuideFaction = 'israel';
@@ -8,6 +8,13 @@ export function installLandingGuides(root: HTMLElement): void {
   cards.forEach((card, index) => {
     card.onclick = () => openGuide(root, card, index, selectedFaction, (faction) => { selectedFaction = faction; });
   });
+  if (import.meta.env.DEV) {
+    const preview = new URLSearchParams(location.search).get('field-school-preview');
+    if (GUIDE_FACTION_IDS.includes(preview as GuideFaction) && cards[0]) {
+      selectedFaction = preview as GuideFaction;
+      requestAnimationFrame(() => openGuide(root, cards[0], 0, selectedFaction, chosen => { selectedFaction = chosen; }));
+    }
+  }
 }
 
 function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number, initialFaction: GuideFaction, rememberFaction: (faction: GuideFaction) => void): void {
@@ -23,14 +30,15 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
       <header class="landing-guide__header"><span>FIELD SCHOOL <i>/</i> COMMANDER ESSENTIALS</span><button type="button" class="landing-guide__close" aria-label="Close field school">CLOSE <span aria-hidden="true">×</span></button></header>
       <div class="landing-guide__layout">
         <div class="landing-guide__portrait">
-          <div class="landing-guide__factions" role="group" aria-label="Choose your army">${(['israel', 'iran'] as const).map((id) => `<button type="button" data-faction="${id}" aria-label="${GUIDE_FACTIONS[id].name} field guide" title="${GUIDE_FACTIONS[id].name}">${guideFlag(id)}</button>`).join('')}</div>
+          <span class="landing-guide__choose">CHOOSE YOUR ARMY</span>
+          <div class="landing-guide__factions" role="group" aria-label="Choose your army">${GUIDE_FACTION_IDS.map((id) => `<button type="button" data-faction="${id}" aria-label="${GUIDE_FACTIONS[id].name} field guide" title="${GUIDE_FACTIONS[id].name}">${guideFlag(id)}</button>`).join('')}</div>
           <div class="landing-guide__figure"></div>
           <p class="landing-guide__identity"></p>
         </div>
         <div class="landing-guide__reading">
           <nav class="landing-guide__nav" aria-label="Field school chapters">${FACTION_LESSONS.israel.map((lesson, i) => `<button type="button" data-chapter="${i}"><span>0${i + 1}</span>${lesson.name}</button>`).join('')}</nav>
           <article class="landing-guide__lesson"></article>
-          <footer class="landing-guide__footer"><span>LEARN THE BASICS. FIND YOUR OWN DOCTRINE.</span><button type="button" class="landing-guide__next"></button></footer>
+          <footer class="landing-guide__footer"><span>READ THE FIELD. CHOOSE YOUR NEXT MOVE.</span><div class="landing-guide__paging"><button type="button" class="landing-guide__previous">← Previous</button><button type="button" class="landing-guide__next"></button></div></footer>
         </div>
       </div>
     </div>`;
@@ -60,6 +68,7 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
   const figure = dialog.querySelector<HTMLElement>('.landing-guide__figure')!;
   const identity = dialog.querySelector<HTMLElement>('.landing-guide__identity')!;
   const next = dialog.querySelector<HTMLButtonElement>('.landing-guide__next')!;
+  const previous = dialog.querySelector<HTMLButtonElement>('.landing-guide__previous')!;
   const render = (index: number): void => {
     chapter = index;
     const lessons = FACTION_LESSONS[faction];
@@ -71,7 +80,7 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
     });
     const illustration = document.createElement('img');
     illustration.className = 'landing-guide__commander';
-    illustration.alt = faction === 'israel' ? 'Israeli female field instructor in olive uniform' : 'Iranian male field instructor in camouflage uniform';
+    illustration.alt = GUIDE_FACTIONS[faction].instructor;
     illustration.decoding = 'async';
     illustration.src = `${import.meta.env.BASE_URL}assets/landing/commander/factions/${faction}-${lesson.name.toLowerCase()}.webp`;
     illustration.onload = () => {
@@ -81,11 +90,12 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
       );
     };
     figure.replaceChildren(illustration);
-    article.innerHTML = `<p class="landing-guide__eyebrow">${GUIDE_FACTIONS[faction].name.toUpperCase()} FIELD GUIDE · 0${index + 1} / THE ART OF ${lesson.name.toUpperCase()}</p><h2 id="landing-guide-title">${lesson.name}</h2><p class="landing-guide__subtitle">${lesson.subtitle}</p><p class="landing-guide__intro">${lesson.intro}</p><ol class="landing-guide__steps">${lesson.steps.map(([title, copy], i) => `<li><span class="landing-guide__number">0${i + 1}</span><div><h3>${title}</h3><p>${copy}</p></div></li>`).join('')}</ol><div class="landing-guide__advice"><section><h3>MAKE IT A HABIT</h3><p>${lesson.do}</p></section><section><h3>AVOID THIS</h3><p>${lesson.avoid}</p></section></div>`;
+    article.innerHTML = `<p class="landing-guide__eyebrow">${GUIDE_FACTIONS[faction].name.toUpperCase()} FIELD GUIDE · LESSON ${index + 1} OF ${lessons.length}</p><h2 id="landing-guide-title">${lesson.name}</h2><p class="landing-guide__subtitle">${lesson.subtitle}</p><p class="landing-guide__intro">${lesson.intro}</p><aside class="landing-guide__goal"><span>YOUR OBJECTIVE</span><p>${lesson.goal}</p></aside><div class="landing-guide__controls" aria-label="Useful controls">${lesson.controls.map(([label, action]) => `<span><strong>${label}</strong><span>${action}</span></span>`).join('')}</div><ol class="landing-guide__steps">${lesson.steps.map(([title, copy], i) => `<li><span class="landing-guide__number">0${i + 1}</span><div><h3>${title}</h3><p>${copy}</p></div></li>`).join('')}</ol><div class="landing-guide__advice"><section><h3>MAKE IT A HABIT</h3><p>${lesson.do}</p></section><section><h3>AVOID THIS</h3><p>${lesson.avoid}</p></section></div>`;
     dialog.querySelectorAll<HTMLButtonElement>('[data-chapter]').forEach((button, i) => {
       if (i === index) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
     });
+    previous.hidden = index === 0;
     next.textContent = index === lessons.length - 1 ? 'Back to headquarters ↗' : `Next: ${lessons[index + 1].name} →`;
     article.scrollTop = 0;
     if (!reducedMotion && !opening) article.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 260, easing: 'ease-out' });
@@ -112,6 +122,7 @@ function openGuide(root: HTMLElement, source: HTMLButtonElement, initial: number
     if (chosen === faction) return;
     faction = chosen; rememberFaction(faction); render(chapter);
   }; });
+  previous.onclick = () => { if (chapter > 0) render(chapter - 1); };
   next.onclick = () => { if (chapter === FACTION_LESSONS[faction].length - 1) void close(); else render(chapter + 1); };
   opening = true;
   render(initial);

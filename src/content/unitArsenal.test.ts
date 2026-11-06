@@ -15,8 +15,8 @@ import {
 
 describe('unit-specific arsenals', () => {
   it('gives every playable platform an explicit combat and HUD identity', () => {
-    expect(Object.keys(UNIT_ARSENALS)).toHaveLength(11);
-    expect(new Set(Object.values(UNIT_ARSENALS).map((arsenal) => `${arsenal.primary}/${arsenal.secondary ?? '-'}`)).size).toBe(11);
+    expect(Object.keys(UNIT_ARSENALS)).toHaveLength(15);
+    expect(new Set(Object.values(UNIT_ARSENALS).map((arsenal) => `${arsenal.primary}/${arsenal.secondary ?? '-'}`)).size).toBe(15);
     expect(new Set(Object.values(UNIT_ARSENALS).map((arsenal) => arsenal.hud)).size).toBeGreaterThanOrEqual(7);
   });
 

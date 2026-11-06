@@ -18,6 +18,10 @@ export interface UnitArsenal {
  * the UI describing an obsolete weapon.
  */
 export const UNIT_ARSENALS: Record<UnitKind, UnitArsenal> = {
+  bradley:{primary:'autocannon',secondary:'tankMissile',designation:'M2 BRADLEY IFV',fireControl:'25MM / TOW SEEKER',hud:'armor'},
+  mlrs:{primary:'mlrsRocket',designation:'M270 MULTIPLE LAUNCH ROCKET SYSTEM',fireControl:'AREA SALVO · MIN RANGE 60',hud:'artillery'},
+  'strike-jet':{primary:'precisionMissile',secondary:'aaMissile',designation:'F-15E STRIKE EAGLE',fireControl:'GROUND STRIKE / AIR SEEKER',hud:'strike'},
+  bomber:{primary:'heavyBomb',designation:'B-2 SPIRIT',fireControl:'CONVENTIONAL BOMB PAIR · 12S RELOAD',hud:'strike'},
   infantry: {
     primary: 'rifle',
     secondary: 'rifleGrenade',
