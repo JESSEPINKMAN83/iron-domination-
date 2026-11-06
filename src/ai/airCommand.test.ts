@@ -68,14 +68,16 @@ describe('enemy air command',()=>{
     control.elapsed=200;const credits=economy.credits;control.commandStrategicStrike();
     expect(economy.strategicAccuracyLevel).toBe(1);expect(economy.credits).toBeLessThan(credits);
   });
-  it('Ukraine builds aviation, avoids unavailable Arrow tech and directs its UAV primary seeker at enemy aircraft',()=>{
+  it('Ukraine builds aviation but directs its FPV at ground targets instead of enemy aircraft',()=>{
     const {hf,sim,vision,control}=fixture('extra-hard','drone-network');
     expect(control.buildQueue).toContain('helipad');
     expect(control.buildQueue).not.toContain('missile-defense');
     const drone=spawnWaspAt(sim,hf,-40,0,'Wasp',2);applyUkraineProfile(drone,'wasp');
     const enemy=spawnVultureAt(sim,hf,50,0,'Enemy',1);
+    const ground=spawnTankAt(sim,40,0,'Ground target',1);
     vision.update(sim);control.commandAirWings();
-    expect(drone.weapon!.targetId).toBe(enemy.id);
+    expect(drone.weapon!.targetId).toBe(ground.id);
+    expect(drone.weapon!.targetId).not.toBe(enemy.id);
     expect(drone.mover!.target).toBeDefined();
   });
   it('keeps Iran doctrine-specific and gives Extra Hard coordinated ground assaults',()=>{

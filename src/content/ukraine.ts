@@ -12,19 +12,24 @@ export const UKRAINE_ROLES: Partial<Record<UnitKind, string>> = {
   tank: 'Leopard 2A6 · mobile armor, less durability than Merkava',
   'siege-tank': 'PzH 2000 · mobile fire support',
   artillery: 'Bohdana · mobile 155mm artillery · deploy to fire',
-  wasp: 'Agile interceptor UAV · air-only seeker · very fragile',
+  wasp: 'Single-use FPV strike · ground targets only · destroyed on impact',
   vulture: 'Mi-24 rocket helicopter · less durable than Apache',
   hammerhead: 'TB2 precision UAV · guided strike and single bomb · fragile',
 };
 export function ukraineArsenal(kind: UnitKind): UnitArsenal {
-  if (kind === 'wasp') return { primary: 'aaMissile', designation: 'INTERCEPTOR UAV', fireControl: 'AIR-ONLY SEEKER', hud: 'aviation' };
+  if (kind === 'wasp') return { primary: 'fpvStrike', designation: 'FPV STRIKE DRONE', fireControl: 'ONE-WAY GROUND IMPACT', hud: 'aviation' };
   if (kind === 'hammerhead') return { ...UNIT_ARSENALS.hammerhead, primary: 'precisionMissile', secondarySalvoCount: 1, designation: 'BAYRAKTAR TB2', fireControl: 'PRECISION STRIKE / SINGLE BOMB' };
   if (kind === 'vulture') return { ...UNIT_ARSENALS.vulture, designation: 'MI-24 HIND', fireControl: 'ROCKET IMPACT COMPUTER' };
   return UNIT_ARSENALS[kind];
 }
 
 export function applyUkraineProfile(entity: Entity, kind: UnitKind): void {
-  if (entity.ukraineProfile) return;
+  if(kind==='wasp'){entity.specialWeapon=undefined;if(entity.unitUpgrades)entity.unitUpgrades.ids=entity.unitUpgrades.ids.filter(id=>id!=='needle-storm');}
+  if (entity.ukraineProfile) {
+    // Upgrade pre-fix saves without multiplying health or speed again.
+    if(kind==='wasp' && entity.weapon?.kind!=='fpvStrike'){const primary={kind:'fpvStrike',range:WEAPONS.fpvStrike.range,cooldown:0};entity.weapon=primary;entity.weapons={primary};}
+    return;
+  }
   entity.ukraineProfile = true;
   entity.rosterKind = kind;
   const health = kind === 'wasp' ? 0.48 : kind === 'hammerhead' ? 0.52 : kind === 'vulture' ? 0.78 : ['tank','siege-tank','scout-tank'].includes(kind) ? 0.9 : 1;

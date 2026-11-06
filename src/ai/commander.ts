@@ -343,7 +343,7 @@ export class EnemyCommander {
 
   private nextAircraftKind(count: number): UnitKind {
     const visibleAir=[...this.sim.world.entities].some(e=>e.flight&&!e.destroyed&&e.team&&areTeamsHostile(this.sim,this.economy.team,e.team.id)&&this.vision.isEntityVisible(e,this.sim.tick));
-    if(visibleAir && this.myUnits().filter(e=>e.flight&&(e.weapon?.kind==='waspAutocannon'||e.rosterKind==='wasp')).length<Math.ceil(this.difficulty.aircraftCap/3)) return 'wasp';
+    if(this.economy.doctrine!=='drone-network' && visibleAir && this.myUnits().filter(e=>e.flight&&(e.weapon?.kind==='waspAutocannon'||e.rosterKind==='wasp')).length<Math.ceil(this.difficulty.aircraftCap/3)) return 'wasp';
     if (this.economy.doctrine === 'expeditionary-force') return (['wasp','strike-jet','vulture','bomber','strike-jet'] as UnitKind[])[count%5];
     if (this.economy.doctrine === 'drone-network') return (['wasp','hammerhead','hammerhead','vulture'] as UnitKind[])[count % 4];
     return (['wasp','vulture','hammerhead','vulture'] as UnitKind[])[count%4];
@@ -690,6 +690,7 @@ export class EnemyCommander {
     const enemyAir=visible.filter(e=>e.flight);
     const interceptors=aircraft.filter(e=>e.weapons?.secondary?.kind==='aaMissile'||e.weapon?.kind==='aaMissile');
     for(const aircraftUnit of aircraft){
+      if(aircraftUnit.fpvDive)continue;
       if((aircraftUnit.health?.current??0)/(aircraftUnit.health?.max??1)<0.35){
         issueMoveOrder(this.sim,[aircraftUnit],base.transform.x,base.transform.z);continue;
       }

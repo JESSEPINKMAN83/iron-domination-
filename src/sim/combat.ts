@@ -109,6 +109,7 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     (entity) => weaponSlots(entity).length > 0 && entity.health && entity.team && !entity.destroyed,
   );
   for (const attacker of combatants) {
+    if (attacker.fpvDive) continue;
     if (attacker.artillery && attacker.artillery.phase !== 'deployed') continue;
     if (!attacker.health || !attacker.team) continue;
     if (attacker.playerControlled) continue; // brain bypassed; stepSim slews the turret to the crosshair
@@ -170,13 +171,15 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
       const defenseAim = predictiveDefenseTowerAimPoint(sim, attacker, weapon, target);
       const bearing = Math.atan2(defenseAim.x - attacker.transform.x, defenseAim.z - attacker.transform.z);
       // direct-fire weapons wait for the turret; bombs are lobbed from the hull
-      if (def.kind !== 'bomb' && def.kind !== 'heavyBomb' && attacker.turret) {
+      if (def.kind !== 'fpvStrike' && def.kind !== 'bomb' && def.kind !== 'heavyBomb' && attacker.turret) {
         turretGoalYaw ??= bearing;
         if (Math.abs(angleDelta(attacker.turret.yaw, bearing)) > AIM_TOLERANCE) continue;
       }
       if (weapon.cooldown > 0) continue;
       if (attacker.selectable?.type === 'infantry') attacker.terrainRevealedUntilTick = sim.tick + TERRAIN_REVEAL_TICKS;
-      if (def.kind === 'bomb' || def.kind === 'tankBomb' || def.kind === 'heavyBomb') {
+      if (def.kind === 'fpvStrike') {
+        armFpvDive(attacker,target.transform.x,target.transform.z,target.id);
+      } else if (def.kind === 'bomb' || def.kind === 'tankBomb' || def.kind === 'heavyBomb') {
         const aim = autoAimPoint(sim, attacker, weapon, target, defenseAim.x, defenseAim.z, 'bomb');
         launchBomb(sim, attacker, weapon, aim.x, aim.z, def.range);
       } else if (def.projectile) {
@@ -191,6 +194,32 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
     updateGuardBehavior(sim, attacker, dt, engagementTarget, guardScan);
   }
   tickDestroyed(sim, dt);
+}
+
+/** An armed FPV remains a shootable aircraft until contact; consuming it is the attack. */
+function armFpvDive(drone:Entity,x:number,z:number,targetId?:number):void {
+  drone.fpvDive={x,z,targetId,remaining:8};
+  if(drone.mover){drone.mover.target=undefined;drone.mover.tactic=undefined;drone.mover.engage=undefined;}
+  if(drone.weapon)drone.weapon.cooldown=999;
+}
+function stepFpvDive(sim:GameSim,drone:Entity,dt:number):void {
+    const dive=drone.fpvDive;
+    if(!dive || drone.destroyed || !drone.flight || !drone.team)return;
+    const target=dive.targetId===undefined?undefined:sim.byId.get(dive.targetId);
+    if(target && !target.destroyed && !target.flight && target.team && areTeamsHostile(sim,drone.team.id,target.team.id)){dive.x=target.transform.x;dive.z=target.transform.z;}
+    const ground=sampleHeight(sim.nav.heightfield,dive.x,dive.z),y=drone.transform.y??ground+20;
+    const dx=dive.x-drone.transform.x,dz=dive.z-drone.transform.z,dy=ground+1-y;
+    const length=Math.hypot(dx,dy,dz),step=Math.min(length,48*dt);
+    if(length>0){drone.transform.x+=dx/length*step;drone.transform.z+=dz/length*step;drone.transform.y=y+dy/length*step;drone.transform.rot=Math.atan2(dx,dz);drone.flight.pitchAttitude=Math.atan2(-dy,Math.hypot(dx,dz));}
+    dive.remaining-=dt;
+    const terrain=sampleHeight(sim.nav.heightfield,drone.transform.x,drone.transform.z);
+    if(length-step>.75 && (drone.transform.y??0)>terrain+.7 && dive.remaining>0)return;
+    const x=drone.transform.x,z=drone.transform.z;
+    const hit=applyAreaDamage(sim,drone.team.id,x,z,WEAPONS.fpvStrike.splashRadius!,'fpvStrike',undefined,drone);
+    sim.events.push({kind:'bomb-impact',weaponKind:'fpvStrike',fromX:x,fromZ:z,toX:x,toY:terrain+1,toZ:z,sourceTeamId:drone.team.id,damage:hit.damage,killed:hit.killed,...hit.hit});
+    applyDamage(sim,drone,drone.health?.current??1);
+    const consumed=sim.byId.get(drone.id);if(consumed?.destroyed)consumed.destroyed.remaining=.35;
+    drone.fpvDive=undefined;
 }
 
 export interface PredictiveDefenseAimPoint {
@@ -367,6 +396,7 @@ function escortOwnerTarget(sim: GameSim, owner: Entity, weapon: Weapon, range: n
 
 function tickWeaponCooldowns(sim: GameSim, dt: number): void {
   for (const entity of sim.world.entities) {
+    if(entity.fpvDive)stepFpvDive(sim,entity,dt);
     for (const weapon of cooldownWeapons(entity)) weapon.cooldown = Math.max(0, weapon.cooldown - dt);
   }
 }
@@ -464,12 +494,20 @@ export function manualFireAt(
   lockedStrategicId?: number,
   lockHoldSeconds = 0,
 ): boolean {
-  if (!attacker.team || attacker.destroyed) return false;
+  if (!attacker.team || attacker.destroyed || attacker.fpvDive) return false;
   if (attacker.artillery && (attacker.artillery.phase !== 'deployed' || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)<75 || Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)>300)) return false;
+  if(attacker.weapon?.kind==='fpvStrike' && slot!=='primary')return false;
   const weapon = weaponForSlot(attacker, slot);
   if (!weapon) return false;
   const def = WEAPONS[weapon.kind as WeaponKind];
   if (!def || weapon.cooldown > 0) return false;
+  if(def.kind==='fpvStrike'){
+    const target=lockedTargetId===undefined?undefined:sim.byId.get(lockedTargetId);
+    if(target?.flight || (target && (!target.team || !areTeamsHostile(sim,attacker.team.id,target.team.id))))return false;
+    if(targetY!==undefined && targetY>sampleHeight(sim.nav.heightfield,targetX,targetZ)+18)return false;
+    if(Math.hypot(targetX-attacker.transform.x,targetZ-attacker.transform.z)>def.range)return false;
+    armFpvDive(attacker,targetX,targetZ,target?.id);return true;
+  }
   const boostedPrimary = slot === 'primary' && !!attacker.playerControlled;
   const primaryScales = boostedPrimary
     ? playerPrimaryScales(def.kind)
@@ -2256,7 +2294,7 @@ function splashDamageForTarget(kind: WeaponKind, target: Entity, falloff: number
   if (!target.armor) return 0;
   const def = WEAPONS[kind];
   if (target.armor.kind === 'air' && !def.canTargetAir) return 0;
-  const multiplier = kind === 'heavyBomb' || kind === 'bomb' || kind === 'tankBomb' || kind === 'agMissile' || kind === 'aaMissile' || kind === 'emberDrone' ? 1 : 0.55;
+  const multiplier = kind === 'fpvStrike' || kind === 'heavyBomb' || kind === 'bomb' || kind === 'tankBomb' || kind === 'agMissile' || kind === 'aaMissile' || kind === 'emberDrone' ? 1 : 0.55;
   return damageForArmor(kind, target.armor.kind) * falloff * multiplier;
 }
 

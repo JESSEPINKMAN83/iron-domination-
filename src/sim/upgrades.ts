@@ -133,8 +133,8 @@ export interface UpgradePurchaseResult {
   cost: number;
 }
 
-export function upgradeOptionsForKind(kind: UnitKind): UnitUpgradeDef[] {
-  return OPTIONS_BY_KIND[kind].map((id) => UNIT_UPGRADES[id]);
+export function upgradeOptionsForKind(kind: UnitKind, entity?: Entity): UnitUpgradeDef[] {
+  return OPTIONS_BY_KIND[kind].filter(id=>!(entity?.ukraineProfile && kind==='wasp' && id==='needle-storm')).map((id) => UNIT_UPGRADES[id]);
 }
 
 export function hasUnitUpgrade(entity: Entity | undefined, id: UnitUpgradeId): boolean {
@@ -142,7 +142,7 @@ export function hasUnitUpgrade(entity: Entity | undefined, id: UnitUpgradeId): b
 }
 
 export function specialUpgradeForEntity(entity: Entity | undefined): UnitUpgradeDef | undefined {
-  if (!entity?.unitUpgrades) return undefined;
+  if (!entity?.unitUpgrades || entity.weapon?.kind==='fpvStrike') return undefined;
   for (const id of entity.unitUpgrades.ids) {
     const def = UNIT_UPGRADES[id as UnitUpgradeId];
     if (def?.category === 'ability') return def;
@@ -186,7 +186,7 @@ export function purchaseUnitUpgrade(
   const entities = ids
     .map((id) => sim.byId.get(id))
     .filter((entity): entity is Entity => Boolean(entity && !entity.destroyed && entity.team?.id === team && def.kinds.includes(unitKindForUpgrade(entity)!)))
-    .filter((entity) => !hasUnitUpgrade(entity, upgradeId));
+    .filter((entity) => upgradeOptionsForKind(unitKindForUpgrade(entity)!,entity).some(option=>option.id===upgradeId) && !hasUnitUpgrade(entity, upgradeId));
   if (entities.length === 0) return { ok: false, reason: 'Already installed', upgraded: 0, cost: 0 };
   const cost = def.cost * entities.length;
   if (economy.credits < cost) return { ok: false, reason: `Need $${cost}`, upgraded: 0, cost };

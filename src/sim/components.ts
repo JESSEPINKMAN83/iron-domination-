@@ -257,6 +257,8 @@ export interface ProductionJob {
 }
 
 export interface Entity {
+  /** Committed single-use FPV dive; no rocket projectile or reload. */
+  fpvDive?: {x:number;z:number;targetId?:number;remaining:number};
   rosterKind?: import('../content/phase3').UnitKind;
   ukraineProfile?: boolean;
   usaProfile?: boolean;
