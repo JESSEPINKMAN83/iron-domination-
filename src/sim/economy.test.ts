@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { doctrineAllows } from '../content/armyDoctrines';
 import { MAP01 } from '../content/map01';
 import { STRUCTURES, UNITS, type UnitKind } from '../content/phase3';
 import { manualFireAt, stepCombat } from './combat';
@@ -387,6 +388,7 @@ describe('phase 3 economy and production', () => {
     const helipad = buildReady('helipad', 82, -28);
 
     for (const kind of Object.keys(UNITS) as UnitKind[]) {
+      if (!doctrineAllows(UNITS[kind].doctrine,economy.doctrine,kind)) {expect(canQueueUnit(sim,economy,kind).ok).toBe(false);continue;}
       expect(canQueueUnit(sim, economy, kind).ok).toBe(true);
       const producer = UNITS[kind].producer === 'infantry' ? barracks : UNITS[kind].producer === 'vehicles' ? factory : helipad;
       expect(queueUnit(sim, economy, kind, producer)).toBe(true);

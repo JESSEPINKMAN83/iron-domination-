@@ -1,3 +1,4 @@
+import { applyUSAProfile, isUSSpecialist, spawnUSSpecialist } from '../content/usa';
 import { applyUkraineProfile } from '../content/ukraine';
 import { INFANTRY_MOVE_SPEEDS } from '../content/phase3';
 import { structureLabel } from '../content/sideLabels';
@@ -729,7 +730,8 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
   const pos = exit.spawn;
   let entity: Entity | undefined;
   const suffix = sim.world.entities.length + 1;
-  if (kind === 'scout-tank') entity = spawnScoutTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash Jackal' : 'Jackal'} ${suffix}`, team);
+  if (isUSSpecialist(kind)) entity = spawnUSSpecialist(sim,hf,pos.x,pos.z,team,kind);
+  else if (kind === 'scout-tank') entity = spawnScoutTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash Jackal' : 'Jackal'} ${suffix}`, team);
   else if (kind === 'tank') entity = spawnTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash M-17' : 'M-17'} ${suffix}`, team);
   else if (kind === 'siege-tank') entity = spawnSiegeTankAt(sim, pos.x, pos.z, `${team === 2 ? 'Ash Mauler' : 'Mauler'} ${suffix}`, team);
   else if (kind === 'artillery') entity = spawnArtilleryAt(sim,pos.x,pos.z,`Field Artillery ${suffix}`,team);
@@ -739,6 +741,7 @@ function spawnProducedUnit(sim: GameSim, hf: Heightfield, producer: Entity, kind
   else entity = spawnInfantryAt(sim, pos.x, pos.z, team, kind);
   if (!entity) return undefined;
   if (doctrine === 'drone-network') applyUkraineProfile(entity, kind);
+  if (doctrine === 'expeditionary-force') applyUSAProfile(entity, kind);
   if (producer.producer) producer.producer.lastDepartureTick = sim.tick;
   if (entity.flight) {
     const pad = reserveUnitPosition(sim, entity, producer.transform);
@@ -1090,6 +1093,10 @@ function clampProductionPoint(
 
 function productionUnitRadius(kind: UnitKind): number {
   if (kind === 'infantry' || kind === 'sniper' || kind === 'grenadier' || kind === 'rocket-infantry') return 1.2;
+  if (kind === 'bomber') return 10;
+  if (kind === 'strike-jet') return 3.7;
+  if (kind === 'mlrs') return 3.2;
+  if (kind === 'bradley') return 2.4;
   if (kind === 'wasp') return 2.5;
   if (kind === 'vulture') return 3;
   if (kind === 'hammerhead') return 3.8;

@@ -9,6 +9,8 @@ import {
   AdditiveBlending,
   BackSide,
   BoxGeometry,
+  BufferGeometry,
+  Float32BufferAttribute,
   CanvasTexture,
   CircleGeometry,
   Color,
@@ -29,7 +31,6 @@ import {
   SRGBColorSpace,
   SphereGeometry,
   type Camera,
-  type BufferGeometry,
   type Material,
   type Scene,
   type Vector3,
@@ -805,7 +806,10 @@ export class UnitView {
       });
       built = { root: rig.root, refs: { turretPivot: rig.torso, antenna: rig.antenna } };
     } else if (kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead') {
-      built = nationForTeam(entity.team?.id)?.doctrine === 'drone-network' && kind !== 'vulture'
+      built = entity.rosterKind === 'strike-jet' || entity.rosterKind === 'bomber'
+        ? createUSAircraft(entity.rosterKind,materials,this.gunmetalMaterial)
+        : entity.usaProfile && kind === 'hammerhead' ? createUkraineAircraft('hammerhead',materials,this.gunmetalMaterial)
+        : nationForTeam(entity.team?.id)?.doctrine === 'drone-network' && kind !== 'vulture'
         ? createUkraineAircraft(kind, materials, this.gunmetalMaterial)
         : createAircraftObject(kind, materials, this.gunmetalMaterial, nationForTeam(entity.team?.id)?.doctrine === 'drone-network');
       const shadow = new Mesh(AIR_SHADOW_GEOM, this.airShadowMaterial);
@@ -813,6 +817,7 @@ export class UnitView {
       shadow.renderOrder = 18;
       this.airShadows.set(entity, shadow);
       this.group.add(shadow);
+      if(entity.rosterKind !== 'strike-jet' && entity.rosterKind !== 'bomber' && !(entity.usaProfile && kind==='hammerhead')) {
       const washMaterial = new MeshBasicMaterial({
         color: 0xb8ad8b,
         transparent: true,
@@ -826,10 +831,11 @@ export class UnitView {
       wash.visible = false;
       this.rotorWashes.set(entity, { mesh: wash, material: washMaterial });
       this.group.add(wash);
+      }
     } else if (kind === 'harvester') {
       built = createHarvesterObject(materials, this.gunmetalMaterial);
     } else {
-      built = legacyModelPreview ? createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial) : createCodeRedVehicle(entity.artillery && nationForTeam(entity.team?.id)?.doctrine === 'drone-network' ? 'bohdana' : kind, nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion', materials, this.gunmetalMaterial, this.muzzleMaterial);
+      built = legacyModelPreview ? createVehicleObject(kind, materials, this.gunmetalMaterial, this.muzzleMaterial) : createCodeRedVehicle(entity.rosterKind === 'bradley' || entity.rosterKind === 'mlrs' ? entity.rosterKind : entity.artillery && nationForTeam(entity.team?.id)?.doctrine === 'drone-network' ? 'bohdana' : kind, nationForTeam(entity.team?.id)?.doctrine ?? 'iron-legion', materials, this.gunmetalMaterial, this.muzzleMaterial);
     }
     const unit = built.root;
     if (entity.artillery) {
@@ -3447,4 +3453,36 @@ function mergeUkraineParts(parent: Object3D, material: Material, key: string): v
     ukraineAircraftGeometry.set(key,geometry);
   }
   parts.forEach(part => parent.remove(part)); parent.add(new Mesh(geometry,material));
+}
+
+export function createUSAircraft(kind: 'strike-jet'|'bomber',m:TeamMaterials,metal:Material):BuiltUnit {
+  const root=new Group();root.name=kind==='bomber'?'b2-flying-wing':'f15e-strike-eagle';
+  if(kind==='bomber') {
+    // Six triangular wedges form a recognizable broad flying wing with a notched trailing edge.
+    const geometry=new BufferGeometry();
+    geometry.setAttribute('position',new Float32BufferAttribute([
+      0,.5,5,-14,0,-2,-5,0,-1, 0,.5,5,-5,0,-1,0,0,-3,
+      0,.5,5,0,0,-3,5,0,-1, 0,.5,5,5,0,-1,14,0,-2,
+      0,-.1,5,-5,-.3,-1,-14,-.3,-2,0,-.1,5,0,-.3,-3,-5,-.3,-1,
+      0,-.1,5,5,-.3,-1,0,-.3,-3,0,-.1,5,14,-.3,-2,5,-.3,-1,
+    ],3));const positions=geometry.attributes.position;
+    for(let i=0;i<positions.count;i+=3){const x=positions.getX(i+1),y=positions.getY(i+1),z=positions.getZ(i+1);positions.setXYZ(i+1,positions.getX(i+2),positions.getY(i+2),positions.getZ(i+2));positions.setXYZ(i+2,x,y,z);}
+    geometry.setIndex(Array.from({length:positions.count},(_,i)=>i));
+    geometry.setAttribute('uv',new Float32BufferAttribute(new Float32Array(positions.count*2),2));
+    geometry.computeVertexNormals();geometry.userData.ironDominionSharedUnitGeometry=true;
+    let shared=ukraineAircraftGeometry.get('b2-wing');if(!shared){shared=geometry;ukraineAircraftGeometry.set('b2-wing',shared);}else geometry.dispose();
+    root.add(new Mesh(shared,m.dark));
+    root.add(box(1.8,.5,4,m.hull,0,.2,.7),box(1,.22,1.2,metal,0,.65,2.6));
+    for(const side of [-1,1])root.add(box(2,.3,1.5,metal,side*2.6,.2,-.7));
+  } else {
+    root.add(box(1.1,.8,8.8,m.hull,0,0,.4),box(.7,.55,2.6,m.lightBar,0,.6,1.8));
+    for(const side of [-1,1]) {
+      const wing=box(4.5,.18,2.5,m.hull,side*2.5,0,-.2);wing.rotation.y=-side*.35;root.add(wing);
+      root.add(box(.8,.7,4,metal,side*.7,-.1,-2));
+      const tail=box(.15,2.2,2.3,m.hull,side*1,.9,-3);tail.rotation.z=side*.15;root.add(tail);
+      root.add(box(2.5,.15,1.5,m.hull,side*1.6,.1,-3.6),box(.2,.25,1.5,metal,side*2,-.4,.3));
+    }
+  }
+  for(const [role,mat] of [['hull',m.hull],['dark',m.dark],['metal',metal],['glass',m.lightBar]] as const)mergeUkraineParts(root,mat,`usa:${kind}:${role}`);
+  return {root,refs:{}};
 }

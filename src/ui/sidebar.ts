@@ -1,3 +1,4 @@
+import { usaArsenal } from '../content/usa';
 import { UKRAINE_ROLES, ukraineArsenal } from '../content/ukraine';
 import { localArmyDoctrine } from '../content/sideLabels';
 import { doctrineAllows } from '../content/armyDoctrines';
@@ -1939,19 +1940,20 @@ function unitCardDetail(kind: string): { role: string; pips: number[] } | undefi
 }
 
 function primaryWeaponForUnit(kind: UnitKind): WeaponKind {
-  return (localArmyDoctrine() === 'drone-network' ? ukraineArsenal(kind) : UNIT_ARSENALS[kind]).primary;
+  return (localArmyDoctrine() === 'drone-network' ? ukraineArsenal(kind) : localArmyDoctrine() === 'expeditionary-force' ? usaArsenal(kind) : UNIT_ARSENALS[kind]).primary;
 }
 
 function secondaryWeaponForUnit(kind: UnitKind): WeaponKind | undefined {
-  return (localArmyDoctrine() === 'drone-network' ? ukraineArsenal(kind) : UNIT_ARSENALS[kind]).secondary;
+  return (localArmyDoctrine() === 'drone-network' ? ukraineArsenal(kind) : localArmyDoctrine() === 'expeditionary-force' ? usaArsenal(kind) : UNIT_ARSENALS[kind]).secondary;
 }
 
 function bombSalvoForUnit(kind: UnitKind): number {
-  return (localArmyDoctrine() === 'drone-network' ? ukraineArsenal(kind) : UNIT_ARSENALS[kind]).secondarySalvoCount ?? 0;
+  return (localArmyDoctrine() === 'drone-network' ? ukraineArsenal(kind) : localArmyDoctrine() === 'expeditionary-force' ? usaArsenal(kind) : UNIT_ARSENALS[kind]).secondarySalvoCount ?? 0;
 }
 
 function speedScoreForUnit(kind: UnitKind): number {
   const scores: Record<UnitKind, number> = {
+    bradley:.4,mlrs:.24,'strike-jet':1,bomber:.7,
     artillery:0.2,
     infantry: INFANTRY_MOVE_SPEEDS.infantry / 55,
     sniper: INFANTRY_MOVE_SPEEDS.sniper / 55,

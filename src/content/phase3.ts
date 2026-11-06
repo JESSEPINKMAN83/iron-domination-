@@ -15,6 +15,7 @@ export type StructureKind =
   | 'missile-defense'
   | 'skylance-ciws';
 export type UnitKind =
+  | 'bradley' | 'mlrs' | 'strike-jet' | 'bomber'
   | 'infantry'
   | 'sniper'
   | 'grenadier'
@@ -229,6 +230,10 @@ export const STRUCTURES: Record<StructureKind, StructureDef> = {
 };
 
 export const UNITS: Record<UnitKind, UnitDef> = {
+  bradley: {kind:'bradley',label:'M2 Bradley IFV',role:'Tracked 25mm support with TOW guided missile',tab:'vehicles',cost:750,buildTime:14,requires:'factory',producer:'vehicles',doctrine:'expeditionary-force'},
+  mlrs: {kind:'mlrs',label:'M270 MLRS',role:'Three-rocket area salvo · minimum range 60 · slow reload',tab:'vehicles',cost:1450,buildTime:22,requires:'factory',producer:'vehicles',doctrine:'expeditionary-force'},
+  'strike-jet': {kind:'strike-jet',label:'F-15E Strike Eagle',role:'Fast multirole jet · ground strike and air-to-air seeker',tab:'aircraft',cost:1900,buildTime:26,requires:'helipad',producer:'aircraft',doctrine:'expeditionary-force'},
+  bomber: {kind:'bomber',label:'B-2 Spirit',role:'Heavy conventional bomb pair · 12s reload · no air-to-air defense',tab:'aircraft',cost:3200,buildTime:40,requires:'helipad',producer:'aircraft',doctrine:'expeditionary-force'},
   infantry: {
     kind: 'infantry',
     label: 'Rifle Team',

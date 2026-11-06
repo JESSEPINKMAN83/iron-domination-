@@ -11,7 +11,7 @@ describe('Code Red nations', () => {
 
   it('follows the player’s chosen side and adds allies in order', () => {
     expect(nationsForDoctrines(['missile-command', 'iron-legion', 'iron-legion', 'missile-command']))
-      .toEqual(['iran', 'israel', 'usa', 'hezbollah']);
+      .toEqual(['iran', 'israel', 'uk', 'hezbollah']);
   });
 
   it('exposes display names per team for the active match', () => {
