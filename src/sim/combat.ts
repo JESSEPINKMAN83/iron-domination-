@@ -2133,6 +2133,11 @@ function applyDamage(sim: GameSim, target: Entity, amount: number, impact?: Dama
   const before = target.health.current;
   target.health.current = Math.max(0, target.health.current - scaled);
   const dealt = before - target.health.current;
+  if(dealt>0 && source?.team && target.team && areTeamsHostile(sim,source.team.id,target.team.id)){
+    source.battleRecord??={dealt:{},received:{}};target.battleRecord??={dealt:{},received:{}};
+    source.battleRecord.dealt[target.team.id]=(source.battleRecord.dealt[target.team.id]??0)+dealt;
+    target.battleRecord.received[source.team.id]=(target.battleRecord.received[source.team.id]??0)+dealt;
+  }
   if (dealt > 0 && impact && !target.building) applyImpactPhysics(sim, target, dealt, impact);
   if (dealt > 0 && target.building && impact) {
     applyStructureDamage(target, {

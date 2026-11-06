@@ -257,6 +257,10 @@ export interface ProductionJob {
 }
 
 export interface Entity {
+  /** Confirmed combat exchanges, bounded by the seven match armies. */
+  battleRecord?: {dealt:Record<number,number>;received:Record<number,number>};
+  /** Commander memory lives on its HQ so saves and reconnects preserve deterrence. */
+  aiDeterrence?: Record<number,import('../ai/deterrence').DeterrenceMemory>;
   /** Committed single-use FPV dive; no rocket projectile or reload. */
   fpvDive?: {x:number;z:number;targetId?:number;remaining:number};
   rosterKind?: import('../content/phase3').UnitKind;

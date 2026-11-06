@@ -1947,6 +1947,8 @@ export function hashSim(sim: GameSim): number {
       mix(o.captureTicks); mix(o.contested ? 1 : 0); mix(o.rewardTicks); mix(o.lastIncomeTick ?? -1);
     }
     if(entity.fpvDive){mix(Math.round(entity.fpvDive.x*100));mix(Math.round(entity.fpvDive.z*100));mix(entity.fpvDive.targetId??0);mix(Math.round(entity.fpvDive.remaining*1000));}
+    if(entity.battleRecord)for(const kind of ['dealt','received'] as const){const teams=Object.keys(entity.battleRecord[kind]).map(Number).sort((a,b)=>a-b);mix(kind==='dealt'?0xd1:0xd2);mix(teams.length);for(const team of teams){mix(team);mix(Math.round(entity.battleRecord[kind][team]*100));}}
+    if(entity.aiDeterrence)for(const team of Object.keys(entity.aiDeterrence).map(Number).sort((a,b)=>a-b)){const memory=entity.aiDeterrence[team];mix(team);mix(memory.failures);mix(memory.tick);mix(Math.round(memory.requiredHp*100));}
     mix(entity.team?.id ?? 0);
     if (entity.artillery) { mixText(entity.artillery.phase); mix(Math.round(entity.artillery.elapsed*1000)); mix(entity.artillery.deploy?1:0); }
     mix(Math.round(entity.transform.x * 100));
