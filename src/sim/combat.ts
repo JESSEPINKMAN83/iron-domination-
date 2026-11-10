@@ -179,7 +179,14 @@ export function stepCombat(sim: GameSim, dt: number, options: CombatStepOptions 
       if (attacker.selectable?.type === 'infantry') attacker.terrainRevealedUntilTick = sim.tick + TERRAIN_REVEAL_TICKS;
       if (def.kind === 'fpvStrike') {
         armFpvDive(attacker,target.transform.x,target.transform.z,target.id);
-      } else if (def.kind === 'bomb' || def.kind === 'tankBomb' || def.kind === 'heavyBomb') {
+      } else if (def.kind === 'heavyBomb') {
+        const dx = target.transform.x - attacker.transform.x;
+        const dz = target.transform.z - attacker.transform.z;
+        const vx = target.velocity?.x ?? 0;
+        const vz = target.velocity?.z ?? 0;
+        const lead = Math.min(8, Math.max(0.85, interceptTime2d(dx, dz, vx, vz, BOMB_SPEED)) + 0.04);
+        launchBomb(sim, attacker, weapon, target.transform.x + vx * lead, target.transform.z + vz * lead, def.range);
+      } else if (def.kind === 'bomb' || def.kind === 'tankBomb') {
         const aim = autoAimPoint(sim, attacker, weapon, target, defenseAim.x, defenseAim.z, 'bomb');
         launchBomb(sim, attacker, weapon, aim.x, aim.z, def.range);
       } else if (def.projectile) {
@@ -547,6 +554,7 @@ export function manualFireAt(
     // V-mode reticle keeps the requested point inside the map, while this cap
     // also accepts network commands from any corner to the opposite corner.
     const maxRange = def.kind === 'heavyBomb' ? def.range : Math.max(def.range, sim.nav.size * Math.SQRT2 + 8);
+    if (def.kind === 'heavyBomb' && lockedTargetId !== undefined && (!lockedTarget || rawLen > maxRange)) return false;
     const range = attacker.flight ? Math.min(maxRange, len) : len < 8 ? 48 : Math.min(maxRange, len);
     launchBomb(sim, attacker, weapon, attacker.transform.x + ux * range, attacker.transform.z + uz * range, maxRange);
     return true;
@@ -730,12 +738,12 @@ function launchBomb(sim: GameSim, attacker: Entity, weapon: Weapon, targetX: num
   const projectileKind = weaponKind === 'tankBomb' ? 'tankBomb' : 'bomb';
   const range = Math.hypot(targetX - attacker.transform.x, targetZ - attacker.transform.z);
   const salvoCount = Math.max(1, Math.min(4, Math.round(weapon.salvoCount ?? 1)));
-  const manuallyAimed = Boolean(attacker.playerControlled);
-  const baseImpact = manuallyAimed ? { x: targetX, z: targetZ } : scatterBombImpact(sim, attacker, targetX, targetZ, range, maxRange);
+  const preciseImpact = weaponKind === 'heavyBomb' || Boolean(attacker.playerControlled);
+  const baseImpact = preciseImpact ? { x: targetX, z: targetZ } : scatterBombImpact(sim, attacker, targetX, targetZ, range, maxRange);
   const aimYaw = Math.atan2(targetX - attacker.transform.x, targetZ - attacker.transform.z);
   const impactLimit = sim.nav.size / 2 - 2;
   for (let i = 0; i < salvoCount; i++) {
-    const salvoImpact = manuallyAimed ? baseImpact : offsetSalvoImpact(baseImpact.x, baseImpact.z, aimYaw, salvoCount, i);
+    const salvoImpact = preciseImpact ? baseImpact : offsetSalvoImpact(baseImpact.x, baseImpact.z, aimYaw, salvoCount, i);
     const impact = {
       x: Math.max(-impactLimit, Math.min(impactLimit, salvoImpact.x)),
       z: Math.max(-impactLimit, Math.min(impactLimit, salvoImpact.z)),
@@ -934,6 +942,7 @@ export function isManualTargetLockWeapon(kind: string | undefined): boolean {
     || kind === 'rocketLauncher'
     || kind === 'agMissile'
     || kind === 'precisionMissile'
+    || kind === 'heavyBomb'
     || kind === 'aaMissile';
 }
 
@@ -2300,7 +2309,12 @@ function splashDamageForTarget(kind: WeaponKind, target: Entity, falloff: number
   const def = WEAPONS[kind];
   if (target.armor.kind === 'air' && !def.canTargetAir) return 0;
   const multiplier = kind === 'fpvStrike' || kind === 'heavyBomb' || kind === 'bomb' || kind === 'tankBomb' || kind === 'agMissile' || kind === 'aaMissile' || kind === 'emberDrone' ? 1 : 0.55;
-  return damageForArmor(kind, target.armor.kind) * falloff * multiplier;
+  const damage = damageForArmor(kind, target.armor.kind);
+  if (kind === 'heavyBomb' && target.building && target.health) {
+    // A centered pair removes at least 48% of a structure's maximum health.
+    return Math.max(damage, target.health.max * 0.24) * falloff;
+  }
+  return damage * falloff * multiplier;
 }
 
 function applyAreaDamage(

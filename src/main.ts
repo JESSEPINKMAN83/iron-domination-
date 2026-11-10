@@ -2630,7 +2630,7 @@ function applyMapAtmosphere(
   );
 }
 
-async function boot(settings: SkirmishSettings): Promise<void> {
+async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hammerhead'): Promise<void> {
   document.body.classList.add('in-match');
   hideHowToPlayWidget();
   const multiplayer = pendingMultiplayer;
@@ -2814,7 +2814,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     | undefined;
   const aiDifficulty: Difficulty = settings.ai;
   const aiPersonality: Personality = settings.aiStyle;
-  const savedMatch = multiplayerMode ? undefined : consumeLoadStoredMatch();
+  const savedMatch = multiplayerMode || flightPreview ? undefined : consumeLoadStoredMatch();
 
   const sim = createGameSim(hf);
   sim.rules.autoCombat = settings.combatMode !== 'manual';
@@ -2829,6 +2829,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   }
   const teams = activeTeams(settings);
   sim.rules.allianceSides = Object.fromEntries(teams.map((team) => [team, settings.armySides[team - 1] ?? team]));
+  const defendedFlightPreview = flightPreview === 'bomber' && params.get('defended') === '1';
+  const previewTargetTeam = flightPreview === 'bomber'
+    ? teams.find((team) => areTeamsHostile(sim, localTeam, team))
+    : undefined;
   const armies: ArmyRuntime[] = teams.map((team) => {
     const isLocal = team === localTeam;
     const credits = largeBattleScenario
@@ -2844,7 +2848,10 @@ async function boot(settings: SkirmishSettings): Promise<void> {
         ? 'iron-legion'
         : settings.armyDoctrines[team - 1] ?? defaultArmyDoctrines()[team - 1];
     const economy = createEconomy(team, credits, doctrine);
-    const start = armyStartPosition(hf.size, team, settings.spawnPoints);
+    const targetDistance = defendedFlightPreview ? Math.min(255, hf.size / 2 - 65) : 75;
+    const start = team === previewTargetTeam
+      ? { x: targetDistance, z: targetDistance }
+      : armyStartPosition(hf.size, team, settings.spawnPoints);
     const base = createInitialBase(sim, hf, economy, start.x, start.z);
     const vision = new VisibilityGrid(hf, team);
     return { team, side: sim.rules.allianceSides[team] ?? team, economy, base, vision };
@@ -2895,7 +2902,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     ? () => true
     : (x: number, z: number, entity?: Entity): boolean => entity ? playerVision.isEntityVisible(entity,sim.tick) : playerVision.isVisibleWorld(x, z);
   for (const army of armies) {
-    if (storyMode || wallPerformancePreview || durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
+    if (flightPreview || storyMode || wallPerformancePreview || durabilityPreview || impactMovementDemo || battleStaging || buildingShowcase || destructionPreview || smokePreview || !aiTeams.has(army.team)) continue;
     const hints = armies
       .filter((candidate) => areTeamsHostile(sim, army.team, candidate.team))
       .map((candidate) => ({ x: candidate.base.transform.x, z: candidate.base.transform.z, team: candidate.team }));
@@ -3053,7 +3060,13 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   const coordinationStage = aiCoordinationPreview && !loadedFromSave
     ? stageCoordinationPreview(sim, hf, armies, localTeam,deterrencePreview)
     : undefined;
-  const startingUnits = storyMode ? (loadedFromSave ? loadedUnits : campaignUnits) : wallPerformanceStage
+  const previewAircraft = flightPreview === 'bomber'
+    ? spawnUSSpecialist(sim, hf, 0, 0, localTeam, 'bomber')
+    : flightPreview === 'hammerhead'
+      ? spawnHammerheadAt(sim, hf, 0, 0, 'MQ-9 Reaper', localTeam)
+      : undefined;
+  if (previewAircraft && flightPreview === 'hammerhead') applyUSAProfile(previewAircraft, 'hammerhead');
+  const startingUnits = previewAircraft ? [previewAircraft] : storyMode ? (loadedFromSave ? loadedUnits : campaignUnits) : wallPerformanceStage
     ? wallPerformanceStage.units
     : coordinationStage
     ? coordinationStage.units
@@ -3075,6 +3088,19 @@ async function boot(settings: SkirmishSettings): Promise<void> {
           ...spawnStartingTanks(sim, hf, army.base.transform.x, army.base.transform.z, army.team, army.team === localTeam && debugArmies ? 120 : debugArmies ? 40 : 2),
           ...(debugArmies ? [] : spawnStartingInfantry(sim, hf, army.base.transform.x, army.base.transform.z, army.team)),
         ]);
+  if (previewTargetTeam !== undefined) {
+    const targetArmy = armies.find((army) => army.team === previewTargetTeam)!;
+    const { x, z } = targetArmy.base.transform;
+    if (defendedFlightPreview) {
+      placePreviewStructure(sim, hf, targetArmy.economy, targetArmy.base, 'aa-tower', [
+        { x: 28, z: 8 }, { x: 8, z: 28 }, { x: -28, z: 8 }, { x: 8, z: -28 },
+      ]);
+    }
+    const target = spawnTankAt(sim, x - 39, z - 17, 'Practice Tank', previewTargetTeam);
+    target.weapon = undefined;
+    target.weapons = undefined;
+    startingUnits.push(target);
+  }
   for (const army of armies) army.vision.update(sim);
   if (coordinationStage) {
     // Skip the opening buildup only in this local test, retaining real AI orders.
@@ -3083,7 +3109,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
 
   const objectiveRaidUnits: Entity[] = [];
   const objectivePreview = import.meta.env.DEV && params.get('objective-test') === '1';
-  if (!storyMode && !loadedFromSave && (objectivePreview || (!testStart && !lineupStart && !buildingShowcase && !largeBattleScenario && !performanceTest))) {
+  if (!storyMode && !loadedFromSave && (objectivePreview || (!flightPreview && !testStart && !lineupStart && !buildingShowcase && !largeBattleScenario && !performanceTest))) {
     seedObjectives(sim, hf, objectivePreview ? routeStage : { x: 0, z: 0 }, objectivePreview ? 95 : undefined);
   }
   if (objectivePreview) {
@@ -3399,6 +3425,8 @@ async function boot(settings: SkirmishSettings): Promise<void> {
   } else if (coordinationStage) {
     const { focus, forward } = coordinationStage;
     rig.focusOn(focus.x, focus.z, { x: focus.x - forward.x * 140, z: focus.z - forward.z * 140 }, 250, -6);
+  } else if (previewAircraft) {
+    rig.focusOn(0, 0, { x: -60, z: -90 }, 105, -6);
   } else if (aircraftRouteTest) rig.focusOn(routeStage.x, routeStage.z, { x: routeStage.x - 110, z: routeStage.z - 150 }, 190, -6);
   else if (lineupStart && import.meta.env.DEV && params.get('unit-model-trial')==='1' && lineupUnits.length) {
     const x=lineupUnits.reduce((sum,e)=>sum+e.transform.x,0)/lineupUnits.length;
@@ -3929,7 +3957,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
     onAtmosphereChange: (timeOfDay, weather) => setMatchAtmosphere(timeOfDay, weather, true),
     snapshot: matchSnapshot,
     save:
-      multiplayerMode
+      multiplayerMode || flightPreview
         ? undefined
         : () => {
             const stored: StoredMatchSave = {
@@ -3940,7 +3968,7 @@ async function boot(settings: SkirmishSettings): Promise<void> {
             window.localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(stored));
             return stored;
           },
-    load: multiplayerMode ? undefined : requestLoadStoredMatch,
+    load: multiplayerMode || flightPreview ? undefined : requestLoadStoredMatch,
     forfeit: multiplayerMode
       ? () => {
           activeMatchExitGuard?.complete();
@@ -4543,7 +4571,18 @@ AI air orders: ${air} intercept / ${raids} raid`;
   }
   if (coordinationStage) setSelected(sim, coordinationStage.units.filter((unit) => unit.team?.id === localTeam), false, localTeam);
   if (aircraftRouteTest) setSelected(sim, aircraftRouteUnits.filter((unit) => unit.team?.id === localTeam), false, localTeam);
-  if (!storyMode && !lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview && !aircraftRouteTest) {
+  if (previewAircraft) {
+    setSelected(sim, [previewAircraft], false, localTeam);
+    const launch = document.createElement('button');
+    launch.type = 'button';
+    launch.textContent = flightPreview === 'bomber' ? 'Fly B-2 Spirit' : 'Fly MQ-9 Reaper';
+    launch.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:30;padding:12px 24px;cursor:pointer';
+    launch.onclick = () => {
+      if (firstPerson.enter([previewAircraft])) launch.remove();
+    };
+    document.body.append(launch);
+  }
+  if (!flightPreview && !storyMode && !lineupStart && !fortressPreview && !buildingShowcase && !largeBattleScenario && !durabilityPreview && !destructionPreview && !impactMovementDemo && !debriefPreview && !aircraftRouteTest) {
     const hostileArmyCount = teams.filter((team) => team !== localTeam && areTeamsHostile(sim, localTeam, team)).length;
     const memberId = enlistedCommander()?.memberId;
     if (NARRATIVE_CHARACTERS_ENABLED && shouldShowOpeningBriefing(window.localStorage, memberId)) {
@@ -6542,6 +6581,20 @@ async function start(): Promise<void> {
   const sfxPreview = params.get('sfx-preview');
   if (!isPublicHost(location.hostname) && (sfxPreview === 'all' || sfxPreview === 'strategic')) {
     showSfxPreview();
+    return;
+  }
+  const startMode = params.get('start');
+  if (import.meta.env.DEV && !isPublicHost(location.hostname) && (startMode === 'reaper-preview' || startMode === 'b2-preview')) {
+    const settings = initialSettings(params);
+    settings.armyDoctrines[0] = 'expeditionary-force';
+    const defended = startMode === 'b2-preview' && params.get('defended') === '1';
+    if (defended) settings.armyDoctrines[1] = 'missile-command';
+    await boot({
+      ...settings,
+      ...(defended ? { armyCount: 2, armySides: defaultArmySides() } : {}),
+      campaign: undefined,
+      combatMode: defended ? 'assisted' : 'manual',
+    }, startMode === 'b2-preview' ? 'bomber' : 'hammerhead');
     return;
   }
   sendTelemetryEvent('session-start');

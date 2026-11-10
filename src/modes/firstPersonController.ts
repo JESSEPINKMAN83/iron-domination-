@@ -1082,7 +1082,8 @@ export class FirstPersonController {
     this.lockStatus.style.color = locked ? '#ff6b57' : '#9de5c4';
     const count = this.possessed ? lockSalvoCount(this.lockHoldSeconds, this.possessed) : 1;
     const cap = this.possessed?.unitUpgrades?.ids.length ? 10 : 5;
-    const charging = locked && candidate.kind === 'entity';
+    const bombLock = (this.possessed?.weapons?.primary ?? this.possessed?.weapon)?.kind === 'heavyBomb';
+    const charging = locked && candidate.kind === 'entity' && !bombLock;
     const progress = charging ? (count >= cap ? 1 : this.lockHoldSeconds % 3 / 3) : Math.min(1, scanProgress ?? this.lockProgress / TARGET_LOCK_SECONDS);
     this.lockCharge.setAttribute('stroke-dashoffset', String(100 * (1 - progress)));
     this.lockCharge.setAttribute('stroke', count >= cap && charging ? '#ffcf72' : '#b6ffdb');
@@ -1131,7 +1132,10 @@ export class FirstPersonController {
     for (const candidate of this.sim.world.entities) {
       if ((aircraftOnly && !candidate.flight) || !candidate.team || !candidate.health || candidate.destroyed || candidate.health.current <= 0) continue;
       if (![entity.weapons?.primary ?? entity.weapon, entity.weapons?.secondary]
-        .some((weapon) => canManualWeaponLockTarget(weapon?.kind, candidate))) continue;
+        .some((weapon) => weapon && canManualWeaponLockTarget(weapon.kind, candidate) &&
+          (weapon.kind !== 'heavyBomb' || Math.hypot(
+            candidate.transform.x - entity.transform.x, candidate.transform.z - entity.transform.z,
+          ) <= weapon.range))) continue;
       if (isFortressTower(entity) && entity.weapons?.primary.kind === 'aaMissile' && candidate.armor?.kind !== 'air') continue;
       if (!areTeamsHostile(this.sim, entity.team.id, candidate.team.id)) continue;
       if (!this.isVisible(candidate.transform.x, candidate.transform.z, candidate)) continue;

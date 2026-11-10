@@ -383,6 +383,7 @@ function reticleReloadMarkup(): string {
     'position:absolute;left:0;right:0;bottom:0;height:100%;border-radius:2px;' +
     'background:currentColor;opacity:.94;transition:height 50ms linear,opacity 100ms ease,box-shadow 100ms ease;';
   return `
+    <span data-reticle-bomb-countdown hidden style="position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);color:#ffdc87;text-shadow:0 1px 3px #000;font:700 12px monospace;white-space:nowrap"></span>
     <span data-reticle-reload="primary" aria-hidden="true" style="${track}right:calc(100% + 9px)">
       <i data-reticle-reload-fill="primary" style="${fill}"></i>
     </span>
@@ -396,6 +397,13 @@ function updateReticleReloadNode(reticle: HTMLDivElement, slot: 'primary' | 'sec
   const fill = reticle.querySelector<HTMLElement>(`[data-reticle-reload-fill="${slot}"]`);
   if (!track || !fill) return;
   const state = reticleReloadState(kind, cooldown);
+  if (slot === 'primary') {
+    const countdown = reticle.querySelector<HTMLElement>('[data-reticle-bomb-countdown]');
+    if (countdown) {
+      countdown.hidden = kind !== 'heavyBomb' || state.ready;
+      countdown.textContent = countdown.hidden ? '' : `RELOAD ${cooldown.toFixed(1)}s`;
+    }
+  }
   track.style.display = state.available ? 'block' : 'none';
   if (!state.available) return;
   fill.style.height = `${Math.round(state.progress * 100)}%`;

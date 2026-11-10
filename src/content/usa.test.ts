@@ -4,10 +4,11 @@ import { nationsForDoctrines } from './nations';
 import { applyUSAProfile, spawnUSSpecialist, USA_SPECIALISTS } from './usa';
 import { UNITS } from './phase3';
 import { generateHeightfield } from '../sim/heightfield';
-import { createGameSim, spawnHammerheadAt, spawnTankAt } from '../sim/world';
+import { createGameSim, spawnHammerheadAt, spawnTankAt, stepSim } from '../sim/world';
 import { createEconomy, createInitialBase, queueUnit, stepEconomy } from '../sim/economy';
 import { manualFireAt, stepCombat, canManualWeaponLockTarget } from '../sim/combat';
 import { serializeSim, restoreSerializedSim } from '../sim/serialize';
+import { issueTacticOrder } from '../sim/tactics';
 import { unitKindForUpgrade } from '../sim/upgrades';
 import { VisibilityGrid } from '../sim/visibility';
 import { EnemyCommander } from '../ai/commander';
@@ -48,16 +49,60 @@ describe('USA faction integration',()=>{
     const {hf,sim}=fixture();const bomber=spawnUSSpecialist(sim,hf,0,0,1,'bomber');
     bomber.playerControlled={throttle:0,turn:0,aimYaw:Math.PI/2};
     const target=spawnTankAt(sim,70,0,'Target',2);target.health={current:1000,max:1000};
-    // Conventional free-fall bombs are aimed at ground coordinates, not seeker locks.
-    expect(canManualWeaponLockTarget('heavyBomb',target)).toBe(false);
-    expect(manualFireAt(sim,bomber,70,0,'primary')).toBe(true);
+    expect(canManualWeaponLockTarget('heavyBomb',target)).toBe(true);
+    expect(manualFireAt(sim,bomber,0,70,'primary',undefined,target.id)).toBe(true);
     expect(sim.projectiles).toHaveLength(2);expect(sim.projectiles.every(p=>p.weaponKind==='heavyBomb')).toBe(true);
-    for(let i=0;i<300;i++)stepCombat(sim,1/30,{autoFire:false});
+    expect(manualFireAt(sim,bomber,70,0,'primary')).toBe(false);
+    for(let i=0;i<270;i++)stepCombat(sim,1/30,{autoFire:false});
     expect(target.health.current).toBeLessThan(800);
-    bomber.weapon!.cooldown=0;expect(manualFireAt(sim,bomber,450,0,'primary')).toBe(true);
+    expect(manualFireAt(sim,bomber,450,0,'primary')).toBe(true);
     expect(sim.projectiles.every(p=>Math.hypot(p.toX,p.toZ)<=175.01)).toBe(true);
     const air=spawnHammerheadAt(sim,hf,30,0,'Air target',2);expect(canManualWeaponLockTarget('heavyBomb',air)).toBe(false);
   });
+  it('locks onto a command yard and takes nearly half its health with a bomb pair', () => {
+    const { hf, sim } = fixture();
+    const bomber = spawnUSSpecialist(sim, hf, 0, 0, 1, 'bomber');
+    bomber.playerControlled = { throttle: 0, turn: 0, aimYaw: Math.PI / 2 };
+    const yard = createInitialBase(sim, hf, createEconomy(2, 0), 70, 0);
+    expect(canManualWeaponLockTarget('heavyBomb', yard)).toBe(true);
+    expect(manualFireAt(sim, bomber, 0, 70, 'primary', undefined, yard.id)).toBe(true);
+    for (let i = 0; i < 270; i++) stepCombat(sim, 1 / 30, { autoFire: false });
+    expect(yard.health!.current / yard.health!.max).toBeCloseTo(0.52, 2);
+  });
+  it('centers an automatic bomb pair on a building acquired near the edge of range', () => {
+    const { hf, sim } = fixture();
+    const bomber = spawnUSSpecialist(sim, hf, 0, 0, 1, 'bomber');
+    const yard = createInitialBase(sim, hf, createEconomy(2, 0), 170, 0);
+    expect(issueTacticOrder(sim, [bomber], [{ x: 200, z: 0 }], { kind: 'attack-through' }, true, 0)).toBe(true);
+    for (let i = 0; i < 100; i++) {
+      stepSim(sim, hf, 1 / 30);
+      stepCombat(sim, 1 / 30);
+    }
+    expect(yard.health!.current / yard.health!.max).toBeCloseTo(0.52, 2);
+  });
+
+  it('builds high speed on a long route and brakes for a reversal', () => {
+    const hf = generateHeightfield({ cells: 904, cellSize: 2, waterLevel: -100, seed: 41, oreFieldCount: 0 });
+    const sim = createGameSim(hf);
+    const bomber = spawnUSSpecialist(sim, hf, -860, 0, 1, 'bomber');
+    bomber.transform.rot = Math.PI / 2;
+    expect(issueTacticOrder(sim, [bomber], [{ x: 860, z: 0 }, { x: 0, z: 0 }], { kind: 'hold' }, true, 0)).toBe(true);
+    let peakSpeed = 0;
+    let ticks = 0;
+    while (bomber.mover!.tactic?.remaining.length && ticks < 660) {
+      stepSim(sim, hf, 1 / 30);
+      peakSpeed = Math.max(peakSpeed, Math.hypot(bomber.velocity!.x, bomber.velocity!.z));
+      ticks++;
+    }
+    expect(ticks).toBeLessThan(660);
+    expect(bomber.transform.x).toBeGreaterThan(820);
+    expect(peakSpeed).toBeGreaterThan(160);
+    expect(Math.hypot(bomber.velocity!.x, bomber.velocity!.z)).toBeLessThan(65);
+    for (let i = 0; i < 660 && bomber.mover!.tactic; i++) stepSim(sim, hf, 1 / 30);
+    expect(bomber.mover!.tactic).toBeUndefined();
+    expect(Math.abs(bomber.transform.x)).toBeLessThan(2);
+  });
+
   it('fires three staggered MLRS rockets and refuses point-blank fire',()=>{
     const {hf,sim}=fixture();const mlrs=spawnUSSpecialist(sim,hf,0,0,1,'mlrs');
     mlrs.playerControlled={throttle:0,turn:0,aimYaw:Math.PI/2};mlrs.turret!.yaw=Math.PI/2;

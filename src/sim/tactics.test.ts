@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAP01 } from '../content/map01';
+import { applyUSAProfile, spawnUSSpecialist } from '../content/usa';
 import { generateHeightfield } from './heightfield';
 import { aircraftTurnRateAtSpeed, stepSim, createGameSim, spawnTankAt, spawnEnemyTanks, issueMoveOrder, setAggressiveMode, stopEntities, hashSim, spawnWaspAt, spawnVultureAt, spawnHammerheadAt } from './world';
 import { manualFireAt, stepCombat } from './combat';
@@ -332,6 +333,39 @@ describe('tactic orders', () => {
   });
 });
 
+
+it('gives a possessed USA Reaper faster cruise and a responsive powered turn', () => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const reaper = spawnHammerheadAt(sim, hf, 0, 0, 'Reaper', 1);
+  applyUSAProfile(reaper, 'hammerhead');
+  reaper.transform.rot = 0;
+  reaper.playerControlled = { throttle: 1, turn: 0, aimYaw: 0, climb: 0 };
+
+  for (let tick = 0; tick < 120; tick++) stepSim(sim, hf, 1 / 30);
+  expect(reaper.velocity!.z).toBeGreaterThan(48);
+
+  reaper.playerControlled.aimYaw = Math.PI / 2;
+  for (let tick = 0; tick < 18; tick++) stepSim(sim, hf, 1 / 30);
+  expect(reaper.transform.rot).toBeGreaterThan(1.25);
+  expect(reaper.velocity!.x).toBeGreaterThan(40);
+});
+
+it('lets a possessed B-2 reach cruise speed and turn without losing forward momentum', () => {
+  const hf = generateHeightfield(MAP01);
+  const sim = createGameSim(hf);
+  const bomber = spawnUSSpecialist(sim, hf, 0, 0, 1, 'bomber');
+  bomber.transform.rot = 0;
+  bomber.playerControlled = { throttle: 1, turn: 0, aimYaw: 0, climb: 0 };
+
+  for (let tick = 0; tick < 150; tick++) stepSim(sim, hf, 1 / 30);
+  expect(bomber.velocity!.z).toBeGreaterThan(55);
+
+  bomber.playerControlled.aimYaw = Math.PI / 2;
+  for (let tick = 0; tick < 36; tick++) stepSim(sim, hf, 1 / 30);
+  expect(bomber.transform.rot).toBeGreaterThan(1.3);
+  expect(bomber.velocity!.x).toBeGreaterThan(50);
+});
 
 it('widens the turn radius at cruise and boost speeds', () => {
   const hover = aircraftTurnRateAtSpeed(2.6, 1.3, 0, 46);
