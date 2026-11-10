@@ -1480,7 +1480,8 @@ function stepAttackThroughFlight(sim: GameSim, hf: Heightfield, entity: MovingEn
   const { transform, velocity, mover } = entity;
   const flight = entity.flight!;
   const model = FLIGHT_MODELS[flight.model];
-  const speed = mover.speed * (mover.sprint ? RTS_SPRINT_MULTIPLIER : 1) * combatRankSpeedMultiplier(entity);
+  const sprintMultiplier = model.routeSprintMultiplier ?? RTS_SPRINT_MULTIPLIER;
+  const speed = mover.speed * (mover.sprint ? sprintMultiplier : 1) * combatRankSpeedMultiplier(entity);
   const target = mover.target!;
   const dx = target.x - transform.x;
   const dz = target.z - transform.z;
@@ -1523,14 +1524,24 @@ function stepAttackThroughFlight(sim: GameSim, hf: Heightfield, entity: MovingEn
   const travelHeading = slewAngle(velocityHeading, heading, turnRate, dt);
   const turn = normalizeAngle(travelHeading - velocityHeading);
   const headingError = Math.abs(normalizeAngle(heading - velocityHeading));
-  const intermediate = Boolean(mover.tactic?.remaining.length);
+  const nextWaypoint = mover.tactic?.remaining[0];
+  const intermediate = Boolean(nextWaypoint);
   // Route points guide a continuous flight arc. Cruise through the leg and
   // allow a wider turn, rather than braking hard to touch every drawn corner.
   const turnSpeed = speed * (1 - 0.35 * clamp((headingError - Math.PI / 3) / (Math.PI * 2 / 3), 0, 1));
-  const cruise = intermediate ? turnSpeed : Math.min(turnSpeed, Math.sqrt(distance * model.tiltAccel), Math.max(0.5, distance * turnRate * 0.7));
+  let cruise = intermediate ? turnSpeed : Math.min(turnSpeed, Math.sqrt(distance * model.tiltAccel), Math.max(0.5, distance * turnRate * 0.7));
+  const fastBomber = flight.model === 'bomber' && mover.sprint;
+  if (fastBomber) {
+    // Brake before a reversal or a sharp bend. Straight legs can use the full sprint speed.
+    const exitHeading = nextWaypoint ? Math.atan2(nextWaypoint.x - target.x, nextWaypoint.z - target.z) : heading;
+    const bend = Math.max(headingError, Math.abs(normalizeAngle(exitHeading - heading)));
+    const cornerSpeed = lerp(speed, model.maxSpeed * 0.5, clamp((bend - 0.2) / 1.2, 0, 1));
+    cruise = Math.min(cruise, Math.sqrt(cornerSpeed ** 2 + 2 * model.tiltAccel * distance));
+    if (headingError > 1) cruise = Math.min(cruise, model.maxSpeed * 0.5);
+  }
   const travelSpeed = approach(currentSpeed, cruise, model.tiltAccel * agility * dt);
   const arrivalRadius = intermediate
-    ? Math.max(3, travelSpeed * dt, travelSpeed / Math.max(0.1, turnRate) * (headingError > 1 ? 1.15 : 0.45))
+    ? Math.max(3, travelSpeed * dt, Math.min(fastBomber ? 32 : Infinity, travelSpeed / Math.max(0.1, turnRate) * (headingError > 1 ? 1.15 : 0.45)))
     : Math.max(ARRIVAL_EPSILON, travelSpeed * dt);
   if (distance <= arrivalRadius) {
     if (intermediate) {
@@ -1656,7 +1667,7 @@ function stepFlightEntity(sim: GameSim, hf: Heightfield, entity: MovingEntity, m
   // A powered, banked turn redirects momentum rather than shedding it against
   // the body-axis speed limiter. Keep some slip for the heavier gunships.
   if (entity.playerControlled && command.throttle > 0 && speed > 1) {
-    const grip = flight.model === 'jet' ? 0.96 : flight.model === 'drone' ? 0.9 : 0.82;
+    const grip = (flight.model === 'jet' || flight.model === 'bomber') ? 0.96 : (flight.model === 'drone' || flight.model === 'reaper') ? 0.9 : 0.82;
     const arc = yawApplied * grip * clamp(speed / 8, 0, 1);
     const vx = velocity.x;
     velocity.x = vx * Math.cos(arc) + velocity.z * Math.sin(arc);

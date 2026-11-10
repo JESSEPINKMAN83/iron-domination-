@@ -56,7 +56,7 @@ export interface WeaponDef {
 export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   fpvStrike:{kind:'fpvStrike',label:'FPV one-way impact',damage:85,cooldown:999,range:110,splashRadius:3.5,targetTypes:['infantry','light','heavy','building'],vs:{infantry:.8,light:1,heavy:.85,building:.65,air:0}},
   mlrsRocket:{kind:'mlrsRocket',label:'MLRS conventional rocket',damage:62,cooldown:9,range:290,minRange:60,splashRadius:7,targetTypes:['light','heavy','building'],vs:{infantry:.8,light:1,heavy:.85,building:1.1,air:0},projectile:{kind:'artilleryShell',speed:105,trajectory:'arc',impactRadius:3}},
-  heavyBomb:{kind:'heavyBomb',label:'Heavy conventional bomb',damage:150,cooldown:12,range:175,splashRadius:13,targetTypes:['infantry','light','heavy','building'],vs:{infantry:.8,light:1,heavy:.9,building:1.1,air:0}},
+  heavyBomb:{kind:'heavyBomb',label:'Heavy conventional bomb',damage:150,cooldown:8,range:175,splashRadius:13,targetTypes:['infantry','light','heavy','building'],vs:{infantry:.8,light:1,heavy:.9,building:1.1,air:0}},
   precisionMissile: {
     kind:'precisionMissile',label:'Lightweight precision munition',damage:44,cooldown:5.5,range:196,
     canTargetAir:false,splashRadius:3,targetTypes:['infantry','light','heavy','building'],

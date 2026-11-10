@@ -15,10 +15,10 @@ export function applyUSAProfile(entity: Entity, kind: UnitKind): void {
   if (entity.usaProfile) return;
   entity.usaProfile=true;entity.rosterKind=kind;
   if (!isUSSpecialist(kind) && kind!=='hammerhead') return;
-  const stats = kind === 'hammerhead' ? {hp:145,speed:38,radius:3.2,vision:195} : kind === 'bradley' ? {hp:130,speed:20,radius:2.4,vision:160}
+  const stats = kind === 'hammerhead' ? {hp:145,speed:50,radius:3.2,vision:195} : kind === 'bradley' ? {hp:130,speed:20,radius:2.4,vision:160}
     : kind === 'mlrs' ? {hp:135,speed:12,radius:3.2,vision:210}
     : kind === 'strike-jet' ? {hp:160,speed:82,radius:3.7,vision:190}
-    : {hp:210,speed:42,radius:10,vision:180};
+    : {hp:210,speed:56,radius:10,vision:180};
   entity.health={current:stats.hp,max:stats.hp};
   if(entity.mover){entity.mover.speed=stats.speed;entity.mover.radius=stats.radius;}
   if(entity.selectable) entity.selectable.radius=stats.radius+.3;
@@ -27,7 +27,7 @@ export function applyUSAProfile(entity: Entity, kind: UnitKind): void {
   const primary={kind:arsenal.primary,range:WEAPONS[arsenal.primary].range,cooldown:0,salvoCount:kind==='bomber'?2:undefined};
   entity.weapon=primary;entity.weapons={primary,secondary:arsenal.secondary?{kind:arsenal.secondary,range:WEAPONS[arsenal.secondary].range,cooldown:0,salvoCount:arsenal.secondarySalvoCount}:undefined};
   if(entity.flight){
-    entity.flight.model=kind==='bomber'?'bomber':kind==='hammerhead'?'drone':'jet';entity.flight.agility=kind==='bomber'?.55:1;
+    entity.flight.model=kind==='bomber'?'bomber':kind==='hammerhead'?'reaper':'jet';entity.flight.agility=1;
     entity.flight.cruiseAltitude=kind==='bomber'?52:38;entity.flight.maxAltitude=140;
   }
   if(kind==='bradley')entity.armor={kind:'light'};
