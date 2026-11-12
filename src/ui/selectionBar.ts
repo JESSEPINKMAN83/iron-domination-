@@ -516,7 +516,7 @@ export class SelectionBar {
         quick.type = 'button';
         quick.className = 'game-primary-action';
         quick.style.cssText = tacticBtn.style.cssText + 'padding:7px 9px;';
-        quick.title = 'Draw a quick tactic on the battlefield';
+        quick.title = 'Draw a Quick Tactic (or right-click and drag on the battlefield)';
         quick.setAttribute('aria-label', 'Draw quick tactic');
         quick.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 3l6 17 3-7 7-3L4 3z"/><path d="M14 15l5 5"/></svg>';
         quick.onpointerdown = event => { event.preventDefault(); event.stopPropagation(); };

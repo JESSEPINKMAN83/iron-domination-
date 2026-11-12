@@ -3573,10 +3573,6 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
       inspectObjectiveAtScreen: (x,y) => objectiveView.inspectAtScreen(ctx.camera,x,y,window.innerWidth,window.innerHeight),
       selectionChanged: (entities) => { selectionBar?.inspectObjective(); unitVoices.acknowledge(entities, 'selected'); },
       focusGroup: (x, z) => rig.jumpTo(x, z),
-      showFacingOrder: (x, z, yaw, kind, length, count, baseSpacing) => orderMarkers.pushFacing(x, z, yaw, kind, length, count, baseSpacing),
-      showFacingPreview: (fromX, fromZ, toX, toZ, kind, count, baseSpacing) =>
-        orderMarkers.showFacingPreview(fromX, fromZ, toX, toZ, kind, count, baseSpacing),
-      clearFacingPreview: () => orderMarkers.clearFacingPreview(),
       showTargetHover: (target) => orderMarkers.showTargetHover(target),
       clearTargetHover: () => orderMarkers.clearTargetHover(),
       inspectHover: (target) => buildingView.setHovered(target),
@@ -3627,6 +3623,7 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
       if (lockstep) lockstep.issue({ type: 'repair-building', id: entity.id });
       else startBuildingRepair(sim, economy, entity.id);
     },
+    (ids, start, event) => quickTactic.open(ids, { start, event }),
   );
   sidebar = new Sidebar(sim, hf, economy, playerVision, {
     buildStructure: (kind) => {
