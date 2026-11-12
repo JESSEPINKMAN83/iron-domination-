@@ -5,8 +5,6 @@ import {
   areTeamsHostile,
   adjustAircraftAltitude,
   attackStandoffPoint,
-  formationBaseSpacingForEntities,
-  formationSpreadForEntities,
   issueMoveOrder,
   selectedEntities,
   setSelected,
@@ -42,9 +40,6 @@ export interface BuildingPicker {
 
 export interface OrderFeedback {
   showOrder(x: number, z: number, kind: OrderMarkerKind): void;
-  showFacingOrder?(x: number, z: number, yaw: number, kind: OrderMarkerKind, length?: number, count?: number, baseSpacing?: number): void;
-  showFacingPreview?(fromX: number, fromZ: number, toX: number, toZ: number, kind: OrderMarkerKind, count?: number, baseSpacing?: number): void;
-  clearFacingPreview?(): void;
   showTargetHover?(target: Entity): void;
   clearTargetHover?(): void;
   inspectHover?(target?: Entity): void;
@@ -92,7 +87,7 @@ interface TwoFingerTapCandidate {
 }
 
 const LEFT_DRAG_THRESHOLD = 6;
-const RIGHT_ORDER_DRAG_THRESHOLD = 18;
+const RIGHT_ORDER_DRAG_THRESHOLD = 10;
 const CAMERA_LOOK_DRAG_THRESHOLD = 4;
 const TWO_FINGER_TAP_MOVE_THRESHOLD = 12;
 const TWO_FINGER_TAP_MAX_DURATION_MS = 300;
@@ -136,7 +131,7 @@ export class RtsController {
   private controlGroupToastTimer?: number;
   private lastGroupRecall?: { index: number; time: number };
   private pointerDown?: PointerState;
-  private rightOrderStart?: { x: number; z: number };
+  private rightOrderCandidate = false;
   private rightCameraLookCandidate = false;
   private rightCameraLookActive = false;
   private lastClick = { time: 0, entity: undefined as Entity | undefined };
@@ -172,6 +167,7 @@ export class RtsController {
     private readonly commandSink?: RtsCommandSink,
     private readonly tacticalPing?: TacticalPingControls,
     private readonly repairBuilding?: (entity: Entity) => void,
+    private readonly startQuickTactic?: (ids: number[], start: { x: number; y: number }, event: PointerEvent) => void,
   ) {
     this.buildingHoverLabel.hidden = true;
     this.buildingHoverLabel.style.cssText = 'position:fixed;pointer-events:auto;z-index:60;padding:7px 10px;background:rgba(9,18,16,.94);border:1px solid #73b99d;color:#f0f3e8;font:600 12px system-ui;max-width:240px;';
@@ -285,7 +281,7 @@ export class RtsController {
   }
 
   isRightOrderGestureActive(): boolean {
-    return this.enabled && this.pointerDown?.button === 2 && this.rightOrderStart !== undefined;
+    return this.enabled && this.pointerDown?.button === 2 && this.rightOrderCandidate;
   }
 
   isEmptyRightLookActive(): boolean {
@@ -306,11 +302,10 @@ export class RtsController {
 
   private resetTouchGesture(): void {
     this.pointerDown = undefined;
-    this.rightOrderStart = undefined;
+    this.rightOrderCandidate = false;
     this.rightCameraLookCandidate = false;
     this.rightCameraLookActive = false;
     this.selectionBox.style.display = 'none';
-    this.orderFeedback?.clearFacingPreview?.();
     this.orderFeedback?.clearTargetHover?.();
     this.activeTouchPointers.clear();
     this.touchPointerStarts.clear();
@@ -335,11 +330,10 @@ export class RtsController {
       }
       if (this.activeTouchPointers.size > 1) {
         this.pointerDown = undefined;
-        this.rightOrderStart = undefined;
+        this.rightOrderCandidate = false;
         this.rightCameraLookCandidate = false;
         this.rightCameraLookActive = false;
         this.selectionBox.style.display = 'none';
-        this.orderFeedback?.clearFacingPreview?.();
         this.touchGestureCancelled = true;
         return;
       }
@@ -348,11 +342,10 @@ export class RtsController {
     if (isModifiedCameraPointer(e.button, e.metaKey, e.ctrlKey)) return;
     if ((e.button === 0 || e.button === 2) && this.input.isDown('Space')) {
       this.pointerDown = undefined;
-      this.rightOrderStart = undefined;
+      this.rightOrderCandidate = false;
       this.rightCameraLookCandidate = false;
       this.rightCameraLookActive = false;
       this.selectionBox.style.display = 'none';
-      this.orderFeedback?.clearFacingPreview?.();
       e.preventDefault();
       this.dom.setPointerCapture?.(e.pointerId);
       return;
@@ -373,13 +366,12 @@ export class RtsController {
     const touchCommand = e.pointerType === 'touch' && shouldUseTouchCommand(selected.length, touched?.team?.id, this.localTeam);
     const interactionButton = touchCommand ? 2 : e.button;
     this.pointerDown = { x: e.clientX, y: e.clientY, button: interactionButton, time: performance.now() };
-    this.rightOrderStart = undefined;
+    this.rightOrderCandidate = false;
     this.rightCameraLookCandidate = false;
     this.rightCameraLookActive = false;
     if (interactionButton === 2) {
-      const hasSelectedMovers = selectedEntities(this.sim, this.localTeam).some((entity) => entity.mover);
-      if (hasSelectedMovers || touchCommand) this.rightOrderStart = this.terrainPoint(e.clientX, e.clientY);
-      else this.rightCameraLookCandidate = true;
+      this.rightOrderCandidate = selected.some((entity) => entity.mover) || touchCommand;
+      this.rightCameraLookCandidate = !this.rightOrderCandidate;
     }
     if (interactionButton === 0 || interactionButton === 2) {
       e.preventDefault();
@@ -414,31 +406,14 @@ export class RtsController {
       if (Math.hypot(dx, dy) >= CAMERA_LOOK_DRAG_THRESHOLD) this.rightCameraLookActive = true;
       return;
     }
-    if (this.pointerDown.button === 2 && this.rightOrderStart) {
-      const dx = e.clientX - this.pointerDown.x;
-      const dy = e.clientY - this.pointerDown.y;
-      if (Math.hypot(dx, dy) < RIGHT_ORDER_DRAG_THRESHOLD) {
-        this.orderFeedback?.clearFacingPreview?.();
-        return;
-      }
-      const p = this.terrainPoint(e.clientX, e.clientY);
-      if (p) {
-        const movers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover);
-        const dx = p.x - this.rightOrderStart.x;
-        const dz = p.z - this.rightOrderStart.z;
-        const distance = Math.hypot(dx, dz);
-        const spread = formationSpreadForEntities(movers, distance);
-        const scale = distance > 0.001 ? spread / distance : 1;
-        this.orderFeedback?.showFacingPreview?.(
-          this.rightOrderStart.x,
-          this.rightOrderStart.z,
-          this.rightOrderStart.x + dx * scale,
-          this.rightOrderStart.z + dz * scale,
-          this.isAttackMoveQueued() ? 'attack-move' : 'move',
-          movers.length,
-          formationBaseSpacingForEntities(movers),
-        );
-      }
+    if (this.pointerDown.button === 2 && this.rightOrderCandidate) {
+      const start = this.pointerDown;
+      if (e.pointerType !== 'mouse' || !(e.buttons & 2) ||
+        Math.hypot(e.clientX - start.x, e.clientY - start.y) < RIGHT_ORDER_DRAG_THRESHOLD) return;
+      const ids = selectedEntities(this.sim, this.localTeam)
+        .filter((entity) => entity.mover && !entity.building && !entity.harvester && artilleryCanMove(entity))
+        .map((entity) => entity.id);
+      if (ids.length) this.startQuickTactic?.(ids, start, e);
       return;
     }
     if (this.pointerDown.button !== 0 || e.metaKey) return;
@@ -495,14 +470,20 @@ export class RtsController {
     if (!this.pointerDown) return;
     const down = this.pointerDown;
     this.pointerDown = undefined;
+    this.rightOrderCandidate = false;
+    if (e.type === 'pointercancel') {
+      this.resetTouchGesture();
+      return;
+    }
     this.selectionBox.style.display = 'none';
-    this.orderFeedback?.clearFacingPreview?.();
     this.orderFeedback?.clearTargetHover?.();
 
     const dx = e.clientX - down.x;
     const dy = e.clientY - down.y;
     const pointerDistance = Math.hypot(dx, dy);
-    const dragged = pointerDistance > (down.button === 2 ? RIGHT_ORDER_DRAG_THRESHOLD : LEFT_DRAG_THRESHOLD);
+    const dragged = down.button === 2
+      ? pointerDistance >= RIGHT_ORDER_DRAG_THRESHOLD
+      : pointerDistance > LEFT_DRAG_THRESHOLD;
     if (down.button === 2 && this.rightCameraLookActive) {
       this.rightCameraLookCandidate = false;
       this.rightCameraLookActive = false;
@@ -531,16 +512,16 @@ export class RtsController {
     }
 
     if (down.button === 2) {
-      const commandGroundAttack = !dragged && shouldGroundAttackFromPointer(e.metaKey, this.input.isMetaDown());
-      const attackTarget = !commandGroundAttack && !dragged && this.selectedAttackers().length > 0 ? this.enemyTargetAt(e.clientX, e.clientY) : undefined;
+      if (dragged) {
+        this.lastMoveOrderClick = undefined;
+        return;
+      }
+      const commandGroundAttack = shouldGroundAttackFromPointer(e.metaKey, this.input.isMetaDown());
+      const attackTarget = !commandGroundAttack && this.selectedAttackers().length > 0 ? this.enemyTargetAt(e.clientX, e.clientY) : undefined;
       const selectedMovers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover);
       const destinationPoint = attackTarget
         ? attackStandoffPoint(this.sim, selectedMovers, attackTarget)
-        : dragged
-          ? this.rightOrderStart
-          : this.terrainPoint(e.clientX, e.clientY) ?? this.terrainPoint(down.x, down.y);
-      const facingPoint = dragged ? this.terrainPoint(e.clientX, e.clientY) : undefined;
-      this.rightOrderStart = undefined;
+        : this.terrainPoint(e.clientX, e.clientY) ?? this.terrainPoint(down.x, down.y);
       if (destinationPoint) {
         if (commandGroundAttack) {
           this.lastMoveOrderClick = undefined;
@@ -548,7 +529,7 @@ export class RtsController {
           return;
         }
         const commandAttackMove = this.isAttackMoveQueued();
-        const rallyProducer = !dragged ? this.singleSelectedProducer() : undefined;
+        const rallyProducer = this.singleSelectedProducer();
         if (!commandAttackMove && rallyProducer && (this.commandSink?.rally?.(rallyProducer.id, destinationPoint.x, destinationPoint.z) ?? this.orderFeedback?.tryRally?.(destinationPoint.x, destinationPoint.z))) {
           this.lastMoveOrderClick = undefined;
           this.attackMoveQueued = false;
@@ -557,17 +538,6 @@ export class RtsController {
         const attackMove = commandAttackMove || attackTarget !== undefined;
         const selected = selectedMovers;
         const destination = destinationPoint;
-        let faceYaw: number | undefined;
-        let formationSpread: number | undefined;
-        if (dragged && destination && facingPoint) {
-          const faceDx = facingPoint.x - destination.x;
-          const faceDz = facingPoint.z - destination.z;
-          const faceDistance = Math.hypot(faceDx, faceDz);
-          if (faceDistance > 2) {
-            faceYaw = Math.atan2(faceDx, faceDz);
-            formationSpread = formationSpreadForEntities(selected, faceDistance);
-          }
-        }
         if (selected.length > 0) {
           if (attackTarget) {
             this.lastMoveOrderClick = undefined;
@@ -579,7 +549,7 @@ export class RtsController {
             this.attackMoveQueued = false;
             return;
           }
-          const harvesters = !dragged && !commandAttackMove ? selected.filter((entity) => entity.harvester) : [];
+          const harvesters = !commandAttackMove ? selected.filter((entity) => entity.harvester) : [];
           const harvesterIds = harvesters.map((entity) => entity.id).filter((id): id is number => id !== undefined);
           const harvestIssued =
             harvesters.length > 0 &&
@@ -595,33 +565,22 @@ export class RtsController {
           const moverIds = movers.map((entity) => entity.id).filter((id): id is number => id !== undefined);
           const now = performance.now();
           const previousMoveClick = this.lastMoveOrderClick;
-          const fastMoveEligible = !specialIssued && !attackMove && !dragged;
+          const fastMoveEligible = !specialIssued && !attackMove;
           const fastMove = fastMoveEligible
             && previousMoveClick !== undefined
             && shouldUseFastMoveDoubleClick(
               now - previousMoveClick.time,
               Math.hypot(e.clientX - previousMoveClick.x, e.clientY - previousMoveClick.y),
-              dragged,
+              false,
               e.pointerType,
             );
           this.lastMoveOrderClick = !fastMoveEligible || fastMove ? undefined : { time: now, x: e.clientX, y: e.clientY };
           if (
             movers.length > 0 &&
-            (this.commandSink?.move?.(moverIds, destination.x, destination.z, attackMove, faceYaw, formationSpread, fastMove) ??
-              issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, faceYaw, formationSpread, fastMove))
+            (this.commandSink?.move?.(moverIds, destination.x, destination.z, attackMove, undefined, undefined, fastMove) ??
+              issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, undefined, undefined, fastMove))
           ) {
             this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack-move' : fastMove ? 'fast-move' : 'move');
-            if (faceYaw !== undefined) {
-              this.orderFeedback?.showFacingOrder?.(
-                destination.x,
-                destination.z,
-                faceYaw,
-                attackMove ? 'attack-move' : 'move',
-                formationSpread,
-                movers.length,
-                formationBaseSpacingForEntities(movers),
-              );
-            }
           } else if (movers.length > 0 && !specialIssued) {
             this.flashControlGroup('MOVE ORDER NOT ACCEPTED · TRY ANOTHER DESTINATION');
           }
