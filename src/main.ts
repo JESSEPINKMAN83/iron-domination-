@@ -4815,7 +4815,7 @@ function createGameMenu(
     speedPanel.setAttribute('role', 'group');
     speedPanel.setAttribute('aria-label', 'Game speed');
     speedPanel.style.cssText =
-      'position:fixed;left:max(12px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));' +
+      'position:fixed;left:max(12px,env(safe-area-inset-left));bottom:calc(64px + env(safe-area-inset-bottom));' +
       'z-index:30;display:flex;gap:3px;align-items:center;padding:5px;' +
       'background:rgba(8,16,18,.94);border:1px solid #4b5552;border-radius:5px;';
     const label = document.createElement('span');
