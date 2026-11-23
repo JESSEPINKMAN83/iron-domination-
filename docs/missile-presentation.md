@@ -31,6 +31,7 @@ The installed r170 source/types were checked for sprite vMapUv/map_fragment, sha
 
 ## Implemented behavior
 
+- Tank main-gun shell impacts also use a compact single-sprite blast, while heavy tank guns retain a larger dust/pressure treatment. Ballistic shell flight remains unpowered.
 - Tank/scout/anti-tank, infantry rocket-launcher, aircraft rocket-pod, precision/air-to-ground, anti-air, MLRS, swarm, tactical warhead, and strategic missile families use the upgraded launch/flight treatment.
 - Infantry and aircraft rockets now receive the textured impact too; their shared `atRocket-impact` path previously fell through to the generic small sphere.
 - Short ignition flashes, nozzle-anchored animated exhaust cones, and soft smoke sprites replace static glows and many smoke spheres. Existing quality-dependent emission rates and smoke ceilings remain authoritative.
@@ -87,7 +88,7 @@ The effects preserve the original smoke/fragment/event/total drawable caps, so b
 
 ## Validation
 
-- Full suite: 948 tests / 127 files passed; production build passed with the existing bundle-size advisory.
+- Full suite: 949 tests / 127 files passed; production build passed with the existing bundle-size advisory.
 - Regression tests cover 30/60/144 Hz trail age, bounded reusable vectors/buffers, finite exhaust transforms, merged body draw counts, flight endpoints, burnout, airburst height/cleanup, private materials/shared geometry, last-wreck disposal, effect storms at all three quality tiers, all six ground-impact weapon paths, and rotating Shahed propellers without rocket exhaust.
 - Independent review checked shader tile orientation/uniform isolation, Three r170 compatibility, shared atlas lifetime, burst cleanup, drone geometry ownership, and budget accounting; no blockers.
 - Browser verified real match loading and a successful Shahed launch with no console errors. The seven-family range renders the new shader and supports close inspection. Performance-tier/3× stress and medium-quality controls were exercised.

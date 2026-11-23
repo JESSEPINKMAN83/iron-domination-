@@ -335,3 +335,14 @@ describe('textured missile impacts', () => {
     expect(view.group.getObjectByName('missile-body')).toBeDefined();
   });
 });
+
+
+it('gives the tank main-gun shell a textured impact with a single blast draw', () => {
+  const view = new CombatView(generateHeightfield(MAP01));
+  view.push([event(0, 1, { kind: 'kineticShell-impact', weaponKind: 'cannon', toY: 40 })]);
+  const blast = view.group.getObjectByName('missile-ground-blast')!;
+  expect(blast.children).toHaveLength(1);
+  expect(blast.children[0]).toBeInstanceOf(Sprite);
+  view.update(2);
+  expect(view.group.getObjectByName('missile-ground-blast')).toBeUndefined();
+});

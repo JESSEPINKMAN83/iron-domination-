@@ -331,6 +331,8 @@ export class CombatView {
           this.spawnMissileAirburst(event.toX, toY, event.toZ, event.impactScale ?? 1);
         } else if (event.weaponKind === 'strategicMissile') {
           this.spawnStrategicBlast(event, impactY);
+        } else if (event.kind === 'kineticShell-impact') {
+          this.spawnMissileBlast(event.toX, impactY, event.toZ, impactBlastScale(event.kind, event.weaponKind) * (event.impactScale ?? 1), false, waterHit, false, event.weaponKind !== 'heavyCannon');
         } else if (isMissile(event.kind.slice(0, -'-impact'.length)) || isPoweredMissile(event.weaponKind ?? '') || event.weaponKind === 'emberDrone') {
           this.spawnMissileBlast(event.toX, impactY, event.toZ, (event.impactScale ?? 1) * (event.kind === 'atRocket-impact' ? 0.65 : 1), false, waterHit);
         } else if (event.weaponKind === 'heavyCannon' || isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
@@ -1464,7 +1466,7 @@ export class CombatView {
     this.spawnMissileBlast(x, y, z, scale * 0.75, true);
   }
 
-  private spawnMissileBlast(x: number, y: number, z: number, scale: number, air = false, water = false, strategic = false): void {
+  private spawnMissileBlast(x: number, y: number, z: number, scale: number, air = false, water = false, strategic = false, compact = false): void {
     this.missileExplosionAtlas ??= createMissileExplosionAtlas();
     const sprite = createMissileExplosionSprite(this.missileExplosionAtlas);
     const size = strategic ? 28 : air ? 11 : 17;
@@ -1474,10 +1476,11 @@ export class CombatView {
     group.name = air ? 'missile-airburst' : 'missile-ground-blast';
     group.add(sprite);
     const materials: Array<MeshBasicMaterial | SpriteMaterial> = [sprite.material];
-    if (!air) {
+    if (!air && !compact) {
       this.softSmokeTexture ??= makeSoftSmokeTexture();
       const dustMaterial = new MeshBasicMaterial({ map: this.softSmokeTexture, color: water ? 0xdcecf0 : 0xa09073, transparent: true, opacity: 0.3, depthWrite: false, side: DoubleSide, forceSinglePass: true });
       dustMaterial.userData.baseOpacity = water ? 0.24 : 0.3;
+      dustMaterial.userData.role = 'shock';
       const dust = new Mesh(new PlaneGeometry(strategic ? 26 : 16, strategic ? 26 : 16), dustMaterial);
       dust.rotation.x = -Math.PI / 2;
       dust.position.y = 0.12;
