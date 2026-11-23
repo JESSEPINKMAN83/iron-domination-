@@ -1,3 +1,4 @@
+import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { prewarmMissileExplosion } from '../render/missileExplosion';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /** Standalone local effects range. Uses production CombatView, without changing combat rules. */
@@ -32,7 +33,7 @@ scene.add(view.group);
 await prewarmMissileExplosion(renderer, camera, scene);
 const panel = document.createElement('section');
 panel.style.cssText = 'position:fixed;left:18px;top:18px;max-width:min(540px, calc(100vw - 72px));padding:18px;background:#0c151de8;border:1px solid #52706d;border-radius:12px;line-height:1.6';
-panel.innerHTML = '<strong style="font-size:20px">MISSILE RANGE</strong><div>Infantry rockets · tank missiles · aircraft · Iranian missile / Shahed</div><div>Drag to orbit · scroll to zoom · no balance changes</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0"><button id="wave">Launch wave</button><button id="impact">Explosions</button><button id="close">Close view</button><button id="stress" aria-pressed="false">Stress: off</button><label>Quality <select id="quality"><option value="0">High</option><option value="1">Medium</option><option value="2">Performance</option></select></label><label>Speed <select id="speed"><option>1</option><option>2</option><option>3</option></select></label></div><div id="metrics" style="font:12px monospace;white-space:pre"></div><a href="/?start=missile-test&armies=2&seed=231125" style="color:#9fdac6">Play missile scenario →</a>';
+panel.innerHTML = '<strong style="font-size:20px">MISSILE RANGE</strong><div>Infantry rockets · tank missiles · aircraft · Iranian missile / Shahed</div><div>Drag to orbit · scroll to zoom · no balance changes</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0"><label>Set <select id="set"><option value="standard">Standard</option><option value="upgrades">Upgrades / MLRS</option><option value="ballistic">Bombs / shells / FPV</option></select></label><button id="wave">Launch wave</button><button id="impact">Explosions</button><button id="close">Close view</button><button id="stress" aria-pressed="false">Stress: off</button><label>Quality <select id="quality"><option value="0">High</option><option value="1">Medium</option><option value="2">Performance</option></select></label><label>Speed <select id="speed"><option>1</option><option>2</option><option>3</option></select></label></div><div id="metrics" style="font:12px monospace;white-space:pre"></div><a href="/?start=missile-test&armies=2&seed=231125" style="color:#9fdac6">Play missile scenario →</a>';
 document.body.append(panel);
 for (const button of Array.from(panel.querySelectorAll('button,select'))) (button as HTMLElement).style.cssText = 'padding:6px;background:#253c43;color:#e6f4ef;border:1px solid #628381;border-radius:5px';
 const params = new URLSearchParams(location.search);
@@ -44,30 +45,37 @@ view.setVisualQuality(quality);
 (panel.querySelector('#stress') as HTMLButtonElement).textContent = `Stress: ${stress ? 'on' : 'off'}`;
 panel.querySelector('#stress')!.setAttribute('aria-pressed', String(stress));
 const pending: Array<{ at: number; event: CombatEvent }> = [];
-const kinds = ['strategicMissile', 'emberDrone', 'rocketLauncher', 'rocketPod', 'aaMissile', 'precisionMissile', 'tankMissile'] as const;
-const projectileKinds = ['siegeMissile', 'siegeMissile', 'atRocket', 'atRocket', 'aaMissile', 'agMissile', 'tankMissile'];
+const groups: Record<string, readonly WeaponKind[]> = {
+  standard: ['strategicMissile', 'emberDrone', 'rocketLauncher', 'rocketPod', 'aaMissile', 'precisionMissile', 'tankMissile'],
+  upgrades: ['scoutMissile', 'siegeMissile', 'agMissile', 'swarmRocket', 'annihilatorMissile', 'mlrsRocket', 'tankBomb'],
+  ballistic: ['heavyBomb', 'bomb', 'grenade', 'rifleGrenade', 'clusterGrenade', 'cannon', 'heavyCannon', 'siegeShell', 'fpvStrike'],
+};
+let kinds = groups.standard;
+const launchKind = (kind: WeaponKind): string => kind === 'strategicMissile' || kind === 'emberDrone' ? 'siegeMissile' : WEAPONS[kind].projectile?.kind ?? (kind === 'heavyBomb' ? 'bomb' : kind);
+panel.querySelector('#set')!.addEventListener('change', (event) => { kinds = groups[(event.target as HTMLSelectElement).value]; });
 function launchWave(): void {
   for (let j = 0; j < (stress ? 5 : 1); j++) for (let i = 0; i < kinds.length; i++) {
     const weaponKind = kinds[i];
-    const z = (i - 3) * 24 + j * 2;
+    const z = (i - (kinds.length - 1) * 0.5) * 24 + j * 2;
     const fromX = -125 + j * 2, toX = 100 - j * 3;
     const duration = weaponKind === 'strategicMissile' ? 6 : weaponKind === 'emberDrone' ? 7 : 2.5 + i * 0.12;
     const event: CombatEvent = {
-      kind: projectileKinds[i],
-      weaponKind, fromX, fromZ: z, fromY: sampleHeight(hf, fromX, z) + 4,
+      kind: launchKind(weaponKind),
+      weaponKind, fromX, fromZ: z, fromY: sampleHeight(hf, fromX, z) + (weaponKind === 'bomb' || weaponKind === 'heavyBomb' ? 45 : 4),
       toX, toZ: z, toY: weaponKind === 'aaMissile' ? 38 : sampleHeight(hf, toX, z) + 0.5,
-      trajectory: weaponKind === 'strategicMissile' || weaponKind === 'emberDrone' ? 'arc' : 'flat',
+      trajectory: weaponKind === 'bomb' || weaponKind === 'heavyBomb' ? 'drop' : weaponKind === 'strategicMissile' || weaponKind === 'emberDrone' || WEAPONS[weaponKind].projectile?.trajectory === 'arc' ? 'arc' : 'flat',
       strategicLift: 48, duration, sourceTeamId: 1, targetTeamId: 2,
       targetType: weaponKind === 'aaMissile' ? 'aircraft' : 'vehicle', damage: 0, killed: false,
     };
+    if (weaponKind === 'fpvStrike') { view.push([{ ...event, kind: 'bomb-impact', damage: 40 }]); continue; }
     view.push([event]);
     pending.push({ at: time + duration, event: { ...event, kind: `${event.kind}-impact` as CombatEvent['kind'], damage: 40 } });
   }
 }
 function impactWave(): void {
   for (let i = 0; i < kinds.length; i++) {
-    const x = 55, z = (i - 3) * 24;
-    view.push([{ kind: `${projectileKinds[i]}-impact`, weaponKind: kinds[i], fromX: -100, fromZ: z, toX: x, toZ: z, toY: kinds[i] === 'aaMissile' ? 38 : sampleHeight(hf, x, z) + 0.5, targetType: kinds[i] === 'aaMissile' ? 'aircraft' : 'vehicle', sourceTeamId: 1, damage: 40, killed: false }]);
+    const x = 55, z = (i - (kinds.length - 1) * 0.5) * 24;
+    view.push([{ kind: kinds[i] === 'fpvStrike' ? 'bomb-impact' : `${launchKind(kinds[i])}-impact`, weaponKind: kinds[i], fromX: -100, fromZ: z, toX: x, toZ: z, toY: kinds[i] === 'aaMissile' ? 38 : sampleHeight(hf, x, z) + 0.5, targetType: kinds[i] === 'aaMissile' ? 'aircraft' : 'vehicle', sourceTeamId: 1, damage: 40, killed: false }]);
   }
 }
 panel.querySelector('#impact')!.addEventListener('click', impactWave);

@@ -1,7 +1,9 @@
+import { projectileVisualKind } from './projectileVisuals';
 import { BufferGeometry, Color, DoubleSide, DynamicDrawUsage, Float32BufferAttribute, Mesh, MeshBasicMaterial, Vector3 } from 'three';
 
 /** World-space widths remain readable where WebGL's one-pixel lines disappear. */
 export function missileTrailProfile(kind: string): { color: number; width: number; samples: number } {
+  kind = projectileVisualKind(kind);
   if (kind === 'strategicMissile') return { color: 0xff6d38, width: 0.8, samples: 48 };
   if (kind === 'siegeMissile') return { color: 0xff8844, width: 0.52, samples: 28 };
   if (kind === 'aaMissile') return { color: 0xf0f2e9, width: 0.28, samples: 22 };

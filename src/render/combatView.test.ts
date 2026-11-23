@@ -1,3 +1,4 @@
+import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CircleGeometry, Mesh, MeshBasicMaterial, PlaneGeometry, RingGeometry, Sprite } from 'three';
 import { MAP01 } from '../content/map01';
@@ -224,10 +225,7 @@ describe('water surface hits', () => {
     expect(meshes.some((mesh) => mesh.geometry instanceof CircleGeometry)).toBe(false);
     expect(meshes.some((mesh) => mesh.geometry instanceof PlaneGeometry)).toBe(false);
     expect(meshes.some((mesh) => mesh.geometry instanceof RingGeometry)).toBe(true);
-    expect(meshes.some((mesh) => {
-      const material = mesh.material;
-      return mesh.geometry.type === 'SphereGeometry' && material instanceof MeshBasicMaterial && material.color.getHex() === 0xff9738;
-    })).toBe(true);
+    expect(view.group.getObjectByName('missile-explosion')).toBeInstanceOf(Sprite);
   });
 });
 
@@ -345,4 +343,46 @@ it('gives the tank main-gun shell a textured impact with a single blast draw', (
   expect(blast.children[0]).toBeInstanceOf(Sprite);
   view.update(2);
   expect(view.group.getObjectByName('missile-ground-blast')).toBeUndefined();
+});
+
+
+describe('complete ordnance presentation coverage', () => {
+  const projectileWeapons = (Object.keys(WEAPONS) as WeaponKind[]).filter((kind) => WEAPONS[kind].projectile || ['bomb', 'heavyBomb', 'tankBomb'].includes(kind));
+  it.each(projectileWeapons)('renders launch and textured impact for %s', (weaponKind) => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.setCinematicMode(true);
+    const launchKind = WEAPONS[weaponKind].projectile?.kind ?? (weaponKind === 'heavyBomb' ? 'bomb' : weaponKind);
+    view.push([event(0, 1, { kind: launchKind, weaponKind, fromY: 60, toY: 60, duration: 0.2 })]);
+    expect(view.effectStats().projectiles).toBe(1);
+    view.update(0.21); view.completeFrame();
+    view.push([event(0, 1, { kind: `${launchKind}-impact`, weaponKind, toY: 60 })]);
+    expect(view.group.getObjectByName('missile-explosion')).toBeInstanceOf(Sprite);
+    view.update(5);
+    expect(view.group.getObjectByName('missile-explosion')).toBeUndefined();
+    expect(view.effectStats().projectiles).toBe(0);
+  });
+  it('uses the same textured impact for a physical FPV drone hit', () => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event(0, 1, { kind: 'bomb-impact', weaponKind: 'fpvStrike', toY: 60, damage: 20 })]);
+    expect(view.group.getObjectByName('missile-explosion')).toBeInstanceOf(Sprite);
+    expect(view.effectStats().projectiles).toBe(0);
+  });
+});
+
+it('keeps loading blueprints off-scene and gives each view independent GPU geometry', () => {
+  const first = new CombatView(generateHeightfield(MAP01));
+  const second = new CombatView(generateHeightfield(MAP01));
+  expect(first.group.children).toHaveLength(0);
+  expect(second.group.children).toHaveLength(0);
+  const launch = event(0, 1, { kind: 'agMissile', weaponKind: 'precisionMissile', duration: 1 });
+  first.push([launch]); second.push([launch]);
+  const a = first.group.getObjectByName('missile-body') as Mesh;
+  const b = second.group.getObjectByName('missile-body') as Mesh;
+  expect(a.geometry).not.toBe(b.geometry);
+  expect(a.geometry.getAttribute('position').array).not.toBe(b.geometry.getAttribute('position').array);
+  const dispose = vi.spyOn(a.geometry, 'dispose');
+  second.update(2);
+  expect(dispose).not.toHaveBeenCalled();
+  first.update(2);
+  expect(dispose).toHaveBeenCalledTimes(1);
 });

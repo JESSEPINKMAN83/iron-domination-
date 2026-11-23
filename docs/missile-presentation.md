@@ -31,6 +31,11 @@ The installed r170 source/types were checked for sprite vMapUv/map_fragment, sha
 
 ## Implemented behavior
 
+- All current weapon definitions have an explicit, typed visual family in `projectileVisuals.ts`; see [complete coverage](ordnance-coverage.md). Precision, swarm, upgraded tactical, MLRS, and heavy arc aliases use their full intended body/trail profiles instead of the generic fallback. A new WeaponKind requires a registry entry.
+- All explosive projectile impacts now use the shared textured sequence: missiles, rockets, tank shells, artillery, bombs, grenades, live FPV contact hits (`bomb-impact`), and interceptions. Small-arms/laser/rail direct-fire presentation remains role-specific.
+- Unpowered bombs, grenades, and shells do not emit rocket flight smoke. Propelled weapon emission cadence stays unchanged; improved aliases do not increase puff frequency.
+- CPU-only projectile blueprints are prepared once while loading, never added to a scene or uploaded. Each view deep-clones geometry/materials into its active GPU cache, then concurrent launches share those per-view copies. Final live/wreck references release GPU copies normally. This moves mesh construction out of the first-shot frame while retaining cleanup and view isolation.
+
 - Tank main-gun shell impacts also use a compact single-sprite blast, while heavy tank guns retain a larger dust/pressure treatment. Ballistic shell flight remains unpowered.
 - Tank/scout/anti-tank, infantry rocket-launcher, aircraft rocket-pod, precision/air-to-ground, anti-air, MLRS, swarm, tactical warhead, and strategic missile families use the upgraded launch/flight treatment.
 - Infantry and aircraft rockets now receive the textured impact too; their shared `atRocket-impact` path previously fell through to the generic small sphere.
@@ -39,18 +44,20 @@ The installed r170 source/types were checked for sprite vMapUv/map_fragment, sha
 - Trails sample at 30 Hz of effect/game time and retain a live head. Bounded vectors and buffers are reused, so trail age remains consistent at 30/60/144 rendering Hz and follows 1×/2×/3× effect time.
 - Tactical, strategic, and Shahed impacts share a staged white-hot flash → irregular orange flame → dark rising smoke sequence. Ground impacts include dust or water spray; anti-air hits remain elevated without a ground dust plane. Existing scorch marks, damage feedback, fragments, and aftermath remain bounded.
 - Shahed keeps its broad aircraft silhouette, rotating pusher propellers, and thin soft trail. It has no rocket flame or glowing engine orb. Most opaque body parts are consolidated, lowering its draw cost while preserving wings and propellers.
-- Immutable body geometry is cached only while live projectiles or falling wrecks reference it. Materials stay private; the final reference releases GPU resources. The shared atlas/warmup material are intentionally bounded for the page lifetime.
+- Live GPU body geometry is cached only while projectiles or falling wrecks reference it; off-scene CPU blueprints remain for reuse. Materials stay private; the final reference releases GPU resources. The shared atlas/warmup material are intentionally bounded for the page lifetime.
 - No lights, dynamic shadows, dependencies, external image downloads, network fields, damage/range/reload changes, or simulation/guidance changes.
 
 ## Local review
 
 Run `npm run dev -- --host 127.0.0.1 --port 5191`.
 
-- Review range: http://127.0.0.1:5191/missile-lab.html?review=4
+- Review range: http://127.0.0.1:5191/missile-lab.html?review=5
+- Actual units: http://127.0.0.1:5191/?start=weapons-lab&armies=2&seed=231128&doctrines=expeditionary-force,missile-command&combat=manual
+- Full battlefield with ready armies/launchers: http://127.0.0.1:5191/?start=sound-test&armies=2&seed=231127&doctrines=expeditionary-force,missile-command
 - Playable Iranian silo/Shahed scenario: http://127.0.0.1:5191/?start=missile-test&armies=2&seed=231126
 - Matched impact sample: http://127.0.0.1:5191/missile-lab.html?mode=impacts&snapshot=0.18
 
-The range shows infantry launcher, tank missile, aircraft rocket pod/precision/AA missiles, Iranian strategic missile, and Shahed. Click **Explosions** to compare all seven impacts; **Close view** moves nearer. Drag to orbit and scroll to zoom. Stress, quality, and 1×/2×/3× controls exercise effect budgets. Damage labels are hidden only in this inspection tool so they do not cover the explosions. The default production build omits the standalone lab entry; the real game uses the same CombatView and atlas module.
+The range offers Standard, Upgrades / MLRS, and Bombs / shells / FPV sets, covering all projectile and drone-contact weapons. The actual-unit weapons lab provides selectable platforms: choose a unit, press V, then use LMB for primary and RMB for secondary fire. Special missile upgrades are available through the normal upgrade UI. Click **Explosions** to compare all seven impacts; **Close view** moves nearer. Drag to orbit and scroll to zoom. Stress, quality, and 1×/2×/3× controls exercise effect budgets. Damage labels are hidden only in this inspection tool so they do not cover the explosions. The default production build omits the standalone lab entry; the real game uses the same CombatView and atlas module.
 
 ## Performance evidence — November 23, 2026
 
@@ -73,22 +80,24 @@ This is about 18% fewer draw calls and 31% fewer triangles during the impact sce
 
 Browser frame timing remained refresh-limited in the established frozen scenes. Multiple local game tabs, refresh pacing, shader compilation during startup, and other work affect frame timing; do not infer whole-battle or low-end/mobile FPS from these counts. No GPU timer-query measurement was made. Atlas upload/program preparation now happens during match loading rather than the first visible impact.
 
-### Matched CPU fixtures
+### Matched CPU fixtures — complete ordnance set
 
-Vitest/Node, same generated heightfield, 25 events (five each of strategic, siege, AA, air-to-ground, tank missile). Alternate baseline/head order for 14 trials, discard four warmups, report the upper-middle sample of ten timings. Atlas preparation occurs during view/loading setup outside the timed combat operations. No WebGL renderer is involved.
+Vitest/Node, same generated heightfield, all 22 weapons with projectile or manual-bomb flight paths. Impact fixture includes those 22 plus the live FPV contact event, for 23 impact types. Alternate baseline/head order for 14 trials, discard four warmups, report the upper-middle sample of ten timings. Shared atlas/CPU blueprints prepare during view/loading setup outside the timed combat operations. No WebGL renderer is involved.
 
 | Work | Baseline median | Updated median |
 | --- | ---: | ---: |
-| Create 25 launches | 2.45 ms | 2.12 ms |
-| 120 flight updates at 1/60s | 18.31 ms | 10.64 ms |
-| Create 25 impacts | 5.74 ms | 4.42 ms |
-| 120 aftermath updates at 1/60s | 2.41 ms | 1.88 ms |
+| Create 22 distinct launches | 1.52 ms | 1.28 ms |
+| 120 flight updates at 1/60s | 10.01 ms | 6.48 ms |
+| Create all 23 impact types | 4.69 ms | 3.54 ms |
+| 120 aftermath updates at 1/60s | 2.27 ms | 2.20 ms |
 
-The effects preserve the original smoke/fragment/event/total drawable caps, so broad event storms cannot allocate an unbounded number of objects. Initial atlas painting/loading latency and real low-end phone frame budgets are separate from these warmed combat measurements. Raw logs and impact fixture source are included alongside this document. Full instancing and volumetric raymarched smoke are deferred; the atlas is a compact billboard approximation, not volumetric simulation.
+The broader unique-weapon fixture caught first-shot geometry preparation overhead; off-scene CPU blueprints move that work into loading. The active GPU copies remain independent and are disposed after their last launch/wreck reference. The fixed CPU blueprint cache and atlas preparation are loading/memory tradeoffs, not zero-cost work. Initial loading latency and real low-end phone frame budgets are separate from these warmed combat measurements. Raw current logs and fixture sources use the `ordnance-cpu-*` names alongside this document.
+
+Original smoke/fragment/event/total drawable caps still govern broad event storms. Full instancing and raymarched smoke remain deferred; the atlas is a compact billboard approximation, not volumetric simulation.
 
 ## Validation
 
-- Full suite: 949 tests / 127 files passed; production build passed with the existing bundle-size advisory.
+- Full suite: 989 tests / 128 files passed; production build passed with the existing bundle-size advisory.
 - Regression tests cover 30/60/144 Hz trail age, bounded reusable vectors/buffers, finite exhaust transforms, merged body draw counts, flight endpoints, burnout, airburst height/cleanup, private materials/shared geometry, last-wreck disposal, effect storms at all three quality tiers, all six ground-impact weapon paths, and rotating Shahed propellers without rocket exhaust.
 - Independent review checked shader tile orientation/uniform isolation, Three r170 compatibility, shared atlas lifetime, burst cleanup, drone geometry ownership, and budget accounting; no blockers.
 - Browser verified real match loading and a successful Shahed launch with no console errors. The seven-family range renders the new shader and supports close inspection. Performance-tier/3× stress and medium-quality controls were exercised.
