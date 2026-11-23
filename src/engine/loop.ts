@@ -24,10 +24,13 @@ export interface TickDriver {
 export class AccumulatorTickDriver implements TickDriver {
   private accumulator = 0;
 
-  constructor(private readonly maxTicksPerFrame = DEFAULT_MAX_TICKS_PER_FRAME) {}
+  constructor(
+    private readonly maxTicksPerFrame = DEFAULT_MAX_TICKS_PER_FRAME,
+    private readonly speed: () => number = () => 1,
+  ) {}
 
   frame(frameDt: number): TickFrame {
-    this.accumulator += frameDt;
+    this.accumulator += frameDt * this.speed();
     let ticks = 0;
     while (this.accumulator >= SIM_DT && ticks < this.maxTicksPerFrame) {
       ticks++;
