@@ -1,3 +1,5 @@
+import { UnitImpactScars } from './unitImpactScars';
+import { impactScarTexture, targetFireTexture, targetSmokeTexture } from './impactSurface';
 import { createThumbnailApache } from './thumbnailApache';
 import { legacyModelPreview } from './codeRedPreview';
 import { artilleryProbeProgress, ARTILLERY_PROBE_HEIGHT, ARTILLERY_DEPLOY_SECONDS, ARTILLERY_PACK_SECONDS } from '../sim/artillery';
@@ -106,12 +108,6 @@ interface BuiltUnit {
   refs: UnitRefs;
 }
 
-interface UnitDamagePatch {
-  mesh: Mesh;
-  stage: UnitDamageStage;
-  kind: 'scorch' | 'crack' | 'ember';
-}
-
 interface UnitDamageEffect {
   mesh: Mesh;
   stage: UnitDamageStage;
@@ -125,7 +121,7 @@ interface UnitDamageEffect {
 
 interface UnitDamageOverlay {
   root: Group;
-  patches: UnitDamagePatch[];
+  scars: UnitImpactScars;
   effects: UnitDamageEffect[];
 }
 
@@ -529,23 +525,7 @@ const BIKE_DUST_GEOM = new SphereGeometry(1, 8, 5);
 const sharedGeometryTag = 'ironDominionSharedUnitGeometry';
 const UNIT_DAMAGE_SMOKE_GEOM = markShared(new PlaneGeometry(2, 2));
 
-function createVehicleSmokeTexture(): CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 64;
-  const context = canvas.getContext('2d')!;
-  // Overlapping soft lobes make one wispy cloud, without hard spherical edges.
-  for (let i = 0; i < 7; i++) {
-    const x = 24 + Math.sin(i * 2.4) * 10;
-    const y = 30 + Math.cos(i * 1.7) * 10;
-    const gradient = context.createRadialGradient(x, y, 0, x, y, 22);
-    gradient.addColorStop(0, 'rgba(255,255,255,0.24)');
-    gradient.addColorStop(0.45, 'rgba(255,255,255,0.12)');
-    gradient.addColorStop(1, 'rgba(255,255,255,0)');
-    context.fillStyle = gradient; context.fillRect(0, 0, 64, 64);
-  }
-  return new CanvasTexture(canvas);
-}
-const UNIT_DAMAGE_FIRE_GEOM = markShared(new SphereGeometry(1, 7, 5));
+const UNIT_DAMAGE_FIRE_GEOM = markShared(new PlaneGeometry(2, 2));
 const MAX_BIKE_DUST_PARTICLES = 256;
 const MAX_LOW_DETAIL_UNITS = 1024;
 const FORTRESS_OPTICS_DETAIL_RANGE_SQ = 500 * 500;
@@ -650,7 +630,8 @@ export class UnitView {
   private readonly accentBoostTargets: { material: MeshStandardMaterial; base: number }[] = [];
   private readonly wreckMaterial: Material;
   private readonly vehicleScorchMaterial: Material;
-  private readonly vehicleCrackMaterial: Material;
+  private readonly vehicleFireMaterial: Material;
+  private effectTime = 0;
   private readonly vehicleEmberMaterial: Material;
   private readonly vehicleSmokeMaterial: Material;
   private readonly ringMaterial: Material;
@@ -724,10 +705,12 @@ export class UnitView {
     this.bikeDustMesh = createBikeDustMesh(hf.kind);
     this.group.add(this.bikeDustMesh);
     this.wreckMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x454039, roughness: 0.95, metalness: 0.12 }));
-    this.vehicleScorchMaterial = new MeshBasicMaterial({ color: 0x070605, transparent: true, opacity: 0.64, depthWrite: false, side: DoubleSide });
-    this.vehicleCrackMaterial = new MeshBasicMaterial({ color: 0x0b0a09, transparent: true, opacity: 0.86, depthWrite: false, side: DoubleSide });
+    this.vehicleScorchMaterial = new MeshBasicMaterial({ map: impactScarTexture(false), color: 0xffffff, alphaTest: 0.012, forceSinglePass: true, transparent: true, opacity: 0.64, depthWrite: false, side: DoubleSide });
+    this.vehicleFireMaterial = new MeshBasicMaterial({ map: targetFireTexture(), color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false, side: DoubleSide, forceSinglePass: true, blending: AdditiveBlending, toneMapped: false });
     this.vehicleEmberMaterial = new MeshBasicMaterial({
-      color: 0xff5a1f,
+      color: 0xffad65,
+      map: impactScarTexture(false),
+      forceSinglePass: true,
       transparent: true,
       opacity: 0.66,
       depthWrite: false,
@@ -736,7 +719,8 @@ export class UnitView {
     });
     this.vehicleSmokeMaterial = new MeshBasicMaterial({
       color: 0x494744,
-      map: createVehicleSmokeTexture(),
+      map: targetSmokeTexture(),
+      forceSinglePass: true,
       transparent: true,
       opacity: 0.48,
       depthWrite: false,
@@ -884,10 +868,11 @@ export class UnitView {
       const overlay = createUnitDamageOverlay(
         entity,
         kind,
+        unit.userData.impactHull,
         this.vehicleScorchMaterial,
-        this.vehicleCrackMaterial,
         this.vehicleEmberMaterial,
         this.vehicleSmokeMaterial,
+        this.vehicleFireMaterial,
       );
       this.damageOverlays.set(entity, overlay);
       unit.add(overlay.root);
@@ -938,6 +923,7 @@ export class UnitView {
    * shared materials are module/instance-owned and NOT disposed here.
    */
   private removeEntity(entity: Entity): void {
+    this.damageOverlays.get(entity)?.scars.dispose();
     const probe=this.refs.get(entity)?.artilleryProbe;
     if (probe) this.group.remove(probe);
     const obj = this.objects.get(entity);
@@ -1047,6 +1033,12 @@ export class UnitView {
       const isInfantry = entity.selectable?.type === 'infantry';
       const isAircraft = Boolean(entity.flight);
       const profile = impactReactionProfile(force, event.impactKind, unitVisualKind(entity), event.killed);
+      const scar = this.damageOverlays.get(entity)?.scars;
+      if (scar) {
+        const dx = event.fromX - entity.transform.x, dz = event.fromZ - entity.transform.z;
+        const c = Math.cos(entity.transform.rot), s = Math.sin(entity.transform.rot);
+        scar.stamp({ localX: dx * c - dz * s, localZ: dx * s + dz * c, top: (event.topFactor ?? 0) > 0.45 || event.trajectory === 'drop', force }, this.effectTime);
+      }
       const duration = isAircraft ? Math.max(profile.duration, 0.62 + force * 0.82) : isInfantry ? profile.duration : Math.max(1.1, profile.duration * 2.2);
       const existing = this.hitReactions.get(entity);
       const forwardX = Math.sin(entity.transform.rot);
@@ -1110,6 +1102,7 @@ export class UnitView {
   }
 
   update(alpha: number, dt: number, camera: Camera): void {
+    this.effectTime += Math.max(0, dt);
     this.wreckPlumesThisFrame = 0;
     camera.getWorldQuaternion(this.smokeCameraRotation);
     // Evict entities the sim has finished with (wreck window expired). The possessed
@@ -2057,18 +2050,14 @@ export class UnitView {
     const overlay = this.damageOverlays.get(entity);
     if (!overlay || !entity.health) return;
     const stage: UnitDamageStage = entity.destroyed ? 3 : unitDamageStage(entity.health.current, entity.health.max);
-    overlay.root.visible = stage > 0;
+    overlay.scars.update(stage, this.effectTime, entity.health.current / Math.max(1, entity.health.max));
+    overlay.root.visible = stage > 0 || overlay.scars.root.visible;
     if (!overlay.root.visible) return;
-    const time = performance.now() * 0.001;
+    const time = this.effectTime;
     const wreckAge = entity.destroyed ? Math.max(0, 20 - entity.destroyed.remaining) : 0;
     const wreckFade = entity.destroyed ? Math.max(0, 1 - wreckAge / 8) : 1;
     const showWreckPlume = !entity.destroyed || (wreckFade > 0 && this.wreckPlumesThisFrame++ < 8);
     const pulse = 0.5 + 0.5 * Math.sin(time * 11 + entity.id);
-    for (const patch of overlay.patches) {
-      patch.mesh.visible = stage >= patch.stage;
-      if (!patch.mesh.visible) continue;
-      if (patch.kind === 'ember') patch.mesh.scale.setScalar(0.9 + pulse * 0.34 + stage * 0.08);
-    }
     for (const effect of overlay.effects) {
       effect.mesh.visible = stage >= effect.stage && showWreckPlume;
       if (!effect.mesh.visible) continue;
@@ -2093,6 +2082,8 @@ export class UnitView {
         effect.mesh.scale.multiplyScalar((0.65 + cycle * 1.7) * cloudFade * (entity.destroyed ? wreckFade * 1.8 : 1));
         effect.mesh.position.x += cycle * effect.baseScale * 0.9;
       } else {
+        overlay.root.getWorldQuaternion(effect.mesh.quaternion);
+        effect.mesh.quaternion.invert().multiply(this.smokeCameraRotation);
         if (entity.destroyed && wreckAge >= 6) { effect.mesh.visible = false; continue; }
         effect.mesh.position.set(effect.baseX, effect.baseY + wave * 0.12, effect.baseZ);
         if (entity.destroyed) effect.mesh.position.y += wave * 0.35;
@@ -2315,57 +2306,22 @@ function createRankBadge(): { root: Group; material: MeshBasicMaterial; rank: nu
 function createUnitDamageOverlay(
   entity: Entity,
   kind: UnitVisualKind,
+  hull: { halfX: number; halfZ: number; topY: number; sideY?: number; frontZ?: number; frontY?: number } | undefined,
   scorch: Material,
-  crack: Material,
   ember: Material,
   smoke: Material,
+  fireMaterial: Material,
 ): UnitDamageOverlay {
   const root = new Group();
   root.visible = false;
-  const patches: UnitDamagePatch[] = [];
   const effects: UnitDamageEffect[] = [];
   const isAircraft = kind === 'wasp' || kind === 'vulture' || kind === 'hammerhead';
   const isHarvester = kind === 'harvester';
   const topY = isAircraft ? 0.92 : isHarvester ? 2.22 : kind === 'mauler' ? 1.2 : 1.28;
   const spanX = isAircraft ? (kind === 'hammerhead' ? 3.0 : 1.45) : isHarvester ? 2.25 : kind === 'mauler' ? 1.9 : 1.65;
   const spanZ = isAircraft ? (kind === 'wasp' ? 2.25 : kind === 'hammerhead' ? 2.4 : 2.85) : isHarvester ? 2.55 : kind === 'mauler' ? 3.25 : 2.35;
-  const scorchStages: UnitDamageStage[] = [1, 1, 2, 2, 3, 3];
-  const crackStages: UnitDamageStage[] = [1, 2, 2, 3, 3];
-  const emberStages: UnitDamageStage[] = [3, 3, 3];
-
-  for (let i = 0; i < scorchStages.length; i++) {
-    const mesh = new Mesh(sharedBoxGeometry(1, 0.035, 1), scorch);
-    const px = deterministicUnitSigned(entity.id, 0x110 + i) * spanX;
-    const pz = deterministicUnitSigned(entity.id, 0x210 + i) * spanZ;
-    mesh.position.set(px, topY + i * 0.008, pz);
-    mesh.rotation.y = deterministicUnit(entity.id, 0x310 + i) * Math.PI;
-    mesh.scale.set(0.9 + deterministicUnit(entity.id, 0x410 + i) * 0.75, 1, 0.5 + deterministicUnit(entity.id, 0x510 + i) * 0.52);
-    mesh.renderOrder = 34;
-    root.add(mesh);
-    patches.push({ mesh, stage: scorchStages[i], kind: 'scorch' });
-  }
-
-  for (let i = 0; i < crackStages.length; i++) {
-    const mesh = new Mesh(sharedBoxGeometry(1.1, 0.045, 0.08), crack);
-    const px = deterministicUnitSigned(entity.id, 0x610 + i) * spanX * 0.92;
-    const pz = deterministicUnitSigned(entity.id, 0x710 + i) * spanZ * 0.92;
-    mesh.position.set(px, topY + 0.05 + i * 0.01, pz);
-    mesh.rotation.y = deterministicUnit(entity.id, 0x810 + i) * Math.PI;
-    mesh.scale.set(0.85 + deterministicUnit(entity.id, 0x910 + i) * 0.75, 1, 1);
-    mesh.renderOrder = 35;
-    root.add(mesh);
-    patches.push({ mesh, stage: crackStages[i], kind: 'crack' });
-  }
-
-  for (let i = 0; i < emberStages.length; i++) {
-    const mesh = new Mesh(sharedBoxGeometry(0.34, 0.04, 0.34), ember);
-    const px = deterministicUnitSigned(entity.id, 0xa10 + i) * spanX * 0.78;
-    const pz = deterministicUnitSigned(entity.id, 0xb10 + i) * spanZ * 0.78;
-    mesh.position.set(px, topY + 0.09 + i * 0.012, pz);
-    mesh.renderOrder = 36;
-    root.add(mesh);
-    patches.push({ mesh, stage: emberStages[i], kind: 'ember' });
-  }
+  const scars = new UnitImpactScars({ halfX: spanX, halfZ: spanZ, topY, ...hull, aircraft: isAircraft }, scorch, ember);
+  root.add(scars.root);
 
   // Smoke begins at the 50% state. Critical units reveal the full plume and
   // a compact engine fire. These meshes stay attached while units move.
@@ -2396,7 +2352,7 @@ function createUnitDamageOverlay(
     });
   }
 
-  const fire = new Mesh(UNIT_DAMAGE_FIRE_GEOM, ember);
+  const fire = new Mesh(UNIT_DAMAGE_FIRE_GEOM, fireMaterial);
   const fireScale = isAircraft ? 0.36 : 0.42;
   const fireY = topY + 0.28;
   fire.position.set(engineX, fireY, engineZ);
@@ -2413,9 +2369,8 @@ function createUnitDamageOverlay(
     phase: deterministicUnit(entity.id, 0xcf1) * Math.PI * 2,
   });
 
-  for (const patch of patches) patch.mesh.visible = false;
   for (const effect of effects) effect.mesh.visible = false;
-  return { root, patches, effects };
+  return { root, scars, effects };
 }
 
 function createTeamMaterials(ctx: RenderContext, id: FactionId, own: boolean): TeamMaterials {

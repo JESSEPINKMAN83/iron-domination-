@@ -49,7 +49,7 @@ export function blendsIdenticallyInOnePass(material: MeshBasicMaterial): boolean
 }
 
 let singlePassFlatEffectsInstalled = false;
-function installSinglePassFlatEffects(): void {
+export function installSinglePassFlatEffects(): void {
   if (singlePassFlatEffectsInstalled) return;
   singlePassFlatEffectsInstalled = true;
   const base = MeshBasicMaterial.prototype.onBeforeRender;

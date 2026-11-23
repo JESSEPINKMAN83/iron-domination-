@@ -1,0 +1,63 @@
+
+ RUN  v2.1.9 /Users/danir/Documents/Codex/2026-11-10/previous-chats-where-is-the-iron/work/iron-dominion
+
+stdout | src/render/targetPerf.local.test.ts > measures matched target damage CPU work
+TARGET_CPU {
+  baseSteady: {
+    median: 22.175124999999753,
+    samples: [
+      20.161875000000236,
+      20.558166999999685,
+      20.763332999999875,
+      22.175124999999753,
+      22.3095000000003,
+      22.548957999999857,
+      23.369458000000122
+    ]
+  },
+  headSteady: {
+    median: 19.218374999999924,
+    samples: [
+      18.223625000000084,
+      18.26254199999994,
+      18.68074999999999,
+      19.218374999999924,
+      19.323249999999916,
+      20.430417000000034,
+      23.808500000000095
+    ]
+  },
+  baseCollapse: {
+    median: 58.68579200000022,
+    samples: [
+      55.927124999999705,
+      56.73279199999979,
+      56.77720899999986,
+      58.68579200000022,
+      58.796875,
+      59.965749999999844,
+      66.04366600000003
+    ]
+  },
+  headCollapse: {
+    median: 24.016125000000102,
+    samples: [
+      23.037207999999737,
+      23.775916999999936,
+      23.91399999999976,
+      24.016125000000102,
+      24.807625000000144,
+      25.134208999999828,
+      28.023583000000144
+    ]
+  }
+}
+
+ ✓ src/render/targetPerf.local.test.ts (1 test) 2068ms
+   ✓ measures matched target damage CPU work 2067ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  23:40:21
+   Duration  3.22s (transform 654ms, setup 0ms, collect 888ms, tests 2.07s, environment 0ms, prepare 65ms)
+

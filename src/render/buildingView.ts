@@ -1,3 +1,5 @@
+import { DamagedHullBatch } from './damagedHullBatch';
+import { impactScarTexture, targetFireTexture, targetSmokeTexture } from './impactSurface';
 import { updateBaseActivity } from './baseActivity';
 import { legacyModelPreview } from './codeRedPreview';
 import { codeRedStructure } from './codeRedStructures';
@@ -149,18 +151,22 @@ export class BuildingView {
     this.rubbleMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x1c1a17, roughness: 1, metalness: 0.04 }));
     this.interiorMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x050403, roughness: 1, metalness: 0 }));
     this.emberMaterial = ctx.setupLitMaterial(new MeshStandardMaterial({ color: 0x22100a, emissive: 0xff5a1f, emissiveIntensity: 0.75, roughness: 0.9 }));
-    this.scarMaterial = new MeshBasicMaterial({ color: 0x070605, transparent: true, opacity: 0.5, depthWrite: false, side: DoubleSide });
+    this.scarMaterial = new MeshBasicMaterial({ map: impactScarTexture(true), color: 0xffffff, forceSinglePass: true, alphaTest: 0.012, transparent: true, opacity: 0.5, depthWrite: false, side: DoubleSide });
     this.emberSpotMaterial = new MeshBasicMaterial({
-      color: 0xff5a1f,
+      color: 0xffb466,
+      map: impactScarTexture(false),
+      forceSinglePass: true,
       transparent: true,
       opacity: 0.58,
       depthWrite: false,
       side: DoubleSide,
       blending: AdditiveBlending,
     });
-    this.smokeMaterial = new MeshBasicMaterial({ color: 0x2c2b28, transparent: true, opacity: 0.42, depthWrite: false, side: DoubleSide });
+    this.smokeMaterial = new MeshBasicMaterial({ map: targetSmokeTexture(), forceSinglePass: true, color: 0x2c2b28, transparent: true, opacity: 0.42, depthWrite: false, side: DoubleSide });
     this.fireMaterial = new MeshBasicMaterial({
-      color: 0xff7b24,
+      color: 0xffffff,
+      map: targetFireTexture(),
+      forceSinglePass: true,
       transparent: true,
       opacity: 0.82,
       depthWrite: false,
@@ -362,7 +368,7 @@ export class BuildingView {
       }
       object.root.rotation.x = entity.destroyed ? 0 : object.leanX;
       object.root.rotation.z = entity.destroyed ? object.leanZ * 0.35 : object.leanZ;
-      this.updateDamageEffects(entity, object, camera);
+      this.updateDamageEffects(entity, object, camera, fogged);
       // fogged enemy buildings freeze — no live health/dock intel through the shroud
       this.updateRefineryDock(entity, object, fogged);
       updateBuildingActivity(
@@ -382,6 +388,7 @@ export class BuildingView {
 
   private releaseBuildingObject(entity: Entity, object: BuildingObject): void {
     this.clearEffects(object);
+    object.damageHull.dispose();
     this.group.remove(object.root);
     this.disposeTree(object.root);
     const glow = this.selectedGlows.get(entity);
@@ -535,6 +542,8 @@ export class BuildingView {
     // Identical body cells share one draw call until localized damage appears.
     const intactHull = createIntactHull(blocks.map((block) => block.mesh));
     root.add(intactHull);
+    const damageHull = new DamagedHullBatch(blocks.length);
+    root.add(damageHull.root);
 
     const accent = new Mesh(
       new BoxGeometry(fullW * (isTower ? 0.42 : 0.5), 0.22, Math.max(0.5, fullD * 0.12)),
@@ -575,7 +584,9 @@ export class BuildingView {
     return {
       root,
       intactHull,
+      damageHull,
       blocks,
+      blockMeshes: blocks.map((block) => block.mesh),
       accents: [accent, label],
       details,
       turretPivot,
@@ -591,6 +602,7 @@ export class BuildingView {
       lastHealth: entity.health?.current ?? 0,
       lastDamageTick: -9999,
       impactPunch: 0,
+      impactTick: -Infinity,
     };
   }
 
@@ -598,19 +610,22 @@ export class BuildingView {
     const damage = structureDamageFor(entity);
     const level = damageLevel(entity);
     const destroyedRemaining = entity.destroyed?.remaining;
-    const needsCollapseFrame = destroyedRemaining !== undefined && destroyedRemaining > DESTROYED_TOTAL - COLLAPSE_SECONDS - 0.1;
+    if (entity.health && entity.health.current < object.lastHealth - 0.001) object.impactTick = this.sim.tick;
+    const needsCollapseFrame = destroyedRemaining !== undefined && object.appliedCollapseRemaining !== destroyedRemaining && destroyedRemaining > DESTROYED_TOTAL - COLLAPSE_SECONDS - 0.1;
     if (object.appliedVersion === damage.version && object.appliedLevel === level && !needsCollapseFrame) return;
 
+    const refreshEffects = object.appliedVersion !== damage.version || object.appliedLevel !== level;
     const versionChanged = object.appliedVersion !== damage.version && damage.version > 0;
+    object.appliedCollapseRemaining = destroyedRemaining;
     object.appliedVersion = damage.version;
     object.appliedLevel = level;
     object.leanX = 0;
     object.leanZ = 0;
     object.collapsed = Boolean(entity.destroyed);
-    if (versionChanged) object.impactPunch = 1;
-    this.clearEffects(object);
+    if (versionChanged) { object.impactPunch = 1; object.impactTick = this.sim.tick; }
+    if (refreshEffects) this.clearEffects(object);
 
-    const worst = worstBlocks(object.blocks, damage, 8);
+    const worst = refreshEffects ? worstBlocks(object.blocks, damage, 8) : [];
     const lean = damageVector(damage);
     if (level >= 9) {
       object.leanX = lean.z * 0.035;
@@ -637,7 +652,7 @@ export class BuildingView {
         block.mesh.rotation.x += deterministicSigned(block.index, entity.id, 0x57) * 0.1;
         block.mesh.rotation.z += deterministicSigned(block.index, entity.id, 0x58) * 0.1;
       }
-      if (debrisBudget > 0 && value >= 58) {
+      if (refreshEffects && debrisBudget > 0 && value >= 58) {
         this.addDebrisChip(entity, object, block, damage, value);
         debrisBudget--;
       }
@@ -645,17 +660,15 @@ export class BuildingView {
 
     const intact = canBatchIntactHull(damage.version, level, Boolean(entity.destroyed));
     object.intactHull.visible = intact;
-    for (const block of object.blocks) {
-      if (intact) {
-        block.mesh.visible = false;
-        object.root.remove(block.mesh);
-      } else if (block.mesh.parent !== object.root) object.root.add(block.mesh);
-    }
+    for (const block of object.blocks) block.mesh.removeFromParent();
+    object.damageHull.root.visible = !intact;
+    if (!intact) object.damageHull.sync(object.blockMeshes);
 
     for (const accent of object.accents) accent.visible = level < 9 && !entity.destroyed;
     updateBuildingDetails(object.details, damage, level, Boolean(entity.destroyed), entity.destroyed ? Math.max(0, Math.min(1, (DESTROYED_TOTAL - entity.destroyed.remaining) / COLLAPSE_SECONDS)) : 0);
 
-    const hasLocalizedDamage = worst.some((cell) => cell.value > 0);
+    if (!refreshEffects) return; // Collapse animates existing effects instead of rebuilding materials every frame.
+    const hasLocalizedDamage = level > 0 && worst.some((cell) => cell.value > 0);
     const scarCount = !hasLocalizedDamage ? 0 : Math.min(worst.length, level >= 7 ? 6 : level >= 3 ? 3 : 1);
     const smokeCount = !hasLocalizedDamage || level < 3 ? 0 : level >= 9 ? 5 : level >= 7 ? 3 : 1;
     const fireCount = !hasLocalizedDamage ? 0 : level >= 9 ? 4 : level >= 7 ? 2 : level >= 5 ? 1 : 0;
@@ -712,6 +725,7 @@ export class BuildingView {
               ? this.emberSpotMaterial.clone()
               : this.scarMaterial.clone();
     const mesh = new Mesh(sharedPlaneGeometry, material);
+    mesh.name = `building-impact-${kind}`;
     const severity = Math.max(0.2, Math.min(1, buildingVisualWound(cell.value, level) / 180));
     const size =
       kind === 'smoke'
@@ -726,16 +740,20 @@ export class BuildingView {
     const block = object.blocks.find((candidate) => candidate.index === cell.index);
     const outward = block ? facadeOutward(block, damage) : { x: 0, z: 1 };
     mesh.scale.set(kind === 'fire' || kind === 'smoke' ? size * 0.82 : size, kind === 'fire' ? size * 1.35 : size, size);
-    if (kind === 'scar') {
+    if (kind === 'scar' || kind === 'flash') {
       mesh.position.set(
-        cell.position.x + outward.x * ((block?.baseScale.x ?? 1) * 0.52 + 0.04),
+        outward.x && block ? outward.x * ((block.baseScale.x + BLOCK_GAP) * damage.cols * 0.5 + 0.04) : cell.position.x,
         cell.position.y,
-        cell.position.z + outward.z * ((block?.baseScale.z ?? 1) * 0.52 + 0.04),
+        outward.z && block ? outward.z * ((block.baseScale.z + BLOCK_GAP) * damage.rows * 0.5 + 0.04) : cell.position.z,
       );
       mesh.rotation.y = Math.atan2(outward.x, outward.z);
+      if (block && block.tier === damage.tiers - 1 && block.col > 0 && block.col < damage.cols - 1 && block.row > 0 && block.row < damage.rows - 1) {
+        mesh.position.copy(cell.position); mesh.position.y += block.baseScale.y * 0.5 + 0.04;
+        mesh.rotation.set(-Math.PI / 2, 0, 0);
+      }
     } else {
-      mesh.position.set(cell.position.x, cell.position.y + (kind === 'smoke' ? 1.85 : kind === 'fire' ? 1.05 : kind === 'flash' ? 0.2 : 0.1), cell.position.z);
-      mesh.rotation.x = kind === 'ember' || kind === 'flash' ? -Math.PI / 2 : 0;
+      mesh.position.set(cell.position.x, cell.position.y + (kind === 'smoke' ? 1.85 : kind === 'fire' ? 1.05 : 0.1), cell.position.z);
+      mesh.rotation.x = kind === 'ember' ? -Math.PI / 2 : 0;
       mesh.rotation.z = kind === 'ember' ? hash2i(cell.index, entity.id, 0xe9) * Math.PI : 0;
     }
     mesh.renderOrder = kind === 'smoke' ? 26 : kind === 'fire' ? 27 : kind === 'flash' ? 29 : 28;
@@ -801,12 +819,18 @@ export class BuildingView {
     });
   }
 
-  private updateDamageEffects(entity: Entity, object: BuildingObject, camera: Camera): void {
-    if (object.impactPunch > 0) object.impactPunch = Math.max(0, object.impactPunch - 0.07);
+  private updateDamageEffects(entity: Entity, object: BuildingObject, camera: Camera, fogged: boolean): void {
+    if (fogged) return; // Keep the last-seen damage state; no live death/impact intel through fog.
+    object.impactPunch = Math.max(0, 1 - (this.sim.tick - object.impactTick) / 9);
     for (const effect of object.effects) {
       const wave = Math.sin(this.sim.tick * 0.12 + effect.phase);
       if (effect.kind === 'debris') continue;
       effect.mesh.position.copy(effect.basePosition);
+      if (entity.destroyed) {
+        if (effect.kind === 'scar' || effect.kind === 'flash') { effect.mesh.visible = false; continue; }
+        const collapse = Math.min(1, Math.max(0, (DESTROYED_TOTAL - entity.destroyed.remaining) / COLLAPSE_SECONDS));
+        effect.mesh.position.y *= 1 - collapse * 0.85;
+      }
       if (effect.kind === 'smoke') {
         effect.mesh.position.y += 0.7 + wave * 0.28;
         const material = effect.mesh.material as MeshBasicMaterial;
@@ -1059,13 +1083,16 @@ interface DamageBlock {
 interface BuildingObject {
   root: Group;
   intactHull: InstancedMesh;
+  damageHull: DamagedHullBatch;
   blocks: DamageBlock[];
+  blockMeshes: Mesh[];
   accents: Mesh[];
   details: Group;
   turretPivot?: Group;
   refineryDock?: RefineryDock;
   effects: DamageEffect[];
   appliedVersion: number;
+  appliedCollapseRemaining?: number;
   appliedLevel: number;
   leanX: number;
   leanZ: number;
@@ -1076,6 +1103,7 @@ interface BuildingObject {
   lastHealth: number;
   lastDamageTick: number;
   impactPunch: number;
+  impactTick: number;
 }
 
 interface RefineryDock {

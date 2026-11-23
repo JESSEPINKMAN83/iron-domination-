@@ -103,3 +103,7 @@ Original smoke/fragment/event/total drawable caps still govern broad event storm
 - Browser verified real match loading and a successful Shahed launch with no console errors. The seven-family range renders the new shader and supports close inspection. Performance-tier/3× stress and medium-quality controls were exercised.
 - Desktop/local review is ready. Real mobile hardware, sustained full-army battle FPS, and exact GPU timing remain unmeasured.
 - PR remains a draft for local review; missile changes have not been merged or deployed to production.
+
+## Target damage extension
+
+See [target impact review](target-impact-review.md) for directional scars, material-specific debris, building batching, updated validation and measurements against the previous missile-only PR revision.

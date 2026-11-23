@@ -31,6 +31,7 @@ export function createCodeRedVehicle(kind: string, doctrine: ArmyDoctrineId, m: 
   root.name = `${doctrine}:${kind}`;
   const east = doctrine === 'missile-command'; const ukraine = doctrine === 'drone-network'; const usa = doctrine === 'expeditionary-force'; const scout = kind === 'jackal' || kind === 'bradley'; const artillery = kind === 'mauler' || kind === 'bohdana' || kind === 'mlrs';
   const truck = (scout && kind !== 'bradley') || kind === 'bohdana' || (east && artillery); const wide = artillery ? 3.9 : scout ? 2.9 : 3.6; const length = artillery ? 6.6 : scout ? 4.7 : 5.5;
+  root.userData.impactHull = { halfX: wide * 0.5 + (truck ? 0.02 : 0.67), halfZ: length * 0.5, topY: 1.23, sideY: truck ? 0.75 : 0.91, frontZ: length * 0.4 + 0.71, frontY: 1.15 };
   const b = (p: Group,n:string,w:number,h:number,d:number,x:number,y:number,z:number,mat:Material=m.hull) => modelBox(p,n,mat,w,h,d,x,y,z);
   if(kind==='m17' && !east) modelArmor(root,'merkava-sloped-hull',m.hull,wide,.9,length,0,.75,0);
   else b(root,'armored-hull',wide,.8,length,0,.72,0);

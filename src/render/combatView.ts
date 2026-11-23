@@ -1,3 +1,4 @@
+import { ImpactDebrisView } from './impactDebris';
 import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { isRocketPowered, projectileVisualKind } from './projectileVisuals';
 import { createMissileExplosionAtlas, createMissileExplosionSprite, setMissileExplosionAge } from './missileExplosion';
@@ -104,15 +105,6 @@ interface SmokePuff {
   delay?: number;
   fadeIn?: number;
   fadePower?: number;
-}
-
-interface HitFragment {
-  mesh: Mesh;
-  material: MeshBasicMaterial;
-  velocity: Vector3;
-  ttl: number;
-  total: number;
-  spin: Vector3;
 }
 
 interface GroundScorch {
@@ -251,7 +243,7 @@ export class CombatView {
   private readonly smokePuffs: SmokePuff[] = [];
   private softSmokeTexture?: CanvasTexture;
   private missileExplosionAtlas?: CanvasTexture;
-  private readonly hitFragments: HitFragment[] = [];
+  private impactDebris?: ImpactDebrisView;
   private readonly groundScorches: GroundScorch[] = [];
   private readonly scorchTextures = new Map<string, CanvasTexture>();
   private readonly up = new Vector3(0, 1, 0);
@@ -275,6 +267,7 @@ export class CombatView {
 
   setVisualQuality(tier: VisualQualityTier): void {
     this.visualQuality = tier;
+    this.impactDebris?.limit([140, 88, 52][tier]);
     this.enforceEffectBudget();
   }
 
@@ -481,7 +474,7 @@ export class CombatView {
 
   /** Read-only counters for regression tests and local performance inspection. */
   effectStats(): { drawables: number; budget: number; projectiles: number; smoke: number } {
-    const drawables = this.tracers.length + this.smokePuffs.length + this.hitFragments.length + this.groundScorches.length + this.hitIndicators.length
+    const drawables = this.tracers.length + this.smokePuffs.length + (this.impactDebris?.count ? 1 : 0) + this.groundScorches.length + this.hitIndicators.length
       + this.bursts.reduce((total, burst) => total + effectDrawCost(burst.group), 0)
       + this.strategicWrecks.reduce((total, wreck) => total + effectDrawCost(wreck.group), 0)
       + this.bombProjectiles.reduce((total, projectile) => total + effectDrawCost(projectile.group) + 1 + (projectile.healthBar ? effectDrawCost(projectile.healthBar.group) : 0), 0);
@@ -500,7 +493,7 @@ export class CombatView {
     };
     // Preserve flight silhouettes and hit confirmation ahead of decorative debris.
     trim(this.smokePuffs, () => 1, (item) => this.disposeSmokePuff(item));
-    trim(this.hitFragments, () => 1, (item) => this.disposeHitFragment(item));
+    if (cost > limit && this.impactDebris?.count) { this.impactDebris.dispose(); this.impactDebris = undefined; cost--; }
     trim(this.groundScorches, () => 1, (item) => this.disposeGroundScorch(item));
     trim(this.tracers, () => 1, (item) => this.disposeTracer(item));
     trim(this.strategicWrecks, (item) => effectDrawCost(item.group), (item) => this.disposeStrategicWreck(item));
@@ -1081,74 +1074,49 @@ export class CombatView {
     const heavy = strategic || isBombImpact(event.kind);
     const fullCount = strategic ? 30 : heavy ? 18 : isTankMissileImpact(event.kind) || event.killed ? 11 : 6;
     const density = this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 0.65 : 0.38;
-    const count = Math.max(2, Math.round(fullCount * density));
+    const targetVisible = this.isVisible(event.toX, event.toZ);
+    const soft = targetVisible && event.targetType === 'infantry';
+    const count = Math.max(2, Math.min(soft ? 3 : fullCount, Math.round(fullCount * density)));
     const force = strategic ? 13 : heavy ? 8.5 : isTankMissileImpact(event.kind) ? 6.4 : 4.2;
     const awayX = event.toX - event.fromX;
     const awayZ = event.toZ - event.fromZ;
     const awayLength = Math.hypot(awayX, awayZ);
     const awayAngle = awayLength > 0.001 ? Math.atan2(awayZ, awayX) : 0;
     const topStrike = event.trajectory === 'drop';
+    this.impactDebris ??= new ImpactDebrisView();
+    if (!this.impactDebris.mesh.parent) this.group.add(this.impactDebris.mesh);
+    this.impactDebris.limit(this.visualQuality === 0 ? 140 : this.visualQuality === 1 ? 88 : 52);
+    const masonry = targetVisible && event.targetType === 'building';
+    const target = event.targetId === undefined ? undefined : this.resolveEntity(event.targetId);
+    let x = event.toX, z = event.toZ;
+    const ground = sampleHeight(this.hf, x, z);
+    // Contact on the incoming face; no per-hit triangle raycasts.
+    if (targetVisible && target && !topStrike && awayLength > 0.001) {
+      const nx = -awayX / awayLength, nz = -awayZ / awayLength;
+      const radius = masonry && target.building
+        ? Math.min(target.building.footprint.w * this.hf.cellSize / Math.max(0.001, Math.abs(nx)), target.building.footprint.h * this.hf.cellSize / Math.max(0.001, Math.abs(nz)))
+        : (target.collider?.radius ?? target.selectable?.radius ?? 2) * 0.8;
+      x += nx * radius; z += nz * radius;
+    }
     for (let i = 0; i < count; i++) {
       const seed = deterministicAngle(event.toX + i * 1.73, event.toZ - i * 0.91, event.kind);
-      // Most fragments leave in a cone away from the incoming missile. A few
-      // remain radial so explosions do not look mechanically identical.
       const coneOffset = (((i * 37) % count) / Math.max(1, count - 1) - 0.5) * Math.PI * 0.9;
-      const angle = i % 4 === 0 ? seed + (i / count) * Math.PI * 2 : awayAngle + coneOffset;
-      const spark = i % 3 === 0;
-      const material = new MeshBasicMaterial({
-        color: spark ? 0xffc45c : i % 2 === 0 ? 0x2c2924 : 0x696158,
-        transparent: true,
-        opacity: spark ? 0.94 : 0.78,
-        depthWrite: false,
-      });
-      const size = heavy ? 0.16 + (i % 4) * 0.055 : 0.1 + (i % 3) * 0.045;
-      const mesh = new Mesh(new BoxGeometry(size, spark ? size * 0.45 : size * 0.75, size * 0.55), material);
-      mesh.position.set(event.toX, y + 0.25, event.toZ);
-      mesh.rotation.set(angle * 0.31, angle, angle * 0.19);
-      mesh.renderOrder = 59;
-      this.group.add(mesh);
-      const speed = force * (topStrike ? 0.46 : 0.55) * (1 + ((i * 37) % 11) / 16);
-      const ttl = heavy ? 1.05 + (i % 5) * 0.06 : 0.62 + (i % 4) * 0.07;
-      this.hitFragments.push({
-        mesh,
-        material,
-        velocity: new Vector3(
-          Math.cos(angle) * speed,
-          force * ((topStrike ? 0.94 : 0.72) + (i % 5) * 0.1),
-          Math.sin(angle) * speed,
-        ),
-        ttl,
-        total: ttl,
-        spin: new Vector3(2.5 + (i % 3), 3.2 + (i % 4), 2.1 + (i % 5)),
-      });
+      const angle = topStrike || i % 4 === 0 ? seed + (i / count) * Math.PI * 2 : awayAngle + Math.PI + coneOffset;
+      const spark = !masonry && !soft && i % 3 === 0;
+      const size = (heavy ? 0.16 + (i % 4) * 0.055 : 0.1 + (i % 3) * 0.045) * (masonry ? 1.6 : soft ? 0.45 : 1);
+      this.impactDebris.emit({ x, y: y + 0.25, z, ground, angle,
+        speed: force * (topStrike ? 0.46 : 0.55) * (1 + ((i * 37) % 11) / 16),
+        lift: force * ((topStrike ? 0.94 : 0.72) + (i % 5) * 0.1),
+        size, lifetime: heavy ? 1.05 + (i % 5) * 0.06 : 0.62 + (i % 4) * 0.07,
+        seed: i, masonry, soft, spark });
     }
-    const maxFragments = this.visualQuality === 0 ? 140 : this.visualQuality === 1 ? 88 : 52;
-    while (this.hitFragments.length > maxFragments) this.disposeHitFragment(this.hitFragments.shift());
   }
 
   private updateHitFragments(dt: number): void {
-    for (let i = this.hitFragments.length - 1; i >= 0; i--) {
-      const fragment = this.hitFragments[i];
-      fragment.ttl -= dt;
-      fragment.velocity.y -= 18 * dt;
-      fragment.mesh.position.addScaledVector(fragment.velocity, dt);
-      fragment.mesh.rotation.x += fragment.spin.x * dt;
-      fragment.mesh.rotation.y += fragment.spin.y * dt;
-      fragment.mesh.rotation.z += fragment.spin.z * dt;
-      const life = Math.max(0, fragment.ttl / fragment.total);
-      fragment.material.opacity = life * life * 0.9;
-      if (fragment.ttl <= 0) {
-        this.disposeHitFragment(fragment);
-        this.hitFragments.splice(i, 1);
-      }
-    }
-  }
-
-  private disposeHitFragment(fragment?: HitFragment): void {
-    if (!fragment) return;
-    this.group.remove(fragment.mesh);
-    fragment.mesh.geometry.dispose();
-    fragment.material.dispose();
+    if (!this.impactDebris) return;
+    this.impactDebris.limit(this.visualQuality === 0 ? 140 : this.visualQuality === 1 ? 88 : 52);
+    this.impactDebris.update(dt);
+    if (!this.impactDebris.count) { this.impactDebris.dispose(); this.impactDebris = undefined; }
   }
 
   private spawnGroundScorch(event: CombatEvent): void {
