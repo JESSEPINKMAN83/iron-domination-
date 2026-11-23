@@ -96,7 +96,7 @@ import {
   type SpawnPoint,
 } from './content/startPositions';
 import { Input } from './engine/input';
-import { GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
+import { AccumulatorTickDriver, GameLoop, NetworkTickDriver, SIM_HZ } from './engine/loop';
 import { FirstContactGate, findFirstVisibleHostileEntity } from './firstContact';
 import { advanceTick } from './match/advanceTick';
 import { BattleDebriefTracker, type MatchSnapshot } from './match/battleDebrief';
@@ -3940,6 +3940,7 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
         },
       })
     : undefined;
+  let gameSpeed: 1 | 2 | 3 = 1;
   let uiPaused = false;
   const setUiPaused = (paused: boolean): void => {
     uiPaused = paused;
@@ -3951,6 +3952,10 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
   });
   createGameMenu(settings, {
     setPaused: setUiPaused,
+    gameSpeed: multiplayerMode ? undefined : {
+      get: () => gameSpeed,
+      set: (speed) => { gameSpeed = speed; },
+    },
     onAtmosphereChange: (timeOfDay, weather) => setMatchAtmosphere(timeOfDay, weather, true),
     snapshot: matchSnapshot,
     save:
@@ -4439,7 +4444,7 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
       unitView.setFortressOpticsActive(firstPerson.fortress);
       unitView.setPriorityDetailedEntity(firstPerson.fortress ? firstPerson.targetedEntity : undefined);
       if(cinematicWar){unitView.setSelectionOverlayVisible(false);unitView.setCombatChromeVisible(false);buildingView.setCombatChromeVisible(false);combatView.setCinematicMode(true);}
-      unitView.update(alpha, dt, ctx.camera);
+      unitView.update(alpha, dt * gameSpeed, ctx.camera);
       selectionBar.updateWorldAnchors();
       sidebar.animateResources(dt);
       if (sim.tick - lastUiRefreshTick >= 3) {
@@ -4475,7 +4480,7 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
       // multiplayer flight. Battlefield particles and order decorations can
       // update at the adaptive cadence without making aircraft controls feel
       // sticky on older CPUs/GPUs.
-      deferredEffectDt += dt;
+      deferredEffectDt += dt * gameSpeed;
       const effectDivisor = ctx.visualUpdateDivisor;
       if (renderFrame % effectDivisor === 0) {
         combatView.update(deferredEffectDt);
@@ -4539,7 +4544,9 @@ AI air orders: ${air} intercept / ${raids} raid`;
         mode: networkPaused ? 'NETWORK PAUSED' : uiPaused ? 'PAUSED' : firstPerson.inFirstPerson ? `CHASE ${firstPerson.possessedName ?? ''}` : firstPerson.active ? 'entering chase' : 'RTS',
       });
     },
-  }, lockstep ? new NetworkTickDriver(() => !uiPaused && lockstep.canAdvance()) : undefined);
+  }, lockstep
+    ? new NetworkTickDriver(() => !uiPaused && lockstep.canAdvance())
+    : new AccumulatorTickDriver(8, () => gameSpeed));
 
   overlay.remove();
   loop.start();
@@ -4763,6 +4770,7 @@ function createGameMenu(
   settings: SkirmishSettings,
   options: {
     setPaused: (paused: boolean) => void;
+    gameSpeed?: { get: () => 1 | 2 | 3; set: (speed: 1 | 2 | 3) => void };
     onAtmosphereChange?: (timeOfDay: TimeOfDay, weather: Weather) => void;
     snapshot: () => MatchSnapshot;
     save?: () => StoredMatchSave;
@@ -4801,6 +4809,49 @@ function createGameMenu(
       onHelp: () => openHowToPlay(),
     });
   };
+  if (options.gameSpeed) {
+    const speedControl = options.gameSpeed;
+    const speedPanel = document.createElement('div');
+    speedPanel.setAttribute('role', 'group');
+    speedPanel.setAttribute('aria-label', 'Game speed');
+    speedPanel.style.cssText =
+      'position:fixed;left:max(12px,env(safe-area-inset-left));bottom:calc(64px + env(safe-area-inset-bottom));' +
+      'z-index:30;display:flex;gap:3px;align-items:center;padding:5px;' +
+      'background:rgba(8,16,18,.94);border:1px solid #4b5552;border-radius:5px;';
+    const label = document.createElement('span');
+    label.textContent = 'SPEED';
+    label.style.cssText = 'padding:0 7px;color:#aebfba;font:10px ui-monospace,monospace;letter-spacing:.08em;';
+    speedPanel.appendChild(label);
+    const buttons: HTMLButtonElement[] = [];
+    const updateSelection = () => {
+      for (const button of buttons) {
+        const active = button.dataset.speed === String(speedControl.get());
+        button.setAttribute('aria-pressed', String(active));
+        button.style.background = active ? '#294e41' : '#111c1e';
+        button.style.color = active ? '#c5ffe1' : '#aebfba';
+        button.style.borderColor = active ? '#9de5c4' : '#4b5552';
+      }
+    };
+    for (const speed of [1, 2, 3] as const) {
+      const button = gameChromeButton(`${speed}×`, `Set game speed to ${speed}×`);
+      button.dataset.speed = String(speed);
+      button.style.padding = '0 10px';
+      button.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        button.blur();
+        speedControl.set(speed);
+        updateSelection();
+      };
+      buttons.push(button);
+      speedPanel.appendChild(button);
+    }
+    updateSelection();
+    speedPanel.onpointerdown = (event) => event.stopPropagation();
+    speedPanel.onpointerup = (event) => event.stopPropagation();
+    speedPanel.oncontextmenu = (event) => event.preventDefault();
+    document.body.appendChild(speedPanel);
+  }
   wrap.append(menu, help);
   document.body.appendChild(wrap);
 }
@@ -4917,6 +4968,7 @@ function showMatchMenu(
     weatherRow.appendChild(button);
   }
   atmosphereBlock.append(todLabel, todRow, weatherLabel, weatherRow);
+
 
   const resume = dialogButton('Resume', close);
   resume.className = 'game-primary-action';

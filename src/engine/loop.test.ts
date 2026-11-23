@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NetworkTickDriver, SIM_DT } from './loop';
+import { AccumulatorTickDriver, NetworkTickDriver, SIM_DT } from './loop';
 
 describe('NetworkTickDriver', () => {
   it('rechecks lockstep readiness between simulation ticks instead of batching them', () => {
@@ -29,5 +29,28 @@ describe('NetworkTickDriver', () => {
     expect(driver.frame(0).alpha).toBe(held.alpha);
     ready = true;
     expect(driver.frame(0).ticks).toBe(1);
+  });
+});
+
+
+describe('single-player game speed', () => {
+  it('advances two or three times as many fixed ticks and supports changing speed mid-match', () => {
+    let speed = 1;
+    const driver = new AccumulatorTickDriver(8, () => speed);
+    expect(driver.frame(SIM_DT).ticks).toBe(1);
+    speed = 2;
+    expect(driver.frame(SIM_DT).ticks).toBe(2);
+    speed = 3;
+    expect(driver.frame(SIM_DT).ticks).toBe(3);
+    speed = 1;
+    expect(driver.frame(SIM_DT).ticks).toBe(1);
+  });
+
+  it('keeps catch-up bounded during a stall at triple speed', () => {
+    const driver = new AccumulatorTickDriver(8, () => 3);
+    const frame = driver.frame(0.25);
+    expect(frame.ticks).toBe(8);
+    expect(frame.alpha).toBeLessThan(1);
+    expect(driver.frame(0).ticks).toBe(0);
   });
 });
