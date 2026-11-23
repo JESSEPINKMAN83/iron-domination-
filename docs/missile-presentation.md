@@ -1,129 +1,95 @@
-# Code Red missile presentation research and implementation plan
+# Code Red missile presentation: research, implementation, and local review
 
-## Goal
+## Scope
 
-Improve the readability, weight, and visual continuity of launches, flight, interception, and explosions in the existing browser game. Review locally before merging the missile work. Treat damage, range, reload, guidance, hit timing, and multiplayer simulation as established gameplay contracts.
+Improve the weapons actually fired by tanks, rocket infantry, and aircraft, together with Iranian strategic missiles and Shahed drones. Make launch, exhaust, flight, and impact more readable at strategy-camera distance, with a visibly different explosion sequence. Keep damage, reload, guidance, flight timing, interception rules, and multiplayer simulation unchanged.
 
-## Current stack and observations
+The game uses TypeScript, Vite, Three.js r170, a deterministic 30 Hz simulation, adaptive rendering quality, and CombatView events. The original effects used separate meshes for projectile body pieces, render-frame-sampled ribbons, static exhaust, sphere smoke puffs, and layered sphere/ring blasts. Merely changing exhaust/trail settings was too subtle for the requested result.
 
-The reference revision uses Three.js 0.170, Vite, TypeScript, a deterministic 30 Hz simulation, adaptive visual quality, and a dedicated CombatView. The renderer consumes combat events and renders tactical missiles, strategic missiles, one-way drones, bombs, and shells. Existing effects already include one-draw crossed-ribbon trails, smoke sprites, scorch marks, impact fragments, interception flashes, and falling intercepted strategic wrecks.
+## Research and design choices
 
-Current weaknesses found in source inspection:
+1. **Preallocate flight buffers.** Three recommends preallocated BufferGeometry attributes and draw ranges for frequently updated geometry. Trails reuse bounded vector storage and DynamicDrawUsage position buffers; color/width profiles update only when sample count changes.
+   - https://threejs.org/manual/pages/how-to-update-things.html
+   - https://threejs.org/docs/pages/BufferAttribute.html
 
-- Trail history adds one position per rendered update. Trail length changes with rendering cadence, quality throttling, and game speed.
-- Every tactical projectile builds separate body, nose, band, glow, and fin meshes. Strategic missiles have more than a dozen pieces. Creation and destruction allocate and dispose their geometry and materials per launch.
-- Rocket exhaust appears as a static glow or cone. Sustained flight lacks a clear ignition, powered-flight, and burnout presentation.
-- Missiles and ballistic ordnance share trail machinery. This makes bombs and shells look more rocket-like than their propulsion warrants.
-- Tactical AA impact effects are less distinct than ground missile explosions.
-- Existing effect caps are valuable. Increasing particle counts would compete with those caps and could obscure important combat feedback.
+2. **Merge compatible opaque parts.** Geometry groups remain separate draw calls, so compatible body pieces become one vertex-colored mesh. Concurrent weapons share immutable geometry while retaining private materials for exhaust/wreck changes. Shahed wings keep their double-sided material and animated propellers remain separate.
+   - https://threejs.org/docs/pages/BufferGeometry.html
+   - https://threejs.org/docs/pages/InstancedMesh.html
 
-## Technical research
+3. **Replace blast shapes with a shared animation atlas.** One prepainted 768×512 RGBA canvas contains 24 frames of flash, irregular cooling flame, turbulent smoke, and ballistic sparks. SpriteMaterial samples a tile selected by a per-material uniform. Different explosions have independent ages while sharing the texture and shader program. No canvas painting, texture cloning, texture uploads, or particle creation is needed for animation playback.
+   - https://threejs.org/docs/pages/SpriteMaterial.html
+   - https://threejs.org/docs/pages/CanvasTexture.html
 
-1. Three.js recommends preallocating BufferGeometry attributes and changing draw ranges for frequently updated geometry. Use fixed trail storage and update existing GPU buffers.
-   https://threejs.org/manual/pages/how-to-update-things.html
+4. **Keep transparency bounded.** A ground missile blast uses one explosion sprite plus one restrained dust/spray plane, replacing several sphere/ring pieces. An airburst uses just the sprite. Alpha testing discards almost transparent atlas pixels; mipmaps are disabled and padded tile sampling avoids frame bleeding. This is an engineering tradeoff: billboards save geometry/draw calls but still have transparent-pixel cost. The matched browser fixture below checks rendering cost; it does not establish universal GPU performance.
+   - https://threejs.org/manual/pages/transparency.html
+   - https://threejs.org/docs/pages/Material.html
 
-2. BufferAttribute supports DynamicDrawUsage for changing data. Confirm the API in the installed r170 package, rather than relying only on newer documentation.
-   https://threejs.org/docs/pages/BufferAttribute.html
+5. **Prepare effects during loading.** Paint the shared atlas once per page lifetime, upload it with initTexture, and await compileAsync using the configured game scene before the match loop starts. A retained warmup material keeps the shader program available for the first impact. This adds one bounded atlas (about 1.5 MiB GPU RGBA storage, without mipmaps), replacing per-impact geometry work rather than adding a new postprocessing pass.
+   - https://threejs.org/docs/pages/WebGLRenderer.html
 
-3. Separate geometry groups remain separate draw calls. Merge compatible opaque projectile pieces into a vertex-colored mesh, with a small separate exhaust mesh for animation. Reuse immutable geometries across launches.
-   https://threejs.org/docs/pages/BufferGeometry.html
+The installed r170 source/types were checked for sprite vMapUv/map_fragment, shader hooks, DynamicDrawUsage, initTexture, and compileAsync. The recommendations are game-specific engineering judgments, not claims made by the documentation.
 
-4. Instancing can reduce draw calls for repeated geometry, but mixed missile lifetimes, per-projectile visibility, and independent guidance increase the integration scope. Begin with merged reusable bodies and bounded effects, then measure whether full projectile instancing is justified.
-   https://threejs.org/docs/pages/InstancedMesh.html
+## Implemented behavior
 
-5. Transparent effects need careful ordering and can suffer artifacts. Keep smoke thin, effects bounded, and crossed ribbons in a single transparent pass. Prefer stylized, restrained atmospheric effects that read from strategy view.
-   https://threejs.org/manual/pages/transparency.html
-   https://threejs.org/docs/pages/Material.html
-
-These sources describe rendering behavior. Visual and performance recommendations here are engineering judgments for this game, not benchmark results.
-
-## Implementation sequence
-
-### 1. Stable flight trails
-
-Use bounded, reusable trail history sampled at a fixed time interval. Retain the latest head position between samples. Give powered missiles a short bright exhaust core transitioning into a neutral smoke ribbon. Keep the ribbon in its existing single draw call. Avoid adding a rocket flame to bombs, artillery shells, or the propeller-driven Shahed.
-
-### 2. Missile body and exhaust
-
-Reuse geometry within each CombatView and combine compatible opaque parts with vertex colors. Animate a compact exhaust using existing meshes with deterministic visual flicker. Make the strategic rocket's powered phase visibly subside during coast and retain the existing terminal glow on descent. Leave the simulation trajectory authoritative so interceptors meet the visible missile.
-
-### 3. Launch and impact
-
-Animate ignition and nozzle-anchored exhaust; retain the existing quality-scaled launch-smoke emission rather than adding a second particle emitter. Use an airburst for anti-air hits rather than a ground-looking fireball. Preserve ground blast, shock ring, fragments, water ripple, scorch, and strategic aftermath, while making timing and scale distinguish a tactical hit from a heavy strategic impact.
-
-### 4. Local review and performance evidence
-
-Provide a local missile effects range with repeatable launches, impacts, and a stress mode. Reuse the same event fixture to compare the baseline and updated renderer. Measure actual draw calls, triangles, resource counts, and browser frame timing where available. Test all quality tiers, capped event storms, repeated cleanup, and unchanged combat simulation tests. Do not claim identical FPS across hardware from draw-call counts alone.
-
-## Performance acceptance
-
-- Each trail has fixed buffer capacity, with no per-frame geometry recreation.
-- Active effect and projectile ceilings remain bounded at every quality tier.
-- Repeated launch/impact cycles release transient resources and keep caches bounded.
-- Projectile-body draw calls should decrease through geometry consolidation.
-- The local stress fixture should record baseline and updated costs with the same camera, quality, event rate, and duration.
-- Effects follow the game-speed clock.
-- Keep transparent coverage and particle counts controlled. Performance mode must retain useful launch and hit cues.
-- Verify a full build and focused rendering/simulation tests, then open a review PR without merging the missile work.
-
-## Implemented result and decisions
-
-- Tactical missile bodies render as one opaque vertex-colored mesh plus one animated exhaust cone. Strategic missiles retain two exhaust cones and their terminal glow, with one merged opaque body.
-- Concurrent missiles of the same weapon and projectile kind share immutable geometry. Materials remain private so exhaust animation and wreck darkening cannot change another missile. References survive interception; the last live missile/wreck releases the template geometry and materials. No persistent GPU cache is retained between volleys.
-- Exhaust grows at ignition, flickers deterministically, and remains attached to the nozzle as its length changes. Strategic exhaust and smoke emission burn out around the middle of the existing flight. This is a presentation phase, not a physical missile-performance model.
-- Trails sample at 30 Hz of effect/game time, keep a live head, reuse a bounded vector pool, and update preallocated dynamic position buffers. Neutral translucent smoke transitions into a hot narrow head. Color buffers and width profiles are recalculated only when the sample count changes.
-- Bombs and ballistic shells no longer get a rocket exhaust glow. Guided precision munitions, MLRS rockets, and heavy arc missiles remain powered visual families; Shahed's propeller mesh is preserved.
-- Ground missile blasts receive a short white-hot core inside the existing fire/smoke/shock effect. Aircraft missile hits receive an elevated flash and expanding smoke puff. Water ripples, strategic aftermath, interception pulses, health bars, and falling wrecks remain in place.
-- Existing projectile, smoke, event, and total drawable budgets remain authoritative at every quality tier. No lights, dynamic shadows, new textures, or postprocessing passes were added.
-- Simulation files, damage, guidance, reload, range, interception rules, and network messages are unchanged. Visible paths and hit timing remain driven by existing combat events.
+- Tank/scout/anti-tank, infantry rocket-launcher, aircraft rocket-pod, precision/air-to-ground, anti-air, MLRS, swarm, tactical warhead, and strategic missile families use the upgraded launch/flight treatment.
+- Infantry and aircraft rockets now receive the textured impact too; their shared `atRocket-impact` path previously fell through to the generic small sphere.
+- Short ignition flashes, nozzle-anchored animated exhaust cones, and soft smoke sprites replace static glows and many smoke spheres. Existing quality-dependent emission rates and smoke ceilings remain authoritative.
+- Strategic rocket exhaust and smoke emission burn out partway through the existing authoritative trajectory. This is a visual powered/coast phase, not a physical missile model. Terminal glow, interception alignment, health bars, and falling wrecks remain intact.
+- Trails sample at 30 Hz of effect/game time and retain a live head. Bounded vectors and buffers are reused, so trail age remains consistent at 30/60/144 rendering Hz and follows 1×/2×/3× effect time.
+- Tactical, strategic, and Shahed impacts share a staged white-hot flash → irregular orange flame → dark rising smoke sequence. Ground impacts include dust or water spray; anti-air hits remain elevated without a ground dust plane. Existing scorch marks, damage feedback, fragments, and aftermath remain bounded.
+- Shahed keeps its broad aircraft silhouette, rotating pusher propellers, and thin soft trail. It has no rocket flame or glowing engine orb. Most opaque body parts are consolidated, lowering its draw cost while preserving wings and propellers.
+- Immutable body geometry is cached only while live projectiles or falling wrecks reference it. Materials stay private; the final reference releases GPU resources. The shared atlas/warmup material are intentionally bounded for the page lifetime.
+- No lights, dynamic shadows, dependencies, external image downloads, network fields, damage/range/reload changes, or simulation/guidance changes.
 
 ## Local review
 
 Run `npm run dev -- --host 127.0.0.1 --port 5191`.
 
-- Effects range: http://127.0.0.1:5191/missile-lab.html
-- Playable silo scenario: http://127.0.0.1:5191/?start=missile-test&armies=2&seed=231125
-- Repeatable frozen sample: http://127.0.0.1:5191/missile-lab.html?stress=1&snapshot=1
+- Review range: http://127.0.0.1:5191/missile-lab.html?review=4
+- Playable Iranian silo/Shahed scenario: http://127.0.0.1:5191/?start=missile-test&armies=2&seed=231126
+- Matched impact sample: http://127.0.0.1:5191/missile-lab.html?mode=impacts&snapshot=0.18
 
-The range launches strategic, siege, anti-air, air-to-ground, and anti-tank missiles automatically. Launch wave adds a volley; Stress repeats larger volleys. Quality and Speed exercise all three visual tiers and 1×/2×/3× effect time. This standalone dev entry is omitted from the default production bundle; the actual CombatView changes are shared by the game.
+The range shows infantry launcher, tank missile, aircraft rocket pod/precision/AA missiles, Iranian strategic missile, and Shahed. Click **Explosions** to compare all seven impacts; **Close view** moves nearer. Drag to orbit and scroll to zoom. Stress, quality, and 1×/2×/3× controls exercise effect budgets. Damage labels are hidden only in this inspection tool so they do not cover the explosions. The default production build omits the standalone lab entry; the real game uses the same CombatView and atlas module.
 
-## Measurements — November 23, 2026
+## Performance evidence — November 23, 2026
 
-Baseline: merged main `ddedde222b99ed4da7922b2e80b89bd46e905246`. Updated: this branch. These are engineering measurements on this machine, not universal FPS guarantees.
+Baseline is merged main `ddedde222b99ed4da7922b2e80b89bd46e905246`. Updated is this branch. These are local engineering fixtures, not universal FPS guarantees.
 
-### Browser rendering fixture
+### Seven-family browser impact fixture
 
-Same copied lab, camera, 1280×720 viewport, high quality, 1× time, 25 missiles across five families, frozen at 1.0 seconds. Baseline served on port 5192; updated served on port 5191. Stats read from Three.js renderer.info and CombatView.effectStats. Background browser tabs and display refresh can influence timing.
+Same copied lab, initial wide camera, 1280×720 viewport, high quality, 1× time, damage labels disabled. Seven impacts (Iranian strategic/Shahed, infantry launcher, aircraft rocket pod/precision/AA, tank missile), frozen after 11 updates at 1/60 second (about 0.18s). Baseline on port 5192, updated on 5191. Three renderer.info plus CombatView.effectStats:
 
 | Metric | Baseline | Updated |
 | --- | ---: | ---: |
-| Render draw calls | 358 | 173 |
-| Rendered triangles | 22,148 | 20,148 |
-| Live GPU geometries | 331 | 102 |
-| Textures | 1 | 1 |
-| Active missiles | 25 | 25 |
-| Smoke objects | 91 | 91 |
-| Frozen-scene frame p50 | 11.1 ms | 11.1 ms |
-| Frozen-scene frame p95 | 16.7 ms | 16.7 ms |
+| Draw calls | 192 | 158 |
+| Triangles | 12,570 | 8,632 |
+| Live GPU geometries | 117 | 86 |
+| Textures | 5 | 6 |
+| Smoke objects | 61 | 61 |
+| Total FX drawables | 180 | 156 |
 
-The frozen-scene timing measures rendering of an established scene, not launch/update CPU cost or a full battle. Draw calls fell about 52%; geometry counts fell about 69%. No particle-count increase produced these gains.
+This is about 18% fewer draw calls and 31% fewer triangles during the impact scene. The texture count grows by one shared 1.5 MiB atlas. The close-up screenshots alongside this document use the same close camera on both revisions; their draw counts differ from the wide-camera table because frustum culling changes.
 
-### CPU fixture
+Browser frame timing remained refresh-limited in the established frozen scenes. Multiple local game tabs, refresh pacing, shader compilation during startup, and other work affect frame timing; do not infer whole-battle or low-end/mobile FPS from these counts. No GPU timer-query measurement was made. Atlas upload/program preparation now happens during match loading rather than the first visible impact.
 
-Vitest/Node, same generated heightfield, 25 missiles (five per family), identical launch coordinates, 6-second duration, followed by 120 updates at 1/60 second. Alternate baseline/head order across 14 trials, discard the first four, report the upper middle sample of ten retained timings. No WebGL renderer is involved. Raw samples and temporary fixture source are exported beside this plan.
+### Matched CPU fixtures
+
+Vitest/Node, same generated heightfield, 25 events (five each of strategic, siege, AA, air-to-ground, tank missile). Alternate baseline/head order for 14 trials, discard four warmups, report the upper-middle sample of ten timings. Atlas preparation occurs during view/loading setup outside the timed combat operations. No WebGL renderer is involved.
 
 | Work | Baseline median | Updated median |
 | --- | ---: | ---: |
-| Create 25 launches | 2.29 ms | 1.72 ms |
-| 120 effect updates | 17.71 ms | 14.94 ms |
+| Create 25 launches | 2.45 ms | 2.12 ms |
+| 120 flight updates at 1/60s | 18.31 ms | 10.64 ms |
+| Create 25 impacts | 5.74 ms | 4.42 ms |
+| 120 aftermath updates at 1/60s | 2.41 ms | 1.88 ms |
 
-This comparison exposed a trail-shading CPU regression during development; caching invariant trail colors/widths removed it before submission. Single-launch cold compilation, GPU first-use shader stalls, low-end phones, and sustained full-army battle FPS are not established by this fixture.
+The effects preserve the original smoke/fragment/event/total drawable caps, so broad event storms cannot allocate an unbounded number of objects. Initial atlas painting/loading latency and real low-end phone frame budgets are separate from these warmed combat measurements. Raw logs and impact fixture source are included alongside this document. Full instancing and volumetric raymarched smoke are deferred; the atlas is a compact billboard approximation, not volumetric simulation.
 
-## Verification and remaining limits
+## Validation
 
-- Full suite: 941 tests across 127 files passed. Build passed with the existing large-bundle advisory.
-- Regression checks cover trail age at 30/60/144 Hz, bounded reused vector storage through stalls, dynamic-buffer reuse, finite exhaust transforms, merged draw count, flight endpoints, strategic burnout, airburst height/cleanup, shared geometry/material isolation, last-wreck disposal, and event storms at all three quality tiers.
-- Browser: successful strategic launch in the playable scenario, no console errors, high-quality matched fixture, sustained Performance-quality stress above 60 seconds of fixture time, and 3× speed/Medium quality controls exercised. Existing FX budgets stayed bounded.
-- The range is a repeatable review tool, not a representative whole-game performance benchmark. Mobile-device performance and responsive range layout have not been validated on real hardware.
-- Full instancing, textured volumetric plumes, dynamic illumination, and expensive fragment simulations are deferred. They add complexity or overdraw without evidence they are needed for the current scale.
-- Missile branch is for local review and a draft PR only; do not merge or deploy until reviewed.
+- Full suite: 948 tests / 127 files passed; production build passed with the existing bundle-size advisory.
+- Regression tests cover 30/60/144 Hz trail age, bounded reusable vectors/buffers, finite exhaust transforms, merged body draw counts, flight endpoints, burnout, airburst height/cleanup, private materials/shared geometry, last-wreck disposal, effect storms at all three quality tiers, all six ground-impact weapon paths, and rotating Shahed propellers without rocket exhaust.
+- Independent review checked shader tile orientation/uniform isolation, Three r170 compatibility, shared atlas lifetime, burst cleanup, drone geometry ownership, and budget accounting; no blockers.
+- Browser verified real match loading and a successful Shahed launch with no console errors. The seven-family range renders the new shader and supports close inspection. Performance-tier/3× stress and medium-quality controls were exercised.
+- Desktop/local review is ready. Real mobile hardware, sustained full-army battle FPS, and exact GPU timing remain unmeasured.
+- PR remains a draft for local review; missile changes have not been merged or deployed to production.

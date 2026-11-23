@@ -1,3 +1,4 @@
+import { createMissileExplosionAtlas, createMissileExplosionSprite, setMissileExplosionAge } from './missileExplosion';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { combatFeedback, FEEDBACK_COLORS } from './combatFeedback';
 import { createMissileTrail, missileTrailProfile, MissileTrailHistory, updateMissileTrail } from './missileTrail';
@@ -38,8 +39,8 @@ interface Burst {
   group: Group;
   ttl: number;
   total: number;
-  kind: 'small' | 'bomb' | 'ripple';
-  materials: MeshBasicMaterial[];
+  kind: 'small' | 'bomb' | 'ripple' | 'missile' | 'ignition';
+  materials: Array<MeshBasicMaterial | SpriteMaterial>;
   baseScale: number;
 }
 
@@ -244,6 +245,7 @@ export class CombatView {
   private readonly hitIndicators: HitIndicator[] = [];
   private readonly smokePuffs: SmokePuff[] = [];
   private softSmokeTexture?: CanvasTexture;
+  private missileExplosionAtlas?: CanvasTexture;
   private readonly hitFragments: HitFragment[] = [];
   private readonly groundScorches: GroundScorch[] = [];
   private readonly scorchTextures = new Map<string, CanvasTexture>();
@@ -256,7 +258,10 @@ export class CombatView {
     private readonly isVisible: (x: number, z: number) => boolean = () => true,
     private readonly resolveEntity: (id: number) => Entity | undefined = () => undefined,
     private readonly localTeam = 1,
-  ) {}
+  ) {
+    // Paint once while the match is loading, not during the first firefight.
+    if (typeof document !== 'undefined') this.missileExplosionAtlas = createMissileExplosionAtlas();
+  }
 
   setVisualQuality(tier: VisualQualityTier): void {
     this.visualQuality = tier;
@@ -326,6 +331,8 @@ export class CombatView {
           this.spawnMissileAirburst(event.toX, toY, event.toZ, event.impactScale ?? 1);
         } else if (event.weaponKind === 'strategicMissile') {
           this.spawnStrategicBlast(event, impactY);
+        } else if (isMissile(event.kind.slice(0, -'-impact'.length)) || isPoweredMissile(event.weaponKind ?? '') || event.weaponKind === 'emberDrone') {
+          this.spawnMissileBlast(event.toX, impactY, event.toZ, (event.impactScale ?? 1) * (event.kind === 'atRocket-impact' ? 0.65 : 1), false, waterHit);
         } else if (event.weaponKind === 'heavyCannon' || isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
           this.spawnBombBlast(
             event.toX,
@@ -408,7 +415,17 @@ export class CombatView {
       burst.ttl -= dt;
       const life = Math.max(0, burst.ttl / burst.total);
       const age = 1 - life;
-      if (burst.kind === 'bomb') {
+      if (burst.kind === 'missile' || burst.kind === 'ignition') {
+        for (const material of burst.materials) {
+          if (material instanceof SpriteMaterial) {
+            setMissileExplosionAge(material, burst.kind === 'ignition' ? age * 0.15 : age);
+            material.opacity = burst.kind === 'ignition' ? life * 0.85 : 1;
+          } else material.opacity = Math.pow(life, 2) * (material.userData.baseOpacity ?? 0.3);
+        }
+        for (const child of burst.group.children) {
+          if (child instanceof Mesh) child.scale.setScalar(0.25 + age * 2.8);
+        }
+      } else if (burst.kind === 'bomb') {
         burst.group.scale.setScalar(burst.baseScale * (1 + age * 1.28));
         for (const material of burst.materials) {
           if (material.userData.role === 'core') material.opacity = Math.max(0, 1 - age * 6) * 0.9;
@@ -583,6 +600,7 @@ export class CombatView {
         : undefined,
     });
     const spawned = this.bombProjectiles[this.bombProjectiles.length - 1];
+    if (launchDelay <= 0) this.spawnMissileIgnition(spawned);
     if (spawned.healthBar) spawned.healthBar.group.visible = !this.cinematicMode && launchDelay <= 0;
     if (spawned.healthBar) this.syncStrategicHealthBar(spawned);
     const maxProjectiles = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 28;
@@ -596,6 +614,7 @@ export class CombatView {
         projectile.launchDelay = Math.max(0, projectile.launchDelay - dt);
         if (projectile.launchDelay <= 0) {
           projectile.group.visible = true;
+          this.spawnMissileIgnition(projectile);
           projectile.trail.visible = true;
           if (projectile.healthBar) projectile.healthBar.group.visible = !this.cinematicMode;
         }
@@ -902,6 +921,9 @@ export class CombatView {
   }
 
   private updateTrail(projectile: BombProjectile, dt: number): void {
+    if (projectile.event.weaponKind === 'emberDrone') {
+      for (const child of projectile.group.children) if (child.name === 'drone-propeller') child.rotation.y += dt * 150;
+    }
     projectile.trailHistory.advance(projectile.group.position, dt);
     updateMissileTrail(projectile.trail, projectile.trailHistory.points);
     animateMissileExhaust(projectile.group, projectile.elapsed, projectile.duration, projectile.event.weaponKind === 'strategicMissile');
@@ -973,20 +995,27 @@ export class CombatView {
       return;
     }
 
-    const smokeMaterial = new MeshBasicMaterial({
-      color: projectileSmokeColor(visualKind, projectile.event.kind, homing),
+    const softTrail = isPoweredMissile(visualKind) || visualKind === 'emberDrone';
+    if (softTrail) this.softSmokeTexture ??= makeSoftSmokeTexture();
+    const smokeOptions = {
+      color: softTrail ? 0xb4b7b0 : projectileSmokeColor(visualKind, projectile.event.kind, homing),
       transparent: true,
       opacity: projectileSmokeOpacity(visualKind, projectile.event.kind, homing),
       depthWrite: false,
-    });
+    };
+    const smokeMaterial = softTrail ? new SpriteMaterial({ ...smokeOptions, map: this.softSmokeTexture }) : new MeshBasicMaterial(smokeOptions);
     smokeMaterial.userData.baseOpacity = smokeMaterial.opacity;
-    const puff = new Mesh(new SphereGeometry(projectileSmokeSize(visualKind, projectile.event.kind, homing), 8, 5), smokeMaterial);
+    const size = projectileSmokeSize(visualKind, projectile.event.kind, homing);
+    const puff = softTrail ? new Sprite(smokeMaterial as SpriteMaterial) : new Mesh(new SphereGeometry(size, 8, 5), smokeMaterial as MeshBasicMaterial);
+    if (softTrail) puff.scale.set(size * 3.2, size * 2.4, 1);
     puff.position.copy(pos);
     puff.renderOrder = 57;
     this.group.add(puff);
     this.smokePuffs.push({
       mesh: puff,
       material: smokeMaterial,
+      baseScale: softTrail ? puff.scale.clone() : undefined,
+      growth: softTrail ? 1.6 : undefined,
       velocity: new Vector3(-tangent.x * 0.9, 0.5 + Math.abs(tangent.y) * 0.2, -tangent.z * 0.9),
       ttl: isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
       total: isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
@@ -1171,7 +1200,7 @@ export class CombatView {
   private makeProjectileMesh(event: CombatEvent): Group {
     const family = event.weaponKind ?? event.kind;
     const key = `${family}:${event.kind}`;
-    if (!isPoweredMissile(family)) return this.buildProjectileMesh(event);
+    if (!isPoweredMissile(family) && family !== 'emberDrone') return this.buildProjectileMesh(event);
     let cached = this.projectileTemplates.get(key);
     if (!cached) {
       // Scale is per launch; cache only immutable geometry and local transforms.
@@ -1188,7 +1217,8 @@ export class CombatView {
     if (family === 'strategicMissile') {
       const scale = 1.25 * (1 + Math.max(0, (event.impactScale ?? 1) - 1) * 0.28);
       group.scale.set(scale * 0.78, scale, scale * 0.78);
-    } else group.scale.multiplyScalar(event.impactScale ?? 1);
+    } else if (family === 'emberDrone') group.scale.setScalar(1.35 * (1 + Math.max(0, (event.impactScale ?? 0.95) - 0.95) * 0.18));
+    else group.scale.multiplyScalar(event.impactScale ?? 1);
     return group;
   }
 
@@ -1270,12 +1300,7 @@ export class CombatView {
     const darkMaterial = new MeshBasicMaterial({ color: 0x151817 });
     const accentMaterial = new MeshBasicMaterial({ color: 0xb95a2d });
     const sensorMaterial = new MeshBasicMaterial({ color: 0xff8a42 });
-    const engineGlowMaterial = new MeshBasicMaterial({
-      color: 0xffb15b,
-      transparent: true,
-      opacity: 0.48,
-      depthWrite: false,
-    });
+
 
     // The projectile's local +Y axis is its direction of travel. A broad,
     // swept planform makes Ember read as an aircraft even at RTS distance.
@@ -1326,13 +1351,14 @@ export class CombatView {
     const propellerHub = new Mesh(new CylinderGeometry(0.1, 0.13, 0.18, 8), accentMaterial.clone());
     propellerHub.position.y = -1.48;
     const propellerX = new Mesh(new BoxGeometry(1.05, 0.055, 0.09), darkMaterial.clone());
+    propellerX.name = 'drone-propeller';
     propellerX.position.y = -1.58;
     const propellerZ = new Mesh(new BoxGeometry(0.09, 0.055, 1.05), darkMaterial.clone());
+    propellerZ.name = 'drone-propeller';
     propellerZ.position.y = -1.58;
-    const engineGlow = new Mesh(new SphereGeometry(0.19, 9, 6), engineGlowMaterial);
-    engineGlow.position.y = -1.53;
-    group.add(engine, propellerHub, propellerX, propellerZ, engineGlow);
+    group.add(engine, propellerHub, propellerX, propellerZ);
 
+    mergeProjectileBody(group);
     const warheadScale = 1 + Math.max(0, (event.impactScale ?? 0.95) - 0.95) * 0.18;
     group.scale.setScalar(1.35 * warheadScale);
     return group;
@@ -1435,17 +1461,46 @@ export class CombatView {
   }
 
   private spawnMissileAirburst(x: number, y: number, z: number, scale: number): void {
-    const coreMaterial = new MeshBasicMaterial({ color: 0xffeed1, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false });
-    coreMaterial.userData.role = 'core';
-    const shellMaterial = new MeshBasicMaterial({ color: 0xa7b7bf, transparent: true, opacity: 0.02, depthWrite: false });
-    shellMaterial.userData.role = 'smoke';
+    this.spawnMissileBlast(x, y, z, scale * 0.75, true);
+  }
+
+  private spawnMissileBlast(x: number, y: number, z: number, scale: number, air = false, water = false, strategic = false): void {
+    this.missileExplosionAtlas ??= createMissileExplosionAtlas();
+    const sprite = createMissileExplosionSprite(this.missileExplosionAtlas);
+    const size = strategic ? 28 : air ? 11 : 17;
+    sprite.scale.set(size, size, 1);
+    if (air) sprite.center.set(0.5, 0.5);
     const group = new Group();
-    group.name = 'missile-airburst';
-    group.add(new Mesh(new SphereGeometry(1.3, 8, 6), coreMaterial), new Mesh(new SphereGeometry(3.2, 8, 5), shellMaterial));
-    group.position.set(x, y, z);
-    group.scale.setScalar(scale);
+    group.name = air ? 'missile-airburst' : 'missile-ground-blast';
+    group.add(sprite);
+    const materials: Array<MeshBasicMaterial | SpriteMaterial> = [sprite.material];
+    if (!air) {
+      this.softSmokeTexture ??= makeSoftSmokeTexture();
+      const dustMaterial = new MeshBasicMaterial({ map: this.softSmokeTexture, color: water ? 0xdcecf0 : 0xa09073, transparent: true, opacity: 0.3, depthWrite: false, side: DoubleSide, forceSinglePass: true });
+      dustMaterial.userData.baseOpacity = water ? 0.24 : 0.3;
+      const dust = new Mesh(new PlaneGeometry(strategic ? 26 : 16, strategic ? 26 : 16), dustMaterial);
+      dust.rotation.x = -Math.PI / 2;
+      dust.position.y = 0.12;
+      group.add(dust); materials.push(dustMaterial);
+    }
+    group.position.set(x, y, z); group.scale.setScalar(scale);
+    group.renderOrder = 55;
     this.group.add(group);
-    this.bursts.push({ group, ttl: 0.48, total: 0.48, kind: 'bomb', materials: [coreMaterial, shellMaterial], baseScale: scale });
+    const ttl = strategic ? 1.6 : air ? 0.7 : 0.95;
+    this.bursts.push({ group, ttl, total: ttl, kind: 'missile', materials, baseScale: scale });
+    this.trimBursts();
+  }
+
+  private spawnMissileIgnition(projectile: BombProjectile): void {
+    const kind = projectile.event.weaponKind ?? projectile.event.kind;
+    if (!isPoweredMissile(kind)) return;
+    this.missileExplosionAtlas ??= createMissileExplosionAtlas();
+    const flash = createMissileExplosionSprite(this.missileExplosionAtlas);
+    flash.center.set(0.5, 0.5);
+    flash.scale.setScalar(kind === 'strategicMissile' ? 5.5 : kind === 'rocketPod' ? 1.4 : 2.3);
+    const group = new Group(); group.add(flash); group.position.copy(projectile.from);
+    this.group.add(group);
+    this.bursts.push({ group, ttl: 0.13, total: 0.13, kind: 'ignition', materials: [flash.material], baseScale: 1 });
     this.trimBursts();
   }
 
@@ -1583,46 +1638,8 @@ export class CombatView {
   }
 
   private spawnStrategicBlast(event: CombatEvent, y: number): void {
-    const warheadScale = Math.max(1.6, event.impactScale ?? 1.6);
-    this.spawnBombBlast(event.toX, y, event.toZ, event.killed, warheadScale * 1.2);
-
-    const group = new Group();
-    const flashMaterial = new MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.96, depthWrite: false });
-    const fireMaterial = new MeshBasicMaterial({ color: 0xff6a24, transparent: true, opacity: 0.72, depthWrite: false });
-    const shockMaterial = new MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.48, depthWrite: false, side: 2 });
-    const smokeMaterial = new MeshBasicMaterial({ color: 0x211c18, transparent: true, opacity: 0.18, depthWrite: false });
-    flashMaterial.userData.role = 'fire';
-    fireMaterial.userData.role = 'fire';
-    shockMaterial.userData.role = 'shock';
-    smokeMaterial.userData.role = 'smoke';
-
-    const flash = new Mesh(new SphereGeometry(3.6, 18, 12), flashMaterial);
-    const fireball = new Mesh(new SphereGeometry(5.2, 18, 12), fireMaterial);
-    const innerRing = new Mesh(new RingGeometry(3.2, 10.5, 48), shockMaterial);
-    const outerRing = new Mesh(new RingGeometry(8.5, 17, 64), shockMaterial.clone());
-    const smokeColumn = new Mesh(new CylinderGeometry(2.6, 5.4, 10, 14), smokeMaterial);
-    flash.position.y = 1.8;
-    fireball.position.y = 3.1;
-    smokeColumn.position.y = 6.2;
-    innerRing.rotation.x = -Math.PI / 2;
-    outerRing.rotation.x = -Math.PI / 2;
-    innerRing.position.y = 0.12;
-    outerRing.position.y = 0.18;
-    group.add(innerRing, outerRing, flash, fireball, smokeColumn);
-    group.position.set(event.toX, y, event.toZ);
-    group.renderOrder = 58;
-    const baseScale = warheadScale * 0.88;
-    group.scale.setScalar(baseScale);
-    this.bursts.push({
-      group,
-      ttl: 1.45,
-      total: 1.45,
-      kind: 'bomb',
-      materials: [flashMaterial, fireMaterial, shockMaterial, outerRing.material as MeshBasicMaterial, smokeMaterial],
-      baseScale,
-    });
-    this.group.add(group);
-    this.trimBursts();
+    const scale = Math.max(1.6, event.impactScale ?? 1.6);
+    this.spawnMissileBlast(event.toX, y, event.toZ, scale, false, isWaterSurfaceHit(this.hf, event.toX, event.toZ), true);
   }
 
   private trimBursts(): void {
@@ -2232,7 +2249,7 @@ function trailColor(kind: string): number {
 /** Bake opaque pieces into a single vertex-colored draw. Translucent exhaust
  * stays separate so animation and intercepted wreck darkening remain local. */
 function mergeProjectileBody(group: Group): void {
-  const parts = group.children.filter((child): child is Mesh<BufferGeometry, MeshBasicMaterial> => child instanceof Mesh && child.material instanceof MeshBasicMaterial && !child.material.transparent);
+  const parts = group.children.filter((child): child is Mesh<BufferGeometry, MeshBasicMaterial> => child instanceof Mesh && child.material instanceof MeshBasicMaterial && !child.material.transparent && child.material.side !== DoubleSide && child.name !== 'drone-propeller');
   const geometries = parts.map((part) => {
     part.updateMatrix();
     const geometry = part.geometry.index ? part.geometry.toNonIndexed() : part.geometry.clone();
@@ -2256,7 +2273,7 @@ function mergeProjectileBody(group: Group): void {
 }
 
 function isPoweredMissile(kind: string): boolean {
-  return ['precisionMissile', 'mlrsRocket', 'tankBomb', 'strategicMissile', 'siegeMissile', 'aaMissile', 'agMissile', 'scoutMissile', 'tankMissile', 'atRocket', 'rocketPod', 'rocketLauncher'].includes(kind);
+  return ['swarmRocket', 'annihilatorMissile', 'precisionMissile', 'mlrsRocket', 'tankBomb', 'strategicMissile', 'siegeMissile', 'aaMissile', 'agMissile', 'scoutMissile', 'tankMissile', 'atRocket', 'rocketPod', 'rocketLauncher'].includes(kind);
 }
 
 function animateMissileExhaust(group: Group, elapsed: number, duration: number, strategic: boolean): void {

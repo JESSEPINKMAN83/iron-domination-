@@ -240,7 +240,7 @@ describe('missile presentation', () => {
     expect(bodies).toHaveLength(1);
     expect(bodies[0].geometry.groups).toHaveLength(0);
     expect(bodies[0].geometry.getAttribute('color')).toBeDefined();
-    expect(view.effectStats().drawables).toBeLessThanOrEqual(5);
+    expect(view.effectStats().drawables).toBeLessThanOrEqual(6);
     view.update(1);
     const parent = bodies[0].parent!;
     expect(parent.position.x).toBeCloseTo(50);
@@ -302,5 +302,36 @@ describe('missile resource ownership', () => {
     }
     view.update(40);
     expect(view.effectStats().projectiles).toBe(0);
+  });
+});
+
+
+describe('textured missile impacts', () => {
+  it.each([
+    ['atRocket-impact', 'rocketLauncher'], ['atRocket-impact', 'rocketPod'],
+    ['tankMissile-impact', 'tankMissile'], ['agMissile-impact', 'precisionMissile'],
+    ['siegeMissile-impact', 'strategicMissile'], ['siegeMissile-impact', 'emberDrone'],
+  ] as const)('uses the shared animated blast for %s / %s', (kind, weaponKind) => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event(0, 1, { kind, weaponKind, toY: 40 })]);
+    const explosion = view.group.getObjectByName('missile-explosion') as Sprite;
+    expect(explosion).toBeInstanceOf(Sprite);
+    const texture = explosion.material.map;
+    expect(texture?.image.width).toBe(768);
+    view.update(0.1);
+    expect(explosion.material.userData.explosionFrame.value).toBeGreaterThan(0);
+    expect(explosion.material.map).toBe(texture);
+    view.update(2);
+    expect(view.group.getObjectByName('missile-explosion')).toBeUndefined();
+  });
+  it('keeps Shahed propellers moving without adding rocket exhaust', () => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event(0, 1, { kind: 'siegeMissile', weaponKind: 'emberDrone', duration: 5 })]);
+    const propeller = view.group.getObjectByName('drone-propeller')!;
+    const before = propeller.rotation.y;
+    expect(view.group.getObjectByName('missile-exhaust')).toBeUndefined();
+    view.update(0.1);
+    expect(propeller.rotation.y).not.toBe(before);
+    expect(view.group.getObjectByName('missile-body')).toBeDefined();
   });
 });

@@ -1,3 +1,5 @@
+import { prewarmMissileExplosion } from '../render/missileExplosion';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /** Standalone local effects range. Uses production CombatView, without changing combat rules. */
 import { Color, GridHelper, Mesh, MeshBasicMaterial, PerspectiveCamera, PlaneGeometry, Scene, WebGLRenderer } from 'three';
 import { CombatView } from '../render/combatView';
@@ -16,6 +18,8 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 document.body.style.cssText = 'margin:0;background:#172026;color:#e6f4ef;font:14px system-ui;overflow:hidden';
 document.body.append(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 22, 0); controls.minDistance = 30; controls.maxDistance = 600; controls.maxPolarAngle = Math.PI * 0.48; controls.update();
 const ground = new PlaneGeometry(420, 320, 70, 54);
 ground.rotateX(-Math.PI / 2);
 const positions = ground.getAttribute('position');
@@ -23,10 +27,12 @@ for (let i = 0; i < positions.count; i++) positions.setY(i, sampleHeight(hf, pos
 scene.add(new Mesh(ground, new MeshBasicMaterial({ color: 0x4c5943 })));
 const grid = new GridHelper(380, 19, 0x8caa89, 0x687962); grid.position.y = 1; scene.add(grid);
 const view = new CombatView(hf);
+view.setCinematicMode(true); // Keep damage labels out of this effects inspection tool.
 scene.add(view.group);
+await prewarmMissileExplosion(renderer, camera, scene);
 const panel = document.createElement('section');
 panel.style.cssText = 'position:fixed;left:18px;top:18px;max-width:min(540px, calc(100vw - 72px));padding:18px;background:#0c151de8;border:1px solid #52706d;border-radius:12px;line-height:1.6';
-panel.innerHTML = '<strong style="font-size:20px">MISSILE RANGE</strong><div>Strategic · siege · anti-air · air-to-ground · anti-tank</div><div>Repeatable visual fixture · no gameplay balance changes</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0"><button id="wave">Launch wave</button><button id="stress" aria-pressed="false">Stress: off</button><label>Quality <select id="quality"><option value="0">High</option><option value="1">Medium</option><option value="2">Performance</option></select></label><label>Speed <select id="speed"><option>1</option><option>2</option><option>3</option></select></label></div><div id="metrics" style="font:12px monospace;white-space:pre"></div><a href="/?start=missile-test&armies=2&seed=231125" style="color:#9fdac6">Play missile scenario →</a>';
+panel.innerHTML = '<strong style="font-size:20px">MISSILE RANGE</strong><div>Infantry rockets · tank missiles · aircraft · Iranian missile / Shahed</div><div>Drag to orbit · scroll to zoom · no balance changes</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0"><button id="wave">Launch wave</button><button id="impact">Explosions</button><button id="close">Close view</button><button id="stress" aria-pressed="false">Stress: off</button><label>Quality <select id="quality"><option value="0">High</option><option value="1">Medium</option><option value="2">Performance</option></select></label><label>Speed <select id="speed"><option>1</option><option>2</option><option>3</option></select></label></div><div id="metrics" style="font:12px monospace;white-space:pre"></div><a href="/?start=missile-test&armies=2&seed=231125" style="color:#9fdac6">Play missile scenario →</a>';
 document.body.append(panel);
 for (const button of Array.from(panel.querySelectorAll('button,select'))) (button as HTMLElement).style.cssText = 'padding:6px;background:#253c43;color:#e6f4ef;border:1px solid #628381;border-radius:5px';
 const params = new URLSearchParams(location.search);
@@ -38,18 +44,19 @@ view.setVisualQuality(quality);
 (panel.querySelector('#stress') as HTMLButtonElement).textContent = `Stress: ${stress ? 'on' : 'off'}`;
 panel.querySelector('#stress')!.setAttribute('aria-pressed', String(stress));
 const pending: Array<{ at: number; event: CombatEvent }> = [];
-const kinds = ['strategicMissile', 'siegeMissile', 'aaMissile', 'agMissile', 'tankMissile'] as const;
+const kinds = ['strategicMissile', 'emberDrone', 'rocketLauncher', 'rocketPod', 'aaMissile', 'precisionMissile', 'tankMissile'] as const;
+const projectileKinds = ['siegeMissile', 'siegeMissile', 'atRocket', 'atRocket', 'aaMissile', 'agMissile', 'tankMissile'];
 function launchWave(): void {
   for (let j = 0; j < (stress ? 5 : 1); j++) for (let i = 0; i < kinds.length; i++) {
     const weaponKind = kinds[i];
-    const z = (i - 2) * 31 + j * 2;
+    const z = (i - 3) * 24 + j * 2;
     const fromX = -125 + j * 2, toX = 100 - j * 3;
-    const duration = weaponKind === 'strategicMissile' ? 6 : 3.5 + i * 0.15;
+    const duration = weaponKind === 'strategicMissile' ? 6 : weaponKind === 'emberDrone' ? 7 : 2.5 + i * 0.12;
     const event: CombatEvent = {
-      kind: weaponKind === 'strategicMissile' ? 'siegeMissile' : weaponKind,
+      kind: projectileKinds[i],
       weaponKind, fromX, fromZ: z, fromY: sampleHeight(hf, fromX, z) + 4,
       toX, toZ: z, toY: weaponKind === 'aaMissile' ? 38 : sampleHeight(hf, toX, z) + 0.5,
-      trajectory: weaponKind === 'strategicMissile' || weaponKind === 'siegeMissile' ? 'arc' : 'flat',
+      trajectory: weaponKind === 'strategicMissile' || weaponKind === 'emberDrone' ? 'arc' : 'flat',
       strategicLift: 48, duration, sourceTeamId: 1, targetTeamId: 2,
       targetType: weaponKind === 'aaMissile' ? 'aircraft' : 'vehicle', damage: 0, killed: false,
     };
@@ -57,6 +64,20 @@ function launchWave(): void {
     pending.push({ at: time + duration, event: { ...event, kind: `${event.kind}-impact` as CombatEvent['kind'], damage: 40 } });
   }
 }
+function impactWave(): void {
+  for (let i = 0; i < kinds.length; i++) {
+    const x = 55, z = (i - 3) * 24;
+    view.push([{ kind: `${projectileKinds[i]}-impact`, weaponKind: kinds[i], fromX: -100, fromZ: z, toX: x, toZ: z, toY: kinds[i] === 'aaMissile' ? 38 : sampleHeight(hf, x, z) + 0.5, targetType: kinds[i] === 'aaMissile' ? 'aircraft' : 'vehicle', sourceTeamId: 1, damage: 40, killed: false }]);
+  }
+}
+panel.querySelector('#impact')!.addEventListener('click', impactWave);
+let close = false;
+panel.querySelector('#close')!.addEventListener('click', (event) => {
+  close = !close;
+  camera.position.set(close ? 110 : 160, close ? 45 : 130, close ? 90 : 210);
+  controls.target.set(close ? 55 : 0, close ? 8 : 22, 0); controls.update();
+  (event.target as HTMLButtonElement).textContent = close ? 'Wide view' : 'Close view';
+});
 panel.querySelector('#wave')!.addEventListener('click', launchWave);
 panel.querySelector('#stress')!.addEventListener('click', (e) => { stress = !stress; const b = e.currentTarget as HTMLButtonElement; b.textContent = `Stress: ${stress ? 'on' : 'off'}`; b.setAttribute('aria-pressed', String(stress)); });
 panel.querySelector('#quality')!.addEventListener('change', (e) => view.setVisualQuality(Number((e.target as HTMLSelectElement).value) as 0 | 1 | 2));
@@ -70,7 +91,7 @@ function frame(now: number): void {
   accumulator += dt * speed;
   while (accumulator >= 1 / 60 && time + 1e-8 < snapshotTime) {
     const step = 1 / 60; accumulator -= step; time += step;
-    if (time >= nextWave) { launchWave(); nextWave = time + (stress ? 1.8 : 8); }
+    if (time >= nextWave) { if (params.get('mode') === 'impacts') impactWave(); else launchWave(); nextWave = time + (stress ? 1.8 : 8); }
     for (let i = pending.length - 1; i >= 0; i--) if (pending[i].at <= time) { view.push([pending[i].event]); pending.splice(i, 1); }
     view.update(step);
   }
