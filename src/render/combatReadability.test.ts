@@ -32,8 +32,8 @@ describe('combat readability', () => {
     updateMissileTrail(trail, [new Vector3(20, 15, 0), new Vector3(24, 15, 0), new Vector3(28, 15, 0)]);
     expect(trail.geometry.drawRange.count).toBe(24);
     const colors = trail.geometry.getAttribute('color');
-    expect(colors.getX(0)).toBe(0);
-    expect(colors.getX(23)).toBe(1);
+    expect(colors.getW(0)).toBe(0);
+    expect(colors.getW(23)).toBeCloseTo(0.93);
     for (let i = 0; i < 24; i++) {
       expect(positions.getX(i)).toBeGreaterThanOrEqual(20);
       expect(Number.isFinite(positions.getY(i))).toBe(true);

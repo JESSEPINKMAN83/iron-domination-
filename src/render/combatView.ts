@@ -1,5 +1,6 @@
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { combatFeedback, FEEDBACK_COLORS } from './combatFeedback';
-import { createMissileTrail, missileTrailProfile, updateMissileTrail } from './missileTrail';
+import { createMissileTrail, missileTrailProfile, MissileTrailHistory, updateMissileTrail } from './missileTrail';
 import {
   BoxGeometry,
   BufferGeometry,
@@ -45,7 +46,7 @@ interface Burst {
 interface BombProjectile {
   group: Group;
   trail: Mesh<BufferGeometry, MeshBasicMaterial>;
-  trailPositions: Vector3[];
+  trailHistory: MissileTrailHistory;
   from: Vector3;
   control: Vector3;
   to: Vector3;
@@ -55,7 +56,6 @@ interface BombProjectile {
   event: CombatEvent;
   smokeTimer: number;
   direction?: Vector3;
-  trailCapacity: number;
   healthBar?: StrategicHealthBar;
   terminalGlow?: Mesh<SphereGeometry, MeshBasicMaterial>;
 }
@@ -226,6 +226,7 @@ function addSpreadSelection(selected: Set<number>, candidates: IndexedCombatEven
 }
 
 export class CombatView {
+  private readonly projectileTemplates = new Map<string, { group: Group; references: number }>();
   private cinematicMode=false;
   setCinematicMode(active:boolean):void {this.cinematicMode=active;}
   readonly group = new Group();
@@ -321,7 +322,9 @@ export class CombatView {
           : waterHit
             ? this.hf.waterLevel + 0.08
             : sampleHeight(this.hf, event.toX, event.toZ) + 0.4;
-        if (event.weaponKind === 'strategicMissile') {
+        if (event.targetType === 'aircraft' && (event.kind === 'aaMissile-impact' || event.kind === 'agMissile-impact')) {
+          this.spawnMissileAirburst(event.toX, toY, event.toZ, event.impactScale ?? 1);
+        } else if (event.weaponKind === 'strategicMissile') {
           this.spawnStrategicBlast(event, impactY);
         } else if (event.weaponKind === 'heavyCannon' || isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
           this.spawnBombBlast(
@@ -330,6 +333,7 @@ export class CombatView {
             event.toZ,
             event.killed,
             impactBlastScale(event.kind, event.weaponKind) * (event.impactScale ?? 1),
+            isPoweredMissile(event.weaponKind ?? event.kind.slice(0, -'-impact'.length)),
           );
         } else if (!waterHit) {
           this.spawnSmallImpact(event.toX, toY, event.toZ, event.killed, (event.impactScale ?? 1) * smallImpactScale(event.weaponKind ?? event.kind));
@@ -562,7 +566,7 @@ export class CombatView {
     this.bombProjectiles.push({
       group,
       trail,
-      trailPositions: [from.clone()],
+      trailHistory: new MissileTrailHistory(trailCapacity, from),
       from,
       control,
       to,
@@ -573,7 +577,6 @@ export class CombatView {
       event,
       smokeTimer: 0,
       direction: homing ? to.clone().sub(from).normalize() : undefined,
-      trailCapacity,
       terminalGlow: group.getObjectByName('fattah-terminal-glow') as Mesh<SphereGeometry, MeshBasicMaterial> | undefined,
       healthBar: strategic && event.strategicId !== undefined
         ? this.makeStrategicHealthBar(event.targetHealth ?? 100, event.targetMaxHealth ?? 100)
@@ -630,9 +633,7 @@ export class CombatView {
         }
         projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, projectile.direction));
         this.syncStrategicHealthBar(projectile);
-        projectile.trailPositions.push(projectile.group.position.clone());
-        if (projectile.trailPositions.length > projectile.trailCapacity) projectile.trailPositions.shift();
-        this.updateTrail(projectile);
+        this.updateTrail(projectile, dt);
         this.emitProjectileSmoke(projectile, projectile.direction, dt);
         if (projectile.elapsed >= projectile.duration) {
           this.disposeBombProjectile(projectile);
@@ -671,9 +672,7 @@ export class CombatView {
       projectile.group.position.copy(position);
       projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, tangent));
       this.syncStrategicHealthBar(projectile);
-      projectile.trailPositions.push(position.clone());
-      if (projectile.trailPositions.length > projectile.trailCapacity) projectile.trailPositions.shift();
-      this.updateTrail(projectile);
+      this.updateTrail(projectile, dt);
       this.emitProjectileSmoke(projectile, tangent, dt);
       if (t >= 1) {
         this.disposeBombProjectile(projectile);
@@ -840,12 +839,7 @@ export class CombatView {
   private disposeStrategicWreck(wreck?: StrategicWreck): void {
     if (!wreck) return;
     this.group.remove(wreck.group);
-    wreck.group.traverse((object) => {
-      if (!(object instanceof Mesh)) return;
-      object.geometry.dispose();
-      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
-      else object.material.dispose();
-    });
+    this.disposeProjectileGroup(wreck.group);
   }
 
   private makeStrategicHealthBar(health: number, maxHealth: number): StrategicHealthBar {
@@ -895,12 +889,7 @@ export class CombatView {
   private disposeBombProjectile(projectile?: BombProjectile): void {
     if (!projectile) return;
     this.group.remove(projectile.group);
-    projectile.group.traverse((object) => {
-      if (object instanceof Mesh) {
-        object.geometry.dispose();
-        if (object.material instanceof MeshBasicMaterial) object.material.dispose();
-      }
-    });
+    this.disposeProjectileGroup(projectile.group);
     this.group.remove(projectile.trail);
     projectile.trail.geometry.dispose();
     projectile.trail.material.dispose();
@@ -912,8 +901,10 @@ export class CombatView {
     }
   }
 
-  private updateTrail(projectile: BombProjectile): void {
-    updateMissileTrail(projectile.trail, projectile.trailPositions);
+  private updateTrail(projectile: BombProjectile, dt: number): void {
+    projectile.trailHistory.advance(projectile.group.position, dt);
+    updateMissileTrail(projectile.trail, projectile.trailHistory.points);
+    animateMissileExhaust(projectile.group, projectile.elapsed, projectile.duration, projectile.event.weaponKind === 'strategicMissile');
     projectile.trail.material.opacity = Math.min(0.9, projectile.elapsed / 0.12);
   }
 
@@ -922,6 +913,7 @@ export class CombatView {
     const homing = projectile.event.trajectory === 'homing';
     const visualKind = projectile.event.weaponKind ?? projectile.event.kind;
     const strategic = visualKind === 'strategicMissile';
+    if (strategic && projectile.elapsed / projectile.duration >= 0.48) return;
     const warheadVisualScale = strategic
       ? 1 + Math.max(0, (projectile.event.impactScale ?? 1) - 1) * 0.24
       : 1;
@@ -1177,6 +1169,51 @@ export class CombatView {
   }
 
   private makeProjectileMesh(event: CombatEvent): Group {
+    const family = event.weaponKind ?? event.kind;
+    const key = `${family}:${event.kind}`;
+    if (!isPoweredMissile(family)) return this.buildProjectileMesh(event);
+    let cached = this.projectileTemplates.get(key);
+    if (!cached) {
+      // Scale is per launch; cache only immutable geometry and local transforms.
+      const template = this.buildProjectileMesh({ ...event, impactScale: 1 });
+      cached = { group: template, references: 0 };
+      this.projectileTemplates.set(key, cached);
+    }
+    cached.references++;
+    const group = cached.group.clone(true);
+    group.userData.projectileTemplateKey = key;
+    group.traverse((object) => {
+      if (object instanceof Mesh && object.material instanceof MeshBasicMaterial) object.material = object.material.clone();
+    });
+    if (family === 'strategicMissile') {
+      const scale = 1.25 * (1 + Math.max(0, (event.impactScale ?? 1) - 1) * 0.28);
+      group.scale.set(scale * 0.78, scale, scale * 0.78);
+    } else group.scale.multiplyScalar(event.impactScale ?? 1);
+    return group;
+  }
+
+  private disposeProjectileGroup(group: Group): void {
+    const key = group.userData.projectileTemplateKey as string | undefined;
+    group.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      if (!key) object.geometry.dispose();
+      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+      else object.material.dispose();
+    });
+    if (!key) return;
+    const cached = this.projectileTemplates.get(key)!;
+    if (--cached.references > 0) return;
+    // Wrecks retain their reference until ground impact. Last user releases GPU resources.
+    cached.group.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      object.geometry.dispose();
+      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+      else object.material.dispose();
+    });
+    this.projectileTemplates.delete(key);
+  }
+
+  private buildProjectileMesh(event: CombatEvent): Group {
     const kind = event.kind;
     const visualKind = event.weaponKind ?? kind;
     if (visualKind === 'strategicMissile') return this.makeStrategicMissileMesh(event);
@@ -1190,12 +1227,28 @@ export class CombatView {
     const body = new Mesh(new CylinderGeometry(profile.tipRadius, profile.bodyRadius, profile.bodyLength, profile.segments), shellMaterial);
     const nose = new Mesh(new ConeGeometry(profile.tipRadius, profile.noseLength, profile.segments), noseMaterial);
     const band = new Mesh(new CylinderGeometry(profile.bodyRadius * 1.05, profile.bodyRadius * 1.05, profile.bandWidth, profile.segments), bandMaterial);
-    const glow = new Mesh(new SphereGeometry(profile.glowRadius, 10, 6), glowMaterial);
+    const glow = new Mesh<BufferGeometry, MeshBasicMaterial>(new SphereGeometry(profile.glowRadius, 10, 6), glowMaterial);
     body.position.y = 0;
     nose.position.y = profile.bodyLength * 0.5 + profile.noseLength * 0.5;
     band.position.y = -profile.bodyLength * 0.26;
     glow.position.y = -profile.bodyLength * 0.54;
-    group.add(glow, body, nose, band);
+    const powered = isPoweredMissile(visualKind);
+    if (powered) {
+      glow.name = 'missile-exhaust';
+      glow.geometry.dispose();
+      const exhaustLength = profile.glowRadius * 3.8;
+      glow.geometry = new ConeGeometry(profile.glowRadius * 0.65, exhaustLength, 8);
+      glow.rotation.x = Math.PI;
+      glow.position.y -= exhaustLength * 0.5;
+      glow.userData.nozzleY = -profile.bodyLength * 0.54;
+      glow.userData.exhaustLength = exhaustLength;
+      glow.userData.baseScaleY = 1;
+      glow.userData.baseOpacity = profile.glowOpacity;
+      group.add(glow);
+    } else {
+      glow.geometry.dispose(); glowMaterial.dispose();
+    }
+    group.add(body, nose, band);
     for (let i = 0; i < profile.fins; i++) {
       const fin = new Mesh(new BoxGeometry(profile.finThickness, profile.finLength, profile.finWidth), shellMaterial.clone());
       fin.position.y = -profile.bodyLength * 0.42;
@@ -1205,6 +1258,7 @@ export class CombatView {
       fin.rotation.y = angle;
       group.add(fin);
     }
+    mergeProjectileBody(group);
     group.scale.setScalar(profile.scale * (event.impactScale ?? 1));
     return group;
   }
@@ -1332,10 +1386,18 @@ export class CombatView {
     const coreFlame = new Mesh(new ConeGeometry(0.28, 1.9, 12), exhaust);
     coreFlame.rotation.x = Math.PI;
     coreFlame.position.y = -4.52;
+    for (const flame of [outerFlame, coreFlame]) {
+      flame.name = 'missile-exhaust';
+      flame.userData.exhaustLength = flame === outerFlame ? 2.7 : 1.9;
+      flame.userData.nozzleY = flame.position.y + flame.userData.exhaustLength * 0.5;
+      flame.userData.baseScaleY = 1;
+      flame.userData.baseOpacity = flame.material.opacity;
+    }
     group.add(outerFlame, coreFlame);
     const terminalGlow=new Mesh(new SphereGeometry(.46,10,6),new MeshBasicMaterial({color:0xffca86,transparent:true,opacity:0,depthWrite:false}));
     terminalGlow.name='fattah-terminal-glow';terminalGlow.position.y=4.5;terminalGlow.scale.y=1.8;terminalGlow.visible=false;group.add(terminalGlow);
 
+    mergeProjectileBody(group);
     const upgradeScale = 1.25 * (1 + Math.max(0, (event.impactScale ?? 1) - 1) * 0.28);
     group.scale.set(upgradeScale*.78,upgradeScale,upgradeScale*.78);
     return group;
@@ -1372,6 +1434,21 @@ export class CombatView {
     this.trimBursts();
   }
 
+  private spawnMissileAirburst(x: number, y: number, z: number, scale: number): void {
+    const coreMaterial = new MeshBasicMaterial({ color: 0xffeed1, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false });
+    coreMaterial.userData.role = 'core';
+    const shellMaterial = new MeshBasicMaterial({ color: 0xa7b7bf, transparent: true, opacity: 0.02, depthWrite: false });
+    shellMaterial.userData.role = 'smoke';
+    const group = new Group();
+    group.name = 'missile-airburst';
+    group.add(new Mesh(new SphereGeometry(1.3, 8, 6), coreMaterial), new Mesh(new SphereGeometry(3.2, 8, 5), shellMaterial));
+    group.position.set(x, y, z);
+    group.scale.setScalar(scale);
+    this.group.add(group);
+    this.bursts.push({ group, ttl: 0.48, total: 0.48, kind: 'bomb', materials: [coreMaterial, shellMaterial], baseScale: scale });
+    this.trimBursts();
+  }
+
   private spawnSmallImpact(x: number, y: number, z: number, killed: boolean, impactScale = 1): void {
     const material = new MeshBasicMaterial({ color: 0xffb449, transparent: true, opacity: 0.72, depthWrite: false });
     const mesh = new Mesh(new SphereGeometry((killed ? 2.6 : 1.3) * impactScale, 10, 6), material);
@@ -1385,7 +1462,7 @@ export class CombatView {
     this.trimBursts();
   }
 
-  private spawnBombBlast(x: number, y: number, z: number, killed: boolean, baseScale = 1): void {
+  private spawnBombBlast(x: number, y: number, z: number, killed: boolean, baseScale = 1, missile = false): void {
     const group = new Group();
     const overWater = isWaterSurfaceHit(this.hf, x, z);
     const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xffc66b : 0xff9738, transparent: true, opacity: 0.54, depthWrite: false });
@@ -1399,7 +1476,7 @@ export class CombatView {
     shock.position.y = 0.16;
     group.add(shock, fireball);
     const materials: MeshBasicMaterial[] = [fireMaterial, shockMaterial];
-    if (baseScale >= 1.3) {
+    if (baseScale >= 1.3 || missile) {
       const coreMaterial = new MeshBasicMaterial({ color: 0xfff3d6, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false });
       coreMaterial.userData.role = 'core';
       const core = new Mesh(new SphereGeometry(1.65, 8, 6), coreMaterial);
@@ -2150,4 +2227,48 @@ function trailColor(kind: string): number {
   if (kind === 'atRocket') return 0xff9e52;
   if (kind === 'grenade') return 0xf2b35e;
   return 0xff8f36;
+}
+
+/** Bake opaque pieces into a single vertex-colored draw. Translucent exhaust
+ * stays separate so animation and intercepted wreck darkening remain local. */
+function mergeProjectileBody(group: Group): void {
+  const parts = group.children.filter((child): child is Mesh<BufferGeometry, MeshBasicMaterial> => child instanceof Mesh && child.material instanceof MeshBasicMaterial && !child.material.transparent);
+  const geometries = parts.map((part) => {
+    part.updateMatrix();
+    const geometry = part.geometry.index ? part.geometry.toNonIndexed() : part.geometry.clone();
+    geometry.applyMatrix4(part.matrix);
+    geometry.deleteAttribute('normal');
+    geometry.deleteAttribute('uv');
+    const colors = new Float32Array(geometry.getAttribute('position').count * 3);
+    for (let i = 0; i < colors.length; i += 3) part.material.color.toArray(colors, i);
+    geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
+    return geometry;
+  });
+  const merged = mergeGeometries(geometries, false);
+  geometries.forEach((geometry) => geometry.dispose());
+  if (!merged) return;
+  const materials = new Set<MeshBasicMaterial>();
+  for (const part of parts) { group.remove(part); part.geometry.dispose(); materials.add(part.material); }
+  materials.forEach((material) => material.dispose());
+  const body = new Mesh(merged, new MeshBasicMaterial({ vertexColors: true }));
+  body.name = 'missile-body';
+  group.add(body);
+}
+
+function isPoweredMissile(kind: string): boolean {
+  return ['precisionMissile', 'mlrsRocket', 'tankBomb', 'strategicMissile', 'siegeMissile', 'aaMissile', 'agMissile', 'scoutMissile', 'tankMissile', 'atRocket', 'rocketPod', 'rocketLauncher'].includes(kind);
+}
+
+function animateMissileExhaust(group: Group, elapsed: number, duration: number, strategic: boolean): void {
+  const progress = elapsed / Math.max(0.001, duration);
+  const ignition = Math.min(1, elapsed / 0.08);
+  const power = ignition * (strategic ? Math.max(0, Math.min(1, (0.48 - progress) / 0.12)) : 1);
+  const flicker = 0.9 + 0.1 * Math.sin(elapsed * 83) * Math.sin(elapsed * 41);
+  for (const child of group.children) {
+    if (child.name !== 'missile-exhaust' || !(child instanceof Mesh)) continue;
+    child.visible = power > 0.01;
+    child.scale.y = child.userData.baseScaleY * (0.65 + power * 0.65) * flicker;
+    child.position.y = child.userData.nozzleY - child.userData.exhaustLength * child.scale.y * 0.5;
+    (child.material as MeshBasicMaterial).opacity = child.userData.baseOpacity * power * flicker;
+  }
 }
