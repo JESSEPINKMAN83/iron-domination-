@@ -8,7 +8,7 @@ import { prewarmMissileExplosion } from '../render/missileExplosion';
 import { installSinglePassFlatEffects, type RenderContext } from '../render/renderer';
 import { MAP01 } from '../content/map01';
 import { generateHeightfield } from '../sim/heightfield';
-import { createGameSim, spawnTankAt, spawnWaspAt, type CombatEvent } from '../sim/world';
+import { createGameSim, spawnTankAt, spawnWaspAt, stepDestroyedAircraft, type CombatEvent } from '../sim/world';
 import { createEconomy, placeStructure, spawnInfantryAt } from '../sim/economy';
 import { applyStructureDamage } from '../sim/structureDamage';
 import type { Entity } from '../sim/components';
@@ -89,6 +89,12 @@ function frame(now: number): void {
     accumulator -= 1 / 60; time += 1 / 60; sim.tick = Math.floor(time * 30);
     for (let i = pending.length - 1; i >= 0; i--) if (pending[i].at <= time) { applyHit(pending[i]); pending.splice(i, 1); }
     for (const e of sim.world.entities) if (e.destroyed) e.destroyed.remaining = Math.max(0, e.destroyed.remaining - 1 / 60);
+    const crashEventStart = sim.events.length;
+    for (const e of sim.movers) if (e.destroyed && e.flight) {
+      Object.assign(e.previousTransform, e.transform);
+      stepDestroyedAircraft(sim, hf, e, 1 / 60);
+    }
+    if (sim.events.length > crashEventStart) combat.push(sim.events.splice(crashEventStart));
     combat.update(1 / 60); unitView.update(1, 1 / 60, camera); buildingView.update(economy, camera);
   }
   combat.completeFrame(); renderer.render(scene, camera);

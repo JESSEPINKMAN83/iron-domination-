@@ -46,3 +46,7 @@ These are cumulative CPU durations, not FPS. Raw samples: [log](target-impact-cp
 997 tests / 130 files pass; production build passes with the existing bundle-size advisory. Eight new targeted tests cover instance matrices/material ownership, bounded debris storage and disposal, directional scars and repair, simulation-time heat, collapse material stability and fog freezing. Desktop browser checks covered factory damage/destruction, infantry/aircraft damage and quality/speed controls. Independent code review found no remaining blocker after correcting repair’s scar cursor reset.
 
 The batching decisions follow the installed Three.js r170 implementation and official [InstancedMesh](https://threejs.org/docs/pages/InstancedMesh.html) and [Material](https://threejs.org/docs/pages/Material.html) APIs. Appearance choices and measured improvements are project-specific engineering results. Revert the target-presentation commit to roll back this extension.
+
+## Aircraft preview correction
+
+The controlled range now advances destroyed aircraft with the same existing `stepDestroyedAircraft` routine used by gameplay, forwarding its crash smoke/ground-impact events to CombatView. Previously the fixture only decremented wreck lifetime, leaving the dead aircraft at its flight altitude. The simulator behavior is unchanged; its existing all-aircraft crash regression remains part of the passing 997-test suite. Browser verification confirmed a grounded wreck at fixture time 3s.
