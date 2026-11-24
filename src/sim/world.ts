@@ -1313,7 +1313,7 @@ function steerTrackedBody(
   transform.rot = normalizeAngle(transform.rot + mover.yawRate * dt);
 }
 
-function stepDestroyedAircraft(
+export function stepDestroyedAircraft(
   sim: GameSim,
   hf: Heightfield,
   entity: With<Entity, 'transform' | 'previousTransform' | 'velocity' | 'mover'>,

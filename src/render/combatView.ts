@@ -1,10 +1,14 @@
+import { ImpactDebrisView } from './impactDebris';
+import { WEAPONS, type WeaponKind } from '../content/phase4';
+import { isRocketPowered, projectileVisualKind } from './projectileVisuals';
+import { createMissileExplosionAtlas, createMissileExplosionSprite, setMissileExplosionAge } from './missileExplosion';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { combatFeedback, FEEDBACK_COLORS } from './combatFeedback';
-import { createMissileTrail, missileTrailProfile, updateMissileTrail } from './missileTrail';
+import { createMissileTrail, missileTrailProfile, MissileTrailHistory, updateMissileTrail } from './missileTrail';
 import {
   BoxGeometry,
   BufferGeometry,
   CanvasTexture,
-  CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
@@ -37,15 +41,15 @@ interface Burst {
   group: Group;
   ttl: number;
   total: number;
-  kind: 'small' | 'bomb' | 'ripple';
-  materials: MeshBasicMaterial[];
+  kind: 'small' | 'bomb' | 'ripple' | 'missile' | 'ignition';
+  materials: Array<MeshBasicMaterial | SpriteMaterial>;
   baseScale: number;
 }
 
 interface BombProjectile {
   group: Group;
   trail: Mesh<BufferGeometry, MeshBasicMaterial>;
-  trailPositions: Vector3[];
+  trailHistory: MissileTrailHistory;
   from: Vector3;
   control: Vector3;
   to: Vector3;
@@ -55,7 +59,6 @@ interface BombProjectile {
   event: CombatEvent;
   smokeTimer: number;
   direction?: Vector3;
-  trailCapacity: number;
   healthBar?: StrategicHealthBar;
   terminalGlow?: Mesh<SphereGeometry, MeshBasicMaterial>;
 }
@@ -102,15 +105,6 @@ interface SmokePuff {
   delay?: number;
   fadeIn?: number;
   fadePower?: number;
-}
-
-interface HitFragment {
-  mesh: Mesh;
-  material: MeshBasicMaterial;
-  velocity: Vector3;
-  ttl: number;
-  total: number;
-  spin: Vector3;
 }
 
 interface GroundScorch {
@@ -225,7 +219,12 @@ function addSpreadSelection(selected: Set<number>, candidates: IndexedCombatEven
   }
 }
 
+// CPU-only immutable templates are prepared once during loading, never added
+// to a scene. Live per-view copies own their GPU geometry and dispose normally.
+const projectileBlueprints = new Map<string, Group>();
+
 export class CombatView {
+  private readonly projectileTemplates = new Map<string, { group: Group; references: number }>();
   private cinematicMode=false;
   setCinematicMode(active:boolean):void {this.cinematicMode=active;}
   readonly group = new Group();
@@ -243,7 +242,8 @@ export class CombatView {
   private readonly hitIndicators: HitIndicator[] = [];
   private readonly smokePuffs: SmokePuff[] = [];
   private softSmokeTexture?: CanvasTexture;
-  private readonly hitFragments: HitFragment[] = [];
+  private missileExplosionAtlas?: CanvasTexture;
+  private impactDebris?: ImpactDebrisView;
   private readonly groundScorches: GroundScorch[] = [];
   private readonly scorchTextures = new Map<string, CanvasTexture>();
   private readonly up = new Vector3(0, 1, 0);
@@ -255,10 +255,19 @@ export class CombatView {
     private readonly isVisible: (x: number, z: number) => boolean = () => true,
     private readonly resolveEntity: (id: number) => Entity | undefined = () => undefined,
     private readonly localTeam = 1,
-  ) {}
+  ) {
+    // Paint once while the match is loading, not during the first firefight.
+    if (typeof document !== 'undefined') this.missileExplosionAtlas = createMissileExplosionAtlas();
+    for (const kind of Object.keys(WEAPONS) as WeaponKind[]) {
+      const projectile = WEAPONS[kind].projectile;
+      if (!projectile && !['bomb', 'heavyBomb', 'tankBomb'].includes(kind)) continue;
+      this.projectileBlueprint({ kind: projectile?.kind ?? (kind === 'heavyBomb' ? 'bomb' : kind), weaponKind: kind, fromX: 0, fromZ: 0, toX: 1, toZ: 0, damage: 0, killed: false });
+    }
+  }
 
   setVisualQuality(tier: VisualQualityTier): void {
     this.visualQuality = tier;
+    this.impactDebris?.limit([140, 88, 52][tier]);
     this.enforceEffectBudget();
   }
 
@@ -321,8 +330,14 @@ export class CombatView {
           : waterHit
             ? this.hf.waterLevel + 0.08
             : sampleHeight(this.hf, event.toX, event.toZ) + 0.4;
-        if (event.weaponKind === 'strategicMissile') {
+        if (event.targetType === 'aircraft' && (event.kind === 'aaMissile-impact' || event.kind === 'agMissile-impact')) {
+          this.spawnMissileAirburst(event.toX, toY, event.toZ, event.impactScale ?? 1);
+        } else if (event.weaponKind === 'strategicMissile') {
           this.spawnStrategicBlast(event, impactY);
+        } else if (event.kind === 'kineticShell-impact') {
+          this.spawnMissileBlast(event.toX, impactY, event.toZ, impactBlastScale(event.kind, event.weaponKind) * (event.impactScale ?? 1), false, waterHit, false, event.weaponKind !== 'heavyCannon');
+        } else if (isMissile(event.kind.slice(0, -'-impact'.length)) || isPoweredMissile(event.weaponKind ?? '') || event.weaponKind === 'emberDrone') {
+          this.spawnMissileBlast(event.toX, impactY, event.toZ, (event.impactScale ?? 1) * (event.kind === 'atRocket-impact' ? 0.65 : 1), false, waterHit);
         } else if (event.weaponKind === 'heavyCannon' || isBombImpact(event.kind) || event.kind === 'grenade-impact' || event.kind === 'artilleryShell-impact' || event.kind === 'agMissile-impact' || isTankMissileImpact(event.kind)) {
           this.spawnBombBlast(
             event.toX,
@@ -404,7 +419,17 @@ export class CombatView {
       burst.ttl -= dt;
       const life = Math.max(0, burst.ttl / burst.total);
       const age = 1 - life;
-      if (burst.kind === 'bomb') {
+      if (burst.kind === 'missile' || burst.kind === 'ignition') {
+        for (const material of burst.materials) {
+          if (material instanceof SpriteMaterial) {
+            setMissileExplosionAge(material, burst.kind === 'ignition' ? age * 0.15 : age);
+            material.opacity = burst.kind === 'ignition' ? life * 0.85 : 1;
+          } else material.opacity = Math.pow(life, 2) * (material.userData.baseOpacity ?? 0.3);
+        }
+        for (const child of burst.group.children) {
+          if (child instanceof Mesh) child.scale.setScalar(0.25 + age * 2.8);
+        }
+      } else if (burst.kind === 'bomb') {
         burst.group.scale.setScalar(burst.baseScale * (1 + age * 1.28));
         for (const material of burst.materials) {
           if (material.userData.role === 'core') material.opacity = Math.max(0, 1 - age * 6) * 0.9;
@@ -449,7 +474,7 @@ export class CombatView {
 
   /** Read-only counters for regression tests and local performance inspection. */
   effectStats(): { drawables: number; budget: number; projectiles: number; smoke: number } {
-    const drawables = this.tracers.length + this.smokePuffs.length + this.hitFragments.length + this.groundScorches.length + this.hitIndicators.length
+    const drawables = this.tracers.length + this.smokePuffs.length + (this.impactDebris?.count ? 1 : 0) + this.groundScorches.length + this.hitIndicators.length
       + this.bursts.reduce((total, burst) => total + effectDrawCost(burst.group), 0)
       + this.strategicWrecks.reduce((total, wreck) => total + effectDrawCost(wreck.group), 0)
       + this.bombProjectiles.reduce((total, projectile) => total + effectDrawCost(projectile.group) + 1 + (projectile.healthBar ? effectDrawCost(projectile.healthBar.group) : 0), 0);
@@ -468,7 +493,7 @@ export class CombatView {
     };
     // Preserve flight silhouettes and hit confirmation ahead of decorative debris.
     trim(this.smokePuffs, () => 1, (item) => this.disposeSmokePuff(item));
-    trim(this.hitFragments, () => 1, (item) => this.disposeHitFragment(item));
+    if (cost > limit && this.impactDebris?.count) { this.impactDebris.dispose(); this.impactDebris = undefined; cost--; }
     trim(this.groundScorches, () => 1, (item) => this.disposeGroundScorch(item));
     trim(this.tracers, () => 1, (item) => this.disposeTracer(item));
     trim(this.strategicWrecks, (item) => effectDrawCost(item.group), (item) => this.disposeStrategicWreck(item));
@@ -562,7 +587,7 @@ export class CombatView {
     this.bombProjectiles.push({
       group,
       trail,
-      trailPositions: [from.clone()],
+      trailHistory: new MissileTrailHistory(trailCapacity, from),
       from,
       control,
       to,
@@ -573,13 +598,13 @@ export class CombatView {
       event,
       smokeTimer: 0,
       direction: homing ? to.clone().sub(from).normalize() : undefined,
-      trailCapacity,
       terminalGlow: group.getObjectByName('fattah-terminal-glow') as Mesh<SphereGeometry, MeshBasicMaterial> | undefined,
       healthBar: strategic && event.strategicId !== undefined
         ? this.makeStrategicHealthBar(event.targetHealth ?? 100, event.targetMaxHealth ?? 100)
         : undefined,
     });
     const spawned = this.bombProjectiles[this.bombProjectiles.length - 1];
+    if (launchDelay <= 0) this.spawnMissileIgnition(spawned);
     if (spawned.healthBar) spawned.healthBar.group.visible = !this.cinematicMode && launchDelay <= 0;
     if (spawned.healthBar) this.syncStrategicHealthBar(spawned);
     const maxProjectiles = this.visualQuality === 0 ? 72 : this.visualQuality === 1 ? 48 : 28;
@@ -593,6 +618,7 @@ export class CombatView {
         projectile.launchDelay = Math.max(0, projectile.launchDelay - dt);
         if (projectile.launchDelay <= 0) {
           projectile.group.visible = true;
+          this.spawnMissileIgnition(projectile);
           projectile.trail.visible = true;
           if (projectile.healthBar) projectile.healthBar.group.visible = !this.cinematicMode;
         }
@@ -630,9 +656,7 @@ export class CombatView {
         }
         projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, projectile.direction));
         this.syncStrategicHealthBar(projectile);
-        projectile.trailPositions.push(projectile.group.position.clone());
-        if (projectile.trailPositions.length > projectile.trailCapacity) projectile.trailPositions.shift();
-        this.updateTrail(projectile);
+        this.updateTrail(projectile, dt);
         this.emitProjectileSmoke(projectile, projectile.direction, dt);
         if (projectile.elapsed >= projectile.duration) {
           this.disposeBombProjectile(projectile);
@@ -671,9 +695,7 @@ export class CombatView {
       projectile.group.position.copy(position);
       projectile.group.quaternion.copy(new Quaternion().setFromUnitVectors(this.up, tangent));
       this.syncStrategicHealthBar(projectile);
-      projectile.trailPositions.push(position.clone());
-      if (projectile.trailPositions.length > projectile.trailCapacity) projectile.trailPositions.shift();
-      this.updateTrail(projectile);
+      this.updateTrail(projectile, dt);
       this.emitProjectileSmoke(projectile, tangent, dt);
       if (t >= 1) {
         this.disposeBombProjectile(projectile);
@@ -840,12 +862,7 @@ export class CombatView {
   private disposeStrategicWreck(wreck?: StrategicWreck): void {
     if (!wreck) return;
     this.group.remove(wreck.group);
-    wreck.group.traverse((object) => {
-      if (!(object instanceof Mesh)) return;
-      object.geometry.dispose();
-      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
-      else object.material.dispose();
-    });
+    this.disposeProjectileGroup(wreck.group);
   }
 
   private makeStrategicHealthBar(health: number, maxHealth: number): StrategicHealthBar {
@@ -895,12 +912,7 @@ export class CombatView {
   private disposeBombProjectile(projectile?: BombProjectile): void {
     if (!projectile) return;
     this.group.remove(projectile.group);
-    projectile.group.traverse((object) => {
-      if (object instanceof Mesh) {
-        object.geometry.dispose();
-        if (object.material instanceof MeshBasicMaterial) object.material.dispose();
-      }
-    });
+    this.disposeProjectileGroup(projectile.group);
     this.group.remove(projectile.trail);
     projectile.trail.geometry.dispose();
     projectile.trail.material.dispose();
@@ -912,20 +924,27 @@ export class CombatView {
     }
   }
 
-  private updateTrail(projectile: BombProjectile): void {
-    updateMissileTrail(projectile.trail, projectile.trailPositions);
+  private updateTrail(projectile: BombProjectile, dt: number): void {
+    if (projectile.event.weaponKind === 'emberDrone') {
+      for (const child of projectile.group.children) if (child.name === 'drone-propeller') child.rotation.y += dt * 150;
+    }
+    projectile.trailHistory.advance(projectile.group.position, dt);
+    updateMissileTrail(projectile.trail, projectile.trailHistory.points);
+    animateMissileExhaust(projectile.group, projectile.elapsed, projectile.duration, projectile.event.weaponKind === 'strategicMissile');
     projectile.trail.material.opacity = Math.min(0.9, projectile.elapsed / 0.12);
   }
 
   private emitProjectileSmoke(projectile: BombProjectile, tangent: Vector3, dt: number): void {
     projectile.smokeTimer -= dt;
     const homing = projectile.event.trajectory === 'homing';
-    const visualKind = projectile.event.weaponKind ?? projectile.event.kind;
+    const visualKind = projectileVisualKind(projectile.event.weaponKind ?? projectile.event.kind, projectile.event.kind);
     const strategic = visualKind === 'strategicMissile';
+    if (!isPoweredMissile(visualKind) && visualKind !== 'emberDrone') return;
+    if (strategic && projectile.elapsed / projectile.duration >= 0.48) return;
     const warheadVisualScale = strategic
       ? 1 + Math.max(0, (projectile.event.impactScale ?? 1) - 1) * 0.24
       : 1;
-    const baseCadence = projectileSmokeCadence(visualKind, projectile.event.kind, homing);
+    const baseCadence = projectileSmokeCadence(projectile.event.weaponKind ?? projectile.event.kind, projectile.event.kind, homing);
     const cadence = baseCadence * (this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 1.7 : 2.8) / warheadVisualScale;
     if (projectile.smokeTimer > 0) return;
     projectile.smokeTimer = cadence;
@@ -981,20 +1000,27 @@ export class CombatView {
       return;
     }
 
-    const smokeMaterial = new MeshBasicMaterial({
-      color: projectileSmokeColor(visualKind, projectile.event.kind, homing),
+    const softTrail = isPoweredMissile(visualKind) || visualKind === 'emberDrone';
+    if (softTrail) this.softSmokeTexture ??= makeSoftSmokeTexture();
+    const smokeOptions = {
+      color: softTrail ? 0xb4b7b0 : projectileSmokeColor(visualKind, projectile.event.kind, homing),
       transparent: true,
       opacity: projectileSmokeOpacity(visualKind, projectile.event.kind, homing),
       depthWrite: false,
-    });
+    };
+    const smokeMaterial = softTrail ? new SpriteMaterial({ ...smokeOptions, map: this.softSmokeTexture }) : new MeshBasicMaterial(smokeOptions);
     smokeMaterial.userData.baseOpacity = smokeMaterial.opacity;
-    const puff = new Mesh(new SphereGeometry(projectileSmokeSize(visualKind, projectile.event.kind, homing), 8, 5), smokeMaterial);
+    const size = projectileSmokeSize(visualKind, projectile.event.kind, homing);
+    const puff = softTrail ? new Sprite(smokeMaterial as SpriteMaterial) : new Mesh(new SphereGeometry(size, 8, 5), smokeMaterial as MeshBasicMaterial);
+    if (softTrail) puff.scale.set(size * 3.2, size * 2.4, 1);
     puff.position.copy(pos);
     puff.renderOrder = 57;
     this.group.add(puff);
     this.smokePuffs.push({
       mesh: puff,
       material: smokeMaterial,
+      baseScale: softTrail ? puff.scale.clone() : undefined,
+      growth: softTrail ? 1.6 : undefined,
       velocity: new Vector3(-tangent.x * 0.9, 0.5 + Math.abs(tangent.y) * 0.2, -tangent.z * 0.9),
       ttl: isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
       total: isBombKind(projectile.event.kind) ? 0.9 : homing ? 1.05 : 0.68,
@@ -1048,74 +1074,49 @@ export class CombatView {
     const heavy = strategic || isBombImpact(event.kind);
     const fullCount = strategic ? 30 : heavy ? 18 : isTankMissileImpact(event.kind) || event.killed ? 11 : 6;
     const density = this.visualQuality === 0 ? 1 : this.visualQuality === 1 ? 0.65 : 0.38;
-    const count = Math.max(2, Math.round(fullCount * density));
+    const targetVisible = this.isVisible(event.toX, event.toZ);
+    const soft = targetVisible && event.targetType === 'infantry';
+    const count = Math.max(2, Math.min(soft ? 3 : fullCount, Math.round(fullCount * density)));
     const force = strategic ? 13 : heavy ? 8.5 : isTankMissileImpact(event.kind) ? 6.4 : 4.2;
     const awayX = event.toX - event.fromX;
     const awayZ = event.toZ - event.fromZ;
     const awayLength = Math.hypot(awayX, awayZ);
     const awayAngle = awayLength > 0.001 ? Math.atan2(awayZ, awayX) : 0;
     const topStrike = event.trajectory === 'drop';
+    this.impactDebris ??= new ImpactDebrisView();
+    if (!this.impactDebris.mesh.parent) this.group.add(this.impactDebris.mesh);
+    this.impactDebris.limit(this.visualQuality === 0 ? 140 : this.visualQuality === 1 ? 88 : 52);
+    const masonry = targetVisible && event.targetType === 'building';
+    const target = event.targetId === undefined ? undefined : this.resolveEntity(event.targetId);
+    let x = event.toX, z = event.toZ;
+    const ground = sampleHeight(this.hf, x, z);
+    // Contact on the incoming face; no per-hit triangle raycasts.
+    if (targetVisible && target && !topStrike && awayLength > 0.001) {
+      const nx = -awayX / awayLength, nz = -awayZ / awayLength;
+      const radius = masonry && target.building
+        ? Math.min(target.building.footprint.w * this.hf.cellSize / Math.max(0.001, Math.abs(nx)), target.building.footprint.h * this.hf.cellSize / Math.max(0.001, Math.abs(nz)))
+        : (target.collider?.radius ?? target.selectable?.radius ?? 2) * 0.8;
+      x += nx * radius; z += nz * radius;
+    }
     for (let i = 0; i < count; i++) {
       const seed = deterministicAngle(event.toX + i * 1.73, event.toZ - i * 0.91, event.kind);
-      // Most fragments leave in a cone away from the incoming missile. A few
-      // remain radial so explosions do not look mechanically identical.
       const coneOffset = (((i * 37) % count) / Math.max(1, count - 1) - 0.5) * Math.PI * 0.9;
-      const angle = i % 4 === 0 ? seed + (i / count) * Math.PI * 2 : awayAngle + coneOffset;
-      const spark = i % 3 === 0;
-      const material = new MeshBasicMaterial({
-        color: spark ? 0xffc45c : i % 2 === 0 ? 0x2c2924 : 0x696158,
-        transparent: true,
-        opacity: spark ? 0.94 : 0.78,
-        depthWrite: false,
-      });
-      const size = heavy ? 0.16 + (i % 4) * 0.055 : 0.1 + (i % 3) * 0.045;
-      const mesh = new Mesh(new BoxGeometry(size, spark ? size * 0.45 : size * 0.75, size * 0.55), material);
-      mesh.position.set(event.toX, y + 0.25, event.toZ);
-      mesh.rotation.set(angle * 0.31, angle, angle * 0.19);
-      mesh.renderOrder = 59;
-      this.group.add(mesh);
-      const speed = force * (topStrike ? 0.46 : 0.55) * (1 + ((i * 37) % 11) / 16);
-      const ttl = heavy ? 1.05 + (i % 5) * 0.06 : 0.62 + (i % 4) * 0.07;
-      this.hitFragments.push({
-        mesh,
-        material,
-        velocity: new Vector3(
-          Math.cos(angle) * speed,
-          force * ((topStrike ? 0.94 : 0.72) + (i % 5) * 0.1),
-          Math.sin(angle) * speed,
-        ),
-        ttl,
-        total: ttl,
-        spin: new Vector3(2.5 + (i % 3), 3.2 + (i % 4), 2.1 + (i % 5)),
-      });
+      const angle = topStrike || i % 4 === 0 ? seed + (i / count) * Math.PI * 2 : awayAngle + Math.PI + coneOffset;
+      const spark = !masonry && !soft && i % 3 === 0;
+      const size = (heavy ? 0.16 + (i % 4) * 0.055 : 0.1 + (i % 3) * 0.045) * (masonry ? 1.6 : soft ? 0.45 : 1);
+      this.impactDebris.emit({ x, y: y + 0.25, z, ground, angle,
+        speed: force * (topStrike ? 0.46 : 0.55) * (1 + ((i * 37) % 11) / 16),
+        lift: force * ((topStrike ? 0.94 : 0.72) + (i % 5) * 0.1),
+        size, lifetime: heavy ? 1.05 + (i % 5) * 0.06 : 0.62 + (i % 4) * 0.07,
+        seed: i, masonry, soft, spark });
     }
-    const maxFragments = this.visualQuality === 0 ? 140 : this.visualQuality === 1 ? 88 : 52;
-    while (this.hitFragments.length > maxFragments) this.disposeHitFragment(this.hitFragments.shift());
   }
 
   private updateHitFragments(dt: number): void {
-    for (let i = this.hitFragments.length - 1; i >= 0; i--) {
-      const fragment = this.hitFragments[i];
-      fragment.ttl -= dt;
-      fragment.velocity.y -= 18 * dt;
-      fragment.mesh.position.addScaledVector(fragment.velocity, dt);
-      fragment.mesh.rotation.x += fragment.spin.x * dt;
-      fragment.mesh.rotation.y += fragment.spin.y * dt;
-      fragment.mesh.rotation.z += fragment.spin.z * dt;
-      const life = Math.max(0, fragment.ttl / fragment.total);
-      fragment.material.opacity = life * life * 0.9;
-      if (fragment.ttl <= 0) {
-        this.disposeHitFragment(fragment);
-        this.hitFragments.splice(i, 1);
-      }
-    }
-  }
-
-  private disposeHitFragment(fragment?: HitFragment): void {
-    if (!fragment) return;
-    this.group.remove(fragment.mesh);
-    fragment.mesh.geometry.dispose();
-    fragment.material.dispose();
+    if (!this.impactDebris) return;
+    this.impactDebris.limit(this.visualQuality === 0 ? 140 : this.visualQuality === 1 ? 88 : 52);
+    this.impactDebris.update(dt);
+    if (!this.impactDebris.count) { this.impactDebris.dispose(); this.impactDebris = undefined; }
   }
 
   private spawnGroundScorch(event: CombatEvent): void {
@@ -1176,7 +1177,67 @@ export class CombatView {
     return texture;
   }
 
+  private projectileBlueprint(event: CombatEvent): Group {
+    const key = `${event.weaponKind ?? event.kind}:${event.kind}`;
+    let blueprint = projectileBlueprints.get(key);
+    if (!blueprint) {
+      blueprint = this.buildProjectileMesh({ ...event, impactScale: 1 });
+      projectileBlueprints.set(key, blueprint);
+    }
+    return blueprint;
+  }
+
   private makeProjectileMesh(event: CombatEvent): Group {
+    const family = event.weaponKind ?? event.kind;
+    const key = `${family}:${event.kind}`;
+    let cached = this.projectileTemplates.get(key);
+    if (!cached) {
+      // Scale is per launch; cache only immutable geometry and local transforms.
+      const template = this.projectileBlueprint(event).clone(true);
+      template.traverse((object) => {
+        if (!(object instanceof Mesh)) return;
+        object.geometry = object.geometry.clone();
+        if (object.material instanceof MeshBasicMaterial) object.material = object.material.clone();
+      });
+      cached = { group: template, references: 0 };
+      this.projectileTemplates.set(key, cached);
+    }
+    cached.references++;
+    const group = cached.group.clone(true);
+    group.userData.projectileTemplateKey = key;
+    group.traverse((object) => {
+      if (object instanceof Mesh && object.material instanceof MeshBasicMaterial) object.material = object.material.clone();
+    });
+    if (family === 'strategicMissile') {
+      const scale = 1.25 * (1 + Math.max(0, (event.impactScale ?? 1) - 1) * 0.28);
+      group.scale.set(scale * 0.78, scale, scale * 0.78);
+    } else if (family === 'emberDrone') group.scale.setScalar(1.35 * (1 + Math.max(0, (event.impactScale ?? 0.95) - 0.95) * 0.18));
+    else group.scale.multiplyScalar(event.impactScale ?? 1);
+    return group;
+  }
+
+  private disposeProjectileGroup(group: Group): void {
+    const key = group.userData.projectileTemplateKey as string | undefined;
+    group.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      if (!key) object.geometry.dispose();
+      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+      else object.material.dispose();
+    });
+    if (!key) return;
+    const cached = this.projectileTemplates.get(key)!;
+    if (--cached.references > 0) return;
+    // Wrecks retain their reference until ground impact. Last user releases GPU resources.
+    cached.group.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      object.geometry.dispose();
+      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+      else object.material.dispose();
+    });
+    this.projectileTemplates.delete(key);
+  }
+
+  private buildProjectileMesh(event: CombatEvent): Group {
     const kind = event.kind;
     const visualKind = event.weaponKind ?? kind;
     if (visualKind === 'strategicMissile') return this.makeStrategicMissileMesh(event);
@@ -1190,12 +1251,28 @@ export class CombatView {
     const body = new Mesh(new CylinderGeometry(profile.tipRadius, profile.bodyRadius, profile.bodyLength, profile.segments), shellMaterial);
     const nose = new Mesh(new ConeGeometry(profile.tipRadius, profile.noseLength, profile.segments), noseMaterial);
     const band = new Mesh(new CylinderGeometry(profile.bodyRadius * 1.05, profile.bodyRadius * 1.05, profile.bandWidth, profile.segments), bandMaterial);
-    const glow = new Mesh(new SphereGeometry(profile.glowRadius, 10, 6), glowMaterial);
+    const glow = new Mesh<BufferGeometry, MeshBasicMaterial>(new SphereGeometry(profile.glowRadius, 10, 6), glowMaterial);
     body.position.y = 0;
     nose.position.y = profile.bodyLength * 0.5 + profile.noseLength * 0.5;
     band.position.y = -profile.bodyLength * 0.26;
     glow.position.y = -profile.bodyLength * 0.54;
-    group.add(glow, body, nose, band);
+    const powered = isPoweredMissile(visualKind);
+    if (powered) {
+      glow.name = 'missile-exhaust';
+      glow.geometry.dispose();
+      const exhaustLength = profile.glowRadius * 3.8;
+      glow.geometry = new ConeGeometry(profile.glowRadius * 0.65, exhaustLength, 8);
+      glow.rotation.x = Math.PI;
+      glow.position.y -= exhaustLength * 0.5;
+      glow.userData.nozzleY = -profile.bodyLength * 0.54;
+      glow.userData.exhaustLength = exhaustLength;
+      glow.userData.baseScaleY = 1;
+      glow.userData.baseOpacity = profile.glowOpacity;
+      group.add(glow);
+    } else {
+      glow.geometry.dispose(); glowMaterial.dispose();
+    }
+    group.add(body, nose, band);
     for (let i = 0; i < profile.fins; i++) {
       const fin = new Mesh(new BoxGeometry(profile.finThickness, profile.finLength, profile.finWidth), shellMaterial.clone());
       fin.position.y = -profile.bodyLength * 0.42;
@@ -1205,6 +1282,7 @@ export class CombatView {
       fin.rotation.y = angle;
       group.add(fin);
     }
+    mergeProjectileBody(group);
     group.scale.setScalar(profile.scale * (event.impactScale ?? 1));
     return group;
   }
@@ -1216,12 +1294,7 @@ export class CombatView {
     const darkMaterial = new MeshBasicMaterial({ color: 0x151817 });
     const accentMaterial = new MeshBasicMaterial({ color: 0xb95a2d });
     const sensorMaterial = new MeshBasicMaterial({ color: 0xff8a42 });
-    const engineGlowMaterial = new MeshBasicMaterial({
-      color: 0xffb15b,
-      transparent: true,
-      opacity: 0.48,
-      depthWrite: false,
-    });
+
 
     // The projectile's local +Y axis is its direction of travel. A broad,
     // swept planform makes Ember read as an aircraft even at RTS distance.
@@ -1272,13 +1345,14 @@ export class CombatView {
     const propellerHub = new Mesh(new CylinderGeometry(0.1, 0.13, 0.18, 8), accentMaterial.clone());
     propellerHub.position.y = -1.48;
     const propellerX = new Mesh(new BoxGeometry(1.05, 0.055, 0.09), darkMaterial.clone());
+    propellerX.name = 'drone-propeller';
     propellerX.position.y = -1.58;
     const propellerZ = new Mesh(new BoxGeometry(0.09, 0.055, 1.05), darkMaterial.clone());
+    propellerZ.name = 'drone-propeller';
     propellerZ.position.y = -1.58;
-    const engineGlow = new Mesh(new SphereGeometry(0.19, 9, 6), engineGlowMaterial);
-    engineGlow.position.y = -1.53;
-    group.add(engine, propellerHub, propellerX, propellerZ, engineGlow);
+    group.add(engine, propellerHub, propellerX, propellerZ);
 
+    mergeProjectileBody(group);
     const warheadScale = 1 + Math.max(0, (event.impactScale ?? 0.95) - 0.95) * 0.18;
     group.scale.setScalar(1.35 * warheadScale);
     return group;
@@ -1332,10 +1406,18 @@ export class CombatView {
     const coreFlame = new Mesh(new ConeGeometry(0.28, 1.9, 12), exhaust);
     coreFlame.rotation.x = Math.PI;
     coreFlame.position.y = -4.52;
+    for (const flame of [outerFlame, coreFlame]) {
+      flame.name = 'missile-exhaust';
+      flame.userData.exhaustLength = flame === outerFlame ? 2.7 : 1.9;
+      flame.userData.nozzleY = flame.position.y + flame.userData.exhaustLength * 0.5;
+      flame.userData.baseScaleY = 1;
+      flame.userData.baseOpacity = flame.material.opacity;
+    }
     group.add(outerFlame, coreFlame);
     const terminalGlow=new Mesh(new SphereGeometry(.46,10,6),new MeshBasicMaterial({color:0xffca86,transparent:true,opacity:0,depthWrite:false}));
     terminalGlow.name='fattah-terminal-glow';terminalGlow.position.y=4.5;terminalGlow.scale.y=1.8;terminalGlow.visible=false;group.add(terminalGlow);
 
+    mergeProjectileBody(group);
     const upgradeScale = 1.25 * (1 + Math.max(0, (event.impactScale ?? 1) - 1) * 0.28);
     group.scale.set(upgradeScale*.78,upgradeScale,upgradeScale*.78);
     return group;
@@ -1372,6 +1454,51 @@ export class CombatView {
     this.trimBursts();
   }
 
+  private spawnMissileAirburst(x: number, y: number, z: number, scale: number): void {
+    this.spawnMissileBlast(x, y, z, scale * 0.75, true);
+  }
+
+  private spawnMissileBlast(x: number, y: number, z: number, scale: number, air = false, water = false, strategic = false, compact = false): void {
+    this.missileExplosionAtlas ??= createMissileExplosionAtlas();
+    const sprite = createMissileExplosionSprite(this.missileExplosionAtlas);
+    const size = strategic ? 28 : air ? 11 : 17;
+    sprite.scale.set(size, size, 1);
+    if (air) sprite.center.set(0.5, 0.5);
+    const group = new Group();
+    group.name = air ? 'missile-airburst' : 'missile-ground-blast';
+    group.add(sprite);
+    const materials: Array<MeshBasicMaterial | SpriteMaterial> = [sprite.material];
+    if (!air && !compact && !water) {
+      this.softSmokeTexture ??= makeSoftSmokeTexture();
+      const dustMaterial = new MeshBasicMaterial({ map: this.softSmokeTexture, color: water ? 0xdcecf0 : 0xa09073, transparent: true, opacity: 0.3, depthWrite: false, side: DoubleSide, forceSinglePass: true });
+      dustMaterial.userData.baseOpacity = water ? 0.24 : 0.3;
+      dustMaterial.userData.role = 'shock';
+      const dust = new Mesh(new PlaneGeometry(strategic ? 26 : 16, strategic ? 26 : 16), dustMaterial);
+      dust.rotation.x = -Math.PI / 2;
+      dust.position.y = 0.12;
+      group.add(dust); materials.push(dustMaterial);
+    }
+    group.position.set(x, y, z); group.scale.setScalar(scale);
+    group.renderOrder = 55;
+    this.group.add(group);
+    const ttl = strategic ? 1.6 : air ? 0.7 : 0.95;
+    this.bursts.push({ group, ttl, total: ttl, kind: 'missile', materials, baseScale: scale });
+    this.trimBursts();
+  }
+
+  private spawnMissileIgnition(projectile: BombProjectile): void {
+    const kind = projectile.event.weaponKind ?? projectile.event.kind;
+    if (!isPoweredMissile(kind)) return;
+    this.missileExplosionAtlas ??= createMissileExplosionAtlas();
+    const flash = createMissileExplosionSprite(this.missileExplosionAtlas);
+    flash.center.set(0.5, 0.5);
+    flash.scale.setScalar(kind === 'strategicMissile' ? 5.5 : kind === 'rocketPod' ? 1.4 : 2.3);
+    const group = new Group(); group.add(flash); group.position.copy(projectile.from);
+    this.group.add(group);
+    this.bursts.push({ group, ttl: 0.13, total: 0.13, kind: 'ignition', materials: [flash.material], baseScale: 1 });
+    this.trimBursts();
+  }
+
   private spawnSmallImpact(x: number, y: number, z: number, killed: boolean, impactScale = 1): void {
     const material = new MeshBasicMaterial({ color: 0xffb449, transparent: true, opacity: 0.72, depthWrite: false });
     const mesh = new Mesh(new SphereGeometry((killed ? 2.6 : 1.3) * impactScale, 10, 6), material);
@@ -1386,57 +1513,8 @@ export class CombatView {
   }
 
   private spawnBombBlast(x: number, y: number, z: number, killed: boolean, baseScale = 1): void {
-    const group = new Group();
-    const overWater = isWaterSurfaceHit(this.hf, x, z);
-    const fireMaterial = new MeshBasicMaterial({ color: killed ? 0xffc66b : 0xff9738, transparent: true, opacity: 0.54, depthWrite: false });
-    const shockMaterial = new MeshBasicMaterial({ color: overWater ? 0xd5ebe8 : 0xffb861, transparent: true, opacity: 0.42, depthWrite: false, side: 2 });
-    fireMaterial.userData.role = 'fire';
-    shockMaterial.userData.role = 'shock';
-    const fireball = new Mesh(new SphereGeometry(killed ? 3.9 : 3.0, 14, 9), fireMaterial);
-    const shock = new Mesh(new RingGeometry(1.8, killed ? 6.1 : 4.9, 32), shockMaterial);
-    fireball.position.y = overWater ? 0.35 : 1.05;
-    shock.rotation.x = -Math.PI / 2;
-    shock.position.y = 0.16;
-    group.add(shock, fireball);
-    const materials: MeshBasicMaterial[] = [fireMaterial, shockMaterial];
-    if (baseScale >= 1.3) {
-      const coreMaterial = new MeshBasicMaterial({ color: 0xfff3d6, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false });
-      coreMaterial.userData.role = 'core';
-      const core = new Mesh(new SphereGeometry(1.65, 8, 6), coreMaterial);
-      core.position.y = 1.05;
-      group.add(core);
-      materials.push(coreMaterial);
-    }
-    if (!overWater) {
-      const smokeMaterial = new MeshBasicMaterial({ color: 0x292520, transparent: true, opacity: 0.01, depthWrite: false });
-      const scorchMaterial = new MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.14, depthWrite: false, side: 2 });
-      const debrisMaterial = new MeshBasicMaterial({ color: 0x15120f, transparent: true, opacity: 0.42 });
-      smokeMaterial.userData.role = 'smoke';
-      scorchMaterial.userData.role = 'scorch';
-      debrisMaterial.userData.role = 'debris';
-      const smoke = new Mesh(new SphereGeometry(killed ? 4.6 : 3.7, 10, 7), smokeMaterial);
-      smoke.position.y = 2.15;
-      const scorch = new Mesh(new CircleGeometry(killed ? 5.0 : 4.0, 32), scorchMaterial);
-      scorch.rotation.x = -Math.PI / 2;
-      scorch.position.y = 0.08;
-      group.add(scorch, smoke);
-      for (let i = 0; i < (this.visualQuality === 0 ? 3 : 0); i++) {
-        const debris = new Mesh(new BoxGeometry(0.36, 0.14, 0.22), debrisMaterial);
-        const angle = (i / 5) * Math.PI * 2 + (i % 2) * 0.18;
-        const radius = 1.5 + (i % 3) * 0.75;
-        debris.position.set(Math.cos(angle) * radius, 0.55 + (i % 3) * 0.28, Math.sin(angle) * radius);
-        debris.rotation.set(0.45 + i * 0.13, angle, 0.25 + i * 0.17);
-        group.add(debris);
-      }
-      materials.push(smokeMaterial, scorchMaterial, debrisMaterial);
-    }
-    group.position.set(x, overWater ? this.hf.waterLevel + 0.08 : y, z);
-    group.renderOrder = 55;
-    const ttl = killed ? 0.82 : 0.68;
-    group.scale.setScalar(baseScale);
-    this.bursts.push({ group, ttl, total: ttl, kind: 'bomb', materials, baseScale });
-    this.group.add(group);
-    this.trimBursts();
+    const water = isWaterSurfaceHit(this.hf, x, z);
+    this.spawnMissileBlast(x, y, z, baseScale * (killed ? 1.1 : 1), false, water);
   }
 
   private spawnImpactAftermathSmoke(event: CombatEvent, y: number): void {
@@ -1506,46 +1584,8 @@ export class CombatView {
   }
 
   private spawnStrategicBlast(event: CombatEvent, y: number): void {
-    const warheadScale = Math.max(1.6, event.impactScale ?? 1.6);
-    this.spawnBombBlast(event.toX, y, event.toZ, event.killed, warheadScale * 1.2);
-
-    const group = new Group();
-    const flashMaterial = new MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.96, depthWrite: false });
-    const fireMaterial = new MeshBasicMaterial({ color: 0xff6a24, transparent: true, opacity: 0.72, depthWrite: false });
-    const shockMaterial = new MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.48, depthWrite: false, side: 2 });
-    const smokeMaterial = new MeshBasicMaterial({ color: 0x211c18, transparent: true, opacity: 0.18, depthWrite: false });
-    flashMaterial.userData.role = 'fire';
-    fireMaterial.userData.role = 'fire';
-    shockMaterial.userData.role = 'shock';
-    smokeMaterial.userData.role = 'smoke';
-
-    const flash = new Mesh(new SphereGeometry(3.6, 18, 12), flashMaterial);
-    const fireball = new Mesh(new SphereGeometry(5.2, 18, 12), fireMaterial);
-    const innerRing = new Mesh(new RingGeometry(3.2, 10.5, 48), shockMaterial);
-    const outerRing = new Mesh(new RingGeometry(8.5, 17, 64), shockMaterial.clone());
-    const smokeColumn = new Mesh(new CylinderGeometry(2.6, 5.4, 10, 14), smokeMaterial);
-    flash.position.y = 1.8;
-    fireball.position.y = 3.1;
-    smokeColumn.position.y = 6.2;
-    innerRing.rotation.x = -Math.PI / 2;
-    outerRing.rotation.x = -Math.PI / 2;
-    innerRing.position.y = 0.12;
-    outerRing.position.y = 0.18;
-    group.add(innerRing, outerRing, flash, fireball, smokeColumn);
-    group.position.set(event.toX, y, event.toZ);
-    group.renderOrder = 58;
-    const baseScale = warheadScale * 0.88;
-    group.scale.setScalar(baseScale);
-    this.bursts.push({
-      group,
-      ttl: 1.45,
-      total: 1.45,
-      kind: 'bomb',
-      materials: [flashMaterial, fireMaterial, shockMaterial, outerRing.material as MeshBasicMaterial, smokeMaterial],
-      baseScale,
-    });
-    this.group.add(group);
-    this.trimBursts();
+    const scale = Math.max(1.6, event.impactScale ?? 1.6);
+    this.spawnMissileBlast(event.toX, y, event.toZ, scale, false, isWaterSurfaceHit(this.hf, event.toX, event.toZ), true);
   }
 
   private trimBursts(): void {
@@ -1624,17 +1664,7 @@ export class CombatView {
   }
 
   private spawnInterceptionPulse(event: CombatEvent): void {
-    const material = new MeshBasicMaterial({ color: 0x73e6ff, transparent: true, opacity: 0.8, side: DoubleSide, depthWrite: false });
-    material.userData.baseOpacity = 0.8;
-    const group = new Group();
-    const ring = new Mesh(sharedWaterRippleGeometry(), material);
-    ring.rotation.x = -Math.PI / 2;
-    group.add(ring);
-    group.position.set(event.toX, event.toY ?? sampleHeight(this.hf,event.toX,event.toZ)+5, event.toZ);
-    group.scale.setScalar(1.8);
-    this.group.add(group);
-    this.bursts.push({ group, ttl: 0.5, total: 0.5, kind: 'ripple', materials: [material], baseScale: 1.8 });
-    this.trimBursts();
+    this.spawnMissileAirburst(event.toX, event.toY ?? sampleHeight(this.hf, event.toX, event.toZ) + 5, event.toZ, 0.65);
   }
 
   private lastMissAt = -Infinity;
@@ -1810,11 +1840,12 @@ interface ProjectileVisualProfile {
 }
 
 function projectileProfile(weaponKind: string, projectileKind: string): ProjectileVisualProfile {
+  const visualKind = projectileVisualKind(weaponKind, projectileKind);
   const base: ProjectileVisualProfile = {
     bodyColor: 0x23292b,
     noseColor: 0xd07a2a,
-    bandColor: trailColor(weaponKind),
-    glowColor: trailColor(weaponKind),
+    bandColor: trailColor(visualKind),
+    glowColor: trailColor(visualKind),
     glowOpacity: 0.34,
     bodyRadius: 0.22,
     tipRadius: 0.18,
@@ -1834,7 +1865,7 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
     glowOpacity: 0.72, bodyRadius: 0.075, tipRadius: 0.045, bodyLength: 1.7, noseLength: 0.32,
     bandWidth: 0.06, glowRadius: 0.24, fins: 0, segments: 8, scale: 0.8,
   };
-  if (projectileKind === 'artilleryShell') return {
+  if (projectileKind === 'artilleryShell' && !isRocketPowered(weaponKind)) return {
     ...base, bodyColor: 0x2d302e, noseColor: 0x222321, bandColor: 0xd99a3b, glowColor: 0xff9a45,
     glowOpacity: 0.16, bodyRadius: 0.31, tipRadius: 0.22, bodyLength: 2.05, noseLength: 0.82,
     bandWidth: 0.16, glowRadius: 0.38, fins: 0, segments: 12, scale: 1.35,
@@ -1849,6 +1880,7 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
       glowRadius: rifle ? 0.24 : 0.4, fins: 0, segments: 10, scale: rifle ? 0.9 : 1.15,
     };
   }
+  weaponKind = visualKind;
   if (weaponKind === 'rocketPod') return {
     ...base, bodyColor: 0x3d413d, noseColor: 0xdb7132, bandColor: 0xffa04a, glowColor: 0xff8b32,
     bodyRadius: 0.1, tipRadius: 0.075, bodyLength: 0.82, noseLength: 0.24, bandWidth: 0.05,
@@ -1878,6 +1910,11 @@ function projectileProfile(weaponKind: string, projectileKind: string): Projecti
     ...base, bodyColor: 0xd8dde0, noseColor: 0x70d8ff, bandColor: 0x4ea4d8, glowColor: 0x9eeaff,
     bodyRadius: 0.12, tipRadius: 0.07, bodyLength: 2.15, noseLength: 0.62, bandWidth: 0.12,
     glowRadius: 0.38, fins: 4, finThickness: 0.045, finLength: 0.52, finWidth: 0.38, scale: 1.3,
+  };
+  if (weaponKind === 'siegeMissile') return {
+    ...base, bodyColor: 0x41463e, noseColor: 0xd8cfb5, bandColor: 0xc17844, glowColor: 0xffba68,
+    bodyRadius: 0.3, tipRadius: 0.2, bodyLength: 3.2, noseLength: 0.85, bandWidth: 0.17,
+    glowRadius: 0.65, fins: 4, finThickness: 0.08, finLength: 0.85, finWidth: 0.72, segments: 12, scale: 1.5,
   };
   if (weaponKind === 'strategicMissile') return {
     ...base, bodyColor: 0x343a34, noseColor: 0x222724, bandColor: 0x713a2c, glowColor: 0xff7a32,
@@ -2150,4 +2187,48 @@ function trailColor(kind: string): number {
   if (kind === 'atRocket') return 0xff9e52;
   if (kind === 'grenade') return 0xf2b35e;
   return 0xff8f36;
+}
+
+/** Bake opaque pieces into a single vertex-colored draw. Translucent exhaust
+ * stays separate so animation and intercepted wreck darkening remain local. */
+function mergeProjectileBody(group: Group): void {
+  const parts = group.children.filter((child): child is Mesh<BufferGeometry, MeshBasicMaterial> => child instanceof Mesh && child.material instanceof MeshBasicMaterial && !child.material.transparent && child.material.side !== DoubleSide && child.name !== 'drone-propeller');
+  const geometries = parts.map((part) => {
+    part.updateMatrix();
+    const geometry = part.geometry.index ? part.geometry.toNonIndexed() : part.geometry.clone();
+    geometry.applyMatrix4(part.matrix);
+    geometry.deleteAttribute('normal');
+    geometry.deleteAttribute('uv');
+    const colors = new Float32Array(geometry.getAttribute('position').count * 3);
+    for (let i = 0; i < colors.length; i += 3) part.material.color.toArray(colors, i);
+    geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
+    return geometry;
+  });
+  const merged = mergeGeometries(geometries, false);
+  geometries.forEach((geometry) => geometry.dispose());
+  if (!merged) return;
+  const materials = new Set<MeshBasicMaterial>();
+  for (const part of parts) { group.remove(part); part.geometry.dispose(); materials.add(part.material); }
+  materials.forEach((material) => material.dispose());
+  const body = new Mesh(merged, new MeshBasicMaterial({ vertexColors: true }));
+  body.name = 'missile-body';
+  group.add(body);
+}
+
+function isPoweredMissile(kind: string): boolean {
+  return isRocketPowered(kind);
+}
+
+function animateMissileExhaust(group: Group, elapsed: number, duration: number, strategic: boolean): void {
+  const progress = elapsed / Math.max(0.001, duration);
+  const ignition = Math.min(1, elapsed / 0.08);
+  const power = ignition * (strategic ? Math.max(0, Math.min(1, (0.48 - progress) / 0.12)) : 1);
+  const flicker = 0.9 + 0.1 * Math.sin(elapsed * 83) * Math.sin(elapsed * 41);
+  for (const child of group.children) {
+    if (child.name !== 'missile-exhaust' || !(child instanceof Mesh)) continue;
+    child.visible = power > 0.01;
+    child.scale.y = child.userData.baseScaleY * (0.65 + power * 0.65) * flicker;
+    child.position.y = child.userData.nozzleY - child.userData.exhaustLength * child.scale.y * 0.5;
+    (child.material as MeshBasicMaterial).opacity = child.userData.baseOpacity * power * flicker;
+  }
 }

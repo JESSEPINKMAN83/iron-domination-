@@ -1,3 +1,4 @@
+import { prewarmMissileExplosion } from './render/missileExplosion';
 import { applyUSAProfile, spawnUSSpecialist, USA_SPECIALISTS } from './content/usa';
 import { applyUkraineProfile } from './content/ukraine';
 import { stageTerrainPreview } from './sim/terrainPreview';
@@ -3196,6 +3197,7 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
   };
   const combatView = new CombatView(hf, isVisibleToPlayer, (id) => sim.byId.get(id), localTeam);
   ctx.scene.add(combatView.group);
+  await prewarmMissileExplosion(ctx.renderer, ctx.camera, ctx.scene);
   const economyFx = new EconomyFxView(sim, hf, isVisibleToPlayer);
   ctx.scene.add(economyFx.group);
   const audio = new AudioDirector(ctx.camera);

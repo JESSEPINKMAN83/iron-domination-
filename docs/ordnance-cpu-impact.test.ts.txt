@@ -1,0 +1,23 @@
+import { WEAPONS, type WeaponKind } from '../content/phase4';
+import { it, vi } from 'vitest';
+import { CombatView } from './combatView';
+import { CombatView as BaselineView } from '../../../missile-baseline/src/render/combatView';
+import { generateHeightfield } from '../sim/heightfield';
+import { MAP01 } from '../content/map01';
+import type { CombatEvent } from '../sim/world';
+it('records matched impact/update CPU samples', () => {
+ const context = new Proxy({}, {get: (_,key) => key === 'createRadialGradient' || key === 'createLinearGradient' ? () => ({addColorStop:()=>undefined}) : ()=>undefined});
+ vi.stubGlobal('document',{createElement:()=>({getContext:()=>context})});
+ const hf=generateHeightfield(MAP01);
+ const kinds=(Object.keys(WEAPONS) as WeaponKind[]).filter(kind => WEAPONS[kind].projectile || ['heavyBomb','bomb','tankBomb'].includes(kind));
+ const events:CombatEvent[]=Array.from({length:kinds.length},(_,i)=>({kind:WEAPONS[kinds[i]].projectile?.kind ?? (kinds[i]==='heavyBomb'?'bomb':kinds[i]),weaponKind:kinds[i],fromX:-125,fromZ:i*2,toX:100,toZ:i*2,fromY:4,toY:10,sourceTeamId:1,damage:0,killed:false,duration:6,trajectory:'arc'}));
+ const results:Record<string,number[]>={baseLaunch:[],headLaunch:[],baseUpdate:[],headUpdate:[]};
+ for(let run=0;run<14;run++) for(const [name,View] of (run%2?[['head',CombatView],['base',BaselineView]]:[['base',BaselineView],['head',CombatView]]) as Array<[string,typeof CombatView]>) {
+  const view=new View(hf);let t=performance.now();view.push([...events.map(event=>({...event,kind:event.kind+"-impact",damage:40})),{...events[0],kind:"bomb-impact",weaponKind:"fpvStrike",damage:40}]);const launch=performance.now()-t;
+  t=performance.now();for(let f=0;f<120;f++){view.update(1/60);view.completeFrame();}const update=performance.now()-t;
+  view.update(40);
+  if(run>3){results[name+'Launch'].push(launch);results[name+'Update'].push(update);}
+ }
+ console.log('ORDNANCE_CPU_BENCH', events.length + 1,Object.fromEntries(Object.entries(results).map(([key,values])=>[key,{median:values.sort((a,b)=>a-b)[Math.floor(values.length/2)],samples:values}])));
+ vi.unstubAllGlobals();
+},30000);

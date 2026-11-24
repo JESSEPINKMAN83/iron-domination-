@@ -1,3 +1,4 @@
+import { WEAPONS, type WeaponKind } from '../content/phase4';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CircleGeometry, Mesh, MeshBasicMaterial, PlaneGeometry, RingGeometry, Sprite } from 'three';
 import { MAP01 } from '../content/map01';
@@ -6,7 +7,7 @@ import type { CombatEvent } from '../sim/world';
 import { CombatView, isWaterSurfaceHit, selectCombatVisualEvents, shouldPaintGroundScorch } from './combatView';
 
 beforeEach(() => {
-  const context = new Proxy({}, { get: () => () => undefined });
+  const context = new Proxy({}, { get: (_, key) => key === 'createRadialGradient' ? () => ({ addColorStop: () => undefined }) : () => undefined });
   vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => context }) });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -224,9 +225,164 @@ describe('water surface hits', () => {
     expect(meshes.some((mesh) => mesh.geometry instanceof CircleGeometry)).toBe(false);
     expect(meshes.some((mesh) => mesh.geometry instanceof PlaneGeometry)).toBe(false);
     expect(meshes.some((mesh) => mesh.geometry instanceof RingGeometry)).toBe(true);
-    expect(meshes.some((mesh) => {
-      const material = mesh.material;
-      return mesh.geometry.type === 'SphereGeometry' && material instanceof MeshBasicMaterial && material.color.getHex() === 0xff9738;
-    })).toBe(true);
+    expect(view.group.getObjectByName('missile-explosion')).toBeInstanceOf(Sprite);
   });
+});
+
+describe('missile presentation', () => {
+  it.each(['aaMissile', 'tankMissile', 'strategicMissile'] as const)('consolidates %s bodies without changing flight endpoints', (weaponKind) => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event(0, 1, { kind: weaponKind === 'strategicMissile' ? 'siegeMissile' : weaponKind, weaponKind, fromY: 10, toY: 20, toX: 100, toZ: 40, duration: 2, trajectory: 'arc' })]);
+    const bodies: Mesh[] = [];
+    view.group.traverse((o) => { if (o instanceof Mesh && o.name === 'missile-body') bodies.push(o); });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].geometry.groups).toHaveLength(0);
+    expect(bodies[0].geometry.getAttribute('color')).toBeDefined();
+    expect(view.effectStats().drawables).toBeLessThanOrEqual(6);
+    view.update(1);
+    const parent = bodies[0].parent!;
+    expect(parent.position.x).toBeCloseTo(50);
+    parent.traverse((o) => { expect(Number.isFinite(o.position.y)).toBe(true); });
+    view.update(1);
+    expect(view.effectStats().projectiles).toBe(0);
+  });
+  it('animates rocket exhaust then extinguishes it during strategic coast', () => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event(0, 1, { kind: 'siegeMissile', weaponKind: 'strategicMissile', duration: 10, trajectory: 'arc' })]);
+    const exhaust: Mesh[] = [];
+    view.group.traverse((o) => { if (o instanceof Mesh && o.name === 'missile-exhaust') exhaust.push(o); });
+    expect(exhaust).toHaveLength(2);
+    view.update(0.2); const scale = exhaust[0].scale.y;
+    view.update(0.02); expect(exhaust[0].scale.y).not.toBe(scale);
+    view.update(5); expect(exhaust.every((o) => !o.visible)).toBe(true);
+  });
+  it('uses an elevated airburst for anti-air hits', () => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event(0, 1, { kind: 'aaMissile-impact', weaponKind: 'aaMissile', targetType: 'aircraft', toY: 60 })]);
+    expect(view.group.getObjectByName('missile-airburst')?.position.y).toBe(60);
+    view.update(1);
+    expect(view.group.getObjectByName('missile-airburst')).toBeUndefined();
+  });
+});
+
+
+describe('missile resource ownership', () => {
+  it('shares immutable geometry but isolates materials and releases the last wreck reference', () => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([1, 2, 3].map((id) => event(id, 1, { kind: 'siegeMissile', weaponKind: 'strategicMissile', strategicId: id, fromY: 100, duration: 10 })));
+    const bodies: Mesh[] = [];
+    view.group.traverse((o) => { if (o instanceof Mesh && o.name === 'missile-body') bodies.push(o); });
+    expect(bodies).toHaveLength(3);
+    expect(bodies[0].geometry).toBe(bodies[1].geometry);
+    expect(bodies[0].material).not.toBe(bodies[1].material);
+    const dispose = vi.spyOn(bodies[0].geometry, 'dispose');
+    view.push([event(0, 2, { kind: 'strategic-missile-intercepted', strategicId: 1 })]);
+    expect(dispose).not.toHaveBeenCalled();
+    // Quality trimming and projectile expiry must not free an airborne wreck's geometry.
+    view.setVisualQuality(2);
+    view.update(10);
+    expect(view.effectStats().projectiles).toBe(0);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(view.group.getObjectByName('destroyed-strategic-wreck')).toBeUndefined();
+    view.push([event(4, 1, { kind: 'siegeMissile', weaponKind: 'strategicMissile', duration: 10 })]);
+    const replacement = view.group.getObjectByName('missile-body') as Mesh;
+    expect(replacement.geometry).not.toBe(bodies[0].geometry);
+    view.update(10);
+  });
+  it.each([0, 1, 2] as const)('keeps repeated missile volleys bounded at quality %s', (quality) => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.setVisualQuality(quality);
+    for (let frame = 0; frame < 60; frame++) {
+      view.push(Array.from({ length: 12 }, (_, i) => event(i, 1, { kind: 'aaMissile', weaponKind: 'aaMissile', duration: 1, trajectory: 'flat' })));
+      view.update(1 / 30); view.completeFrame();
+      expect(view.effectStats().drawables).toBeLessThanOrEqual(view.effectStats().budget);
+      expect(view.effectStats().projectiles).toBeLessThanOrEqual([72, 48, 28][quality]);
+    }
+    view.update(40);
+    expect(view.effectStats().projectiles).toBe(0);
+  });
+});
+
+
+describe('textured missile impacts', () => {
+  it.each([
+    ['atRocket-impact', 'rocketLauncher'], ['atRocket-impact', 'rocketPod'],
+    ['tankMissile-impact', 'tankMissile'], ['agMissile-impact', 'precisionMissile'],
+    ['siegeMissile-impact', 'strategicMissile'], ['siegeMissile-impact', 'emberDrone'],
+  ] as const)('uses the shared animated blast for %s / %s', (kind, weaponKind) => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event(0, 1, { kind, weaponKind, toY: 40 })]);
+    const explosion = view.group.getObjectByName('missile-explosion') as Sprite;
+    expect(explosion).toBeInstanceOf(Sprite);
+    const texture = explosion.material.map;
+    expect(texture?.image.width).toBe(768);
+    view.update(0.1);
+    expect(explosion.material.userData.explosionFrame.value).toBeGreaterThan(0);
+    expect(explosion.material.map).toBe(texture);
+    view.update(2);
+    expect(view.group.getObjectByName('missile-explosion')).toBeUndefined();
+  });
+  it('keeps Shahed propellers moving without adding rocket exhaust', () => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event(0, 1, { kind: 'siegeMissile', weaponKind: 'emberDrone', duration: 5 })]);
+    const propeller = view.group.getObjectByName('drone-propeller')!;
+    const before = propeller.rotation.y;
+    expect(view.group.getObjectByName('missile-exhaust')).toBeUndefined();
+    view.update(0.1);
+    expect(propeller.rotation.y).not.toBe(before);
+    expect(view.group.getObjectByName('missile-body')).toBeDefined();
+  });
+});
+
+
+it('gives the tank main-gun shell a textured impact with a single blast draw', () => {
+  const view = new CombatView(generateHeightfield(MAP01));
+  view.push([event(0, 1, { kind: 'kineticShell-impact', weaponKind: 'cannon', toY: 40 })]);
+  const blast = view.group.getObjectByName('missile-ground-blast')!;
+  expect(blast.children).toHaveLength(1);
+  expect(blast.children[0]).toBeInstanceOf(Sprite);
+  view.update(2);
+  expect(view.group.getObjectByName('missile-ground-blast')).toBeUndefined();
+});
+
+
+describe('complete ordnance presentation coverage', () => {
+  const projectileWeapons = (Object.keys(WEAPONS) as WeaponKind[]).filter((kind) => WEAPONS[kind].projectile || ['bomb', 'heavyBomb', 'tankBomb'].includes(kind));
+  it.each(projectileWeapons)('renders launch and textured impact for %s', (weaponKind) => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.setCinematicMode(true);
+    const launchKind = WEAPONS[weaponKind].projectile?.kind ?? (weaponKind === 'heavyBomb' ? 'bomb' : weaponKind);
+    view.push([event(0, 1, { kind: launchKind, weaponKind, fromY: 60, toY: 60, duration: 0.2 })]);
+    expect(view.effectStats().projectiles).toBe(1);
+    view.update(0.21); view.completeFrame();
+    view.push([event(0, 1, { kind: `${launchKind}-impact`, weaponKind, toY: 60 })]);
+    expect(view.group.getObjectByName('missile-explosion')).toBeInstanceOf(Sprite);
+    view.update(5);
+    expect(view.group.getObjectByName('missile-explosion')).toBeUndefined();
+    expect(view.effectStats().projectiles).toBe(0);
+  });
+  it('uses the same textured impact for a physical FPV drone hit', () => {
+    const view = new CombatView(generateHeightfield(MAP01));
+    view.push([event(0, 1, { kind: 'bomb-impact', weaponKind: 'fpvStrike', toY: 60, damage: 20 })]);
+    expect(view.group.getObjectByName('missile-explosion')).toBeInstanceOf(Sprite);
+    expect(view.effectStats().projectiles).toBe(0);
+  });
+});
+
+it('keeps loading blueprints off-scene and gives each view independent GPU geometry', () => {
+  const first = new CombatView(generateHeightfield(MAP01));
+  const second = new CombatView(generateHeightfield(MAP01));
+  expect(first.group.children).toHaveLength(0);
+  expect(second.group.children).toHaveLength(0);
+  const launch = event(0, 1, { kind: 'agMissile', weaponKind: 'precisionMissile', duration: 1 });
+  first.push([launch]); second.push([launch]);
+  const a = first.group.getObjectByName('missile-body') as Mesh;
+  const b = second.group.getObjectByName('missile-body') as Mesh;
+  expect(a.geometry).not.toBe(b.geometry);
+  expect(a.geometry.getAttribute('position').array).not.toBe(b.geometry.getAttribute('position').array);
+  const dispose = vi.spyOn(a.geometry, 'dispose');
+  second.update(2);
+  expect(dispose).not.toHaveBeenCalled();
+  first.update(2);
+  expect(dispose).toHaveBeenCalledTimes(1);
 });
