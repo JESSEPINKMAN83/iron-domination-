@@ -189,18 +189,6 @@ export class SelectionBar {
     this.root.append(header,content,progress);
   }
 
-  setTargetFeedback(text: string): void {
-    let label = this.root.querySelector<HTMLDivElement>('[data-target-feedback]');
-    if (!text) { label?.remove(); return; }
-    if (!label) {
-      label = document.createElement('div'); label.dataset.targetFeedback = '';
-      label.style.cssText = 'font-size:11px;color:#ffbd91;margin-top:7px;padding-top:6px;border-top:1px solid #355247;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-      this.root.append(label);
-    }
-    label.textContent = text;
-    label.title = `${text}. Red: engaging target. Amber: ordered target, not yet engaging.`;
-  }
-
   update(): void {
     if (!this.visible) return;
     const objective = this.inspectedObjectiveId === undefined ? undefined : this.sim.byId.get(this.inspectedObjectiveId);

@@ -2,8 +2,6 @@ import {performance} from 'node:perf_hooks';
 import * as before from "/tmp/iron-move-base-nlwoopq3/src/sim/world";
 import * as after from "/Users/danir/Documents/Codex/2026-11-10/previous-chats-where-is-the-iron/work/iron-dominion/src/sim/world";
 import {generateHeightfield} from "/Users/danir/Documents/Codex/2026-11-10/previous-chats-where-is-the-iron/work/iron-dominion/src/sim/heightfield";
-import {selectedTargets} from "/Users/danir/Documents/Codex/2026-11-10/previous-chats-where-is-the-iron/work/iron-dominion/src/render/selectedTargets";
-import {weaponEngagementTarget} from "/Users/danir/Documents/Codex/2026-11-10/previous-chats-where-is-the-iron/work/iron-dominion/src/sim/combat";
 function run(api) {
  const hf=generateHeightfield({cells:96,cellSize:2,waterLevel:-100,seed:41,oreFieldCount:0});hf.heights.fill(0);hf.walkable.fill(1);
  const sim=api.createGameSim(hf);const units=Array.from({length:36},(_,i)=>api.spawnTankAt(sim,-75+i%6*8,-75+Math.floor(i/6)*8,'Formation',1));
@@ -15,9 +13,3 @@ const samples={before:[],after:[]};
 for(let i=0;i<10;i++)for(const key of (i%2?['after','before']:['before','after'])){const r=run(key==='before'?before:after);if(i>=3)samples[key].push(r);}
 console.log(JSON.stringify(samples));
 for(const key of ['before','after']){const values=samples[key].map(r=>r.ms).sort((a,b)=>a-b);console.log(key+' median cumulative 2400 ticks: '+values[3].toFixed(3)+'ms; arrived '+samples[key][0].arrived+'/36');}
-const hf=generateHeightfield({cells:96,cellSize:2,waterLevel:-100,seed:41,oreFieldCount:0});hf.heights.fill(0);hf.walkable.fill(1);
-const sim=after.createGameSim(hf), target=after.spawnTankAt(sim,20,0,'Target',2);
-const units=Array.from({length:64},(_,i)=>after.spawnTankAt(sim,-20,0,'Source',1));
-for(const u of units){u.weapon.targetId=target.id;u.weapon.range=100;}
-const start=performance.now();for(let i=0;i<1000;i++)selectedTargets(units,sim.byId,()=>true,(source,target)=>weaponEngagementTarget(sim,source,source.weapon)?.id===target.id);
-console.log('64-target collection+combat eligibility average: '+((performance.now()-start)/1000).toFixed(4)+'ms/HUD refresh (1000 iterations; no WebGL)');
