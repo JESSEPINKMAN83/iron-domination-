@@ -3565,10 +3565,10 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
     },
     buildingView,
     {
-      showOrder: (x, z, kind) => {
+      showOrder: (x, z, kind, count) => {
         orderMarkers.clearRoute();
         orderMarkers.push(x, z, kind);
-        controller.confirmOrder(kind);
+        controller.confirmOrder(kind, count);
         audio.playUi(kind === 'attack' ? 'build' : 'order');
         if (kind === 'attack' || kind === 'attack-move') unitVoices.acknowledge(selectedEntities(sim, localTeam), 'attack');
         else if (kind === 'move' || kind === 'fast-move') unitVoices.acknowledge(selectedEntities(sim, localTeam), 'move');
@@ -3837,9 +3837,11 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
   }, localTeam, ctx.camera, hf);
   const executeTactic = (payload: TacticExecutePayload) => {
     controller.setEnabled(true);
-    const units = payload.entityIds
+    const requested = payload.entityIds
       .map((id) => entityById(sim, id))
       .filter((entity): entity is Entity => !!entity && !entity.destroyed && entity.team?.id === localTeam);
+    const units = controller.filterMoveRecipients(requested, payload.waypoints);
+    if (!units.length) { audio.playUi('error'); return; }
     const unitKinds = summarizeUnitKinds(
       units.map((entity) => unitKindForUpgrade(entity) ?? entity.selectable?.type ?? 'unit'),
     );
@@ -4458,7 +4460,8 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
         lastUiRefreshTick = sim.tick;
         buildingView.setProducerHighlights(sidebar.producerHighlightIds());
         selectionBar.update();
-        orderMarkers.showSelectedDestinations(firstPerson.active ? [] : selectedEntities(sim, localTeam));
+        const selectedForce = firstPerson.active ? [] : selectedEntities(sim, localTeam);
+        orderMarkers.showSelectedDestinations(selectedForce);
         sidebar.update();
         if(storyState){
           campaignHud?.update();

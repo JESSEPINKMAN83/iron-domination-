@@ -1,3 +1,4 @@
+import { clearMovementRejections, filterWaterOrders } from '../ui/movementRejection';
 import { artilleryCanMove } from '../sim/artillery';
 import { Raycaster, Vector2, Vector3, type PerspectiveCamera } from 'three';
 import type { GameSim } from '../sim/world';
@@ -39,7 +40,7 @@ export interface BuildingPicker {
 }
 
 export interface OrderFeedback {
-  showOrder(x: number, z: number, kind: OrderMarkerKind): void;
+  showOrder(x: number, z: number, kind: OrderMarkerKind, count?: number): void;
   showTargetHover?(target: Entity): void;
   clearTargetHover?(): void;
   clearRoute?(): void;
@@ -228,11 +229,10 @@ export class RtsController {
     return selectedEntities(this.sim, this.localTeam).length;
   }
 
-  confirmOrder(kind: OrderMarkerKind): void {
+  confirmOrder(kind: OrderMarkerKind, count = this.selectedCount()): void {
     const labels: Record<OrderMarkerKind, string> = {
       move: 'MOVE', 'fast-move': 'FAST MOVE', 'attack-move': 'ATTACK MOVE', attack: 'ATTACK', rally: 'RALLY POINT',
     };
-    const count = this.selectedCount();
     this.flashControlGroup(`${labels[kind]} ORDER SENT${count ? ` · ${count} ${count === 1 ? 'UNIT' : 'UNITS'}` : ''}`);
   }
 
@@ -242,15 +242,28 @@ export class RtsController {
 
   stopSelected(): void {
     const selected = selectedEntities(this.sim, this.localTeam);
+    clearMovementRejections(selected);
     const ids = selected.map((entity) => entity.id).filter((id): id is number => id !== undefined);
     if (!(this.commandSink?.stop?.(ids) ?? false)) stopEntities(selected);
     this.orderFeedback?.clearRoute?.();
     if (ids.length) this.showFeedback(`STOP ORDER SENT · ${ids.length} ${ids.length === 1 ? 'UNIT' : 'UNITS'}`);
   }
 
+  filterMoveRecipients(units: Entity[], points: readonly { x: number; z: number }[]): Entity[] {
+    const accepted = filterWaterOrders(units, points, this.hf);
+    if (accepted.length < units.length) {
+      this.orderFeedback?.clearRoute?.();
+      this.showFeedback('ROUTE BLOCKED · GROUND UNITS CANNOT ENTER WATER');
+    }
+    return accepted;
+  }
+
   orderSelectedTo(x: number, z: number, attackMove = false): boolean {
     if (!this.enabled) return false;
-    const movers = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover && artilleryCanMove(entity));
+    const capable = selectedEntities(this.sim, this.localTeam).filter((entity) => entity.mover && artilleryCanMove(entity));
+    if (!capable.length) { this.showFeedback('SELECT A MOBILE UNIT FIRST'); return false; }
+    const movers = this.filterMoveRecipients(capable, [{ x, z }]);
+    if (!movers.length) return false;
     const moverIds = movers.map((entity) => entity.id).filter((id): id is number => id !== undefined);
     if (moverIds.length === 0) {
       this.flashControlGroup('SELECT A MOBILE UNIT FIRST');
@@ -261,7 +274,7 @@ export class RtsController {
       this.flashControlGroup('MOVE ORDER NOT ACCEPTED · TRY ANOTHER DESTINATION');
       return false;
     }
-    this.orderFeedback?.showOrder(x, z, attackMove ? 'attack-move' : 'move');
+    this.orderFeedback?.showOrder(x, z, attackMove ? 'attack-move' : 'move', movers.length);
     this.attackMoveQueued = false;
     return true;
   }
@@ -279,7 +292,8 @@ export class RtsController {
       this.flashControlGroup('ATTACK ORDER NOT ACCEPTED');
       return false;
     }
-    this.orderFeedback?.showOrder(x, z, 'attack');
+    clearMovementRejections(attackers);
+    this.orderFeedback?.showOrder(x, z, 'attack', attackers.length);
     this.attackMoveQueued = false;
     return true;
   }
@@ -548,7 +562,10 @@ export class RtsController {
             const attackers = this.selectedAttackers();
             const attackerIds = attackers.map((entity) => entity.id);
             const attackIssued = this.commandSink?.attack?.(attackerIds, attackTarget.id) ?? issueAttackOrder(this.sim, attackers, attackTarget);
-            if (attackIssued) this.orderFeedback?.showOrder(attackTarget.transform.x, attackTarget.transform.z, 'attack');
+            if (attackIssued) {
+              clearMovementRejections(attackers);
+              this.orderFeedback?.showOrder(attackTarget.transform.x, attackTarget.transform.z, 'attack', attackers.length);
+            }
             else this.flashControlGroup('NO SELECTED UNIT CAN ATTACK THIS TARGET');
             this.attackMoveQueued = false;
             return;
@@ -563,7 +580,9 @@ export class RtsController {
             harvesters.length > 0 &&
             (this.commandSink?.returnHarvesters?.(harvesterIds, destination.x, destination.z) ?? issueHarvesterReturnOrder(this.sim, harvesters, destination.x, destination.z));
           const specialIssued = harvestIssued || returnIssued;
-          const movers = (specialIssued ? selected.filter((entity) => !entity.harvester) : selected).filter(artilleryCanMove);
+          const capable = (specialIssued ? selected.filter((entity) => !entity.harvester) : selected).filter(artilleryCanMove);
+          const movers = this.filterMoveRecipients(capable, [destination]);
+          if (capable.length && !movers.length) { this.attackMoveQueued = false; return; }
           if (!movers.length && selected.some(unit=>unit.artillery)) this.flashControlGroup('ARTILLERY DEPLOYED · PACK FIRST TO MOVE');
           if (specialIssued) this.orderFeedback?.showOrder(destination.x, destination.z, 'move');
           const moverIds = movers.map((entity) => entity.id).filter((id): id is number => id !== undefined);
@@ -584,7 +603,7 @@ export class RtsController {
             (this.commandSink?.move?.(moverIds, destination.x, destination.z, attackMove, undefined, undefined, fastMove) ??
               issueMoveOrder(this.sim, movers, destination.x, destination.z, attackMove, undefined, undefined, fastMove))
           ) {
-            this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack-move' : fastMove ? 'fast-move' : 'move');
+            this.orderFeedback?.showOrder(destination.x, destination.z, attackMove ? 'attack-move' : fastMove ? 'fast-move' : 'move', movers.length);
           } else if (movers.length > 0 && !specialIssued) {
             this.flashControlGroup('MOVE ORDER NOT ACCEPTED · TRY ANOTHER DESTINATION');
           }

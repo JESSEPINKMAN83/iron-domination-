@@ -1840,6 +1840,16 @@ function weaponKindSalt(kind: string): number {
   return hash >>> 0;
 }
 
+/** Read-only HUD query using the same eligibility, range and cover rules as combat. */
+export function weaponEngagementTarget(sim: GameSim, attacker: Entity, weapon: Weapon): Entity | undefined {
+  if (attacker.destroyed || (attacker.artillery && attacker.artillery.phase !== 'deployed')) return undefined;
+  const def = WEAPONS[weapon.kind as WeaponKind];
+  if (!def) return undefined;
+  const weaponRange = weapon.range || def.range;
+  const range = Math.min(weaponRange, effectiveSight(sim.nav.heightfield, attacker) || weaponRange);
+  return validTarget(sim, attacker, weapon, range);
+}
+
 function validTarget(sim: GameSim, attacker: Entity, weapon: Weapon, range: number): Entity | undefined {
   if (!weapon.targetId) return undefined;
   const target = entityById(sim, weapon.targetId);

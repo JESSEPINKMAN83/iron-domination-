@@ -1,3 +1,5 @@
+import { blockedRouteReason } from './movementRejection';
+import { weaponEngagementTarget } from '../sim/combat';
 import { usaArsenal } from '../content/usa';
 import { UKRAINE_ROLES, ukraineArsenal } from '../content/ukraine';
 import { nationForTeam } from '../content/nations';
@@ -238,17 +240,36 @@ export class SelectionBar {
       gunBar.parentElement!.setAttribute('aria-valuenow',String(Math.round(progress*100)));
       gunBar.parentElement!.setAttribute('aria-valuetext',gunLabel.textContent);
     }
+    const blockedUnits = selected.filter(unit => blockedRouteReason(unit));
+    let blockedNotice = this.root.querySelector<HTMLElement>('[data-route-blocked]');
+    if (blockedUnits.length) {
+      if (!blockedNotice) {
+        blockedNotice = document.createElement('div'); blockedNotice.dataset.routeBlocked = '';
+        blockedNotice.setAttribute('role', 'status');
+        blockedNotice.style.cssText = 'margin-top:8px;padding:8px 10px;border:1px solid #c89552;border-radius:3px;background:#382918;color:#ffe0a0;font:700 11px/1.4 system-ui;';
+        this.root.append(blockedNotice);
+      }
+      const waterCount = blockedUnits.filter(unit => blockedRouteReason(unit) === 'water').length;
+      const unreachableCount = blockedUnits.length - waterCount;
+      const reasons: string[] = [];
+      if (waterCount) reasons.push(`${waterCount} ground ${waterCount === 1 ? 'unit' : 'units'} cannot enter water. Choose a point on land.`);
+      if (unreachableCount) reasons.push(`${unreachableCount} ${unreachableCount === 1 ? 'unit has' : 'units have'} no reachable path.`);
+      const text = `ROUTE BLOCKED · ${reasons.join(' ')}`;
+      if (blockedNotice.textContent !== text) blockedNotice.textContent = text;
+    } else blockedNotice?.remove();
     for (const [index, group] of groups.entries()) {
       const row = this.root.querySelector<HTMLElement>(`[data-order-group="${index}"]`);
       if (!row) continue;
-      const feedback = groupOrderFeedback(group.entities, this.sim.tick);
-      const compact = feedback.status.replace(/(\d+) moving/g, '↑ $1').replace(/(\d+) attacking/g, '⚔ $1').replace(/(\d+) parked/g, '▪ $1').replace(/(\d+) waiting/g, '◷ $1');
+      const feedback = groupOrderFeedback(group.entities, this.sim.tick, unit =>
+        [unit.weapon, unit.weapons?.primary, unit.weapons?.secondary]
+          .some(weapon => weapon !== undefined && weaponEngagementTarget(this.sim, unit, weapon) !== undefined));
+      const compact = feedback.status.replace(/(\d+) moving/g, '↑ $1').replace(/(\d+) attacking/g, '⚔ $1').replace(/(\d+) parked/g, '▪ $1').replace(/(\d+) waiting/g, '◷ $1').replace(/(\d+) route blocked/g, '⚠ $1 blocked');
       const terrain = this.hf ? [...new Set(group.entities.map(unit=>terrainAdvantagesLabel(this.hf!,unit,this.sim.tick)).filter(Boolean))].join('; ') : '';
       const sightBonus=terrain.match(/\+(\d+)% sight/);
       const shortTerrain=terrain.includes('concealed')?'Concealed':terrain.includes('Road')?'Road +20%':sightBonus?`Sight +${sightBonus[1]}%`:'';
       const text=compact+(shortTerrain ? ` · ${shortTerrain}` : '');
       if (row.textContent !== text) row.textContent = text;
-      row.style.color = feedback.status.includes('attacking') ? '#ffd397' : feedback.status.includes('moving') ? '#a5eed2' : '#b2c0b9';
+      row.style.color = feedback.status.includes('route blocked') ? '#ffcf83' : feedback.status.includes('attacking') ? '#ffd397' : feedback.status.includes('moving') ? '#a5eed2' : '#b2c0b9';
       const description = `${group.label}: ${feedback.status}. ${feedback.mode}. ${feedback.destination}${terrain ? ". "+terrain : ""}`;
       row.title = description;
       row.setAttribute('aria-label', description);
