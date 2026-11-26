@@ -62,7 +62,7 @@ export class QuickTactic {
     const bar = document.createElement('div');
     bar.style.cssText = 'position:absolute;left:50%;top:16px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:10px;background:#101e24f5;border:1px solid #78b99e;border-radius:6px;color:#d9f4e7;font:12px system-ui;max-width:95vw;';
     const label = document.createElement('span');
-    label.textContent = 'Draw a path · Release to execute · Fast · Attack while moving';
+    label.textContent = `${entityIds.length} ${entityIds.length === 1 ? 'unit' : 'units'} · Draw route · Release to send · Esc cancels`;
     bar.append(label);
     const button = (text: string, action: () => void) => {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = text;
@@ -70,7 +70,7 @@ export class QuickTactic {
       b.onclick = action; bar.append(b); return b;
     };
     let points: Point[] = [], pointer: number | undefined, lastX = 0, lastY = 0;
-    let frame = 0;
+    let frame = 0, dirty = true;
     const close = () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('keydown', key, true);
@@ -126,6 +126,7 @@ export class QuickTactic {
       const previous = points.at(-1);
       if (previous && Math.hypot(point.x - previous.x, point.z - previous.z) < 0.01) return;
       points.push(point);
+      dirty = true;
       if (points.length > 2048) points = quickRoutePoints(points);
       lastX = e.clientX; lastY = e.clientY;
     };
@@ -146,7 +147,7 @@ export class QuickTactic {
     const cancelStroke = (event: PointerEvent) => {
       if (pointer !== event.pointerId) return;
       pointer = undefined;
-      points = [];
+      points = []; dirty = true;
       if (drag) close();
     };
     // Finish the stroke before a HUD element can consume its release.
@@ -162,15 +163,41 @@ export class QuickTactic {
       add({ clientX: drag.start.x, clientY: drag.start.y }, true);
       add(drag.event, true);
     }
+    const cameraSnapshot = new Float64Array(32).fill(NaN);
     const draw = () => {
       if (!root.isConnected) return;
-      if (canvas.width !== innerWidth || canvas.height !== innerHeight) { canvas.width = innerWidth; canvas.height = innerHeight; }
-      const ctx = canvas.getContext('2d')!; ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = '#a5f4d0'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.beginPath();
-      points.forEach((p, i) => { projected.set(p.x, sampleHeight(this.hf, p.x, p.z) + 0.5, p.z).project(this.camera);
-        const x = (projected.x + 1) * canvas.width / 2, y = (1 - projected.y) * canvas.height / 2;
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }); ctx.stroke(); frame = requestAnimationFrame(draw);
+      if (canvas.width !== innerWidth || canvas.height !== innerHeight) { canvas.width = innerWidth; canvas.height = innerHeight; dirty = true; }
+      // Camera easing can continue after the drawing overlay opens.
+      for (let i = 0; i < 32; i++) {
+        const value = i < 16 ? this.camera.matrixWorld.elements[i] : this.camera.projectionMatrix.elements[i - 16];
+        if (cameraSnapshot[i] !== value) { dirty = true; cameraSnapshot[i] = value; }
+      }
+      if (dirty) {
+        dirty = false;
+        const ctx = canvas.getContext('2d')!; ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const route = quickRoutePoints(points);
+        const screen = route.map(p => {
+          projected.set(p.x, sampleHeight(this.hf, p.x, p.z) + 0.5, p.z).project(this.camera);
+          return { x: (projected.x + 1) * canvas.width / 2, y: (1 - projected.y) * canvas.height / 2 };
+        });
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.beginPath();
+        screen.forEach((p, i) => { if (!i) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+        ctx.strokeStyle = '#061c16'; ctx.lineWidth = 7; ctx.stroke();
+        ctx.strokeStyle = '#a5f4d0'; ctx.lineWidth = 3; ctx.stroke();
+        for (const [i, p] of screen.entries()) {
+          ctx.beginPath(); ctx.arc(p.x, p.y, i === screen.length - 1 ? 7 : 3, 0, Math.PI * 2);
+          ctx.fillStyle = '#10241e'; ctx.fill(); ctx.strokeStyle = '#b9ffe0'; ctx.lineWidth = 2; ctx.stroke();
+        }
+        const end = screen.at(-1), before = screen.at(-2);
+        if (end && before) {
+          const angle = Math.atan2(end.y - before.y, end.x - before.x);
+          ctx.beginPath(); ctx.moveTo(end.x - Math.cos(angle - 0.55) * 16, end.y - Math.sin(angle - 0.55) * 16);
+          ctx.lineTo(end.x, end.y); ctx.lineTo(end.x - Math.cos(angle + 0.55) * 16, end.y - Math.sin(angle + 0.55) * 16);
+          ctx.stroke();
+        }
+        label.textContent = `${entityIds.length} ${entityIds.length === 1 ? 'unit' : 'units'} · ${route.length} waypoints · Release to send · Esc cancels`;
+      }
+      frame = requestAnimationFrame(draw);
     }; draw();
   }
 }

@@ -42,6 +42,7 @@ export interface OrderFeedback {
   showOrder(x: number, z: number, kind: OrderMarkerKind): void;
   showTargetHover?(target: Entity): void;
   clearTargetHover?(): void;
+  clearRoute?(): void;
   inspectHover?(target?: Entity): void;
   unitHover?(target?: Entity): void;
   tryRally?(x: number, z: number): boolean;
@@ -177,7 +178,7 @@ export class RtsController {
     window.addEventListener('blur', () => { this.clearBuildingHover(); this.orderFeedback?.unitHover?.(undefined); });
     this.selectionBox = document.createElement('div');
     this.selectionBox.style.cssText =
-      'position:fixed;border:1px solid rgba(125,242,125,.9);background:rgba(125,242,125,.12);display:none;pointer-events:none;z-index:20;';
+      'position:fixed;border:1px solid #b3ffdc;box-shadow:0 0 0 1px #071b14,inset 0 0 0 1px #071b1470;background:rgba(125,242,185,.09);display:none;pointer-events:none;z-index:20;';
     document.body.appendChild(this.selectionBox);
     this.controlGroupToast = document.createElement('div');
     this.controlGroupToast.style.cssText =
@@ -231,7 +232,8 @@ export class RtsController {
     const labels: Record<OrderMarkerKind, string> = {
       move: 'MOVE', 'fast-move': 'FAST MOVE', 'attack-move': 'ATTACK MOVE', attack: 'ATTACK', rally: 'RALLY POINT',
     };
-    this.flashControlGroup(labels[kind]);
+    const count = this.selectedCount();
+    this.flashControlGroup(`${labels[kind]} ORDER SENT${count ? ` · ${count} ${count === 1 ? 'UNIT' : 'UNITS'}` : ''}`);
   }
 
   showFeedback(message: string): void {
@@ -242,6 +244,8 @@ export class RtsController {
     const selected = selectedEntities(this.sim, this.localTeam);
     const ids = selected.map((entity) => entity.id).filter((id): id is number => id !== undefined);
     if (!(this.commandSink?.stop?.(ids) ?? false)) stopEntities(selected);
+    this.orderFeedback?.clearRoute?.();
+    if (ids.length) this.showFeedback(`STOP ORDER SENT · ${ids.length} ${ids.length === 1 ? 'UNIT' : 'UNITS'}`);
   }
 
   orderSelectedTo(x: number, z: number, attackMove = false): boolean {
@@ -483,7 +487,7 @@ export class RtsController {
     const pointerDistance = Math.hypot(dx, dy);
     const dragged = down.button === 2
       ? pointerDistance >= RIGHT_ORDER_DRAG_THRESHOLD
-      : pointerDistance > LEFT_DRAG_THRESHOLD;
+      : pointerDistance >= LEFT_DRAG_THRESHOLD;
     if (down.button === 2 && this.rightCameraLookActive) {
       this.rightCameraLookCandidate = false;
       this.rightCameraLookActive = false;
@@ -593,6 +597,7 @@ export class RtsController {
   private selectClick(e: PointerEvent): void {
     const hit = this.entityAt(e.clientX, e.clientY);
     if (!hit) {
+      this.lastClick = { time: 0, entity: undefined };
       // Inspect landmarks only after normal picking, so nearby troops stay selectable.
       if (!e.shiftKey && this.orderFeedback?.inspectObjectiveAtScreen?.(e.clientX,e.clientY)) return;
       if (!e.shiftKey) this.updateSelection([], false);
