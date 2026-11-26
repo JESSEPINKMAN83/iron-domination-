@@ -163,9 +163,15 @@ export class QuickTactic {
       add({ clientX: drag.start.x, clientY: drag.start.y }, true);
       add(drag.event, true);
     }
+    const cameraSnapshot = new Float64Array(32).fill(NaN);
     const draw = () => {
       if (!root.isConnected) return;
       if (canvas.width !== innerWidth || canvas.height !== innerHeight) { canvas.width = innerWidth; canvas.height = innerHeight; dirty = true; }
+      // Camera easing can continue after the drawing overlay opens.
+      for (let i = 0; i < 32; i++) {
+        const value = i < 16 ? this.camera.matrixWorld.elements[i] : this.camera.projectionMatrix.elements[i - 16];
+        if (cameraSnapshot[i] !== value) { dirty = true; cameraSnapshot[i] = value; }
+      }
       if (dirty) {
         dirty = false;
         const ctx = canvas.getContext('2d')!; ctx.clearRect(0, 0, canvas.width, canvas.height);
