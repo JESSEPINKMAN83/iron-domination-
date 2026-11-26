@@ -1,0 +1,4 @@
+{"before":[{"ms":23.13695800000005,"arrived":34},{"ms":24.064917000000037,"arrived":34},{"ms":23.47616699999992,"arrived":34},{"ms":22.886708,"arrived":34},{"ms":22.996749999999906,"arrived":34},{"ms":23.10208399999999,"arrived":34},{"ms":23.133625000000052,"arrived":34}],"after":[{"ms":21.516500000000065,"arrived":36},{"ms":21.814708999999993,"arrived":36},{"ms":22.019541000000004,"arrived":36},{"ms":21.534875000000056,"arrived":36},{"ms":21.548415999999975,"arrived":36},{"ms":21.675041999999962,"arrived":36},{"ms":22.493959000000018,"arrived":36}]}
+before median cumulative 2400 ticks: 23.134ms; arrived 34/36
+after median cumulative 2400 ticks: 21.675ms; arrived 36/36
+64-target collection+combat eligibility average: 0.0241ms/HUD refresh (1000 iterations; no WebGL)

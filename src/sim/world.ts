@@ -997,7 +997,7 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         desiredSpeed = Math.min(desiredSpeed, Math.max(1, Math.sqrt(finalDist * 18)));
       }
       if (finalDist < Math.max(ARRIVAL_EPSILON, mover.radius * 0.72, bikeArrival)) {
-        const continueAttackThrough = (mover.attackThrough || mover.aggressive) && (mover.tactic?.remaining.length ?? 0) > 0;
+        const continueRoute = (mover.tactic?.remaining.length ?? 0) > 0;
         mover.holdPosition = { x: finalX, z: finalZ };
         mover.target = undefined;
         mover.formationOffset = undefined;
@@ -1006,9 +1006,9 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
         mover.turnaround = undefined;
         advanceTacticAfterArrival(sim, entity);
         const nextFlow = entity.mover.flow;
-        if (continueAttackThrough && entity.mover.target && nextFlow) {
-          // Keep momentum and steer into the next planned leg instead of
-          // settling to a full stop at each attack-through waypoint.
+        if (continueRoute && entity.mover.target && nextFlow) {
+          // Keep momentum at intermediate route points; only the final arrival
+          // should stop the unit, regardless of its end action.
           const nextDirection = nextFlow.directionAt(transform.x, transform.z);
           desiredX = nextDirection.x;
           desiredZ = nextDirection.z;
@@ -1018,12 +1018,22 @@ export function stepSim(sim: GameSim, hf: Heightfield, dt: number): void {
           velocity.x = 0;
           velocity.z = 0;
         }
-      } else if (finalDist < 18 && sim.nav.isWalkableSegment(transform.x, transform.z, finalX, finalZ)) {
+      } else if (finalDist < Math.max(18, Math.hypot(mover.formationOffset?.x ?? 0, mover.formationOffset?.z ?? 0) + 4)
+        && sim.nav.isWalkableSegment(transform.x, transform.z, finalX, finalZ)) {
         desiredX = finalDx / finalDist;
         desiredZ = finalDz / finalDist;
         orientToMovement = true;
       } else {
-        const dir = mover.flow.directionAt(transform.x, transform.z);
+        let dir = mover.flow.directionAt(transform.x, transform.z);
+        // A shared field ends at the group anchor, not each formation slot.
+        // If a slot lies behind an obstacle, hand off only the stranded unit
+        // to its own field instead of rebuilding fields for the whole army.
+        if (dir.x === 0 && dir.z === 0 && dir.distance === 0 && mover.formationOffset) {
+          mover.target = { x: finalX, z: finalZ };
+          mover.formationOffset = undefined;
+          mover.flow = sim.nav.flowTo(finalX, finalZ);
+          dir = mover.flow.directionAt(transform.x, transform.z);
+        }
         desiredX = dir.x;
         desiredZ = dir.z;
         orientToMovement = true;

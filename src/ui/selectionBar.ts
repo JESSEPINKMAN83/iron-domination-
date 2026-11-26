@@ -1,3 +1,4 @@
+import { weaponEngagementTarget } from '../sim/combat';
 import { usaArsenal } from '../content/usa';
 import { UKRAINE_ROLES, ukraineArsenal } from '../content/ukraine';
 import { nationForTeam } from '../content/nations';
@@ -188,6 +189,18 @@ export class SelectionBar {
     this.root.append(header,content,progress);
   }
 
+  setTargetFeedback(text: string): void {
+    let label = this.root.querySelector<HTMLDivElement>('[data-target-feedback]');
+    if (!text) { label?.remove(); return; }
+    if (!label) {
+      label = document.createElement('div'); label.dataset.targetFeedback = '';
+      label.style.cssText = 'font-size:11px;color:#ffbd91;margin-top:7px;padding-top:6px;border-top:1px solid #355247;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      this.root.append(label);
+    }
+    label.textContent = text;
+    label.title = `${text}. Red: engaging target. Amber: ordered target, not yet engaging.`;
+  }
+
   update(): void {
     if (!this.visible) return;
     const objective = this.inspectedObjectiveId === undefined ? undefined : this.sim.byId.get(this.inspectedObjectiveId);
@@ -241,8 +254,10 @@ export class SelectionBar {
     for (const [index, group] of groups.entries()) {
       const row = this.root.querySelector<HTMLElement>(`[data-order-group="${index}"]`);
       if (!row) continue;
-      const feedback = groupOrderFeedback(group.entities, this.sim.tick);
-      const compact = feedback.status.replace(/(\d+) moving/g, '↑ $1').replace(/(\d+) attacking/g, '⚔ $1').replace(/(\d+) parked/g, '▪ $1').replace(/(\d+) waiting/g, '◷ $1');
+      const feedback = groupOrderFeedback(group.entities, this.sim.tick, unit =>
+        [unit.weapon, unit.weapons?.primary, unit.weapons?.secondary]
+          .some(weapon => weapon !== undefined && weaponEngagementTarget(this.sim, unit, weapon) !== undefined));
+      const compact = feedback.status.replace(/(\d+) moving/g, '↑ $1').replace(/(\d+) attacking/g, '⚔ $1').replace(/(\d+) parked/g, '▪ $1').replace(/(\d+) waiting/g, '◷ $1').replace(/(\d+) route blocked/g, '⚠ $1 blocked');
       const terrain = this.hf ? [...new Set(group.entities.map(unit=>terrainAdvantagesLabel(this.hf!,unit,this.sim.tick)).filter(Boolean))].join('; ') : '';
       const sightBonus=terrain.match(/\+(\d+)% sight/);
       const shortTerrain=terrain.includes('concealed')?'Concealed':terrain.includes('Road')?'Road +20%':sightBonus?`Sight +${sightBonus[1]}%`:'';

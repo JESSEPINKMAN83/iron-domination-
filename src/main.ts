@@ -1,3 +1,4 @@
+import { SelectedTargetView, selectedTargets, selectedTargetSummary } from './render/selectedTargets';
 import { prewarmMissileExplosion } from './render/missileExplosion';
 import { applyUSAProfile, spawnUSSpecialist, USA_SPECIALISTS } from './content/usa';
 import { applyUkraineProfile } from './content/ukraine';
@@ -182,7 +183,7 @@ import {
 } from './sim/strategicWarfare';
 import { generateHeightfield, sampleHeight } from './sim/heightfield';
 import { chooseStrategicSeed } from './sim/strategicSeed';
-import { damageForArmor, issueAttackOrder } from './sim/combat';
+import { damageForArmor, issueAttackOrder, weaponEngagementTarget } from './sim/combat';
 import { directionalImpactResponse } from './sim/impactModel';
 import { restoreEconomyState, restoreSerializedSim, serializeMatchState, type SerializedMatchState } from './sim/serialize';
 import { purchaseUnitUpgrade, unitKindForUpgrade } from './sim/upgrades';
@@ -3206,6 +3207,8 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
   window.addEventListener('keydown', () => audio.unlock(), { passive: true });
   audio.installButtonSounds();
   const orderMarkers = new OrderMarkerView(hf);
+  const selectedTargetView = new SelectedTargetView(hf);
+  ctx.scene.add(selectedTargetView.group);
   // Dev-only handle for performance profiling scripts.
   if (import.meta.env.DEV) Object.assign(window, { __iron: { ctx, sim, hf, unitView, buildingView, combatView, armies } });
   // Local preview of the Code Red alert: with `performance-test=1&stress-bases=26`
@@ -4458,7 +4461,14 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
         lastUiRefreshTick = sim.tick;
         buildingView.setProducerHighlights(sidebar.producerHighlightIds());
         selectionBar.update();
-        orderMarkers.showSelectedDestinations(firstPerson.active ? [] : selectedEntities(sim, localTeam));
+        const selectedForce = firstPerson.active ? [] : selectedEntities(sim, localTeam);
+        orderMarkers.showSelectedDestinations(selectedForce);
+        const targets = selectedTargets(selectedForce, sim.byId,
+          target => isVisibleToPlayer(target.transform.x, target.transform.z, target),
+          (source, target) => [source.weapon, source.weapons?.primary, source.weapons?.secondary]
+            .some(weapon => weapon?.targetId === target.id && weaponEngagementTarget(sim, source, weapon)?.id === target.id));
+        selectedTargetView.update(targets);
+        selectionBar.setTargetFeedback(selectedTargetSummary(targets));
         sidebar.update();
         if(storyState){
           campaignHud?.update();

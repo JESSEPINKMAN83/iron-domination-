@@ -1,3 +1,5 @@
+import { generateHeightfield } from '../sim/heightfield';
+import { NavigationGrid } from '../sim/flowfield';
 import { describe, expect, it } from 'vitest';
 import type { Entity } from '../sim/components';
 import { groupOrderFeedback } from './orderFeedback';
@@ -11,6 +13,7 @@ describe('selected group order feedback', () => {
     aircraft.mover!.attackThrough = true;
     aircraft.mover!.tactic = { remaining: [{ x: 100, z: 200 }], endAction: { kind: 'attack-through' } };
     aircraft.weapon = { kind: 'missile', range: 100, cooldown: 0, targetId: 9 };
+    expect(groupOrderFeedback([aircraft], 10, () => false).status).toBe('1 moving');
     expect(groupOrderFeedback([aircraft], 10)).toEqual({ status: '1 moving · 1 attacking', mode: 'Attack as you move', destination: 'Destination 100, 200' });
   });
 
@@ -26,5 +29,21 @@ describe('selected group order feedback', () => {
     expect(result.destination).toBe('Destination 30, 30 · 2 en route');
     expect(groupOrderFeedback([parked], 10).status).toBe('1 parked');
     expect(groupOrderFeedback([parked], 10).destination).toContain('holding position');
+  });
+});
+
+
+describe('blocked route feedback', () => {
+  it('reports an unreachable route and resumes moving feedback after a gate opens', () => {
+    const hf = generateHeightfield({ cells: 32, cellSize: 2, seed: 41, waterLevel: -100, oreFieldCount: 0 });
+    hf.walkable.fill(1);
+    const nav = new NavigationGrid(hf);
+    nav.setBuildingBlocker(90, 0, 0, 2, 64);
+    const mover = unit(1); mover.transform.x = -10;
+    mover.mover!.target = { x: 10, z: 0 }; mover.mover!.flow = nav.flowTo(10, 0);
+    expect(groupOrderFeedback([mover], 10).status).toBe('1 route blocked');
+    nav.removeDynamicBlocker(90);
+    mover.mover!.flow.directionAt(-10, 0);
+    expect(groupOrderFeedback([mover], 11).status).toBe('1 moving');
   });
 });
