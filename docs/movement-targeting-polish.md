@@ -33,8 +33,14 @@ The rare obstructed-slot fallback can require a new flow-field build. Full-battl
 
 ## Validation
 
-Full suite after overlay removal: 1,007 tests / 134 files pass; production build passes with the existing bundle-size advisory. Coverage retains deterministic 36-unit arrival, an obstructed formation slot with no blocked-cell crossing, momentum for three end actions, stale-target eligibility/range/read-only behavior, and blocked-route recovery.
+Full suite after overlay removal: 1,011 tests / 135 files pass; production build passes with the existing bundle-size advisory. Coverage retains deterministic 36-unit arrival, an obstructed formation slot with no blocked-cell crossing, momentum for three end actions, stale-target eligibility/range/read-only behavior, and blocked-route recovery.
 
-This PR is for local review; only the preceding selection PR is deployed.
+User approved this release for merge and production deployment.
 
 ![Attack orders without persistent overlays](movement-clean-preview.png)
+
+## Water destination feedback
+
+Ground movement requests with a waypoint in water are rejected before they can be silently snapped onto land. Aircraft remain eligible in mixed selections; accepted command counts use actual recipients. Ordinary clicks, radar moves and tactic/planner execution share this check. A local WeakMap retains the rejection reason without changing the previous order or adding simulation/save/network fields. Valid land orders, stop or another attack clear the warning. Finishing a previous valid order does not immediately erase the water warning.
+
+Selected-force feedback now has a visible ROUTE BLOCKED notice, with separate counts for water rejections and unreachable paths. Temporary traffic jams are still not detected as blocked routes. Browser verified a lake click, land-order clearing and Quick Tactic water rejection; the final rejection-lifetime correction is covered by unit tests. No more preview changes were requested before deployment.

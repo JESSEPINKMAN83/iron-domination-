@@ -1,3 +1,4 @@
+import { blockedRouteReason } from './movementRejection';
 import type { Entity } from '../sim/components';
 
 /** Describe navigation and firing independently: a moving unit can also be attacking. */
@@ -10,10 +11,10 @@ export function groupOrderFeedback(units: Entity[], tick: number, isEngaging?: (
     const mover = unit.mover!;
     const firing = isEngaging ? isEngaging(unit) : [unit.weapon, unit.weapons?.primary, unit.weapons?.secondary].some((weapon) => weapon?.targetId !== undefined);
     if (firing) attacking++;
-    const routeCell = mover.flow?.grid.worldToCell(unit.transform.x, unit.transform.z);
-    const routeBlocked = routeCell && mover.flow!.distance[mover.flow!.grid.index(routeCell.x, routeCell.y)] < 0;
+    const blockedReason = blockedRouteReason(unit);
+    if (blockedReason) blocked++;
     if ((mover.tactic?.startAtTick ?? 0) > tick) waiting++;
-    else if (mover.target && routeBlocked) blocked++;
+    else if (blockedReason === 'unreachable') { /* Route cannot currently advance. */ }
     else if (mover.target || mover.engage) moving++;
     else parked++;
     const action = mover.tactic?.endAction;
