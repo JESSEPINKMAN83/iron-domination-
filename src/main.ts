@@ -3566,6 +3566,7 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
     buildingView,
     {
       showOrder: (x, z, kind) => {
+        orderMarkers.clearRoute();
         orderMarkers.push(x, z, kind);
         controller.confirmOrder(kind);
         audio.playUi(kind === 'attack' ? 'build' : 'order');
@@ -3577,6 +3578,7 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
       focusGroup: (x, z) => rig.jumpTo(x, z),
       showTargetHover: (target) => orderMarkers.showTargetHover(target),
       clearTargetHover: () => orderMarkers.clearTargetHover(),
+      clearRoute: () => orderMarkers.clearRoute(),
       inspectHover: (target) => buildingView.setHovered(target),
       unitHover: (target) => selectionBar?.setHoveredUnit(target),
       tryRally: (x, z) => {
@@ -3866,8 +3868,11 @@ async function boot(settings: SkirmishSettings, flightPreview?: 'bomber' | 'hamm
       : issueTacticOrder(sim, units, payload.waypoints, payload.endAction, payload.highSpeed, payload.variation, payload.targetPriorities);
     if (!issued) {
       audio.playUi('error');
+      controller.showFeedback('PATH NOT ACCEPTED · TRY ANOTHER ROUTE');
       return;
     }
+    controller.showFeedback(`PATH ORDER SENT · ${units.length} ${units.length === 1 ? 'UNIT' : 'UNITS'} · ${payload.waypoints.length} WAYPOINTS`);
+    orderMarkers.showRoute(payload.waypoints);
     sendTelemetryEvent('tactic-execute', matchTelemetryMetadata(), feature);
     audio.playUi('order');
     unitVoices.acknowledge(units, 'tactic');

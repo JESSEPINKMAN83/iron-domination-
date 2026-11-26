@@ -1,4 +1,9 @@
 import {
+  BufferGeometry,
+  BufferAttribute,
+  DynamicDrawUsage,
+  Line,
+  LineBasicMaterial,
   BoxGeometry,
   CircleGeometry,
   Color,
@@ -13,6 +18,7 @@ import {
   Vector3,
   type Object3D,
 } from 'three';
+import { MAX_TACTIC_WAYPOINTS } from '../sim/tactics';
 import { sampleHeight, type Heightfield } from '../sim/heightfield';
 import type { Entity } from '../sim/components';
 import { rotateFormationOffset, tacticalFormationLayout } from '../sim/formations';
@@ -102,7 +108,40 @@ export class OrderMarkerView {
   private readonly worldUp = new Vector3(0, 1, 0);
   private readonly terrainNormal = new Vector3();
 
+  private route?: Line;
+  private routeTtl = 0;
+
   constructor(private readonly hf: Heightfield) {}
+
+  clearRoute(): void {
+    if (this.route) this.route.visible = false;
+    this.routeTtl = 0;
+  }
+
+  /** One reusable terrain-following receipt; a newer route replaces it. */
+  showRoute(points: ReadonlyArray<{ x: number; z: number }>): void {
+    if (!this.route) {
+      const geometry = new BufferGeometry();
+      geometry.setAttribute('position', new BufferAttribute(new Float32Array(MAX_TACTIC_WAYPOINTS * 9 * 3), 3).setUsage(DynamicDrawUsage));
+      this.route = new Line(geometry, new LineBasicMaterial({ color: 0xa5f4d0, transparent: true, opacity: 0.9, depthWrite: false }));
+      this.route.renderOrder = 74;
+      this.route.frustumCulled = false;
+      this.group.add(this.route);
+    }
+    const attribute = this.route.geometry.getAttribute('position');
+    let count = 0;
+    for (let i = 0; i < Math.min(points.length, MAX_TACTIC_WAYPOINTS); i++) {
+      const from = points[Math.max(0, i - 1)], to = points[i];
+      for (let step = i ? 1 : 0; step <= (i ? 8 : 0); step++) {
+        const fraction = step / 8, x = from.x + (to.x - from.x) * fraction, z = from.z + (to.z - from.z) * fraction;
+        attribute.setXYZ(count++, x, sampleHeight(this.hf, x, z) + 0.65, z);
+      }
+    }
+    attribute.needsUpdate = true;
+    this.route.geometry.setDrawRange(0, count);
+    this.route.visible = count > 1;
+    this.routeTtl = 3;
+  }
 
   /** Persistent, pooled destination rings for the selected unit types. */
   showSelectedDestinations(entities: Entity[]): void {
@@ -272,6 +311,11 @@ export class OrderMarkerView {
   }
 
   update(dt: number): void {
+    if (this.route?.visible) {
+      this.routeTtl -= dt;
+      (this.route.material as LineBasicMaterial).opacity = Math.min(0.9, Math.max(0, this.routeTtl));
+      this.route.visible = this.routeTtl > 0;
+    }
     this.updateTargetHover(this.targetHover, dt, () => this.clearTargetHover());
     for (let i = this.markers.length - 1; i >= 0; i--) {
       const marker = this.markers[i];

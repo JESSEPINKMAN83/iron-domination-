@@ -1,3 +1,4 @@
+import { selectionPickRadius, selectionRingScale } from './selectionPresentation';
 import { UnitImpactScars } from './unitImpactScars';
 import { impactScarTexture, targetFireTexture, targetSmokeTexture } from './impactSurface';
 import { createThumbnailApache } from './thumbnailApache';
@@ -572,7 +573,12 @@ function sharedCylinderGeometry(radiusTop: number, radiusBottom: number, height:
 function sharedRingGeometry(radius: number): RingGeometry {
   let geom = ringGeometryCache.get(radius);
   if (!geom) {
-    geom = markShared(new RingGeometry(radius, radius + 0.6, 48));
+    geom = markShared(new RingGeometry(radius, radius + 0.8, 48, 3));
+    const colors = [];
+    for (let row = 0; row <= 3; row++) for (let i = 0; i <= 48; i++) {
+      colors.push(...(row === 0 || row === 3 ? [0.015, 0.035, 0.03] : [0.55, 1, 0.82]));
+    }
+    geom.setAttribute('color', new Float32BufferAttribute(colors, 3));
     ringGeometryCache.set(radius, geom);
   }
   return geom;
@@ -740,9 +746,11 @@ export class UnitView {
       toneMapped: false,
     });
     this.ringMaterial = new MeshBasicMaterial({
-      color: FACTION[factionId(localTeam)].lightBar,
+      color: 0xffffff,
+      vertexColors: true,
+      toneMapped: false,
       transparent: true,
-      opacity: 0.94,
+      opacity: 1,
       depthWrite: false,
       depthTest: false,
       polygonOffset: true,
@@ -881,6 +889,7 @@ export class UnitView {
     const radius = entity.selectable?.type === 'infantry' ? 1.7 : entity.selectable?.type === 'vulture' ? 3.9 : 2.8;
     const ring = new Mesh(sharedRingGeometry(radius), this.ringMaterial);
     ring.rotation.x = -Math.PI / 2;
+    ring.userData.selectionRadius = radius;
     ring.visible = false;
     ring.renderOrder = 30;
     this.selectedRings.set(entity, ring);
@@ -1198,7 +1207,7 @@ export class UnitView {
       if (selected) {
         if (updateDetails) {
           const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.008 + entity.id);
-          ring.scale.setScalar(1 + pulse * 0.075);
+          ring.scale.setScalar(selectionRingScale(ring.userData.selectionRadius, Math.hypot(camera.position.x - x, camera.position.y - y, camera.position.z - z), camera.projectionMatrix.elements[5], globalThis.innerHeight || 720) * (1 + pulse * 0.025));
         }
       } else {
         ring.scale.setScalar(1);
@@ -1356,7 +1365,7 @@ export class UnitView {
       ring.position.set(x, groundY + 0.08, z);
       this.updateInfantryMarker(entity, x, y, z, camera);
       ring.visible = this.selectionOverlayVisible && !entity.destroyed && selected;
-      ring.scale.setScalar(1);
+      ring.scale.setScalar(selected ? selectionRingScale(ring.userData.selectionRadius, Math.hypot(camera.position.x - x, camera.position.y - y, camera.position.z - z), camera.projectionMatrix.elements[5], globalThis.innerHeight || 720) : 1);
       this.updateHealthBar(entity, x, y, z, camera, true);
       this.updateRankBadge(entity, x, y, z, camera, true);
     }
@@ -2129,7 +2138,9 @@ export class UnitView {
       const sx = (p.x * 0.5 + 0.5) * viewportW;
       const sy = (-p.y * 0.5 + 0.5) * viewportH;
       const d = Math.hypot(sx - screenX, sy - screenY);
-      const hitRadius = screenPickRadius(entity);
+      const hitRadius = selectionPickRadius(entity.selectable?.radius ?? entity.collider?.radius ?? 2.4,
+        Math.hypot(camera.position.x - entity.transform.x, camera.position.y - (entity.transform.y ?? sampleHeight(this.hf, entity.transform.x, entity.transform.z)), camera.position.z - entity.transform.z),
+        camera.projectionMatrix.elements[5], viewportH, entity.selectable?.type === 'infantry');
       if (d > hitRadius) continue;
       const score = d + p.z * 4;
       if (score < bestScore) {
@@ -3345,12 +3356,6 @@ function projectEntity(entity: Entity, hf: Heightfield, camera: Camera): Vector3
   return p.project(camera);
 }
 
-function screenPickRadius(entity: Entity): number {
-  if (entity.selectable?.type === 'infantry') return 22;
-  if (entity.selectable?.type === 'vulture') return 30;
-  if (entity.selectable?.type === 'harvester') return 32;
-  return 28;
-}
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
